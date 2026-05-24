@@ -51,7 +51,7 @@ A self-hosted weightlifting tracker that runs entirely in a single Docker contai
 - Multi-source exercise catalog:
   - **wger** — ~600 exercises, free and open (CC-BY-SA)
   - **Free Exercise DB** — ~870 exercises with start/end position images (public domain)
-  - **ExerciseDB** — ~1,300 exercises with animated GIFs (RapidAPI, bring your own key)
+  - **ExerciseDB** — ~1,300 exercises with animated GIFs (RapidAPI, free tier available, bring your own key)
 - **Custom exercises** — create your own with uploaded images, GIFs, videos, or YouTube embeds. They appear inline in the library with a "Custom" chip.
 - **Custom XLSX Import** — bulk-import exercises from a spreadsheet with named catalogs, equipment tags, and descriptions
 - Exercise detail view with animated media, search, category filtering, equipment sub-filters
