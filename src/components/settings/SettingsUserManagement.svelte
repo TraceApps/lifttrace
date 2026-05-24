@@ -506,7 +506,7 @@
 
           <div class="setting-divider"></div>
           <div class="setting-row">
-            <span class="setting-label">Session duration</span>
+            <span class="setting-label">Session Duration</span>
             <div style="display:flex;gap:8px;align-items:center">
               <select class="form-select-sm" bind:value={sessionHours}>
                 <option value="0">Never expires</option>
@@ -527,7 +527,7 @@
           <div class="setting-divider"></div>
           <button class="row-btn danger-row" on:click={disableUserMgmt}>
             <div class="setting-label-group">
-              <span class="setting-label">Disable user management</span>
+              <span class="setting-label">Disable User Management</span>
               <span class="setting-hint">Deletes all accounts — app becomes open access</span>
             </div>
             <span class="material-symbols-rounded">dangerous</span>
@@ -570,7 +570,7 @@
           {:else}
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Enable user management</span>
+                <span class="setting-label">Enable User Management</span>
                 <span class="setting-hint">Add multiple user accounts with separate data & settings</span>
               </div>
               <button class="btn btn-primary" style="height:36px;font-size:13px" on:click={() => showEnableUm = true}>

@@ -17,7 +17,7 @@ Thanks for your interest in LiftTrace.
 ## Pull requests
 
 - Keep changes focused — one concern per PR.
-- Match the existing code style (Svelte 4, no TypeScript).
+- Match the existing code style (Svelte 5 in compat mode, no runes, no TypeScript).
 - For server changes, ensure all SQL is parameterized and every new route has appropriate `requireAuth` / `requireAdmin` middleware.
 - Update `CHANGELOG.md` under the unreleased section if your change is user-visible.
 - The Android shell lives in `android/`; if you change web assets the maintainer will run `npx cap sync android` and rebuild the APK.

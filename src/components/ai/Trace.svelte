@@ -120,28 +120,62 @@
   }
 
   /**
-   * Native FFT capture from Android's audiofx.Visualizer attached to
-   * ExoPlayer. Down-sample 128 bins → 32 bars by averaging windows so the
-   * ring matches the count expected by the SVG layout.
+   * Native FFT capture from FftAudioProcessor. Java side matches
+   * Chromium's RealtimeAnalyser (fftSize=64, Blackman + window-gain
+   * compensation, 1/N normalization, smoothingTimeConstant=0.75 on
+   * linear magnitudes before dB, dB [-100, -30]).
+   *
+   * The FFT bytes are stored as a TARGET; a separate RAF loop
+   * (_renderTick) eases the displayed bars toward the target every
+   * frame. This decouples data updates from render updates so the ring
+   * stays fluid even when the WebView's SVG render pipeline misses a
+   * frame — the bars keep gliding toward the most recent FFT.
    */
+  const _targetBars = new Float32Array(VIZ_N);
+  const _displayBars = new Float32Array(VIZ_N);
+  const RENDER_LERP = 0.08;  // higher = snappier catch-up, lower = smoother
+  let _renderRaf = null;
+
   function _onNativeFft(bins) {
     if (!bins || !bins.length) return;
-    const n = VIZ_N;
-    const w = bins.length / n;
-    const out = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const start = Math.floor(i * w);
-      const end = Math.floor((i + 1) * w);
-      let sum = 0;
-      for (let j = start; j < end; j++) sum += bins[j];
-      out[i] = Math.min(1, sum / Math.max(1, end - start));
+    const n = Math.min(VIZ_N, bins.length);
+    // bins are already Float32Array of 0..1 magnitudes (decoded by
+    // _decodeFft in native-player.js, byte/255). Copy straight in.
+    for (let i = 0; i < n; i++) _targetBars[i] = bins[i];
+    for (let i = n; i < VIZ_N; i++) _targetBars[i] = 0;
+    if (!_renderRaf) _renderTick();
+  }
+
+  function _renderTick() {
+    // Lerp every bar 30% of the way toward its current target. Bars
+    // settle within ~10 frames of any change. Cheaper than re-rendering
+    // 32 SVG lines at the raw data rate, smoother than rendering at
+    // exactly the data rate.
+    const out = new Array(VIZ_N);
+    let anyMoving = false;
+    for (let i = 0; i < VIZ_N; i++) {
+      const delta = _targetBars[i] - _displayBars[i];
+      if (Math.abs(delta) > 0.001) {
+        _displayBars[i] += delta * RENDER_LERP;
+        anyMoving = true;
+      } else if (_displayBars[i] !== _targetBars[i]) {
+        _displayBars[i] = _targetBars[i];
+      }
+      out[i] = _displayBars[i];
     }
     freqBars.set(out);
+    // Keep the loop alive as long as something's still moving OR data is
+    // still arriving. _onNativeFft restarts the loop if it stops between
+    // FFT frames.
+    _renderRaf = anyMoving ? requestAnimationFrame(_renderTick) : null;
   }
 
   function _stopViz() {
     if (_vizRaf) { cancelAnimationFrame(_vizRaf); _vizRaf = null; }
+    if (_renderRaf) { cancelAnimationFrame(_renderRaf); _renderRaf = null; }
     if (_nativeFftUnsub) { try { _nativeFftUnsub(); } catch {} _nativeFftUnsub = null; }
+    _targetBars.fill(0);
+    _displayBars.fill(0);
     freqBars.set(new Array(VIZ_N).fill(0));
   }
 

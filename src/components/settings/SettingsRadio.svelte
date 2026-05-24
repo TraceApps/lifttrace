@@ -2,8 +2,9 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
+  import ConnectionStatus from './ConnectionStatus.svelte';
   import { radioEnabled, radioProvider, radioUrl, radioUser, radioPassword, radioCrossfade, radioOriginalFormat, radioStationsEnabled } from '../../stores/settings.js';
-  import { showSuccess, showError } from '../../stores/toast.js';
+  import { showSuccess } from '../../stores/toast.js';
 
   export let expanded = false;
   export let visible = true;
@@ -11,40 +12,47 @@
 
   let radioTesting = false;
   let radioTestResult = null;
-  let radioSaving = false;
-  let _rUrl = '', _rUser = '', _rPass = '';
-  let _radioLoaded = false;
 
-  function loadRadioFields() {
-    if (_radioLoaded) return;
-    _rUrl = $radioUrl; _rUser = $radioUser; _rPass = $radioPassword;
-    _radioLoaded = true;
-  }
-  $: if (expanded) loadRadioFields();
-
-  async function saveRadio() {
-    radioSaving = true;
-    $radioUrl = _rUrl; $radioUser = _rUser; $radioPassword = _rPass;
-    try {
-      await fetch('/api/app-config', {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'radio_url', value: _rUrl }),
-      });
-      showSuccess('Radio settings saved');
-    } catch(e) { showError(e.message); }
-    radioSaving = false;
-  }
+  // Inputs are bound directly to the SettingStore instances ($radioUrl,
+  // $radioUser, $radioPassword) — each store handles debounced server
+  // sync on its own, matching NutriTrace's per-field auto-save pattern.
+  // No explicit Save button is needed.
 
   async function testRadio() {
-    await saveRadio();
     radioTesting = true; radioTestResult = null;
     try {
       const { ping } = await import('../../lib/radio-provider.js');
       await ping();
       radioTestResult = 'ok';
+      showSuccess(`Connected to ${radioProviderLabel || 'your music server'}`);
     } catch { radioTestResult = 'fail'; }
     radioTesting = false;
+  }
+
+  // Banner status follows the same pattern as SettingsEmail / NT's SMTP:
+  // "Configured" as soon as the URL is filled (creds entered, never verified),
+  // "Connected" after a successful test. Failed test takes priority.
+  $: radioBannerStatus = radioTesting
+    ? 'testing'
+    : radioTestResult === 'fail'
+      ? 'fail'
+      : ($radioUrl ? 'ok' : '');
+  $: radioBannerLabel   = radioTestResult === 'ok' ? 'Connected' : 'Configured';
+  $: radioBannerSubtext = radioTestResult === 'ok'
+    ? 'Last test succeeded; click Test again to re-verify'
+    : 'Click Test to verify these credentials';
+  // Provider chip rendered in the banner so the user always sees which
+  // music library the "Configured" / "Connected" state refers to.
+  $: radioProviderLabel = $radioProvider === 'subsonic' ? 'Subsonic'
+                        : $radioProvider === 'jellyfin' ? 'Jellyfin'
+                        : $radioProvider === 'plex' ? 'Plex'
+                        : $radioProvider === 'emby' ? 'Emby'
+                        : '';
+  // Clear stale test result when the user switches providers.
+  let _lastRadioProvider = $radioProvider;
+  $: if ($radioProvider !== _lastRadioProvider) {
+    _lastRadioProvider = $radioProvider;
+    radioTestResult = null;
   }
 </script>
 
@@ -57,9 +65,21 @@
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <div class="card">
+        {#if $radioEnabled}
+          <ConnectionStatus
+            status={radioBannerStatus}
+            okLabel={radioBannerLabel}
+            connectedAs={radioProviderLabel}
+            subtext={radioBannerSubtext}
+            error={radioTestResult === 'fail' ? `${radioProviderLabel || 'Server'} test failed — check URL and credentials below` : ''}
+            onRetest={testRadio}
+            retestDisabled={radioTesting || !$radioUrl}
+            retestLabel="Test"
+          />
+        {/if}
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Self-hosted music</span>
+            <span class="setting-label">Self-Hosted Music</span>
             <span class="setting-hint">Stream from a Subsonic-compatible server (Navidrome, Jellyfin, Airsonic, etc.)</span>
           </div>
           <Toggle bind:checked={$radioEnabled} />
@@ -69,7 +89,7 @@
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Streaming stations</span>
+            <span class="setting-label">Streaming Stations</span>
             <span class="setting-hint">Listen to internet radio. Add stations from the directory or paste a stream URL.</span>
           </div>
           <Toggle bind:checked={$radioStationsEnabled} />
@@ -79,7 +99,7 @@
           <div class="setting-divider"></div>
           <div class="setting-row">
             <span class="setting-label">Provider</span>
-            <select class="form-select-sm" bind:value={$radioProvider} on:change={() => { _radioLoaded = false; loadRadioFields(); }}>
+            <select class="form-select-sm" bind:value={$radioProvider}>
               <option value="emby">Emby</option>
               <option value="jellyfin">Jellyfin</option>
               <option value="plex">Plex</option>
@@ -88,37 +108,21 @@
           </div>
           <div class="setting-row">
             <span class="setting-label">Server URL</span>
-            <input class="form-input-sm" type="text" bind:value={_rUrl}
+            <input class="form-input-sm" type="text" bind:value={$radioUrl}
               placeholder={$radioProvider === 'plex' ? 'https://plex.example.com:32400' : $radioProvider === 'jellyfin' ? 'https://jellyfin.example.com' : 'https://navidrome.example.com'} />
           </div>
           <div class="setting-row">
             <span class="setting-label">{$radioProvider === 'plex' ? 'Plex Token' : 'Username'}</span>
-            <input class="form-input-sm" type="text" bind:value={_rUser}
+            <input class="form-input-sm" type="text" bind:value={$radioUser}
               placeholder={$radioProvider === 'plex' ? 'Token from plex.tv/claim' : 'username'} />
           </div>
           {#if $radioProvider !== 'plex'}
             <div class="setting-row">
               <span class="setting-label">{$radioProvider === 'emby' ? 'API Key' : 'Password'}</span>
-              <input class="form-input-sm" type="password" bind:value={_rPass}
+              <input class="form-input-sm" type="password" bind:value={$radioPassword}
                 placeholder={$radioProvider === 'emby' ? 'API key from Emby dashboard' : 'password'} />
             </div>
           {/if}
-          <div class="setting-row" style="justify-content:flex-end;gap:8px">
-            <button class="btn btn-primary" style="height:32px;font-size:12px" on:click={saveRadio} disabled={radioSaving}>
-              {radioSaving ? 'Saving\u2026' : 'Save'}
-            </button>
-            <button class="btn btn-secondary" style="height:32px;font-size:12px" on:click={testRadio} disabled={radioTesting || !_rUrl}>
-              {#if radioTesting}
-                <span class="material-symbols-rounded spin" style="font-size:14px">autorenew</span> Testing…
-              {:else if radioTestResult === 'ok'}
-                <span class="material-symbols-rounded" style="font-size:14px;color:var(--success)">check_circle</span> Connected
-              {:else if radioTestResult === 'fail'}
-                <span class="material-symbols-rounded" style="font-size:14px;color:var(--danger)">error</span> Failed
-              {:else}
-                Test Connection
-              {/if}
-            </button>
-          </div>
           <div class="setting-divider"></div>
           <div class="setting-row">
             <div class="setting-label-group">
@@ -134,7 +138,7 @@
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Highest quality playback</span>
+              <span class="setting-label">Highest Quality Playback</span>
               <span class="setting-hint">Stream original format when your library is homogeneous; falls back automatically for mixed queues</span>
             </div>
             <Toggle bind:checked={$radioOriginalFormat} />

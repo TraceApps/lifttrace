@@ -254,8 +254,8 @@ About a third of UI strings are extracted as of `1.0.0-rc.1` — the surface eve
 
 ## Tech Stack
 
-- **Frontend**: Svelte 4, svelte-spa-router (hash routing), Vite, Chart.js
-- **Backend**: Express 5, better-sqlite3, JWT auth (cookie-based)
+- **Frontend**: Svelte 5 (running in Svelte-4 compatibility mode), svelte-spa-router (hash routing), Vite 6, Chart.js
+- **Backend**: Express 5, better-sqlite3, bcryptjs 3, JWT auth (cookie-based)
 - **PWA**: vite-plugin-pwa, installable on any device
 - **Android**: Capacitor 8, Media3 ExoPlayer, WorkManager, @capacitor-community/sqlite
 - **AI**: Multi-provider (Claude, OpenAI, Gemini, OpenAI-compatible) with multimodal image support
@@ -305,7 +305,21 @@ LiftTrace is part of the **TraceApps** family alongside [**NutriTrace**](https:/
 
 ## Support
 
-If LiftTrace has been useful and you'd like to support development, you can [buy me a coffee on Ko-fi](https://ko-fi.com/thebigjoe1) ☕. Sponsorship doesn't unlock any features — everything stays AGPL and free — but it helps keep the project sustainable. Just as helpful: open an issue with a bug report, share the project, or contribute a translation.
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy_me_a_coffee-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/traceapps)
+
+If LiftTrace has been useful and you'd like to support development, the Ko-fi link above is the easiest way. Sponsorship doesn't unlock any features (everything stays AGPL and free), but it helps keep the project sustainable. Just as helpful: open an issue with a bug report, share the project, or contribute a translation.
+
+---
+
+## Disclaimer
+
+LiftTrace is not medical, health, or fitness-professional software. It does not provide medical advice, diagnosis, treatment, or personalized training prescriptions. Exercise library content, Trace AI coaching, program templates, rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight trends) are for informational and self-tracking purposes only.
+
+Resistance training carries inherent risk of injury. Exercise selection, load, technique, and progression can interact with medical conditions (heart and cardiovascular conditions, high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis, pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways this app cannot assess. Consult a qualified healthcare professional, certified strength coach, or licensed physical therapist before starting a new training program, returning from injury, or making significant changes to your routine.
+
+Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a substitute for human judgment or professional advice. Exercise library data is sourced from public databases (wger, Free Exercise DB, optionally ExerciseDB via RapidAPI) and may contain inaccuracies. **Use at your own risk.**
+
+When you enable the optional **ExerciseDB** source in Settings, you bring your own RapidAPI key and consume your own quota. LiftTrace is not affiliated with RapidAPI or ExerciseDB and is not the API consumer; your use of that integration is governed by RapidAPI's and the API provider's terms.
 
 ---
 
