@@ -1,0 +1,366 @@
+{
+  "nav": {
+    "diary":      "Diary",
+    "exercises":  "Exercises",
+    "programs":   "Programs",
+    "statistics": "Stats",
+    "radio":      "Radio",
+    "settings":   "Settings"
+  },
+  "routes": {
+    "diary":           { "title": "Diary" },
+    "exercises":       { "title": "Exercises" },
+    "exercise_detail": { "title": "Exercise" },
+    "programs":        { "title": "Programs" },
+    "program_detail":  { "title": "Program" },
+    "workout_editor":  { "title": "Workout Editor" },
+    "statistics":      { "title": "Statistics" },
+    "radio":           { "title": "Radio" },
+    "coaching":        { "title": "Coaching" },
+    "settings":        { "title": "Settings" },
+    "profile":         { "title": "Profile" }
+  },
+  "common": {
+    "save":         "Save",
+    "saving":       "Saving…",
+    "cancel":       "Cancel",
+    "delete":       "Delete",
+    "back":         "Back",
+    "edit":         "Edit",
+    "done":         "Done",
+    "close":        "Close",
+    "loading":      "Loading…",
+    "sign_out":     "Sign out",
+    "log_out":      "Log Out",
+    "signing_out":  "Signing out…",
+    "admin":        "admin",
+    "hide":         "Hide",
+    "experimental": "Experimental",
+    "errors": {
+      "cant_reach_server": "Could not reach server",
+      "failed":            "Failed"
+    }
+  },
+  "login": {
+    "subtitle":             "Sign in to your account",
+    "username":             "Username",
+    "username_placeholder": "Enter username",
+    "password":             "Password",
+    "password_placeholder": "Enter password",
+    "sign_in":              "Sign in",
+    "signing_in":           "Signing in…",
+    "forgot_password":      "Forgot password?",
+    "locked_out":           "Locked out?",
+    "errors": {
+      "failed": "Login failed"
+    },
+    "continue_with":     "Continue with {provider}",
+    "or":                "or",
+    "recovery": {
+      "token_missing":     "Enter your recovery token",
+      "explainer":         "If you never set up user accounts intentionally, you can disable user management. <strong>This will delete all user accounts.</strong> Your workout data will be kept.",
+      "token_prompt":      "Enter the <code>RECOVERY_TOKEN</code> from your server environment:",
+      "token_placeholder": "Recovery token",
+      "action":            "Disable user management & reset",
+      "disabling":         "Disabling…",
+      "failed":            "Recovery failed",
+      "success":           "User management disabled — you are now in single-user mode",
+      "done":              "User management has been disabled.<br>Redirecting…"
+    }
+  },
+  "forgot_password": {
+    "title":          "Reset Password",
+    "intro":          "Enter your email address and we'll send you a link to reset your password.",
+    "email_label":    "Email address",
+    "send_link":      "Send reset link",
+    "sending":        "Sending…",
+    "back_to_signin": "Back to sign in",
+    "sent":           "If an account exists for <strong>{email}</strong>, a reset link has been sent. Check your inbox."
+  },
+  "reset_password": {
+    "title":                "New Password",
+    "verifying":            "Verifying link…",
+    "invalid_link":         "This reset link is invalid or has expired.",
+    "request_new":          "Request a new link",
+    "success":              "Password updated. Redirecting…",
+    "set_for":              "Set a new password for <strong>{username}</strong>",
+    "new_password":         "New password",
+    "confirm_password":     "Confirm password",
+    "password_placeholder": "8+ chars, upper, lower, number, symbol",
+    "submit":               "Set new password",
+    "saving":               "Saving…",
+    "errors": {
+      "required": "Password is required",
+      "mismatch": "Passwords do not match",
+      "failed":   "Reset failed"
+    }
+  },
+  "accept_invite": {
+    "title":                  "Create Account",
+    "verifying":              "Verifying invite…",
+    "invalid_link":           "This invite link is invalid or has expired. Ask your admin for a new one.",
+    "success":                "Account created! Redirecting…",
+    "intro":                  "You've been invited to LiftTrace. Choose a username and password to get started.",
+    "intro_with_email":       "You were invited as <strong>{email}</strong>. Choose a username and password to get started.",
+    "username_label":         "Username *",
+    "username_placeholder":   "Choose a username",
+    "full_name_label":        "Full name (optional)",
+    "full_name_placeholder":  "Your name",
+    "password_label":         "Password *",
+    "confirm_label":          "Confirm password *",
+    "submit":                 "Create account",
+    "creating":               "Creating account…",
+    "errors": {
+      "username_required": "Username is required",
+      "failed":            "Failed to create account"
+    }
+  },
+  "diary": {
+    "workout_name_placeholder": "Workout name...",
+    "tap_to_rename":            "Tap to rename",
+    "nav": {
+      "previous_day":  "Previous day",
+      "next_day":      "Next day",
+      "jump_to_date":  "Jump to date",
+      "jump_to_today": "Jump to today"
+    },
+    "actions": {
+      "gym_tools":         "Gym tools",
+      "gym_tools_long":    "Gym Tools — plate calculator & unit converter",
+      "body_stats":        "Body stats",
+      "body_stats_long":   "Body Stats — log weight, body fat, and measurements",
+      "workout_actions":   "Workout actions",
+      "workout_options":   "Workout options"
+    },
+    "toast": {
+      "workout_cleared":       "Workout cleared",
+      "timer_reset":           "Timer reset",
+      "copied_yesterday":      "Copied workout from yesterday",
+      "superset_created":      "Superset created",
+      "superset_removed":      "Superset removed",
+      "added_to_superset":     "Added to superset",
+      "removed_from_superset": "Removed from superset"
+    },
+    "errors": {
+      "no_workout_yesterday": "No workout found yesterday",
+      "copy_failed":          "Failed to copy workout"
+    }
+  },
+  "trace": {
+    "fab_label":          "Open Trace (hold to voice-log a workout)",
+    "fab_tooltip":        "Tap to chat · hold to voice-log",
+    "ask_placeholder":    "Ask me anything…",
+    "clear_conversation": "Clear chat",
+    "attach_image":       "Attach image"
+  },
+  "wizard": {
+    "nav": {
+      "back":         "Back",
+      "next":         "Next",
+      "get_started":  "Get Started",
+      "skip":         "Skip",
+      "lets_go":      "Let's go"
+    },
+    "skip_modal": {
+      "title":      "Skip setup?",
+      "desc":       "You can fill in everything later from Settings → My Profile. Calorie estimates and other personalized features stay disabled until you do.",
+      "do_later":   "I'll do this later",
+      "skip_now":   "Skip now",
+      "continue":   "Keep going"
+    },
+    "welcome": {
+      "title": "Welcome to LiftTrace",
+      "desc":  "Trace every rep. Your personal weightlifting companion — private, self-hosted, and built for serious lifters."
+    },
+    "name": {
+      "title":       "What should we call you?",
+      "desc":        "Used in greetings, the side menu, and your AI assistant. You can change it later in Settings.",
+      "placeholder": "Your name (optional)"
+    },
+    "profile": {
+      "title":      "About you",
+      "desc":       "A few details so LiftTrace can estimate calories burned and tailor the AI assistant. All optional.",
+      "sex":        "Sex",
+      "sex_male":   "Male",
+      "sex_female": "Female",
+      "sex_other":  "Other / prefer not to say",
+      "dob":        "Date of birth",
+      "height":     "Height",
+      "weight":     "Current weight",
+      "hint":       "These power the calorie-burn estimate (off by default — turn it on in Settings → Workout). You can edit anything later in Settings → My Profile."
+    },
+    "users": {
+      "create_admin_title":     "Create Admin Account",
+      "multi_user_title":       "Multi-User Support (Optional)",
+      "create_admin_desc":      "Your LiftTrace instance requires an admin account. This is the first user and will have full control over the app.",
+      "multi_user_desc":        "LiftTrace can run in single-user mode (default) or multi-user mode with separate logins and password resets. You can always enable this later in Settings.",
+      "enable_toggle":          "Enable user accounts",
+      "username_placeholder":   "Username (required)",
+      "fullname_placeholder":   "Full name (optional)",
+      "email_placeholder":      "Email (optional, for password resets)",
+      "password_placeholder":   "Password (8+ chars, A-z, 0-9, special)",
+      "confirm_placeholder":    "Confirm password",
+      "creating":               "Creating…",
+      "errors": {
+        "username_required": "Username required",
+        "password_mismatch": "Passwords do not match"
+      }
+    },
+    "units": {
+      "title":   "Measurement System",
+      "desc":    "How do you measure things?",
+      "metric":      "Metric",
+      "metric_sub":  "kg, cm",
+      "imperial":    "Imperial",
+      "imperial_sub": "lb, ft, in"
+    },
+    "goals": {
+      "title":     "Weekly Goal",
+      "desc":      "How many days per week do you want to train?",
+      "days_sub":  "days"
+    },
+    "library": {
+      "title":     "Exercise Library",
+      "optional":  "(Optional)",
+      "desc":      "Pick what to import. All downloads come directly from upstream sources. You can add or remove these any time from Settings.",
+      "import_n":  "Import ({n})",
+      "importing": "Importing…",
+      "progress":  "Importing {id}… ({idx}/{total})",
+      "ready":     "Library ready — imported {n} sources"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "desc":  "Choose your theme.",
+      "auto":  "Auto",
+      "dark":  "Dark",
+      "light": "Light"
+    }
+  },
+  "profile": {
+    "personal_info":         "Personal Info",
+    "security":              "Security",
+    "change_photo":          "Change photo",
+    "full_name":             "Full Name",
+    "full_name_placeholder": "Your full name",
+    "email_placeholder":     "Used for password resets",
+    "nickname":              "Nickname / Display Name",
+    "nickname_placeholder":  "What should we call you?",
+    "birthday":              "Birthday",
+    "gender":                "Gender",
+    "gender_unset":          "Prefer not to say",
+    "change_password":       "Change Password",
+    "current_password":      "Current Password",
+    "confirm_new_password":  "Confirm New Password",
+    "saved":                 "Profile saved",
+    "password_changed":      "Password changed",
+    "linked_accounts":       "Linked accounts",
+    "no_linked_accounts":    "No linked accounts yet.",
+    "link_with":             "Link with",
+    "unlink":                "Unlink",
+    "unlinked":              "Unlinked",
+    "last_signin":           "last sign-in {date}",
+    "danger_zone":           "Danger zone",
+    "delete_account":        "Delete my account",
+    "delete_account_explainer": "Permanently remove your account and all associated data — workouts, body stats, programs, settings.",
+    "delete_account_title":  "Delete your account?",
+    "delete_account_message": "Your workouts, body stats, programs, settings, and AI history will be permanently removed. This cannot be undone.",
+    "delete_account_confirm": "Delete account",
+    "deleting":              "Deleting…",
+    "account_deleted":       "Account deleted",
+    "errors": {
+      "save_failed":            "Could not save profile",
+      "upload_failed":          "Upload failed",
+      "password_change_failed": "Could not change password",
+      "unlink_failed":          "Unlink failed",
+      "delete_account_failed":  "Could not delete account"
+    }
+  },
+  "settings": {
+    "units": {
+      "section":  "Units",
+      "language": "Language"
+    },
+    "appearance":      {
+      "section":    "Appearance",
+      "theme":      "Theme",
+      "accent":     "Accent",
+      "navigation": "Navigation"
+    },
+    "workout":         { "section": "Workout" },
+    "statistics":      { "section": "Statistics" },
+    "trace":           { "section": "AI Assistant" },
+    "radio":           { "section": "Radio" },
+    "catalog":         { "section": "Exercise Catalog" },
+    "backup":          { "section": "Backup & Restore" },
+    "notifications":   { "section": "Notifications" },
+    "email":           { "section": "Email (SMTP)" },
+    "authentication":  { "section": "Authentication" },
+    "profile_hero": {
+      "label_fallback":  "My Profile",
+      "subtitle_empty":  "Tap to add your name and photo"
+    },
+    "users":           {
+      "section":              "Users",
+      "users_heading":        "Users",
+      "add_user":             "Add user directly",
+      "username":             "Username",
+      "username_required":    "Username",
+      "full_name":            "Full name (optional)",
+      "password_required":    "Password (8+ chars, A-z, 0-9, special)",
+      "confirm_required":     "Confirm password",
+      "role":                 "Role",
+      "role_admin":           "Admin",
+      "role_member":          "Member",
+      "role_trainer":         "Trainer",
+      "role_self_suffix":     "(you)",
+      "create":               "Create",
+      "creating":             "Creating…",
+      "delete_user_title":    "Delete user?",
+      "delete_user_message":  "All of this user’s data will be removed. This cannot be undone.",
+      "delete":               "Delete",
+      "reset_password":       "Reset password",
+      "reset_password_prompt": "Set new password for {name}\n\n(Must be 8+ chars with upper, lower, number, and special character.)",
+      "invite_user":          "Invite User",
+      "invite_user_explainer": "Send a sign-up link so the user picks their own password. Recommended.",
+      "email_optional":       "Email (optional)",
+      "send_invite":          "Send Invite",
+      "sending":              "Sending…",
+      "invite_sent":          "Invite sent to {email}",
+      "invite_sent_to":       "Invite sent to {email}",
+      "user_fallback":        "user",
+      "share_link_intro":     "Share this link:",
+      "copy":                 "Copy",
+      "add_user_show":        "Add user manually",
+      "add_user_hide":        "Hide manual add",
+      "add_user_explainer":   "You set the username and password yourself, then share them with the user. Useful when SMTP isn’t configured or for offline setups.",
+      "create_directly":      "Create user",
+      "session_duration":     "Session duration",
+      "save":                 "Save",
+      "disable_um":           "Disable user management",
+      "disable_um_subtitle":  "Deletes all accounts — app becomes open access",
+      "disable_um_title":     "Disable user management?",
+      "disable_um_message":   "This will DELETE all user accounts. Anyone on your network will be able to access the app without signing in.",
+      "disable_um_confirm":   "Disable",
+      "enable_um":            "Enable user management",
+      "enable_um_subtitle":   "Add multiple user accounts with separate data & settings",
+      "enable_um_setup":      "Set Up",
+      "create_admin_account": "Create Admin Account",
+      "create_admin_explainer": "This will enable user management. The first account is always admin. All existing workout data will be assigned to this account.",
+      "enable_create":        "Enable & Create Admin",
+      "enabling":             "Creating…",
+      "toast_password_reset": "Password reset",
+      "toast_role_changed":   "{name} is now {role}",
+      "toast_um_enabled":     "User management enabled",
+      "toast_link_copied":    "Link copied",
+      "err_username_required": "Username required",
+      "err_passwords_mismatch": "Passwords do not match",
+      "err_username_password_required": "Username and password required",
+      "err_could_not_reset_password": "Could not reset password",
+      "err_could_not_reach_server": "Could not reach server"
+    },
+    "server":          { "section": "Server Connection" },
+    "workout_import":  { "section": "Import Workouts" },
+    "diagnostics":     { "section": "Diagnostics" },
+    "about":           { "section": "About" }
+  }
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Color sampled from the outermost opaque pixel ring of
+         ic_launcher_foreground.png (the card design's edge teal).
+         Picking this hex lets the adaptive-icon background blend
+         seamlessly with the foreground card so the circle crop has
+         no visible dark ring around the design — exactly the
+         continuous-disc effect NutriTrace's icon has. -->
+    <color name="ic_launcher_background">#008090</color>
+</resources>

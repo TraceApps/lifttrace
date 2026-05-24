@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RELEASE network security config (the strict default used by
+  assembleRelease / signed APKs distributed via GitHub Releases).
+
+  Cleartext (`http://…`) is DENIED for every host. Only HTTPS
+  connections to your self-hosted LiftTrace server are allowed,
+  to protect auth tokens (JWT cookies + Bearer headers) on
+  untrusted networks like public WiFi.
+
+  User-installed CAs are NOT trusted. To use a self-signed cert,
+  install your CA on the device once (Settings → Security →
+  Install a certificate → CA certificate) — Android-installed
+  user CAs are honored by the system trust store at the OS level
+  even though they're not listed here.
+
+  Debug builds (assembleDebug) use the permissive override at
+  android/app/src/debug/res/xml/network_security_config.xml,
+  swapped in automatically by Android's resource overlay merging.
+  Build a debug APK locally if you need cleartext (LAN-only
+  setups, fully isolated networks). See DEPLOY.md for the four
+  supported Android connection paths.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

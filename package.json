@@ -1,0 +1,54 @@
+{
+  "name": "lifttrace",
+  "version": "1.0.0-rc.1",
+  "description": "Track every rep, set, and PR — your complete weightlifting companion",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TraceApps/lifttrace-dev.git"
+  },
+  "license": "AGPL-3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "android": "npm run build:rest-tones && vite build && cap sync android",
+    "android:open": "cap open android",
+    "android:run": "npm run build:rest-tones && vite build && cap sync android && cap run android",
+    "android:debug": "npm run build:rest-tones && vite build && cap sync android && cd android && ./gradlew assembleDebug && cd .. && echo 'APK at android/app/build/outputs/apk/debug/app-debug.apk'",
+    "build:rest-tones": "node scripts/build-rest-tones.mjs",
+    "i18n:check": "node scripts/i18n-check.cjs"
+  },
+  "dependencies": {
+    "@aparajita/capacitor-biometric-auth": "^10.0.0",
+    "@capacitor-community/sqlite": "^8.1.0",
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/camera": "^8.1.0",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/keyboard": "^8.0.3",
+    "@capacitor/local-notifications": "^8.0.2",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/share": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
+    "@zxcvbn-ts/core": "^3.0.4",
+    "@zxcvbn-ts/language-common": "^3.0.4",
+    "@zxcvbn-ts/language-en": "^3.0.2",
+    "hls.js": "^1.6.16",
+    "svelte-i18n": "^4.0.1",
+    "svelte-spa-router": "^4.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.1",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "svelte": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0",
+    "vite-plugin-pwa": "^1.0.0"
+  }
+}

@@ -1,0 +1,19 @@
+<!--
+  Notification small icon for Media3 MediaSession + foreground service.
+  Must be flat white-on-transparent — Android silently drops notifications
+  whose small icon is a colored launcher icon (which is why our placeholder
+  + Media3's auto-generated notification weren't appearing on the lockscreen
+  / notification shade).
+
+  Pure-white Material Symbols "radio" glyph @ 24dp.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,7H8.83l3.66-3.66c0.39,-0.39 0.39,-1.02 0,-1.41a0.996,0.996 0,0 0,-1.41 0L7,7.05L4,10.04c-0.78,0.78 -0.78,2.05 0,2.83v8.05c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2V9c0,-1.1 -0.9,-2 -2,-2zM6,15H4v-2h2v2zM20,15h-9v-2h9v2zM20,12h-9v-2h9v2zM6,18h2v3H6v-3z"/>
+</vector>

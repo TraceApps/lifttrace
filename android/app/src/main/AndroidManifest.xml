@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- OIDC SSO callback deep link: server callback redirects to
+                 lifttrace://oidc-callback/?token=<jwt> (slash before query
+                 is required for Chrome Custom Tabs to dispatch the OS intent
+                 reliably). App.svelte#appUrlOpen handles the token. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="lifttrace" android:host="oidc-callback" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+
+        <!-- Media3 MediaSessionService — hosts the lockscreen / notification
+             MediaStyle controls + Bluetooth headphone media-key handling +
+             Android Auto integration. Must be a foregroundServiceType
+             "mediaPlayback" on Android 14+. -->
+        <service
+            android:name=".RadioPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!-- Rest-timer cue receiver — fires audio + vibration without a
+             notification. Scheduled via AlarmManager from
+             RestTimerCuePlugin. Not exported (only our own plugin
+             schedules to it). -->
+        <receiver
+            android:name=".RestTimerCueReceiver"
+            android:exported="false" />
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Notifications (Android 13+ requires runtime grant) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Exact-time scheduling for WorkManager / LocalNotifications -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- WorkManager periodic reboots: keep schedules across device reboots -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Camera capture (exercise media + avatar) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Microphone — Trace FAB hold-to-record Smart Log voice input.
+         The WebView's Web Speech API requires this even though audio is
+         sent to Google's speech service rather than recorded locally. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Legacy filesystem permissions for older Android (≤ Android 9 /
+         ≤ Android 12) so exercise media import + shared-file save fall
+         back gracefully. Modern Android uses scoped storage via the
+         @capacitor/filesystem and @capacitor/camera plugins. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Visualizer needs MODIFY_AUDIO_SETTINGS to attach to ExoPlayer's
+         audio session for real-time FFT (Trace FAB frequency ring on streams). -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Foreground service permissions for Media3's MediaSessionService.
+         Android 14+ requires both the generic FGS and the per-type permission. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+</manifest>

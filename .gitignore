@@ -1,0 +1,47 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+*.db
+*.db-shm
+*.db-wal
+uploads/
+*.zip
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Vite temp
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Excel source files — kept locally, not in version control
+*.xlsx
+*.xls
+*.csv
+
+# Android / Capacitor build artifacts
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/captures/
+android/app/release/
+android/app/debug/
+android/keystore.properties
+*.keystore
+*.jks
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/capacitor-cordova-android-plugins/

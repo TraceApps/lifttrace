@@ -1,0 +1,1244 @@
+/**
+ * api-native.js — Local SQLite-backed implementation of LiftTrace's HTTP API.
+ *
+ * Used in Capacitor standalone mode (isNative + no server URL configured).
+ * Exposes the same JSON shapes as the server so the existing fetch-based
+ * frontend code works unchanged when routed here by `apiFetch.js`.
+ *
+ * Single-user model: all rows carry user_id = 1. There's no auth, no invites,
+ * no trainer relationships, and no multi-user features. Endpoints that
+ * require a server (sync-wger, image proxy, full-backup ZIP, push test) throw
+ * a friendly error so the UI can render an "offline / standalone" hint.
+ */
+
+import {
+  dbQuery,
+  dbRun,
+  enqueueSync,
+  getSyncMeta,
+  setSyncMeta,
+} from './db-native.js';
+
+const ME = 1; // single-user id in standalone mode
+
+// ── helpers ───────────────────────────────────────────────────────────────
+
+const _now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+const _parseJson = (s, fallback) => {
+  try { return s == null ? fallback : JSON.parse(s); } catch { return fallback; }
+};
+
+const _stringify = v => v == null ? null : (typeof v === 'string' ? v : JSON.stringify(v));
+
+/**
+ * Convert a row out of the exercises table back into the shape the client
+ * expects: JSON columns as arrays, image URLs unchanged.
+ */
+function _exerciseFromRow(r) {
+  if (!r) return null;
+  return {
+    ...r,
+    primary_muscles:   _parseJson(r.primary_muscles, []),
+    secondary_muscles: _parseJson(r.secondary_muscles, []),
+    equipment:         _parseJson(r.equipment, []),
+    is_global:         !!r.is_global,
+  };
+}
+
+function _programFromRow(r) {
+  return r ? { ...r, deleted_at: undefined, sync_state: undefined } : null;
+}
+
+function _templateFromRow(r) {
+  if (!r) return null;
+  return {
+    ...r,
+    exercises: _parseJson(r.exercises, []),
+    deleted_at: undefined,
+    sync_state: undefined,
+  };
+}
+
+function _workoutFromRow(r) {
+  if (!r) return null;
+  return {
+    ...r,
+    exercises: _parseJson(r.exercises, []),
+    deleted_at: undefined,
+    sync_state: undefined,
+  };
+}
+
+function _bodyStatsFromRow(r) {
+  if (!r) return null;
+  return {
+    ...r,
+    stats: _parseJson(r.stats, {}),
+    deleted_at: undefined,
+    sync_state: undefined,
+  };
+}
+
+class _Unsupported extends Error {
+  constructor(msg) { super(msg); this.status = 501; }
+}
+
+// ── handlers grouped by resource ─────────────────────────────────────────
+
+const Auth = {
+  async me() {
+    const rows = await dbQuery(`SELECT id, username, full_name, nickname, email, birthday, gender, avatar_url, role FROM users WHERE id = ?`, [ME]);
+    return rows[0] || { id: ME, username: 'me', role: 'admin' };
+  },
+  status() {
+    return { setupComplete: true, userManagementActive: false, mode: 'standalone' };
+  },
+  users() {
+    return Auth.me().then(u => [u]);
+  },
+  noopOk() { return { ok: true }; },
+  loginOffline() {
+    return { ok: true, user: { id: ME, username: 'me', role: 'admin' } };
+  },
+  async updateProfile(body) {
+    const fields = ['full_name', 'nickname', 'email', 'birthday', 'gender', 'avatar_url'];
+    const sets = [];
+    const vals = [];
+    for (const f of fields) {
+      if (body[f] !== undefined) { sets.push(`${f} = ?`); vals.push(body[f]); }
+    }
+    if (sets.length) {
+      sets.push(`updated_at = ?`); vals.push(_now());
+      vals.push(ME);
+      await dbRun(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, vals);
+    }
+    return Auth.me();
+  },
+};
+
+const AppConfig = {
+  async get() {
+    const rows = await dbQuery(`SELECT key, value FROM app_config`, []);
+    const out = { mode: 'standalone' };
+    for (const r of rows) out[r.key] = r.value;
+    return out;
+  },
+  envLocks() { return {}; },
+  async set(body) {
+    for (const [k, v] of Object.entries(body || {})) {
+      await dbRun(
+        `INSERT INTO app_config (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        [k, _stringify(v), _now()]
+      );
+    }
+    return AppConfig.get();
+  },
+};
+
+const Settings = {
+  async get() {
+    const rows = await dbQuery(`SELECT key, value FROM user_settings WHERE user_id = ?`, [ME]);
+    const out = {};
+    for (const r of rows) out[r.key] = _parseJson(r.value, r.value);
+    return out;
+  },
+  async put(body) {
+    if (!body) return { ok: true };
+    const writeOne = async (k, raw) => {
+      const v = _stringify(raw);
+      await dbRun(
+        `INSERT INTO user_settings (user_id, key, value, updated_at, sync_state)
+         VALUES (?, ?, ?, ?, 'pending')
+         ON CONFLICT(user_id, key)
+         DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, sync_state = 'pending'`,
+        [ME, k, v, _now()]
+      );
+    };
+    // scheduleSave (the only client-side caller in the running app) sends
+    // a single-setting shape: { key, value }. Mirror what the server's
+    // PUT /api/settings does — store one row for that key. Iterating
+    // Object.entries() on this shape would write garbage rows like
+    // (key='key', value='appearance') + (key='value', value='system'),
+    // which is exactly the corruption seen on Android before this guard.
+    if (typeof body.key === 'string' && 'value' in body) {
+      await writeOne(body.key, body.value);
+      return { ok: true };
+    }
+    // Bulk shape: { settingA: valA, settingB: valB } — used by the
+    // wizard's finish() flow + any future bulkSet caller.
+    for (const [k, raw] of Object.entries(body)) await writeOne(k, raw);
+    return { ok: true };
+  },
+  async clearData() {
+    await dbRun(`DELETE FROM workout_log WHERE user_id = ?`, [ME]);
+    await dbRun(`DELETE FROM body_stats_log WHERE user_id = ?`, [ME]);
+    await dbRun(`DELETE FROM ai_chat_history WHERE user_id = ?`, [ME]);
+    return { ok: true };
+  },
+};
+
+const Exercises = {
+  async list(params = {}) {
+    const where = [`deleted_at IS NULL`];
+    const args = [];
+    if (params.category) { where.push(`LOWER(category) = LOWER(?)`); args.push(params.category); }
+    if (params.search)   { where.push(`LOWER(name) LIKE LOWER(?)`); args.push(`%${params.search}%`); }
+    const rows = await dbQuery(
+      `SELECT * FROM exercises WHERE ${where.join(' AND ')} ORDER BY name COLLATE NOCASE LIMIT 5000`,
+      args
+    );
+    return rows.map(_exerciseFromRow);
+  },
+  async get(id) {
+    const rows = await dbQuery(`SELECT * FROM exercises WHERE id = ? AND deleted_at IS NULL`, [id]);
+    return _exerciseFromRow(rows[0]);
+  },
+  async create(body) {
+    const r = await dbRun(
+      `INSERT INTO exercises
+        (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips,
+         img_url, gif_url, video_url, source, is_global, created_by, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        body.name,
+        body.category || null,
+        _stringify(body.primary_muscles || []),
+        _stringify(body.secondary_muscles || []),
+        _stringify(body.equipment || []),
+        body.instructions || null,
+        body.tips || null,
+        body.img_url || null,
+        body.gif_url || null,
+        body.video_url || null,
+        body.source || 'custom',
+        body.is_global ? 1 : 0,
+        ME,
+        _now(),
+        _now(),
+      ]
+    );
+    return Exercises.get(r.lastId);
+  },
+  async update(id, body) {
+    const sets = [];
+    const args = [];
+    const cols = ['name', 'category', 'instructions', 'tips', 'img_url', 'gif_url', 'video_url'];
+    for (const c of cols) {
+      if (body[c] !== undefined) { sets.push(`${c} = ?`); args.push(body[c]); }
+    }
+    if (body.primary_muscles !== undefined)   { sets.push(`primary_muscles = ?`);   args.push(_stringify(body.primary_muscles)); }
+    if (body.secondary_muscles !== undefined) { sets.push(`secondary_muscles = ?`); args.push(_stringify(body.secondary_muscles)); }
+    if (body.equipment !== undefined)         { sets.push(`equipment = ?`);         args.push(_stringify(body.equipment)); }
+    sets.push(`updated_at = ?`); args.push(_now());
+    sets.push(`sync_state = 'pending'`);
+    args.push(id);
+    await dbRun(`UPDATE exercises SET ${sets.join(', ')} WHERE id = ?`, args);
+    return Exercises.get(id);
+  },
+  async del(id) {
+    await dbRun(`UPDATE exercises SET deleted_at = ?, sync_state = 'pending' WHERE id = ?`, [_now(), id]);
+    return { ok: true };
+  },
+  async deleteAllCustom() {
+    await dbRun(`UPDATE exercises SET deleted_at = ?, sync_state = 'pending' WHERE created_by = ? AND is_global = 0`, [_now(), ME]);
+    return { ok: true };
+  },
+  async sourcesList() {
+    return { sources: [] };
+  },
+  unsupported() { throw new _Unsupported('Catalog imports require a server connection.'); },
+};
+
+const Programs = {
+  async list() {
+    // Match server shape: each row gets is_active / is_assigned /
+    // assigned_by_name / template_count alongside the core program fields.
+    // Programs.svelte renders `p.is_active` directly; the previous
+    // `active` key showed as undefined → the active badge never lit up.
+    const rows = await dbQuery(
+      `SELECT p.*, pa.active AS _active
+         FROM programs p
+         LEFT JOIN program_assignments pa ON pa.program_id = p.id AND pa.assigned_to = ?
+        WHERE p.deleted_at IS NULL
+        ORDER BY p.created_at DESC`,
+      [ME]
+    );
+    const out = [];
+    for (const r of rows) {
+      const tplCount = (await dbQuery(
+        `SELECT COUNT(*) AS c FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL`,
+        [r.id]
+      ))[0]?.c || 0;
+      out.push({
+        ..._programFromRow(r),
+        is_active: r._active ? 1 : 0,
+        is_assigned: 0,
+        assigned_by_name: null,
+        template_count: tplCount,
+      });
+    }
+    return out;
+  },
+  async get(id) {
+    // Match server shape: single program with `is_active` and `templates`.
+    const rows = await dbQuery(`SELECT * FROM programs WHERE id = ? AND deleted_at IS NULL`, [id]);
+    if (!rows[0]) return null;
+    const tpls = await dbQuery(
+      `SELECT * FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL ORDER BY order_index, id`,
+      [id]
+    );
+    const isActive = (await dbQuery(
+      `SELECT active FROM program_assignments WHERE program_id = ? AND assigned_to = ?`,
+      [id, ME]
+    ))[0]?.active === 1;
+    return { ..._programFromRow(rows[0]), is_active: isActive, templates: tpls.map(_templateFromRow) };
+  },
+  async create(body) {
+    const r = await dbRun(
+      `INSERT INTO programs (name, description, goal, created_by, visibility, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [body.name, body.description || null, body.goal || 'general', ME, body.visibility || 'private', _now(), _now()]
+    );
+    return Programs.get(r.lastId);
+  },
+  async update(id, body) {
+    const sets = [];
+    const args = [];
+    for (const c of ['name', 'description', 'goal', 'visibility']) {
+      if (body[c] !== undefined) { sets.push(`${c} = ?`); args.push(body[c]); }
+    }
+    sets.push(`updated_at = ?`); args.push(_now());
+    sets.push(`sync_state = 'pending'`);
+    args.push(id);
+    await dbRun(`UPDATE programs SET ${sets.join(', ')} WHERE id = ?`, args);
+    return Programs.get(id);
+  },
+  async del(id) {
+    await dbRun(`UPDATE programs SET deleted_at = ?, sync_state = 'pending' WHERE id = ?`, [_now(), id]);
+    return { ok: true };
+  },
+  async activate(id) {
+    await dbRun(`UPDATE program_assignments SET active = 0 WHERE assigned_to = ?`, [ME]);
+    await dbRun(
+      `INSERT INTO program_assignments (program_id, assigned_to, active, assigned_at)
+       VALUES (?, ?, 1, ?)
+       ON CONFLICT(program_id, assigned_to)
+       DO UPDATE SET active = 1, assigned_at = excluded.assigned_at`,
+      [id, ME, _now()]
+    );
+    return { ok: true };
+  },
+  async deactivate() {
+    await dbRun(`UPDATE program_assignments SET active = 0 WHERE assigned_to = ?`, [ME]);
+    return { ok: true };
+  },
+  async reorder(id, body) {
+    const order = Array.isArray(body?.order) ? body.order : [];
+    for (let i = 0; i < order.length; i++) {
+      await dbRun(
+        `UPDATE workout_templates SET order_index = ?, updated_at = ?, sync_state = 'pending' WHERE id = ? AND program_id = ?`,
+        [i, _now(), order[i], id]
+      );
+    }
+    return { ok: true };
+  },
+};
+
+const Templates = {
+  async list(programId) {
+    const rows = await dbQuery(
+      `SELECT * FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL ORDER BY order_index, id`,
+      [programId]
+    );
+    return rows.map(_templateFromRow);
+  },
+  async get(id) {
+    const rows = await dbQuery(`SELECT * FROM workout_templates WHERE id = ? AND deleted_at IS NULL`, [id]);
+    return _templateFromRow(rows[0]);
+  },
+  async create(body) {
+    const max = (await dbQuery(
+      `SELECT COALESCE(MAX(order_index), -1) AS m FROM workout_templates WHERE program_id = ?`, [body.program_id]
+    ))[0]?.m ?? -1;
+    const r = await dbRun(
+      `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        body.program_id, body.name, body.day_label || null,
+        body.order_index != null ? body.order_index : max + 1,
+        _stringify(body.exercises || []), _now(), _now(),
+      ]
+    );
+    return Templates.get(r.lastId);
+  },
+  async update(id, body) {
+    const sets = [];
+    const args = [];
+    for (const c of ['name', 'day_label']) {
+      if (body[c] !== undefined) { sets.push(`${c} = ?`); args.push(body[c]); }
+    }
+    if (body.order_index !== undefined) { sets.push(`order_index = ?`); args.push(body.order_index); }
+    if (body.exercises !== undefined)   { sets.push(`exercises = ?`); args.push(_stringify(body.exercises)); }
+    sets.push(`updated_at = ?`); args.push(_now());
+    sets.push(`sync_state = 'pending'`);
+    args.push(id);
+    await dbRun(`UPDATE workout_templates SET ${sets.join(', ')} WHERE id = ?`, args);
+    return Templates.get(id);
+  },
+  async del(id) {
+    await dbRun(`UPDATE workout_templates SET deleted_at = ?, sync_state = 'pending' WHERE id = ?`, [_now(), id]);
+    return { ok: true };
+  },
+};
+
+const Workout = {
+  async byDate(date) {
+    const rows = await dbQuery(
+      `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
+      [ME, date]
+    );
+    return _workoutFromRow(rows[0]) || null;
+  },
+  async upsert(date, body) {
+    const exercises = body.exercises || [];
+    const hasAny = exercises.some(ex =>
+      Array.isArray(ex?.sets) && ex.sets.some(s => s?.completed && !s?.warmup)
+    );
+    // Auto-delete empty entries (matches server behavior)
+    if (!hasAny && !body.notes && !body.duration_min) {
+      await dbRun(
+        `UPDATE workout_log SET deleted_at = ?, sync_state = 'pending'
+         WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
+        [_now(), ME, date]
+      );
+      return { ok: true, deleted: true };
+    }
+    const existing = await Workout.byDate(date);
+    if (existing) {
+      await dbRun(
+        `UPDATE workout_log
+            SET template_id = ?, program_id = ?, name = ?, exercises = ?,
+                notes = ?, duration_min = ?, completed = ?, updated_at = ?, sync_state = 'pending'
+          WHERE user_id = ? AND date = ?`,
+        [
+          body.template_id ?? existing.template_id ?? null,
+          body.program_id  ?? existing.program_id  ?? null,
+          body.name ?? existing.name ?? null,
+          _stringify(exercises),
+          body.notes ?? existing.notes ?? null,
+          body.duration_min ?? existing.duration_min ?? null,
+          body.completed ? 1 : 0,
+          _now(), ME, date,
+        ]
+      );
+    } else {
+      await dbRun(
+        `INSERT INTO workout_log
+          (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed,
+           created_at, updated_at, sync_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+        [
+          ME, date,
+          body.template_id ?? null,
+          body.program_id  ?? null,
+          body.name ?? null,
+          _stringify(exercises),
+          body.notes ?? null,
+          body.duration_min ?? null,
+          body.completed ? 1 : 0,
+          _now(), _now(),
+        ]
+      );
+    }
+    return Workout.byDate(date);
+  },
+  async recent(limit = 30) {
+    const rows = await dbQuery(
+      `SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL
+         AND json_array_length(COALESCE(exercises, '[]')) > 0
+       ORDER BY date DESC LIMIT ?`,
+      [ME, Number(limit) || 30]
+    );
+    return rows.map(_workoutFromRow);
+  },
+  async historyFor(exerciseId) {
+    const rows = await dbQuery(
+      `SELECT date, exercises FROM workout_log
+        WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC`,
+      [ME]
+    );
+    const out = [];
+    for (const r of rows) {
+      const exs = _parseJson(r.exercises, []);
+      const hit = exs.find(e => Number(e.exercise_id) === Number(exerciseId));
+      if (hit) out.push({ date: r.date, ...hit });
+      if (out.length >= 50) break;
+    }
+    return out;
+  },
+};
+
+const BodyStats = {
+  async get(date) {
+    const rows = await dbQuery(`SELECT * FROM body_stats_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL`, [ME, date]);
+    return _bodyStatsFromRow(rows[0]) || null;
+  },
+  async put(date, body) {
+    const stats = body?.stats ?? body ?? {};
+    const existing = await BodyStats.get(date);
+    if (existing) {
+      await dbRun(
+        `UPDATE body_stats_log SET stats = ?, updated_at = ?, sync_state = 'pending' WHERE user_id = ? AND date = ?`,
+        [_stringify({ ...existing.stats, ...stats }), _now(), ME, date]
+      );
+    } else {
+      await dbRun(
+        `INSERT INTO body_stats_log (user_id, date, stats, updated_at, sync_state)
+         VALUES (?, ?, ?, ?, 'pending')`,
+        [ME, date, _stringify(stats), _now()]
+      );
+    }
+    return BodyStats.get(date);
+  },
+  async range(from, to) {
+    const rows = await dbQuery(
+      `SELECT date, stats FROM body_stats_log
+        WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
+        ORDER BY date ASC`,
+      [ME, from || '1970-01-01', to || '2999-12-31']
+    );
+    return rows.map(_bodyStatsFromRow);
+  },
+};
+
+const Stats = {
+  async _allWorkouts() {
+    const rows = await dbQuery(
+      `SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL`,
+      [ME]
+    );
+    return rows.map(_workoutFromRow);
+  },
+  _completedSets(w) {
+    const exs = w.exercises || [];
+    return exs.flatMap(ex => (ex.sets || []).filter(s => s?.completed && !s?.warmup).map(s => ({ ...s, exercise_id: ex.exercise_id, exercise_name: ex.exercise_name })));
+  },
+  _hasCompletedSet(w) {
+    return Stats._completedSets(w).length > 0;
+  },
+  async earliestWorkoutDate() {
+    const rows = await dbQuery(`SELECT MIN(date) AS d FROM workout_log WHERE user_id = ? AND deleted_at IS NULL`, [ME]);
+    return { date: rows[0]?.d || null };
+  },
+  async streaks() {
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).sort((a, b) => a.date.localeCompare(b.date));
+    const dates = new Set(all.map(w => w.date));
+    let longestStreak = 0, currentStreak = 0;
+    let cur = 0;
+    let prev = null;
+    for (const d of [...dates].sort()) {
+      if (prev) {
+        const gap = (new Date(d) - new Date(prev)) / 86400000;
+        cur = gap === 1 ? cur + 1 : 1;
+      } else cur = 1;
+      longestStreak = Math.max(longestStreak, cur);
+      prev = d;
+    }
+    // Current streak: walk back from today
+    const today = new Date().toISOString().slice(0, 10);
+    if (dates.has(today)) {
+      currentStreak = 1;
+      let day = new Date(today);
+      day.setDate(day.getDate() - 1);
+      while (dates.has(day.toISOString().slice(0, 10))) {
+        currentStreak++;
+        day.setDate(day.getDate() - 1);
+      }
+    }
+    // Match the server's shape so Statistics.svelte renders identical
+    // values whether reading from the cache (native) or from the server
+    // (PWA). Previously returned { current, longest } which read as
+    // undefined on the Statistics overview cards.
+    return { currentStreak, longestStreak, totalWorkouts: dates.size };
+  },
+  async volume(from, to) {
+    // Server returns [{ week, volume }] bucketed by ISO week start (Monday).
+    // Match it exactly so WeeklyVolumeChart's v.week label rendering works
+    // when the cache is being read instead of the server.
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet)
+      .filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    const byWeek = {};
+    for (const w of rows) {
+      const d = new Date(w.date);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);  // Monday-anchored
+      const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+      if (!byWeek[weekStart]) byWeek[weekStart] = 0;
+      for (const ex of w.exercises || []) {
+        for (const s of ex.sets || []) {
+          if (s.completed && !s.warmup && (Number(s.weight) || 0) > 0 && (Number(s.reps) || 0) > 0) {
+            byWeek[weekStart] += Number(s.weight) * Number(s.reps);
+          }
+        }
+      }
+    }
+    return Object.entries(byWeek).map(([week, volume]) => ({ week, volume }));
+  },
+  async frequency(from, to) {
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    const byWeek = {};
+    for (const w of rows) {
+      const d = new Date(w.date);
+      d.setDate(d.getDate() - d.getDay());
+      const key = d.toISOString().slice(0, 10);
+      byWeek[key] = (byWeek[key] || 0) + 1;
+    }
+    return Object.entries(byWeek).map(([week, count]) => ({ week, count })).sort((a, b) => a.week.localeCompare(b.week));
+  },
+  async records() {
+    // Match server shape: [{ exerciseId, name, maxWeight, maxReps, date, e1rm }].
+    // Statistics.svelte renders r.exerciseId, r.name, r.maxWeight, r.maxReps,
+    // r.date, r.e1rm directly. Previously native returned legacy keys
+    // (exercise_id / exercise_name / weight / reps) that all read as
+    // undefined on the records list.
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet);
+    const records = {};
+    for (const w of all) {
+      for (const ex of w.exercises || []) {
+        const id = ex.exercise_id || ex.exercise_name;
+        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0 };
+        for (const s of ex.sets || []) {
+          if (!s.completed || s.warmup) continue;
+          const wt = Number(s.weight) || 0;
+          const reps = Number(s.reps) || 0;
+          if (wt <= 0) continue;
+          const e1rm = reps === 1 ? wt : Math.round(wt * (1 + reps / 30));
+          if (wt > records[id].maxWeight) {
+            records[id].maxWeight = wt;
+            records[id].maxReps = reps;
+            records[id].date = w.date;
+          }
+          if (e1rm > records[id].e1rm) records[id].e1rm = e1rm;
+        }
+      }
+    }
+    return Object.entries(records).map(([id, r]) => ({ exerciseId: id, ...r }));
+  },
+  async progressFor(exerciseId, from, to) {
+    // Match server shape: [{ date, maxWeight, totalVolume, sets, avgRpe }].
+    // Statistics.svelte's progress chart + history list keys off these.
+    const rows = (await Stats._allWorkouts())
+      .filter(Stats._hasCompletedSet)
+      .filter(w => (!from || w.date >= from) && (!to || w.date <= to))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const out = [];
+    for (const w of rows) {
+      const ex = (w.exercises || []).find(e => Number(e.exercise_id) === Number(exerciseId));
+      if (!ex) continue;
+      const completed = (ex.sets || []).filter(s => s.completed && !s.warmup && (Number(s.weight) || 0) > 0);
+      if (!completed.length) continue;
+      const maxWeight = Math.max(...completed.map(s => Number(s.weight) || 0));
+      const totalVolume = completed.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
+      const rpeValues = completed
+        .map(s => parseFloat(s.rpe))
+        .filter(n => Number.isFinite(n) && n > 0);
+      const avgRpe = rpeValues.length
+        ? Math.round((rpeValues.reduce((a, b) => a + b, 0) / rpeValues.length) * 10) / 10
+        : null;
+      out.push({ date: w.date, maxWeight, totalVolume, sets: completed.length, avgRpe });
+    }
+    return out;
+  },
+  async muscleGroupVolume(from, to) {
+    // Match server shape: [{ muscle, sets, volume }] (sorted by volume desc).
+    // Server normalizes muscle names with a wider set of buckets (biceps,
+    // triceps, forearms, quads, hamstrings, glutes, calves separately) than
+    // the previous native version that collapsed everything to chest/back/
+    // shoulders/arms/legs/core. Keeping the buckets identical keeps the
+    // muscle-group volume chart looking the same on both modes.
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet)
+      .filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    const exRows = await dbQuery(`SELECT id, primary_muscles, category FROM exercises`, []);
+    const exMap = {};
+    for (const r of exRows) {
+      exMap[r.id] = {
+        muscles: _parseJson(r.primary_muscles, []),
+        category: r.category || 'other',
+      };
+    }
+    const normalize = m => {
+      const s = String(m || '').toLowerCase().trim();
+      if (s.includes('chest') || s.includes('pec')) return 'chest';
+      if (s.includes('back') || s.includes('lat') || s.includes('trap') || s.includes('rhomboid')) return 'back';
+      if (s.includes('shoulder') || s.includes('delt')) return 'shoulders';
+      if (s.includes('bicep')) return 'biceps';
+      if (s.includes('tricep')) return 'triceps';
+      if (s.includes('forearm')) return 'forearms';
+      if (s.includes('ab') || s.includes('core') || s.includes('oblique')) return 'core';
+      if (s.includes('quad')) return 'quads';
+      if (s.includes('hamstring')) return 'hamstrings';
+      if (s.includes('glute')) return 'glutes';
+      if (s.includes('calf') || s.includes('calve')) return 'calves';
+      if (s.includes('leg')) return 'legs';
+      if (s.includes('arm')) return 'arms';
+      if (s.includes('cardio')) return 'cardio';
+      return s || 'other';
+    };
+    const out = {};
+    for (const w of all) {
+      for (const ex of w.exercises || []) {
+        const info = exMap[ex.exercise_id] || { muscles: [], category: 'other' };
+        const groups = info.muscles.length ? info.muscles : [info.category];
+        const normalized = [...new Set(groups.map(normalize))];
+        for (const s of ex.sets || []) {
+          if (!s.completed || s.warmup || (Number(s.weight) || 0) <= 0 || (Number(s.reps) || 0) <= 0) continue;
+          const w = Number(s.weight) * Number(s.reps);
+          for (const g of normalized) {
+            if (!out[g]) out[g] = { muscle: g, sets: 0, volume: 0 };
+            out[g].sets++;
+            out[g].volume += w;
+          }
+        }
+      }
+    }
+    return Object.values(out).sort((a, b) => b.volume - a.volume);
+  },
+  async weekdayDistribution(from, to) {
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    const out = [0, 0, 0, 0, 0, 0, 0];
+    for (const w of rows) out[new Date(w.date).getDay()]++;
+    return out.map((count, day) => ({ day, count }));
+  },
+};
+
+const AiChat = {
+  async getHistory() {
+    const rows = await dbQuery(
+      `SELECT id, role, content, created_at FROM ai_chat_history WHERE user_id = ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1000`,
+      [ME]
+    );
+    return rows;
+  },
+  async append(role, content) {
+    const r = await dbRun(
+      `INSERT INTO ai_chat_history (user_id, role, content, created_at) VALUES (?, ?, ?, ?)`,
+      [ME, role, content, _now()]
+    );
+    return { id: r.lastId };
+  },
+  async clear() {
+    await dbRun(`DELETE FROM ai_chat_history WHERE user_id = ?`, [ME]);
+    return { ok: true };
+  },
+  // /api/ai/chat — handled at the client by aiChat.js (direct provider call).
+  // In standalone mode the server's proxy isn't used; the existing aiChat.js
+  // already routes directly to Claude/OpenAI/Gemini, so this stub never fires.
+  proxy() { throw new _Unsupported('AI chat is dispatched directly to the provider in standalone mode.'); },
+};
+
+const Prescriptions = {
+  // No trainer/coach in standalone — return empty so UI shows "no prescription".
+  forDate() { return null; },
+  upcoming() { return []; },
+};
+
+const Trainer = {
+  members() { return []; },
+  unsupported() { throw new _Unsupported('Trainer features require a server connection.'); },
+};
+
+const Notify = {
+  // Push services (Apprise/Gotify/ntfy) are direct-callable from the client
+  // via CapacitorHttp; the server proxy isn't needed in standalone mode.
+  // notifications.js already routes around /api/notify on native.
+  send() { return { ok: true, dispatched: 'client' }; },
+};
+
+const FullBackup = {
+  // Local-backup module replaces /api/full-backup in standalone mode.
+  // Kept as a stub so the Settings UI surfaces a clear "use Local Backup" hint.
+  unsupported() { throw new _Unsupported('Use Settings → Local Backup in standalone mode.'); },
+};
+
+// ── path → handler dispatch ──────────────────────────────────────────────
+
+/**
+ * Route an /api/... request to the right handler. Returns a plain object
+ * (will be JSON-encoded by the fetch interceptor) or throws on error.
+ *
+ * Throwing _Unsupported indicates "this endpoint requires a server"; the
+ * interceptor turns that into HTTP 501.
+ */
+async function handle(method, path, body, query) {
+  const m = method.toUpperCase();
+  // Strip leading slash + split. Query string is already parsed by caller.
+  const segs = path.replace(/^\/+/, '').split('/');
+  // segs[0] is always "api"
+  if (segs[0] !== 'api') throw new _Unsupported(`Not an API path: ${path}`);
+
+  const r = segs[1];
+  const id = segs[2];
+  const sub = segs[3];
+
+  // ── /api/auth/* ────────────────────────────────────────────────────────
+  if (r === 'auth') {
+    if (id === 'me'              && m === 'GET')    return Auth.me();
+    if (id === 'me'              && m === 'DELETE') { await Settings.clearData(); return { ok: true }; }
+    if (id === 'status'          && m === 'GET')    return Auth.status();
+    if (id === 'login'           && m === 'POST')   return Auth.loginOffline();
+    if (id === 'logout'          && m === 'POST')   return Auth.noopOk();
+    if (id === 'register'        && m === 'POST')   return Auth.loginOffline();
+    if (id === 'profile'         && m === 'PUT')    return Auth.updateProfile(body || {});
+    if (id === 'password'        && m === 'PUT')    return Auth.noopOk();
+    if (id === 'users'           && m === 'GET' && !sub) return Auth.users();
+    if (id === 'users'           && sub)            return Auth.me();
+    if (id === 'forgot-password' && m === 'POST')   return Auth.noopOk();
+    if (id === 'reset-password'  && m === 'POST')   return Auth.noopOk();
+    if (id === 'recover'         && m === 'POST')   return Auth.noopOk();
+    if (id === 'invite'          && m === 'POST')   throw new _Unsupported('Invitations require a server.');
+    if (id === 'accept-invite'   && m === 'POST')   throw new _Unsupported('Invitations require a server.');
+    if (id === 'validate-token'  && m === 'POST')   throw new _Unsupported('Invitations require a server.');
+    if (id === 'management')                         return Auth.noopOk();
+  }
+
+  // ── /api/app-config ────────────────────────────────────────────────────
+  if (r === 'app-config') {
+    if (!id              && m === 'GET')  return AppConfig.get();
+    if (!id              && m === 'PUT')  return AppConfig.set(body || {});
+    if (id === 'env-locks' && m === 'GET') return AppConfig.envLocks();
+    if (id === 'test-email')               throw new _Unsupported('Email tests require a server.');
+  }
+
+  // ── /api/settings ──────────────────────────────────────────────────────
+  if (r === 'settings') {
+    if (!id              && m === 'GET') return Settings.get();
+    if (!id              && m === 'PUT') return Settings.put(body || {});
+    if (id === 'clear-data' && m === 'DELETE') return Settings.clearData();
+    if (id === 'push-test') return { ok: true, dispatched: 'client' };
+  }
+
+  // ── /api/exercises ─────────────────────────────────────────────────────
+  if (r === 'exercises') {
+    if (!id                                  && m === 'GET')    return Exercises.list(query || {});
+    if (!id                                  && m === 'POST')   return Exercises.create(body || {});
+    if (id === 'custom' && sub === 'all'     && m === 'DELETE') return Exercises.deleteAllCustom();
+    if (id === 'media-urls')                                    return [];
+    // Usage stats — compute from local workout_log so sort+recency work
+    // in standalone mode too.
+    if (id === 'usage' && m === 'GET') {
+      const rows = await dbQuery(
+        `SELECT date, exercises FROM workout_log
+          WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL
+          ORDER BY date DESC`, [ME]
+      );
+      const out = {};
+      for (const row of rows) {
+        let exs;
+        try { exs = JSON.parse(row.exercises || '[]'); } catch { continue; }
+        const seen = new Set();
+        for (const ex of exs) {
+          if (!ex.exercise_id) continue;
+          const hasCompleted = (ex.sets || []).some(s => s.completed && !s.warmup);
+          if (!hasCompleted) continue;
+          const k = `${ex.exercise_id}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          if (!out[k]) out[k] = { count: 0, last_date: row.date };
+          out[k].count++;
+          if (row.date > out[k].last_date) out[k].last_date = row.date;
+        }
+      }
+      return out;
+    }
+    if (id === 'sources' && sub === 'list')                     return Exercises.sourcesList();
+    if (id === 'sources')                                        Exercises.unsupported();
+    if (id === 'sync-wger')                                      Exercises.unsupported();
+    if (/^\d+$/.test(id) && m === 'GET')    return Exercises.get(Number(id));
+    if (/^\d+$/.test(id) && m === 'PUT')    return Exercises.update(Number(id), body || {});
+    if (/^\d+$/.test(id) && m === 'DELETE') return Exercises.del(Number(id));
+  }
+
+  // ── /api/exercise-import ──────────────────────────────────────────────
+  // Standalone parity for the custom-catalog JSON import (mirrors
+  // server/routes/exercise-import.js#import-json). The catalogs/* endpoints
+  // need to keep working too so users can manage what they've imported.
+  if (r === 'exercise-import') {
+    // POST /api/exercise-import/import-json
+    if (id === 'import-json' && m === 'POST') {
+      const catalogName = String(body?.catalogName || '').trim();
+      if (!catalogName) throw new Error('catalogName is required');
+      if (catalogName.length > 60) throw new Error('catalogName must be 60 characters or fewer');
+      const list = Array.isArray(body?.exercises) ? body.exercises : null;
+      if (!list) throw new Error('exercises must be an array');
+      if (list.length === 0) throw new Error('exercises array is empty');
+      if (list.length > 10000) throw new Error('exercises array exceeds 10,000 row cap');
+
+      const source = `import:${catalogName}`;
+      const _norm = s => String(s || '').trim().replace(/\s+/g, ' ');
+      const _arr  = v => Array.isArray(v) ? v.filter(x => typeof x === 'string').map(_norm).filter(Boolean) : [];
+      const _str  = v => (v == null || v === '') ? null : String(v);
+
+      const seen = new Set();
+      let count = 0, duplicates = 0, skipped = 0;
+      for (const raw of list) {
+        const name = _norm(raw?.name);
+        if (!name) { skipped++; continue; }
+        const equipment = _arr(raw?.equipment);
+        const key = name.toLowerCase() + '||' + equipment.join(',').toLowerCase();
+        if (seen.has(key)) { duplicates++; continue; }
+        seen.add(key);
+        try {
+          await dbRun(
+            `INSERT OR IGNORE INTO exercises (name, category, equipment, instructions,
+               primary_muscles, secondary_muscles, img_url, gif_url, video_url,
+               source, is_global, created_by, created_at, updated_at, sync_state)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'pending')`,
+            [
+              name,
+              _str(raw?.category) || 'other',
+              JSON.stringify(equipment),
+              _str(raw?.instructions),
+              JSON.stringify(_arr(raw?.primary_muscles)),
+              JSON.stringify(_arr(raw?.secondary_muscles)),
+              _str(raw?.img_url),
+              _str(raw?.gif_url),
+              _str(raw?.video_url),
+              source,
+              ME,
+              _now(),
+              _now(),
+            ]
+          );
+          count++;
+        } catch { skipped++; }
+      }
+      return { ok: true, catalogName, count, duplicates, skipped };
+    }
+    // GET /api/exercise-import/catalogs → list imported catalogs
+    if (id === 'catalogs' && !sub && m === 'GET') {
+      const rows = await dbQuery(
+        `SELECT source, COUNT(*) AS count FROM exercises
+         WHERE source LIKE 'import:%' AND deleted_at IS NULL
+         GROUP BY source`,
+        []
+      );
+      const out = [];
+      for (const r of rows) {
+        const name = r.source.replace(/^import:/, '');
+        const disabled = (await dbQuery(
+          `SELECT value FROM user_settings WHERE user_id = ? AND key = ?`,
+          [ME, `catalog_disabled_${name}`]
+        ))[0];
+        out.push({
+          id: r.source, name, count: r.count,
+          enabled: !disabled?.value || disabled.value === 'false',
+        });
+      }
+      return out;
+    }
+    // POST /api/exercise-import/catalogs/toggle
+    if (id === 'catalogs' && sub === 'toggle' && m === 'POST') {
+      const name = String(body?.name || '').trim();
+      const enabled = !!body?.enabled;
+      const key = `catalog_disabled_${name}`;
+      if (enabled) {
+        await dbRun(`DELETE FROM user_settings WHERE user_id = ? AND key = ?`, [ME, key]);
+      } else {
+        await dbRun(
+          `INSERT OR REPLACE INTO user_settings (user_id, key, value, updated_at, sync_state)
+           VALUES (?, ?, ?, ?, 'pending')`,
+          [ME, key, 'true', _now()]
+        );
+      }
+      return { ok: true };
+    }
+    // POST /api/exercise-import/catalogs/delete
+    if (id === 'catalogs' && sub === 'delete' && m === 'POST') {
+      const name = String(body?.name || '').trim();
+      const source = `import:${name}`;
+      const r = await dbRun(
+        `UPDATE exercises SET deleted_at = ?, sync_state = 'pending' WHERE source = ? AND deleted_at IS NULL`,
+        [_now(), source]
+      );
+      await dbRun(`DELETE FROM user_settings WHERE user_id = ? AND key = ?`, [ME, `catalog_disabled_${name}`]);
+      return { ok: true, removed: r?.changes || 0 };
+    }
+    Exercises.unsupported();
+  }
+
+  // ── /api/programs ──────────────────────────────────────────────────────
+  if (r === 'programs') {
+    if (!id                  && m === 'GET')    return Programs.list();
+    if (!id                  && m === 'POST')   return Programs.create(body || {});
+    if (id === 'deactivate'  && m === 'POST')   return Programs.deactivate();
+    if (/^\d+$/.test(id) && m === 'GET')        return Programs.get(Number(id));
+    if (/^\d+$/.test(id) && m === 'PUT')        return Programs.update(Number(id), body || {});
+    if (/^\d+$/.test(id) && m === 'DELETE')     return Programs.del(Number(id));
+    if (/^\d+$/.test(id) && sub === 'activate' && m === 'POST') return Programs.activate(Number(id));
+    if (/^\d+$/.test(id) && sub === 'reorder'  && m === 'PUT')  return Programs.reorder(Number(id), body || {});
+    // /api/programs/:id/assign[/:userId] — POST (assign) or DELETE (unassign).
+    // Standalone has no other user to assign to, so these are no-ops here.
+    // In native+server mode the dispatcher hits the server first and only
+    // falls through if offline; the user-mgmt UI hides the feature in
+    // standalone anyway, so this is mostly defensive.
+    if (/^\d+$/.test(id) && sub === 'assign') return { ok: true };
+  }
+
+  // ── /api/templates ─────────────────────────────────────────────────────
+  if (r === 'templates') {
+    if (!id              && m === 'POST')   return Templates.create(body || {});
+    if (/^\d+$/.test(id) && m === 'GET')    return Templates.get(Number(id));
+    if (/^\d+$/.test(id) && m === 'PUT')    return Templates.update(Number(id), body || {});
+    if (/^\d+$/.test(id) && m === 'DELETE') return Templates.del(Number(id));
+  }
+
+  // ── /api/workout/:date | /api/workout/recent | /api/workout/history/:exerciseId ─
+  // Server wraps GET /:date and PUT /:date responses in { workout: ... };
+  // matching that here so loadWorkout in src/stores/workout.js — which does
+  // todayLog.set(data.workout || null) — works whether reading from cache
+  // (native) or from the server (PWA).
+  if (r === 'workout') {
+    if (id === 'recent'  && m === 'GET') return Workout.recent(query?.limit);
+    if (id === 'history' && /^\d+$/.test(sub) && m === 'GET') return Workout.historyFor(Number(sub));
+    if (id === 'history' && sub) return [];
+    // /api/workout/:date/feedback — no local store for feedback in
+    // standalone; return empty list so the diary renders cleanly.
+    if (id && sub === 'feedback' && m === 'GET') return [];
+    if (id              && m === 'GET') return { workout: await Workout.byDate(id) };
+    if (id              && m === 'PUT') return { workout: await Workout.upsert(id, body || {}) };
+  }
+
+  // ── /api/body-stats/:date | /api/body-stats/range ─────────────────────
+  // Server wraps GET /:date and PUT /:date in { stats: ... }; range returns
+  // a bare array. BodyStats.svelte reads data.stats off the wrapper.
+  if (r === 'body-stats') {
+    if (id === 'range' && m === 'GET') return BodyStats.range(query?.from, query?.to);
+    if (id              && m === 'GET') return { stats: await BodyStats.get(id) };
+    if (id              && m === 'PUT') return { stats: await BodyStats.put(id, body || {}) };
+  }
+
+  // ── /api/stats/* ──────────────────────────────────────────────────────
+  if (r === 'stats') {
+    const from = query?.from, to = query?.to;
+    if (id === 'earliest-workout-date')  return Stats.earliestWorkoutDate();
+    if (id === 'streaks')                return Stats.streaks();
+    if (id === 'volume')                 return Stats.volume(from, to);
+    if (id === 'frequency')              return Stats.frequency(from, to);
+    if (id === 'records')                return Stats.records();
+    if (id === 'muscle-group-volume')    return Stats.muscleGroupVolume(from, to);
+    if (id === 'weekday-distribution')   return Stats.weekdayDistribution(from, to);
+    if (id === 'progress' && /^\d+$/.test(sub)) return Stats.progressFor(Number(sub), from, to);
+  }
+
+  // ── /api/ai/* ─────────────────────────────────────────────────────────
+  if (r === 'ai') {
+    if (id === 'history' && m === 'GET')    return AiChat.getHistory();
+    if (id === 'history' && m === 'DELETE') return AiChat.clear();
+    if (id === 'chat')                      return AiChat.proxy();
+  }
+
+  // ── /api/prescriptions ────────────────────────────────────────────────
+  if (r === 'prescriptions') {
+    if (id === 'my' && /^\d{4}-\d{2}-\d{2}$/.test(sub)) return Prescriptions.forDate();
+    if (id === 'my' && sub === 'upcoming')              return Prescriptions.upcoming();
+  }
+
+  // ── /api/trainer ──────────────────────────────────────────────────────
+  // Standalone has no trainer/member relationships. Lists return [], writes
+  // return { ok: true } so the UI degrades gracefully without throwing.
+  if (r === 'trainer') {
+    if (id === 'activity' && m === 'GET')                       return [];
+    if (id === 'activity' && sub === 'seen' && m === 'POST')    return { ok: true };
+    if (id === 'unassigned-members' && m === 'GET')             return [];
+    if (id === 'prescriptions' && /^\d+$/.test(sub) && m === 'PUT') return { ok: true };
+    if (id === 'members' && /^\d+$/.test(sub) && m === 'POST')  return { ok: true };
+    if (id === 'feedback' && m === 'POST')                       return { ok: true };
+    return [];
+  }
+
+  // ── /api/notify ───────────────────────────────────────────────────────
+  // ── /api/coach-feedback (member-side inbox / unread surfaces) ─────────
+  // Standalone has no trainer, so inbox is always empty and seen-marking
+  // is a no-op. Falls back gracefully without throwing in the UI.
+  if (r === 'coach-feedback') {
+    if (id === 'inbox' && m === 'GET')          return [];
+    if (id === 'unread-dates' && m === 'GET')   return [];
+    if (id === 'seen' && m === 'POST')          return { ok: true };
+    if (/^\d+$/.test(id) && sub === 'reply' && m === 'PUT') return { ok: true };
+    return [];
+  }
+
+  if (r === 'notify') return Notify.send();
+
+  // ── /api/full-backup ──────────────────────────────────────────────────
+  if (r === 'full-backup') FullBackup.unsupported();
+
+  // ── /api/upload + /api/upload/exercise-media ──────────────────────────
+  // Standalone equivalent of the server's multer routes: write the blob
+  // to Capacitor Filesystem under Directory.Data/lifttrace-uploads/,
+  // return the same JSON shape so call sites (Profile avatar, MediaInput)
+  // don't need to branch on platform.
+  if (r === 'upload') {
+    if (m !== 'POST') throw new _Unsupported(`Unsupported upload method: ${m}`);
+    if (!body || typeof body.get !== 'function') {
+      throw new _Unsupported('Upload requires a FormData payload with a file field.');
+    }
+    const file = body.get('file');
+    if (!file) throw new _Unsupported('No file in upload payload.');
+    const { writeLocalUpload } = await import('./local-uploads.js');
+    const isExercise = id === 'exercise-media';
+    const written = await writeLocalUpload(file, {
+      category:     isExercise ? 'exercise' : 'avatar',
+      originalName: file.name || '',
+    });
+    // /api/upload server response: { url, mimeType }
+    // /api/upload/exercise-media: { url, kind, mimeType, size }
+    return isExercise
+      ? { url: written.url, kind: written.kind, mimeType: written.mimeType, size: written.size }
+      : { url: written.url, mimeType: written.mimeType };
+  }
+
+  // ── /api/proxy + /api/radio-proxy ─────────────────────────────────────
+  if (r === 'proxy')        throw new _Unsupported('Image proxying requires a server.');
+  if (r === 'radio-proxy') {
+    // /api/radio-proxy/now-playing?url=…   → fetch from station's own
+    //                                         status-json.xsl / stats endpoint
+    // /api/radio-proxy/info?url=…          → not available standalone
+    //                                         (would need raw header read)
+    // /api/radio-proxy/icon-suggest?url=…  → not available standalone
+    if (id === 'now-playing' && m === 'GET') {
+      const u = query?.url;
+      if (!u) return { title: '', updatedAt: null };
+      const { getNowPlaying } = await import('./radio-icy.js');
+      const r = await getNowPlaying(u);
+      return r ? { title: r.title, updatedAt: r.updatedAt, source: r.source }
+               : { title: '', updatedAt: null };
+    }
+    throw new _Unsupported('This radio proxy endpoint requires a server.');
+  }
+
+  // ── /api/subsonic ─────────────────────────────────────────────────────
+  if (r === 'subsonic') throw new _Unsupported('Subsonic music library requires a server.');
+
+  // ── /api/workout-import ──────────────────────────────────────────────
+  // Standalone parity for the Strong/Hevy/FitNotes/JEFit CSV importers.
+  // The adapters in src/lib/workout-import/ are pure JS copies of their
+  // server siblings, so the only thing that changes vs the server route
+  // is where the parsed workouts get written (local SQLite vs server DB).
+  if (r === 'workout-import') {
+    if (m !== 'POST') throw new _Unsupported(`Unsupported workout-import method: ${m}`);
+    if (!body || typeof body.get !== 'function') {
+      throw new _Unsupported('Workout import requires a FormData payload with a file field.');
+    }
+    const file = body.get('file');
+    if (!file) throw new _Unsupported('No file in workout-import payload.');
+    const source = String(body.get('source') || '');
+    const SUPPORTED = ['strong', 'hevy', 'fitnotes', 'jefit'];
+    if (!SUPPORTED.includes(source)) throw new _Unsupported(`Unsupported source: ${source}`);
+
+    const text = await file.text();
+    const userUnit = await (async () => {
+      const row = (await dbQuery(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'weightUnit'`, [ME]))[0];
+      if (!row) return 'lbs';
+      try { return JSON.parse(row.value); } catch { return row.value || 'lbs'; }
+    })();
+
+    const { parseStrong }   = await import('./workout-import/strong.js');
+    const { parseHevy }     = await import('./workout-import/hevy.js');
+    const { parseFitnotes } = await import('./workout-import/fitnotes.js');
+    const { parseJefit }    = await import('./workout-import/jefit.js');
+    const { matchExercise } = await import('./workout-import/common.js');
+    const parse = { strong: parseStrong, hevy: parseHevy, fitnotes: parseFitnotes, jefit: parseJefit }[source];
+
+    let workouts;
+    try { workouts = parse(text, userUnit); }
+    catch (e) { throw new Error(`Parse failed: ${e.message}`); }
+    if (!workouts.length) throw new Error('No workouts found in file');
+
+    const library = await dbQuery(
+      `SELECT id, name FROM exercises WHERE (is_global = 1 OR created_by = ?) AND deleted_at IS NULL`,
+      [ME]
+    );
+
+    // ── /preview ──────────────────────────────────────────────────────
+    if (id === 'preview') {
+      let totalSets = 0;
+      const unmatched = new Map();
+      const matched   = new Set();
+      for (const w of workouts) {
+        for (const ex of w.exercises) {
+          totalSets += (ex.sets || []).length;
+          const found = matchExercise(ex.sourceName, library);
+          if (found) matched.add(ex.sourceName);
+          else unmatched.set(ex.sourceName, (unmatched.get(ex.sourceName) || 0) + 1);
+        }
+      }
+      const dates = workouts.map(w => w.date);
+      const dateSet = new Set(dates);
+      const existingRows = await dbQuery(
+        `SELECT date FROM workout_log WHERE user_id = ? AND deleted_at IS NULL AND date IN (${dates.map(() => '?').join(',') || "''"})`,
+        [ME, ...dates]
+      );
+      const dupeDates = new Set(existingRows.map(r => r.date).filter(d => dateSet.has(d)));
+      return {
+        workouts: workouts.length,
+        sets: totalSets,
+        uniqueExercises: matched.size + unmatched.size,
+        matchedExercises: matched.size,
+        unmatchedExercises: [...unmatched.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 40)
+          .map(([name, count]) => ({ name, count })),
+        duplicateDates: dupeDates.size,
+        dateRange: { from: workouts[0].date, to: workouts[workouts.length - 1].date },
+      };
+    }
+
+    // ── /commit ───────────────────────────────────────────────────────
+    if (id === 'commit') {
+      const dupeMode = String(body.get('onDuplicate') || '') === 'replace' ? 'replace' : 'skip';
+      let imported = 0, skipped = 0, replaced = 0;
+      for (const w of workouts) {
+        const existing = (await dbQuery(
+          `SELECT id FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
+          [ME, w.date]
+        ))[0];
+        if (existing) {
+          if (dupeMode === 'skip') { skipped++; continue; }
+          await dbRun(
+            `UPDATE workout_log SET deleted_at = ?, sync_state = 'pending' WHERE id = ?`,
+            [_now(), existing.id]
+          );
+          replaced++;
+        }
+        const exerciseRows = w.exercises.map(ex => {
+          const match = matchExercise(ex.sourceName, library);
+          return {
+            exercise_id:   match ? match.id : null,
+            exercise_name: match ? match.name : ex.sourceName,
+            sets:          ex.sets,
+            superset_id:   ex.superset_id ?? null,
+            superset_size: ex.superset_size || 1,
+          };
+        });
+        await dbRun(
+          `INSERT INTO workout_log (user_id, date, name, notes, duration_min, exercises, completed, created_at, updated_at, sync_state)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 'pending')`,
+          [ME, w.date, w.name || 'Imported', w.notes || null, w.duration_min || null,
+           JSON.stringify(exerciseRows), _now(), _now()]
+        );
+        imported++;
+      }
+      return { imported, skipped, replaced };
+    }
+
+    throw new _Unsupported(`Unknown workout-import endpoint: ${id}`);
+  }
+
+  throw new _Unsupported(`No standalone handler for ${m} ${path}`);
+}
+
+export const LtApiNative = { handle, _Unsupported };

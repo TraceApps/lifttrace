@@ -1,0 +1,37 @@
+{
+  "exercises": [
+    {
+      "name": "Bench Press",
+      "category": "chest",
+      "primary_muscles": ["chest"],
+      "secondary_muscles": ["triceps", "front-delts"],
+      "equipment": ["barbell"],
+      "instructions": "Lie flat on the bench. Grip the bar slightly wider than shoulder-width. Lower under control to the mid-chest, then press back up to lockout.",
+      "img_url": "",
+      "gif_url": "",
+      "video_url": ""
+    },
+    {
+      "name": "Goblet Squat",
+      "category": "legs",
+      "primary_muscles": ["quads", "glutes"],
+      "secondary_muscles": ["core"],
+      "equipment": ["dumbbell"],
+      "instructions": "Hold a dumbbell vertically against the chest. Sit back and down, keeping the torso upright and elbows tucked. Drive through the heels to stand.",
+      "img_url": "",
+      "gif_url": "",
+      "video_url": ""
+    },
+    {
+      "name": "Pull-Up",
+      "category": "back",
+      "primary_muscles": ["back"],
+      "secondary_muscles": ["biceps", "forearms"],
+      "equipment": ["bodyweight"],
+      "instructions": "Hang from a bar with palms facing away, hands slightly wider than shoulders. Pull the chin above the bar, lower under control to a full hang.",
+      "img_url": "",
+      "gif_url": "",
+      "video_url": ""
+    }
+  ]
+}

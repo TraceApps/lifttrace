@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.backup-polish
+*.log
+.env*
+android
+*.apk
+*.aab
+*.keystore

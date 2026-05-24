@@ -1,0 +1,116 @@
+apply plugin: 'com.android.application'
+
+// Optional: load release signing credentials from a gitignored properties
+// file at android/keystore.properties. If present, assembleRelease produces
+// a signed release APK ready for distribution. If missing, assembleRelease
+// falls back to debug signing — fine for local testing, NOT for distribution.
+//
+// LiftTrace shares one keystore with NutriTrace + CookTrace — the whole
+// "TraceApps" family signs from the same publisher identity. See
+// keystore.properties.example for the canonical setup.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+if (hasReleaseKeystore) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "com.lifttrace.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.lifttrace.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 10
+        versionName "1.0.0-rc.1"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    if (hasReleaseKeystore) {
+        signingConfigs {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        // Sign dev/debug builds with the release keystore too so
+        // `cap run android` and assembleRelease share a cert. Without
+        // this, swapping between a dev build and a release build
+        // triggers Android signature-mismatch and forces a fresh
+        // install — wiping the local SQLite DB and Capacitor
+        // Preferences. (Same lesson NutriTrace + CookTrace learned —
+        // feedback_android_signing.md.)
+        debug {
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    // WorkManager — drives ReminderWorker (15-min periodic background job)
+    implementation "androidx.work:work-runtime:2.9.1"
+    // OkHttp — used by StreamProxyPlugin to fetch radio streams. We need
+    // HTTP/2 support for hosts like cloud.revma.ihrhls.com that strictly
+    // require it; Java's HttpURLConnection on Android speaks HTTP/1.1 only.
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    // Media3 ExoPlayer — used by RadioPlayerPlugin for native radio
+    // playback. Bypasses Chromium WebView's broken HE-AAC decoder which
+    // deterministically dies at packet #128 of iHeart-style streams.
+    implementation "androidx.media3:media3-exoplayer:1.4.1"
+    implementation "androidx.media3:media3-exoplayer-hls:1.4.1"
+    implementation "androidx.media3:media3-datasource-okhttp:1.4.1"
+    // ICY metadata extractor — exposes IcyInfo / IcyHeaders to
+    // Player.Listener.onMetadata so we can surface "Artist - Song"
+    // updates from Shoutcast/Icecast streams to JS.
+    implementation "androidx.media3:media3-extractor:1.4.1"
+    // MediaSession + MediaSessionService — produces the lockscreen /
+    // notification-shade MediaStyle notification automatically, hooks
+    // Bluetooth headphone media keys, integrates with Android Auto.
+    // Replaces capacitor-music-controls-plugin which was unreliable
+    // on Android 14+.
+    implementation "androidx.media3:media3-session:1.4.1"
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
