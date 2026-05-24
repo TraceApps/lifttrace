@@ -42,7 +42,7 @@
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Weekly goal</span>
+            <span class="setting-label">Weekly Goal</span>
             <span class="setting-hint">Target number of training days per week</span>
           </div>
           <select class="form-select-sm" bind:value={$weeklyWorkoutGoal}>
@@ -53,22 +53,22 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Goal celebrations</span>
+            <span class="setting-label">Goal Celebrations</span>
             <span class="setting-hint">Confetti when you hit a milestone</span>
           </div>
           <Toggle bind:checked={$goalCelebrations} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Screen keep-awake</span>
+            <span class="setting-label">Screen Keep-Awake</span>
             <span class="setting-hint">Keep the screen on during workouts</span>
           </div>
           <Toggle bind:checked={$screenKeepAwake} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Show calorie estimate</span>
-            <span class="setting-hint">Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height + weight + date of birth + sex set in Profile. Resistance-training estimates are loose by ±25% — treated as an "~est" badge in the UI, not a hard number.</span>
+            <span class="setting-label">Show Calorie Estimate</span>
+            <span class="setting-hint">Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height + weight + date of birth + sex set in Profile. Resistance-training estimates are loose by Â±25% â€” treated as an "~est" badge in the UI, not a hard number.</span>
           </div>
           <Toggle bind:checked={$caloriesBurnedEnabled} />
         </div>
@@ -78,35 +78,35 @@
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-fill last weights</span>
+            <span class="setting-label">Auto-Fill Last Weights</span>
             <span class="setting-hint">Pre-fill weight and reps from your last session</span>
           </div>
           <Toggle bind:checked={$autoFillLastWeights} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Completion summary</span>
+            <span class="setting-label">Completion Summary</span>
             <span class="setting-hint">Show stats recap when all sets are done</span>
           </div>
           <Toggle bind:checked={$showCompletionSummary} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-collapse completed exercises</span>
-            <span class="setting-hint">Collapse a card once every set is ticked — tap to re-expand</span>
+            <span class="setting-label">Auto-Collapse Completed Exercises</span>
+            <span class="setting-hint">Collapse a card once every set is ticked â€” tap to re-expand</span>
           </div>
           <Toggle bind:checked={$autoCollapseCompleted} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-name workouts</span>
+            <span class="setting-label">Auto-Name Workouts</span>
             <span class="setting-hint">Name empty workouts from exercise categories (Push Day, Pull Day, etc.)</span>
           </div>
           <Toggle bind:checked={$autoNameWorkouts} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Reorder method</span>
+            <span class="setting-label">Reorder Method</span>
             <span class="setting-hint">How to reorder exercises in the diary</span>
           </div>
           <select class="form-select-sm" bind:value={$exerciseReorderMethod}>
@@ -117,22 +117,22 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Confirm before removing</span>
+            <span class="setting-label">Confirm Before Removing</span>
             <span class="setting-hint">Ask before removing an exercise or superset from the diary</span>
           </div>
           <Toggle bind:checked={$confirmExerciseRemoval} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-generate warm-up sets</span>
+            <span class="setting-label">Auto-Generate Warm-Up Sets</span>
             <span class="setting-hint">When a template loads with target weights, prepend bar / 50% / 70% / 85% warm-ups. You can always add or remove them per-exercise.</span>
           </div>
           <Toggle bind:checked={$autoGenerateWarmups} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Track RPE per set</span>
-            <span class="setting-hint">Log Rate of Perceived Exertion (6–10 scale) on each completed set. Useful for autoregulated programs.</span>
+            <span class="setting-label">Track RPE per Set</span>
+            <span class="setting-hint">Log Rate of Perceived Exertion (6â€“10 scale) on each completed set. Useful for autoregulated programs.</span>
           </div>
           <Toggle bind:checked={$trackRpe} />
         </div>
@@ -142,7 +142,7 @@
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Rest timer</span>
+            <span class="setting-label">Rest Timer</span>
             <span class="setting-hint">Countdown between sets</span>
           </div>
           <Toggle bind:checked={$restTimerEnabled} />
@@ -150,8 +150,8 @@
         {#if $restTimerEnabled}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Rest duration</span>
-              <span class="setting-hint">Default — remembered per-exercise after first use</span>
+              <span class="setting-label">Rest Duration</span>
+              <span class="setting-hint">Default â€” remembered per-exercise after first use</span>
             </div>
             <select class="form-select-sm" bind:value={$restDuration}>
               {#each [30,45,60,75,90,120,150,180,240,300] as s}
@@ -161,14 +161,14 @@
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Auto-start on set</span>
+              <span class="setting-label">Auto-Start on Set</span>
               <span class="setting-hint">Start rest timer when you check off a set</span>
             </div>
             <Toggle bind:checked={$restAutoStart} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Alert when done</span>
+              <span class="setting-label">Alert When Done</span>
               <span class="setting-hint">Get notified when the timer finishes</span>
             </div>
             <Toggle bind:checked={$restAlert} />
@@ -183,7 +183,7 @@
             </div>
             <div class="setting-row" style="padding-left:28px">
               <div class="setting-label-group">
-                <span class="setting-label">Play tone</span>
+                <span class="setting-label">Play Tone</span>
                 <span class="setting-hint">Brief chime when the timer hits zero</span>
               </div>
               <Toggle bind:checked={$restAlertTone} />
@@ -191,8 +191,8 @@
             {#if $restAlertTone}
               <div class="setting-row" style="padding-left:28px;flex-direction:column;align-items:stretch;gap:6px">
                 <div class="setting-label-group">
-                  <span class="setting-label">Tone style</span>
-                  <span class="setting-hint">Tap a row to select; tap ▶ to preview</span>
+                  <span class="setting-label">Tone Style</span>
+                  <span class="setting-hint">Tap a row to select; tap â–¶ to preview</span>
                 </div>
                 <div class="tone-list">
                   {#each REST_TONES as tone}

@@ -2,6 +2,7 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
+  import ConnectionStatus from './ConnectionStatus.svelte';
   import {
     notifLocalEnabled, notifPushService,
     gotifyUrl, gotifyToken, ntfyUrl, ntfyTopic, ntfyToken, appriseUrl, appriseTag,
@@ -57,11 +58,40 @@
         pushTestResult = 'fail';
       } else {
         pushTestResult = 'ok';
-        showSuccess('Test sent — check your device!');
+        showSuccess('Test sent, check your device');
       }
     } catch { pushTestResult = 'fail'; }
     pushTesting = false;
   }
+
+  // Push services follow the same pattern as SettingsEmail / NT's SMTP:
+  // "Configured" as soon as the required fields are filled (creds entered,
+  // never verified), "Last Test Sent" after a successful test. A failed
+  // test takes priority. Single banner state since only one provider is
+  // active at a time.
+  $: _pushConfigured = $notifPushService === 'gotify'  ? !!($gotifyUrl && $gotifyToken)
+                     : $notifPushService === 'ntfy'    ? !!($ntfyUrl && $ntfyTopic)
+                     : $notifPushService === 'apprise' ? !!$appriseUrl
+                     : false;
+  $: pushBannerStatus = pushTesting
+    ? 'testing'
+    : pushTestResult === 'fail'
+      ? 'fail'
+      : (_pushConfigured ? 'ok' : '');
+  $: pushBannerDisabled = pushTesting || !_pushConfigured;
+  // Clear stale test result when the user switches providers so the banner
+  // doesn't carry over a "Last Test Sent" pill from a different service.
+  let _lastPushProvider = $notifPushService;
+  $: if ($notifPushService !== _lastPushProvider) {
+    _lastPushProvider = $notifPushService;
+    pushTestResult = null;
+  }
+  // Provider chip rendered in the banner so the user always sees which
+  // service the "Configured" / "Last Test Sent" state refers to.
+  $: pushProviderLabel = $notifPushService === 'gotify'  ? 'Gotify'
+                       : $notifPushService === 'ntfy'    ? 'ntfy'
+                       : $notifPushService === 'apprise' ? 'Apprise'
+                       : '';
 </script>
 
 {#if visible}
@@ -74,9 +104,20 @@
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <p class="sub-label">Delivery</p>
       <div class="card">
+        {#if $notifPushService !== 'none'}
+          <ConnectionStatus
+            status={pushBannerStatus}
+            okLabel="Configured"
+            connectedAs={pushProviderLabel}
+            error={pushTestResult === 'fail' ? `${pushProviderLabel} test failed — check the URL and credentials below` : ''}
+            onRetest={testPush}
+            retestDisabled={pushBannerDisabled}
+            retestLabel="Send Test"
+          />
+        {/if}
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Device notifications</span>
+            <span class="setting-label">Device Notifications</span>
             <span class="setting-hint">{isNative ? 'System notifications shown by Android in the status bar and on the lock screen' : 'Browser notification alerts'}</span>
           </div>
           <Toggle bind:checked={$notifLocalEnabled} />
@@ -95,7 +136,7 @@
         {/if}
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Push service</span>
+            <span class="setting-label">Push Service</span>
             <span class="setting-hint">External push delivery (Gotify, ntfy, or Apprise)</span>
           </div>
           <select class="form-select-sm" bind:value={$notifPushService}>
@@ -124,20 +165,8 @@
               <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? 'Hide' : 'Show'}>
                 <span class="material-symbols-rounded">{pushShowToken ? 'visibility_off' : 'visibility'}</span>
               </button>
-              <button class="btn btn-secondary" style="height:36px;font-size:13px" on:click={testPush} disabled={pushTesting || !$gotifyUrl || !$gotifyToken}>
-                {pushTesting ? 'Testing…' : 'Test'}
-              </button>
             </div>
           </div>
-          {#if pushTestResult === 'ok'}
-            <span style="color:var(--success);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">check_circle</span>Connected
-            </span>
-          {:else if pushTestResult === 'fail'}
-            <span style="color:var(--danger);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">error</span>Failed
-            </span>
-          {/if}
         </div>
       {:else if $notifPushService === 'ntfy'}
         <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
@@ -160,20 +189,8 @@
               <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? 'Hide' : 'Show'}>
                 <span class="material-symbols-rounded">{pushShowToken ? 'visibility_off' : 'visibility'}</span>
               </button>
-              <button class="btn btn-secondary" style="height:36px;font-size:13px" on:click={testPush} disabled={pushTesting || !$ntfyTopic}>
-                {pushTesting ? 'Testing…' : 'Test'}
-              </button>
             </div>
           </div>
-          {#if pushTestResult === 'ok'}
-            <span style="color:var(--success);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">check_circle</span>Connected
-            </span>
-          {:else if pushTestResult === 'fail'}
-            <span style="color:var(--danger);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">error</span>Failed
-            </span>
-          {/if}
         </div>
       {:else if $notifPushService === 'apprise'}
         <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
@@ -183,22 +200,8 @@
           </div>
           <div class="form-group">
             <label class="form-label">Tag (optional)</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input class="form-input" style="flex:1" type="text" bind:value={$appriseTag} placeholder="lifttrace" />
-              <button class="btn btn-secondary" style="height:36px;font-size:13px" on:click={testPush} disabled={pushTesting || !$appriseUrl}>
-                {pushTesting ? 'Testing…' : 'Test'}
-              </button>
-            </div>
+            <input class="form-input" type="text" bind:value={$appriseTag} placeholder="lifttrace" />
           </div>
-          {#if pushTestResult === 'ok'}
-            <span style="color:var(--success);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">check_circle</span>Connected
-            </span>
-          {:else if pushTestResult === 'fail'}
-            <span style="color:var(--danger);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">error</span>Failed
-            </span>
-          {/if}
         </div>
       {/if}
 
@@ -207,7 +210,7 @@
         <div class="card">
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Workout reminder</span>
+              <span class="setting-label">Workout Reminder</span>
               <span class="setting-hint">Daily reminder to train</span>
             </div>
             <Toggle bind:checked={$notifWorkoutReminder} />
@@ -220,21 +223,21 @@
           {/if}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Rest day reminder</span>
+              <span class="setting-label">Rest Day Reminder</span>
               <span class="setting-hint">Reminds you to recover after training days</span>
             </div>
             <Toggle bind:checked={$notifRestDay} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Streak alert</span>
+              <span class="setting-label">Streak Alert</span>
               <span class="setting-hint">Warns when your streak is at risk</span>
             </div>
             <Toggle bind:checked={$notifStreakAlert} />
           </div>
           {#if $notifStreakAlert}
             <div class="setting-row">
-              <span class="setting-label">Alert time</span>
+              <span class="setting-label">Alert Time</span>
               <input class="form-input-sm" type="time" bind:value={$notifStreakTime} style="width:120px" />
             </div>
           {/if}
@@ -244,21 +247,21 @@
         <div class="card">
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Workout complete</span>
+              <span class="setting-label">Workout Complete</span>
               <span class="setting-hint">Celebrate when all sets are done</span>
             </div>
             <Toggle bind:checked={$notifWorkoutComplete} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Personal records</span>
+              <span class="setting-label">Personal Records</span>
               <span class="setting-hint">Celebrate when you hit a new PR</span>
             </div>
             <Toggle bind:checked={$notifPRCelebrations} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Coach feedback</span>
+              <span class="setting-label">Coach Feedback</span>
               <span class="setting-hint">Ping when your coach leaves a note on a workout</span>
             </div>
             <Toggle bind:checked={$notifCoachFeedback} />
@@ -296,14 +299,14 @@
         <div class="card">
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Weekly summary</span>
+              <span class="setting-label">Weekly Summary</span>
               <span class="setting-hint">Push + email digest of your training week</span>
             </div>
             <Toggle bind:checked={$notifWeeklySummary} />
           </div>
           {#if $notifWeeklySummary}
             <div class="setting-row">
-              <span class="setting-label">Delivery day</span>
+              <span class="setting-label">Delivery Day</span>
               <select class="form-select-sm" bind:value={$weeklySummaryDay}>
                 {#each ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] as d, i}
                   <option value={i}>{d}</option>
@@ -311,7 +314,7 @@
               </select>
             </div>
             <div class="setting-row">
-              <span class="setting-label">Delivery time</span>
+              <span class="setting-label">Delivery Time</span>
               <input class="form-input-sm" type="time" bind:value={$weeklySummaryTime} style="width:120px" />
             </div>
           {/if}

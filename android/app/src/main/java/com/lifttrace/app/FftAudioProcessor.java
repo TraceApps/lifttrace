@@ -44,9 +44,18 @@ import java.nio.ShortBuffer;
  */
 @OptIn(markerClass = UnstableApi.class)
 public class FftAudioProcessor extends BaseAudioProcessor {
-    private static final int FFT_SIZE = 256;            // power of 2; 128 magnitude bins
-    private static final int OUT_SIZE = FFT_SIZE / 2;   // one byte per bin
-    private static final long EMIT_INTERVAL_NS = 33_000_000L;  // ~30Hz
+    // fftSize = 64 mirrors what the PWA's Trace.svelte constructs on
+    // AnalyserNode. Chromium uses exactly this size for the 32-bar ring
+    // (fftSize/2 = 32 frequency bins). Using a larger FFT here and
+    // averaging back down to 32 bars introduced a different frequency
+    // response per bar — short windows have wider per-bin bandwidth, so
+    // matching fftSize is the only way to match the per-bar response.
+    private static final int FFT_SIZE = 64;
+    private static final int OUT_SIZE = FFT_SIZE / 2;   // 32 bins, one byte each
+    // ~60Hz emit rate — matches the PWA path which reads AnalyserNode
+    // on every requestAnimationFrame (~60 fps on a typical display).
+    // Anything slower visibly stutters next to the web reference.
+    private static final long EMIT_INTERVAL_NS = 16_000_000L;
 
     // Web Audio AnalyserNode default thresholds — mirroring these means every
     // bar that would respond on the PWA also responds at the same pixel
@@ -54,10 +63,23 @@ public class FftAudioProcessor extends BaseAudioProcessor {
     private static final float MIN_DB = -100f;
     private static final float MAX_DB = -30f;
     private static final float DB_RANGE = MAX_DB - MIN_DB;
-    // For Hann-windowed PCM_16 input normalized to [-1, 1], FFT bin
-    // magnitudes top out near FFT_SIZE/4 for a full-amplitude single tone.
-    // Use that as the 0 dB reference.
-    private static final float NORM_REF = FFT_SIZE / 4f;
+    // Per-bin magnitude normalization. Chromium's RealtimeAnalyser
+    // (third_party/blink/renderer/modules/webaudio/realtime_analyser.cc,
+    // DoFFTAnalysis) computes magnitude as (1/N) * sqrt(re² + im²) on
+    // its Blackman-windowed data. Empirically this lands close to the
+    // PWA reading without explicit window-gain compensation — Chromium
+    // either doesn't compensate or does so implicitly through a different
+    // path. A previous attempt to divide by Blackman's full coherent
+    // gain (0.42) over-boosted bars by ~7.5 dB so almost every bin hit
+    // max. Sticking with the plain 1/N from the spec text reads closer.
+    private static final float MAG_NORM = 1f / FFT_SIZE;
+
+    // Mirrors AnalyserNode's smoothingTimeConstant default. Smoothing
+    // happens on LINEAR magnitudes BEFORE the dB conversion — per the W3C
+    // spec — not on the post-dB byte values. Applying it post-dB (as the
+    // JS side used to) produced a perceptibly different curve because
+    // log-scale smoothing != linear-scale smoothing.
+    private static final float SMOOTHING = 0.75f;
 
     public interface FftListener {
         void onFftBins(byte[] bins);
@@ -69,13 +91,22 @@ public class FftAudioProcessor extends BaseAudioProcessor {
     private final float[] _re = new float[FFT_SIZE];
     private final float[] _im = new float[FFT_SIZE];
     private final byte[] _outBins = new byte[OUT_SIZE];
+    // Per-bin smoothed magnitude state — persisted across emits so each
+    // new frame blends with the previous (see SMOOTHING comment above).
+    private final float[] _smoothedMag = new float[OUT_SIZE];
 
-    // Hann window precomputed once — applying a window function to the time-
-    // domain samples reduces spectral leakage so the FFT bins look cleaner.
-    private final float[] _hann = new float[FFT_SIZE];
+    // Blackman window precomputed once. Chromium's RealtimeAnalyser uses
+    // Blackman with these exact coefficients (a0=0.42, a1=0.5, a2=0.08).
+    // Using Hann here produced a perceptibly different per-bar response
+    // because the windows have different main-lobe width + side-lobe levels.
+    private final float[] _blackman = new float[FFT_SIZE];
     {
+        final double a0 = 0.42;
+        final double a1 = 0.5;
+        final double a2 = 0.08;
         for (int i = 0; i < FFT_SIZE; i++) {
-            _hann[i] = (float) (0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / (FFT_SIZE - 1))));
+            double x = (2.0 * Math.PI * i) / FFT_SIZE;
+            _blackman[i] = (float) (a0 - a1 * Math.cos(x) + a2 * Math.cos(2.0 * x));
         }
     }
 
@@ -146,7 +177,7 @@ public class FftAudioProcessor extends BaseAudioProcessor {
 
         // Window + load real-valued PCM into complex arrays
         for (int i = 0; i < FFT_SIZE; i++) {
-            _re[i] = (_window[i] / 32768f) * _hann[i];
+            _re[i] = (_window[i] / 32768f) * _blackman[i];
             _im[i] = 0f;
         }
         fftInPlace(_re, _im);
@@ -197,28 +228,33 @@ public class FftAudioProcessor extends BaseAudioProcessor {
     }
 
     /**
-     * Convert the complex FFT output to per-bin dB-scaled magnitude bytes,
-     * matching `AnalyserNode.getByteFrequencyData()` on the PWA. Each byte
-     * encodes one bin's magnitude clamped to [MIN_DB, MAX_DB] and then
-     * linearly mapped to [0, 255]:
+     * Mirrors AnalyserNode.getByteFrequencyData() per the W3C Web Audio
+     * spec (§1.5.2.5). Three steps:
      *
-     *   byte = round((db − MIN_DB) / (MAX_DB − MIN_DB) × 255)
+     *   1. magnitude:  sqrt(re² + im²) * 2/N        (linear-scale, normalized)
+     *   2. smoothing:  s * prev + (1 - s) * mag     (on LINEAR mag, in place)
+     *   3. dB + map:   byte = round((clamp(dB) - minDB) * 255 / dbRange)
      *
-     * Bin 0 (DC) uses |real| only since imag is implicitly 0 there. The
-     * Nyquist bin is dropped — Web Audio omits it too.
+     * Smoothing on linear magnitudes BEFORE dB conversion is critical;
+     * the prior implementation smoothed bar heights AFTER dB conversion
+     * which produced a perceptibly different curve from the PWA.
+     *
+     * Bin 0 (DC) uses |real| only since imag is implicitly 0. The Nyquist
+     * bin is dropped — Web Audio omits it too.
      */
     private void packBins() {
         for (int i = 0; i < OUT_SIZE; i++) {
             float mag = (i == 0)
-                ? Math.abs(_re[0])
-                : (float) Math.hypot(_re[i], _im[i]);
-            _outBins[i] = magToByte(mag);
+                ? Math.abs(_re[0]) * MAG_NORM
+                : (float) Math.hypot(_re[i], _im[i]) * MAG_NORM;
+            _smoothedMag[i] = SMOOTHING * _smoothedMag[i] + (1f - SMOOTHING) * mag;
+            _outBins[i] = magToByte(_smoothedMag[i]);
         }
     }
 
     private static byte magToByte(float mag) {
         if (mag <= 0f) return 0;
-        float db = 20f * (float) Math.log10(mag / NORM_REF);
+        float db = 20f * (float) Math.log10(mag);
         if (db < MIN_DB) db = MIN_DB;
         if (db > MAX_DB) db = MAX_DB;
         int v = Math.round((db - MIN_DB) * 255f / DB_RANGE);

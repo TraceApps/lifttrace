@@ -72,9 +72,12 @@
             <span>Support development</span>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;padding-left:30px">
+            <!-- GitHub Sponsors button hidden until the traceapps org Sponsors profile is approved.
+                 Re-enable by uncommenting the <a> below (and the github: line in .github/FUNDING.yml).
             <a href="https://github.com/sponsors/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
               <span class="material-symbols-rounded" style="font-size:14px">favorite</span> GitHub Sponsors
             </a>
+            -->
             <a href="https://ko-fi.com/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
               <span class="material-symbols-rounded" style="font-size:14px">coffee</span> Ko-fi
             </a>
@@ -83,9 +86,24 @@
         </div>
         <div class="setting-divider"></div>
         <div class="about-desc" style="font-size:11px;color:var(--text-3);line-height:1.5">
-          LiftTrace is not medical software. It does not provide medical advice, diagnosis, or treatment.
-          Exercise data and AI coaching suggestions are for informational purposes only. Always consult a
-          healthcare professional before starting a new exercise program.
+          <strong>Disclaimer.</strong> LiftTrace is not medical, health, or fitness-professional
+          software. It does not provide medical advice, diagnosis, treatment, or personalized
+          training prescriptions. Exercise library content, Trace AI coaching, program templates,
+          rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight
+          trends) are for informational and self-tracking purposes only.
+          <br /><br />
+          Resistance training carries inherent risk of injury. Exercise selection, load, technique,
+          and progression can interact with medical conditions (heart and cardiovascular conditions,
+          high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis,
+          pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways
+          this app cannot assess. Consult a qualified healthcare professional, certified strength
+          coach, or licensed physical therapist before starting a new training program, returning
+          from injury, or making significant changes to your routine.
+          <br /><br />
+          Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a
+          substitute for human judgment or professional advice. Exercise library data is sourced
+          from public databases (wger, Free Exercise DB, optionally ExerciseDB via RapidAPI) and
+          may contain inaccuracies. Use at your own risk.
         </div>
       </div>
     </div>

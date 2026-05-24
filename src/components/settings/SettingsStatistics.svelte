@@ -19,7 +19,7 @@
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <div class="card">
         <div class="setting-row">
-          <span class="setting-label">Default chart type</span>
+          <span class="setting-label">Default Chart Type</span>
           <select class="form-select-sm" bind:value={$statsChartType}>
             <option value="bar">Bar</option>
             <option value="line">Line</option>
@@ -27,21 +27,21 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Lock Y-axis to zero</span>
+            <span class="setting-label">Lock Y-Axis to Zero</span>
             <span class="setting-hint">Always start the Y-axis at 0</span>
           </div>
           <Toggle bind:checked={$statsYZero} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Show average line</span>
+            <span class="setting-label">Show Average Line</span>
             <span class="setting-hint">Horizontal line at the average value</span>
           </div>
           <Toggle bind:checked={$statsAvgLine} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Show trend line</span>
+            <span class="setting-label">Show Trend Line</span>
             <span class="setting-hint">Smoothed trend overlay on charts</span>
           </div>
           <Toggle bind:checked={$statsTrendLine} />

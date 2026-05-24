@@ -26,7 +26,7 @@
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">
-          <span class="setting-label">Weight unit</span>
+          <span class="setting-label">Weight Unit</span>
           <select class="form-select-sm" bind:value={$weightUnit}>
             <option value="lbs">lbs</option>
             <option value="kg">kg</option>
@@ -34,7 +34,7 @@
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">
-          <span class="setting-label">Date format</span>
+          <span class="setting-label">Date Format</span>
           <select class="form-select-sm" bind:value={$dateFormat}>
             <option value="US">US (MM/DD/YYYY)</option>
             <option value="EU">EU (DD/MM/YYYY)</option>
@@ -42,7 +42,7 @@
           </select>
         </div>
         <div class="setting-row">
-          <span class="setting-label">Time format</span>
+          <span class="setting-label">Time Format</span>
           <select class="form-select-sm" bind:value={$timeFormat}>
             <option value="12h">12-hour</option>
             <option value="24h">24-hour</option>

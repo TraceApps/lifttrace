@@ -2,6 +2,8 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
+  import ConnectionStatus from './ConnectionStatus.svelte';
+  import { showSuccess, showError } from '../../stores/toast.js';
 
   export let expanded = false;
   export let visible = true;
@@ -60,12 +62,36 @@
   }
 
   async function testSmtp() {
+    if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
     smtpTestStatus = 'testing';
     try {
       const res = await fetch('/api/app-config/test-email', { method: 'POST', credentials: 'include' });
-      smtpTestStatus = res.ok ? 'ok' : 'fail';
-    } catch { smtpTestStatus = 'fail'; }
+      if (res.ok) {
+        smtpTestStatus = 'ok';
+        showSuccess('SMTP test email sent, check your inbox');
+      } else {
+        smtpTestStatus = 'fail';
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
+        showError(`SMTP test failed: ${detail}`);
+      }
+    } catch (e) {
+      smtpTestStatus = 'fail';
+      showError(`SMTP test failed: ${e?.message || 'network error'}`);
+    }
   }
+
+  // Banner status mirrors NutriTrace's SMTP pattern: SMTP is fire-and-forget
+  // (not a persistent connection) so the banner shows "Configured" as soon as
+  // host + from are filled in (creds entered, never verified), and flips to
+  // "Last test sent" after a successful test. A failed test takes priority.
+  $: smtpBannerStatus = smtpTestStatus === 'testing' || smtpTestStatus === 'fail'
+    ? smtpTestStatus
+    : (smtpHost && smtpFrom ? 'ok' : '');
+  $: smtpBannerLabel   = smtpTestStatus === 'ok' ? 'Last Test Sent' : 'Configured';
+  $: smtpBannerSubtext = smtpTestStatus === 'ok'
+    ? 'Use Send Test again any time to re-verify'
+    : 'No test has been sent yet';
 </script>
 
 {#if visible}
@@ -84,6 +110,15 @@
         </div>
       {/if}
       <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+        <ConnectionStatus
+          status={smtpBannerStatus}
+          okLabel={smtpBannerLabel}
+          subtext={smtpBannerSubtext}
+          error={smtpTestStatus === 'fail' ? 'Check host, credentials, and from address' : ''}
+          onRetest={testSmtp}
+          retestDisabled={smtpTestStatus === 'testing' || !smtpHost}
+          retestLabel="Send Test"
+        />
         <div class="form-group">
           <label class="form-label">SMTP Host</label>
           <input class="form-input" type="text" placeholder="e.g. smtp.example.com"
@@ -134,19 +169,6 @@
               {smtpSaving ? 'Saving…' : 'Save'}
             {/if}
           </button>
-          <button class="btn btn-secondary" style="height:36px;font-size:13px"
-            on:click={testSmtp} disabled={!smtpHost || smtpTestStatus === 'testing'}>
-            {smtpTestStatus === 'testing' ? 'Testing…' : 'Test'}
-          </button>
-          {#if smtpTestStatus === 'ok'}
-            <span style="color:var(--success);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">check_circle</span>Connected
-            </span>
-          {:else if smtpTestStatus === 'fail'}
-            <span style="color:var(--danger);font-size:13px;display:flex;align-items:center;gap:4px">
-              <span class="material-symbols-rounded" style="font-size:16px">error</span>Failed
-            </span>
-          {/if}
         </div>
       </div>
     </div>

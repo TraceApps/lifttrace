@@ -1,6 +1,6 @@
 <script>
   /**
-   * Diagnostics — in-app log capture + share.
+   * Diagnostics â€” in-app log capture + share.
    *
    * Lets users grab the in-memory log buffer (~500 lines), turn on verbose
    * mode while reproducing a bug, and copy/share the result without needing
@@ -42,7 +42,7 @@
       logsCopied = true;
       setTimeout(() => logsCopied = false, 2000);
     } catch {
-      showError('Copy failed — select the text manually');
+      showError('Copy failed â€” select the text manually');
     }
   }
 
@@ -61,7 +61,7 @@
         await copyLogs();
       }
     } catch (e) {
-      // User cancelled — silent.
+      // User cancelled â€” silent.
     }
   }
 
@@ -89,10 +89,10 @@
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Verbose diagnostic logging</span>
+            <span class="setting-label">Verbose Diagnostic Logging</span>
             <span class="setting-hint">
               Enables detailed app-internal logs (sync, settings, notifications, SQLite). Off by
-              default — turn on while reproducing a bug, then export below.
+              default â€” turn on while reproducing a bug, then export below.
             </span>
           </div>
           <Toggle checked={verboseOn} on:change={e => toggleVerbose(e.detail)} />
@@ -101,9 +101,9 @@
         <div class="setting-divider"></div>
 
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-          <span class="setting-label">View diagnostic logs</span>
+          <span class="setting-label">View Diagnostic Logs</span>
           <p class="setting-hint" style="line-height:1.5;margin:0">
-            Last 500 lines from the app's console. Useful for bug reports — copy or share to a
+            Last 500 lines from the app's console. Useful for bug reports â€” copy or share to a
             <a href="https://github.com/TraceApps/lifttrace/issues" target="_blank" rel="noopener" style="color:var(--accent)">GitHub issue</a>.
             The buffer holds in-memory only; nothing is sent anywhere automatically.
           </p>

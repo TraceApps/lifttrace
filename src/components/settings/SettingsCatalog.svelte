@@ -262,6 +262,12 @@
               <div class="src-desc">{src.description}</div>
               {#if src.requiresKey}
                 <input class="form-input-sm src-key" type="password" placeholder="RapidAPI key" bind:value={sourceKeys[src.id]} />
+                <div class="src-byok-note">
+                  Bring your own RapidAPI key. By enabling this source you confirm you have an
+                  active subscription (free tier available) and accept RapidAPI's and the API
+                  provider's terms. LiftTrace is not affiliated with RapidAPI or ExerciseDB and
+                  has no relationship with either; you are the API consumer.
+                </div>
               {/if}
             </div>
             <div class="src-actions" style="flex-direction:row;align-items:center;gap:8px">
@@ -287,7 +293,7 @@
       <div class="card" style="margin-top:12px">
         <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
           <div class="setting-label-group">
-            <span class="setting-label">Offline exercise library</span>
+            <span class="setting-label">Offline Exercise Library</span>
             <span class="setting-hint">Pre-download every exercise GIF / image to your device cache. Useful for gyms without signal or before going mobile. Re-run any time after importing a new source.</span>
           </div>
           {#if precacheProgress}
@@ -483,6 +489,7 @@
   }
   .src-desc { font-size: 12px; color: var(--text-3); line-height: 1.4; }
   .src-key { margin-top: 6px; width: 100%; }
+  .src-byok-note { margin-top: 6px; font-size: 10.5px; color: var(--text-3); line-height: 1.4; }
   .src-actions { display: flex; flex-direction: column; gap: 6px; }
   .src-clear {
     display: inline-flex; align-items: center; gap: 4px;
