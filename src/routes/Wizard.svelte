@@ -198,6 +198,11 @@
       // Always written
       setupComplete: true,
       appearance,
+      // Brand-new users finishing onboarding get the gradient banner as
+      // their default first impression. Existing users (who never re-run
+      // the wizard) keep whatever bannerStyle / legacy pageBanners they
+      // already had — the migration in settings.js handles that path.
+      bannerStyle: 'gradient',
       // Unit system — driven by a single pick in step 2
       ...(unitSystem ? { weightUnit: isMetric ? 'kg' : 'lbs', heightUnit: isMetric ? 'cm' : 'ft' } : {}),
       // Goals

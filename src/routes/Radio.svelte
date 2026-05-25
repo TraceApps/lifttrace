@@ -6,7 +6,7 @@
   import { playTrack, addToQueue, playNext, currentTrack, streamNowPlaying } from '../stores/player.js';
   import { showSuccess } from '../stores/toast.js';
   import { showError } from '../stores/toast.js';
-  import { pageBanners } from '../stores/settings.js';
+  import { pageBanners, bannerStyle } from '../stores/settings.js';
   import RadioBanner from '../components/banners/RadioBanner.svelte';
   import Dialog from '../components/ui/Dialog.svelte';
   import * as sub from '../lib/radio-provider.js';
@@ -713,8 +713,8 @@
        avoids the cumulative-top math that broke the bar's stick when
        the banner illustration was on (taller header → wrong calc). -->
   <div class="sticky-top">
-    <header class="page-header" class:has-banner={$pageBanners}>
-      {#if $pageBanners}<RadioBanner />{/if}
+    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+      {#if $bannerStyle === 'animated'}<RadioBanner />{/if}
       {#if showBack}
         <button class="back-btn" on:click={back}>
           <span class="material-symbols-rounded">arrow_back</span>
@@ -1273,6 +1273,11 @@
   .sticky-top :global(.page-header) {
     position: static;
     backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+  /* Strip the header bg so the .sticky-top wrapper's glass shows through —
+     EXCEPT for the gradient variant, which is meant to repaint the bar
+     with the accent gradient. */
+  .sticky-top :global(.page-header:not(.banner-gradient)) {
     background: transparent;
   }
 

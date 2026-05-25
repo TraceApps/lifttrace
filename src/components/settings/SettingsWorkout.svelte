@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import {
-    weeklyWorkoutGoal, goalCelebrations, screenKeepAwake, autoFillLastWeights,
+    weeklyWorkoutGoal, screenKeepAwake, autoFillLastWeights,
     showCompletionSummary, autoCollapseCompleted, autoNameWorkouts,
     exerciseReorderMethod, confirmExerciseRemoval, restTimerEnabled,
     restDuration, restAutoStart, restAlert, restAlertVibrate, restAlertTone,
@@ -50,13 +50,6 @@
               <option value={n}>{n} workouts/week</option>
             {/each}
           </select>
-        </div>
-        <div class="setting-row">
-          <div class="setting-label-group">
-            <span class="setting-label">Goal Celebrations</span>
-            <span class="setting-hint">Confetti when you hit a milestone</span>
-          </div>
-          <Toggle bind:checked={$goalCelebrations} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">

@@ -10,7 +10,7 @@
   import DateInput from '../components/ui/DateInput.svelte';
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import CoachingBanner from '../components/banners/CoachingBanner.svelte';
-  import { pageBanners } from '../stores/settings.js';
+  import { pageBanners, bannerStyle } from '../stores/settings.js';
   import { resolveAssetUrl } from '../lib/platform.js';
 
   export let params = {};
@@ -474,8 +474,8 @@
 {#if !memberId}
   <!-- ══════════ My Members list ══════════ -->
   <div class="page">
-    <header class="page-header" class:has-banner={$pageBanners}>
-      {#if $pageBanners}<CoachingBanner />{/if}
+    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+      {#if $bannerStyle === 'animated'}<CoachingBanner />{/if}
       <h1>{$_('routes.coaching.title')}</h1>
       <div class="header-actions">
         <button class="btn-primary-sm" on:click={openAddCoachee} title="Add a coachee">

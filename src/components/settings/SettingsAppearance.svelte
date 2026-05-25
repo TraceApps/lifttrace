@@ -5,7 +5,7 @@
   import {
     appearance, applyAppearance, accentColor, applyAccentColor,
     navStyle, sidebarPersistent, startPage, disableAnimations,
-    pageBanners, loopBannerAnimations,
+    goalCelebrations, bannerStyle, loopBannerAnimations,
   } from '../../stores/settings.js';
 
   export let expanded = false;
@@ -132,12 +132,24 @@
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Page Banners</span>
-            <span class="setting-hint">Decorative animated illustrations at the top of every page</span>
+            <span class="setting-label">Goal Celebrations</span>
+            <span class="setting-hint">Confetti when you hit a milestone</span>
           </div>
-          <Toggle bind:checked={$pageBanners} />
+          <Toggle bind:checked={$goalCelebrations} />
         </div>
-        {#if $pageBanners}
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <span class="setting-label">Page Banners</span>
+            <span class="setting-hint">Decorative header at the top of every page</span>
+          </div>
+          <select class="form-select-sm" value={$bannerStyle} on:change={e => bannerStyle.set(e.target.value)}>
+            <option value="animated">Animated</option>
+            <option value="gradient">Gradient</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+        {#if $bannerStyle === 'animated'}
           <div class="setting-row">
             <div class="setting-label-group">
               <span class="setting-label">Loop Banner Animations</span>

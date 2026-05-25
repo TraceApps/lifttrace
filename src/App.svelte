@@ -9,7 +9,7 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
-  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners } from './stores/settings.js';
+  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle } from './stores/settings.js';
   import { locale } from 'svelte-i18n';
 
   // Drive svelte-i18n's active locale from the user's saved language setting.
@@ -165,6 +165,12 @@
 
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('no-animations', !!$disableAnimations);
+  }
+  // Mirror NutriTrace's banner-gradient global class so portaled top-bar
+  // action buttons (.diary-topbar-actions) outside the .page-header still
+  // pick up the frosted-pill treatment.
+  $: if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('banner-gradient-mode', $bannerStyle === 'gradient');
   }
   $: document.documentElement.style.setProperty('--mini-player-h', $miniPlayerVisible ? '56px' : '0px');
   $: {
