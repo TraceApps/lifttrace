@@ -9,7 +9,7 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import ExercisesBanner from '../components/banners/ExercisesBanner.svelte';
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
-  import { pageBanners, favoriteExercises } from '../stores/settings.js';
+  import { pageBanners, bannerStyle, favoriteExercises } from '../stores/settings.js';
 
   let showEditor = false;
 
@@ -193,8 +193,8 @@
        reachable while scrolling. Single sticky parent is more reliable
        than two separately-sticky siblings with computed top offsets. -->
   <div class="ex-sticky-top">
-    <header class="page-header" class:has-banner={$pageBanners}>
-      {#if $pageBanners}<ExercisesBanner />{/if}
+    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+      {#if $bannerStyle === 'animated'}<ExercisesBanner />{/if}
       <h1>{$_('routes.exercises.title')}</h1>
       <span class="exercise-count" title="Filtered / total">
         {filtered.length}{#if filtered.length !== exercises.length} <span class="exercise-count-total">/ {exercises.length}</span>{/if}

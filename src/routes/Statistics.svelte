@@ -3,7 +3,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
-  import { weightUnit, pageBanners } from '../stores/settings.js';
+  import { weightUnit, pageBanners, bannerStyle } from '../stores/settings.js';
   import StatisticsBanner from '../components/banners/StatisticsBanner.svelte';
   import WeeklyVolumeChart from '../components/statistics/WeeklyVolumeChart.svelte';
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
@@ -429,8 +429,8 @@
 </script>
 
 <div class="page">
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<StatisticsBanner />{/if}
+  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+    {#if $bannerStyle === 'animated'}<StatisticsBanner />{/if}
     <h1>{$_('routes.statistics.title')}</h1>
   </header>
 

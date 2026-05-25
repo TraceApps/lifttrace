@@ -4,7 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes } from '../stores/settings.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
@@ -1131,6 +1131,18 @@
    *  celebrate, show summary. Also used by the auto-complete path. */
   async function finishWorkout({ auto = false } = {}) {
     if (isFuture) return;
+    // Re-opening an already-completed workout (manual tap on "View
+    // workout summary", or an auto-fire after toggling a set off+on on
+    // a prior session) must NOT re-run the celebrate / save / timer
+    // reset path. The daily dedup in celebrateWorkoutComplete resets
+    // at midnight, so without this guard, viewing yesterday's summary
+    // today would fire a fresh local + push notification. resetTimer()
+    // would also nuke today's running timer if viewing a past day.
+    const wasAlreadyCompleted = !!$todayLog?.completed;
+    if (wasAlreadyCompleted) {
+      if (!auto) showSummary = true;
+      return;
+    }
     // Pause timer + persist elapsed
     let finalDuration = $todayLog?.duration_min || 0;
     if ($timerState && $timerState.date === $currentDate) {
@@ -1579,8 +1591,8 @@
        to one another as the header re-laid out. -->
   <div class="diary-sticky-top">
   <!-- Page header — same pattern as Exercises/Programs/Statistics/Settings -->
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<DiaryBanner />{/if}
+  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+    {#if $bannerStyle === 'animated'}<DiaryBanner />{/if}
     <h1>{$_('routes.diary.title')}</h1>
     {#if $currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}

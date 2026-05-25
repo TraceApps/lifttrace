@@ -18,7 +18,7 @@ const SERVER_SETTINGS = new Set([
   // Appearance/UI prefs
   'appearance', 'accentColor', 'language',
   'navStyle', 'sidebarPersistent', 'startPage', 'disableAnimations',
-  'pageBanners', 'loopBannerAnimations',
+  'pageBanners', 'bannerStyle', 'loopBannerAnimations',
   'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
   'autoGenerateWarmups', 'trackRpe',
@@ -127,7 +127,33 @@ export const navStyle         = createSettingStore('navStyle',         'both');
 export const sidebarPersistent = createSettingStore('sidebarPersistent', false);
 export const startPage        = createSettingStore('startPage',        '/');
 export const disableAnimations = createSettingStore('disableAnimations', false);
-export const pageBanners      = createSettingStore('pageBanners',      true);
+// bannerStyle is the canonical banner-display setting.
+//   'animated' = tall header with illustrated SVG (original behavior)
+//   'gradient' = tall header filled with the active accent gradient, no SVG
+//   'off'      = compact header (no banner area at all)
+// pageBanners is kept as a derived alias so existing call sites
+// (App.svelte hamburger row sizing, SettingsBackup defaults) keep working.
+// bannerStyle migration. Kept dead simple:
+//   - Saved bannerStyle → keep the explicit pick.
+//   - Legacy pageBanners=false → 'off' (respect the prior opt-out).
+//   - Anything else → 'animated' (preserve the existing-user experience).
+// New users completing the Wizard get 'gradient' written into their
+// settings batch on finish() — that's the only path that yields the
+// new default, which gives us a 100% reliable "this is a new install"
+// signal without scraping localStorage.
+function _migrateBannerStyle() {
+  const saved = DB.getSetting('bannerStyle', null);
+  if (saved != null) return saved;
+  if (DB.getSetting('pageBanners', true) === false) return 'off';
+  return 'animated';
+}
+export const bannerStyle = createSettingStore('bannerStyle', _migrateBannerStyle());
+// pageBanners means "the tall illustrated header layout" — true ONLY when
+// the user picks Animated. Gradient uses the compact header geometry with
+// an accent gradient background, so it should NOT trigger the tall-layout
+// hamburger-row sizing in App.svelte or the .has-banner padding sub-bars
+// in Diary/Exercises.
+export const pageBanners = derived(bannerStyle, $s => $s === 'animated');
 export const loopBannerAnimations = createSettingStore('loopBannerAnimations', true);
 export const screenKeepAwake  = createSettingStore('screenKeepAwake',  false);
 // Android-only, per-device biometric unlock for sign-in. Intentionally NOT

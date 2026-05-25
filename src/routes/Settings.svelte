@@ -4,7 +4,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
-  import { accentColor, applyAccentColor, pageBanners } from '../stores/settings.js';
+  import { accentColor, applyAccentColor, pageBanners, bannerStyle } from '../stores/settings.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import SettingsBanner from '../components/banners/SettingsBanner.svelte';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
@@ -442,8 +442,8 @@
        at the same y position when scrolling instead of computing its own
        top offset (which budged when the header re-laid out under it). -->
   <div class="settings-sticky-top">
-    <header class="page-header" class:has-banner={$pageBanners}>
-      {#if $pageBanners}<SettingsBanner />{/if}
+    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+      {#if $bannerStyle === 'animated'}<SettingsBanner />{/if}
       <h1>{$_('routes.settings.title')}</h1>
     </header>
 

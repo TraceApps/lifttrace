@@ -10,7 +10,7 @@
   import Sheet from '../components/ui/Sheet.svelte';
   import ProgramsBanner from '../components/banners/ProgramsBanner.svelte';
   import CoachTabs from '../components/layout/CoachTabs.svelte';
-  import { pageBanners } from '../stores/settings.js';
+  import { pageBanners, bannerStyle } from '../stores/settings.js';
 
   let programs = [];
   let loading = true;
@@ -67,8 +67,8 @@
 </script>
 
 <div class="page">
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<ProgramsBanner />{/if}
+  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+    {#if $bannerStyle === 'animated'}<ProgramsBanner />{/if}
     <h1>{$_('routes.programs.title')}</h1>
     <div class="header-actions">
       <button class="btn-primary-sm" on:click={() => showCreate = true}>

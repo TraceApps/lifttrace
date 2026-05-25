@@ -5,7 +5,7 @@
   import {
     appearance, applyAppearance, accentColor, applyAccentColor,
     weightUnit, dateFormat, timeFormat, weeklyWorkoutGoal,
-    navStyle, sidebarPersistent, disableAnimations, pageBanners,
+    navStyle, sidebarPersistent, disableAnimations, bannerStyle,
     startPage, screenKeepAwake, goalCelebrations,
   } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
@@ -143,7 +143,7 @@
     navStyle.set('bottom');
     sidebarPersistent.set(false);
     disableAnimations.set(false);
-    pageBanners.set(false);
+    bannerStyle.set('off');
     startPage.set('/');
     screenKeepAwake.set(true);
     goalCelebrations.set(true);
