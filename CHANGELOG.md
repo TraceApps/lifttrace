@@ -4,6 +4,14 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.0.0-rc.3 — 2026-05-25
+
+### Fixed
+
+- **Fresh Docker install crashed on first boot** with `SqliteError: no such table: coach_activity` (issue #2). A migration that adds a column to `coach_activity` was running *before* the `CREATE TABLE` for it, so any database that had never seen an earlier LiftTrace beta would fail to start. Existing installs (which had the table from an earlier beta) were unaffected. The ALTER is now ordered after the CREATE, so `docker compose up` works on a clean volume.
+
+---
+
 ## v1.0.0-rc.2 — 2026-05-25
 
 ### Added
@@ -2225,7 +2233,7 @@ Diary deep-dive pass. Three focused packs:
 - **Diary date bar**: reduced to match NutriTrace height (17/12px text, 32px nav buttons, 6px padding). Safe-area padding only applied when no banner is above.
 - **Calendar date picker**: portal-based with `max-width: 600px; margin: 0 auto` (prevents desktop blowup).
 - **WorkoutTimer**: now shows `H:MM:SS` when duration exceeds 1 hour.
-- **Docker image**: moved from `ghcr.io/traceapps/lifttrace` to `ghcr.io/traceapps/lifttrace`.
+- **Docker image**: moved from `ghcr.io/thebigjoe1/lifttrace` to `ghcr.io/traceapps/lifttrace`.
 
 ### Fixed
 - Accent colors pink/rose/cyan/lime had no CSS rules — fell through to default orange.

@@ -338,11 +338,6 @@ addColumnIfMissing('coach_feedback', 'seen_by_member_at', 'seen_by_member_at TEX
 // thread model. NULL = no reply yet.
 addColumnIfMissing('coach_feedback', 'member_reply', 'member_reply TEXT');
 addColumnIfMissing('coach_feedback', 'member_replied_at', 'member_replied_at TEXT');
-// Activity feed extension: feedback_reply events reference the coach_feedback
-// row that was replied to. Existing kinds (prescription_completed,
-// prescription_missed) carry a prescription_id; this column lets the same
-// table track per-feedback events without overloading prescription_id.
-addColumnIfMissing('coach_activity', 'feedback_id', 'feedback_id INTEGER REFERENCES coach_feedback(id) ON DELETE CASCADE');
 
 // Coach activity feed — fires when a member completes a prescribed workout
 // (kind='prescription_completed') or when a dated prescription's date has
@@ -364,6 +359,14 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_activity_unique ON coach_activity(prescription_id, kind);
   CREATE INDEX IF NOT EXISTS idx_coach_activity_trainer ON coach_activity(trainer_id, occurred_at DESC);
 `);
+// Activity feed extension: feedback_reply events reference the coach_feedback
+// row that was replied to. Existing kinds (prescription_completed,
+// prescription_missed) carry a prescription_id; this column lets the same
+// table track per-feedback events without overloading prescription_id.
+// MUST run AFTER the CREATE TABLE above — fresh DBs had no coach_activity
+// row yet when this ALTER fired, which broke `docker compose up` on a clean
+// volume in v1.0.0-rc.2 (issue #2).
+addColumnIfMissing('coach_activity', 'feedback_id', 'feedback_id INTEGER REFERENCES coach_feedback(id) ON DELETE CASCADE');
 
 // ── Phase 3 — Differential sync columns (updated_at + deleted_at) ─────────
 // The Capacitor Android app's /api/sync/pull?since=<ISO> endpoint scans
