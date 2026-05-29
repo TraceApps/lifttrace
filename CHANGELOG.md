@@ -601,7 +601,7 @@ across both LiftTrace and NutriTrace under the TraceApps umbrella brand.
 - LiftTrace-specific features kept intact: music-driven frequency visualizer
   ring around the FAB, hold-to-record voice → Smart Log, workout-context
   injection in the system prompt.
-- Docs (CLAUDE.md, README.md, FUTURE.md) updated for the new name.
+- Docs (README.md, FUTURE.md) updated for the new name.
   Historical CHANGELOG entries preserve "LiftBot" as the original name.
 
 ---
@@ -746,9 +746,6 @@ Public-internet URLs (the 99% case) see no behavior change.
 
 ### Docs
 - `CHANGELOG.md` extended with this release
-- `CLAUDE.md` annotated with the SSRF guard pattern + the
-  `ALLOW_PRIVATE_RADIO_URLS` env variable
-- Project memory + MEMORY.md index refreshed to v0.9.4-beta.22
 
 ---
 
@@ -1402,8 +1399,6 @@ prop pair so it can skip the input phase when the caller already
 did the parse/match work.
 
 ### Docs
-- Created `CLAUDE.md` at project root — project reference for future
-  Claude sessions (matches the NutriTrace pattern).
 - Updated `README.md` with Smart Add, hold-to-record, share card,
   streaming stations, superset-aware rest timer, auto-collapse, and
   right-click parity.
@@ -2258,7 +2253,7 @@ Diary deep-dive pass. Three focused packs:
 - **Diary date bar**: reduced to match NutriTrace height (17/12px text, 32px nav buttons, 6px padding). Safe-area padding only applied when no banner is above.
 - **Calendar date picker**: portal-based with `max-width: 600px; margin: 0 auto` (prevents desktop blowup).
 - **WorkoutTimer**: now shows `H:MM:SS` when duration exceeds 1 hour.
-- **Docker image**: moved from `ghcr.io/traceapps/lifttrace` to `ghcr.io/traceapps/lifttrace`.
+- **Docker image**: moved from `ghcr.io/thebigjoe1/lifttrace` to `ghcr.io/traceapps/lifttrace`.
 
 ### Fixed
 - Accent colors pink/rose/cyan/lime had no CSS rules — fell through to default orange.
