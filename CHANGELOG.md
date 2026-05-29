@@ -4,6 +4,31 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.0.0-rc.4 — 2026-05-29
+
+### Added
+
+- **NutriTrace Federation** — log each completed workout's estimated calories burned to your NutriTrace diary automatically. Set it up in Settings → Integrations → NutriTrace by entering your NutriTrace URL and an API token (created on NutriTrace under Settings → User Management → API Tokens with the `write:workouts` scope). Workouts show up in NutriTrace's Workout History next to Fitbit / Garmin data, and NutriTrace handles the double-count-vs-wearable decision automatically.
+- **Editable Workout Duration** on the completion summary. The Duration tile is now a button: tap it to pick from quick presets (30 / 45 / 60 / 75 / 90 / 120 min) or enter a custom value. Useful when you forgot to start the timer, or to fix a value after the fact. The kcal estimate updates live, and if NutriTrace federation is on, the edit re-syncs.
+- **Fallback Calorie Estimate** when no duration is tracked. LiftTrace now estimates burn from your completed set count instead of refusing to show a number. Badged "rough" so you know it's less precise than a timed session.
+- **"You're All Set" Celebration** at the end of the first-run wizard before landing on the diary.
+- **Shared Loading Spinner** across Diary, Programs, Coaching, Exercise detail, Statistics, and Workout editor. No more plain "Loading…" text.
+
+### Changed
+
+- **Stronger Edit Affordance** on the Workout Summary Duration tile: accent-tinted background, accent border, and a clear edit pencil so it reads as tappable next to the read-only stats.
+- **Persistent Connected Pill** on the NutriTrace federation card. Once verified, the green status pill stays visible until you edit the URL or token, instead of disappearing when you navigate away.
+- **Title Case Sweep** across about 20 button labels, menu titles, and section headers that were inconsistently sentence-cased (Clear All Settings, Mark All Seen, Delete User, Add to Favorites, etc.).
+- **i18n**: 7 new common error strings now route through translation, plus the create-admin form in Settings → User Management.
+
+### Fixed
+
+- **Settings → Backup** silently failing when the backup list endpoint returned an error, leaving the user with an empty list and no explanation. Now surfaces a toast with the underlying message.
+- **Radio** showing an empty grid when Subsonic / Jellyfin was unreachable. Now shows "Couldn't reach your media server" with a Retry button so the failure mode is obvious.
+- **Workout Complete notification** firing on every set toggle when re-opening a completed workout's summary (rc.3 caught the main flow; this patches the toggle edge case).
+
+---
+
 ## v1.0.0-rc.3 — 2026-05-25
 
 ### Fixed
@@ -2233,7 +2258,7 @@ Diary deep-dive pass. Three focused packs:
 - **Diary date bar**: reduced to match NutriTrace height (17/12px text, 32px nav buttons, 6px padding). Safe-area padding only applied when no banner is above.
 - **Calendar date picker**: portal-based with `max-width: 600px; margin: 0 auto` (prevents desktop blowup).
 - **WorkoutTimer**: now shows `H:MM:SS` when duration exceeds 1 hour.
-- **Docker image**: moved from `ghcr.io/thebigjoe1/lifttrace` to `ghcr.io/traceapps/lifttrace`.
+- **Docker image**: moved from `ghcr.io/traceapps/lifttrace` to `ghcr.io/traceapps/lifttrace`.
 
 ### Fixed
 - Accent colors pink/rose/cyan/lime had no CSS rules — fell through to default orange.

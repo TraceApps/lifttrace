@@ -37,8 +37,14 @@
     "hide":         "Hide",
     "experimental": "Experimental",
     "errors": {
-      "cant_reach_server": "Could not reach server",
-      "failed":            "Failed"
+      "cant_reach_server":      "Could not reach server",
+      "failed":                 "Failed",
+      "save_failed":            "Save failed",
+      "delete_failed":          "Delete failed",
+      "name_required":          "Name is required",
+      "network_error_upload":   "Network error during upload",
+      "voice_unsupported":      "Voice input not supported in this browser",
+      "cant_start_mic":         "Couldn't start microphone"
     }
   },
   "login": {
@@ -290,6 +296,7 @@
     "statistics":      { "section": "Statistics" },
     "trace":           { "section": "AI Assistant" },
     "radio":           { "section": "Radio" },
+    "federation":      { "section": "NutriTrace" },
     "catalog":         { "section": "Exercise Catalog" },
     "backup":          { "section": "Backup & Restore" },
     "notifications":   { "section": "Notifications" },

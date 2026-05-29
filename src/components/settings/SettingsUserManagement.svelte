@@ -381,10 +381,10 @@
                   </div>
                 </div>
                 {#if u.id !== $currentUser.id}
-                  <button class="btn-icon-danger" on:click={() => resetUserPassword(u)} title="Reset password" style="color:var(--text-3)">
+                  <button class="btn-icon-danger" on:click={() => resetUserPassword(u)} title="Reset Password" style="color:var(--text-3)">
                     <span class="material-symbols-rounded" style="font-size:20px">lock_reset</span>
                   </button>
-                  <button class="btn-icon-danger" on:click={() => deleteUser(u.id)} title="Delete user">
+                  <button class="btn-icon-danger" on:click={() => deleteUser(u.id)} title="Delete User">
                     <span class="material-symbols-rounded" style="font-size:20px">delete</span>
                   </button>
                 {/if}
@@ -540,13 +540,13 @@
             <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">
               <span class="setting-label" style="font-weight:700">Create Admin Account</span>
               <span class="setting-desc" style="margin:0">This will enable user management. The first account is always admin. All existing workout data will be assigned to this account.</span>
-              <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminUser} placeholder="Username (required)" />
-              <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminName} placeholder="Full name (optional)" />
+              <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminUser} placeholder={$_('settings.users.username_required')} />
+              <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminName} placeholder={$_('settings.users.full_name')} />
               <div style="display:flex;gap:6px;align-items:center">
                 {#if enableShowPass}
-                  <input class="form-input-sm" style="flex:1" type="text" bind:value={enableAdminPass} placeholder="Password (8+ chars, A-z, 0-9, special)" autocomplete="new-password" />
+                  <input class="form-input-sm" style="flex:1" type="text" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
                 {:else}
-                  <input class="form-input-sm" style="flex:1" type="password" bind:value={enableAdminPass} placeholder="Password (8+ chars, A-z, 0-9, special)" autocomplete="new-password" />
+                  <input class="form-input-sm" style="flex:1" type="password" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
                 {/if}
                 <button class="btn-icon" type="button" on:click={() => enableShowPass = !enableShowPass} title={enableShowPass ? 'Hide' : 'Show'} style="flex-shrink:0">
                   <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>

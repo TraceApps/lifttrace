@@ -291,7 +291,7 @@
             {#each exs.sort(_sortFn()) as ex}
               {@const u = usage[ex.id]}
               <div class="exercise-row">
-                <button class="fav-btn" on:click|stopPropagation={() => toggleFavorite(ex.id)} title={isFav(ex.id) ? 'Remove from favorites' : 'Add to favorites'}>
+                <button class="fav-btn" on:click|stopPropagation={() => toggleFavorite(ex.id)} title={isFav(ex.id) ? 'Remove from Favorites' : 'Add to Favorites'}>
                   <span class="material-symbols-rounded" class:fav-active={isFav(ex.id)}>{isFav(ex.id) ? 'star' : 'star_outline'}</span>
                 </button>
                 <button class="ex-row-main" on:click={() => push(`/exercise/${ex.id}`)}>

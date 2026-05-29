@@ -14,6 +14,15 @@
   // summary can celebrate concretely instead of just "Workout Complete!".
   export let prCount = 0;
   export let streak = 0;
+  // Parent owns the workout row; we let it know when the user adjusts
+  // duration on the summary so it can persist + re-trigger downstream
+  // hooks (calorie display, NutriTrace federation push, etc.).
+  export let onDurationChange = (_newMin) => {};
+
+  // Tap-to-edit state for the duration tile.
+  let durationEditing = false;
+  let durationCustomMin = '';
+  const DURATION_PRESETS = [30, 45, 60, 75, 90, 120];
 
   // Use the saved duration when present, otherwise fall back to the live
   // workout timer's elapsed time if it's tracking this workout's date.
@@ -110,6 +119,21 @@
     if (v >= 1000) return (v / 1000).toFixed(1) + 'k';
     return String(v);
   }
+
+  function pickDuration(min) {
+    const n = Number(min);
+    if (!Number.isFinite(n) || n <= 0 || n > 1440) return;
+    durationEditing = false;
+    durationCustomMin = '';
+    onDurationChange(n);
+  }
+  function openDurationEditor() {
+    durationCustomMin = effectiveDurationMin > 0 ? String(Math.round(effectiveDurationMin)) : '';
+    durationEditing = true;
+  }
+  function submitCustomDuration() {
+    pickDuration(durationCustomMin);
+  }
 </script>
 
 {#if open && workout}
@@ -159,17 +183,54 @@
           <span class="ws-stat-val">{stats.exercises}</span>
           <span class="ws-stat-label">Exercises</span>
         </div>
-        <div class="ws-stat">
-          <span class="ws-stat-val">{fmtDuration(effectiveDurationMin)}</span>
-          <span class="ws-stat-label">Duration</span>
-        </div>
+        <button class="ws-stat ws-stat-edit" on:click={openDurationEditor}
+                title="Tap to edit duration" type="button">
+          {#if effectiveDurationMin > 0}
+            <span class="ws-stat-val">{fmtDuration(effectiveDurationMin)}</span>
+            <span class="ws-stat-label">Duration</span>
+          {:else}
+            <span class="ws-stat-val ws-stat-placeholder">Add</span>
+            <span class="ws-stat-label">Duration</span>
+          {/if}
+          <span class="material-symbols-rounded ws-stat-edit-icon">edit</span>
+        </button>
       </div>
 
+      {#if durationEditing}
+        <div class="ws-duration-editor">
+          <div class="ws-duration-chips">
+            {#each DURATION_PRESETS as p}
+              <button class="ws-duration-chip" class:active={Math.round(effectiveDurationMin) === p}
+                      on:click={() => pickDuration(p)} type="button">
+                {p}m
+              </button>
+            {/each}
+          </div>
+          <div class="ws-duration-custom">
+            <input class="ws-duration-input" type="number" inputmode="numeric"
+                   min="1" max="1440" step="1" placeholder="Custom"
+                   bind:value={durationCustomMin}
+                   on:keydown={(e) => { if (e.key === 'Enter') submitCustomDuration(); }} />
+            <span class="ws-duration-unit">min</span>
+            <button class="btn btn-primary ws-duration-save" on:click={submitCustomDuration}
+                    disabled={!durationCustomMin || Number(durationCustomMin) <= 0} type="button">
+              Set
+            </button>
+            <button class="btn btn-ghost ws-duration-cancel" on:click={() => durationEditing = false}
+                    type="button">
+              Cancel
+            </button>
+          </div>
+        </div>
+      {/if}
+
       {#if calorieEstimate != null}
-        <div class="ws-calorie-row">
+        <div class="ws-calorie-row" title={effectiveDurationMin > 0 ? 'MET-based estimate from BMR + duration' : 'Rough estimate based on set count — add a duration for a better number'}>
           <span class="material-symbols-rounded ws-calorie-icon">local_fire_department</span>
           <span class="ws-calorie-val">~{calorieEstimate} kcal</span>
-          <span class="ws-calorie-badge">est</span>
+          <span class="ws-calorie-badge" class:rough={effectiveDurationMin <= 0}>
+            {effectiveDurationMin > 0 ? 'est' : 'rough'}
+          </span>
         </div>
       {/if}
 
@@ -315,6 +376,73 @@
   }
   .ws-stat-val { display: block; font-size: 20px; font-weight: 800; color: var(--text-1); }
   .ws-stat-label { display: block; font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  /* Duration tile — looks like a tappable button (accent-tinted background
+     + solid accent border), distinct from the three plain read-only stat
+     tiles next to it. The pencil icon sits in the top-right with a
+     filled accent dot behind it so it reads as an action button rather
+     than a decorative icon. Placeholder "Add" uses muted italic to read
+     as an invitation. */
+  .ws-stat-edit {
+    position: relative;
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+    border: 1.5px solid var(--accent);
+    cursor: pointer;
+    transition: background var(--dur-fast), transform var(--dur-fast);
+  }
+  .ws-stat-edit:hover,
+  .ws-stat-edit:active {
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+  }
+  .ws-stat-edit:active { transform: scale(0.97); }
+  .ws-stat-edit-icon {
+    position: absolute; top: 6px; right: 6px;
+    font-size: 14px;
+    color: var(--accent-text, #0A0B0F);
+    background: var(--accent);
+    border-radius: 50%;
+    padding: 3px;
+    line-height: 1;
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .ws-stat-placeholder { color: var(--text-3); font-style: italic; font-weight: 600; }
+
+  .ws-duration-editor {
+    display: flex; flex-direction: column; gap: 10px;
+    margin: 0 20px 12px; padding: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .ws-duration-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .ws-duration-chip {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    padding: 6px 14px; font-size: 13px; font-weight: 600;
+    color: var(--text-1); cursor: pointer;
+    transition: background var(--dur-fast), border-color var(--dur-fast);
+  }
+  .ws-duration-chip:hover { background: var(--surface-2); border-color: var(--accent); }
+  .ws-duration-chip.active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .ws-duration-custom {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .ws-duration-input {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 10px;
+    color: var(--text-1); font-size: 14px; font-family: inherit;
+    width: 80px;
+  }
+  .ws-duration-input:focus { outline: 2px solid var(--accent-dim); border-color: var(--accent); }
+  .ws-duration-unit { font-size: 13px; color: var(--text-3); }
+  .ws-duration-save, .ws-duration-cancel { height: 36px; font-size: 13px; padding: 0 14px; }
+  .ws-duration-cancel { margin-left: auto; }
 
   .ws-calorie-row {
     display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -330,6 +458,10 @@
     color: var(--text-3);
     background: var(--surface-2);
     padding: 2px 6px; border-radius: var(--radius-full);
+  }
+  .ws-calorie-badge.rough {
+    color: var(--warning, #f59e0b);
+    background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
   }
 
   .ws-exercise-list { padding: 0 20px 12px; display: flex; flex-direction: column; gap: 4px; }

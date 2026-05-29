@@ -14,6 +14,7 @@
   import SettingsStatistics from '../components/settings/SettingsStatistics.svelte';
   import SettingsTrace from '../components/settings/SettingsTrace.svelte';
   import SettingsRadio from '../components/settings/SettingsRadio.svelte';
+  import SettingsFederation from '../components/settings/SettingsFederation.svelte';
   import SettingsCatalog from '../components/settings/SettingsCatalog.svelte';
   import SettingsBackup from '../components/settings/SettingsBackup.svelte';
   import SettingsWorkoutImport from '../components/settings/SettingsWorkoutImport.svelte';
@@ -365,6 +366,7 @@
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
     trace:          ['trace','ai','assistant','chat','provider','model','claude','openai','gemini','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot'],
     radio:          ['radio','music','player','subsonic','navidrome','jellyfin','streaming','audio','playlist'],
+    federation:     ['federation','nutritrace','nt','sync','integration','calorie sync','log workouts','log calories','api','api token','access token','instance','wearable','double count'],
     catalog:        ['catalog','catalogue','exercise','exercises','source','sources','wger','free','db','exercisedb','rapidapi','import','sync','library'],
     data:           ['data','export','import','backup','reset','json','defaults'],
     workoutImport:  ['import','workout','strong','hevy','fitnotes','jefit','migration','csv'],
@@ -401,6 +403,7 @@
     statistics: false,
     trace: false,
     radio: false,
+    federation: false,
     catalog: false,
     data: false,
     workoutImport: false,
@@ -551,6 +554,14 @@
       expanded={expanded.radio}
       onToggle={() => toggleSection('radio')}
     />
+
+    {#if !localOnly}
+      <SettingsFederation
+        visible={sectionVisible(settingsQuery, 'federation')}
+        expanded={expanded.federation}
+        onToggle={() => toggleSection('federation')}
+      />
+    {/if}
 
     <!-- ═══ APP (server connection + notifications + data movement, app-level — visible to all) -->
     <p class="group-label">App</p>

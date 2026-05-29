@@ -6,6 +6,7 @@
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { currentUser } from '../stores/auth.js';
   import Sheet from '../components/ui/Sheet.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
 
   export let params = {};
 
@@ -176,21 +177,21 @@
     <h1>{program?.name || 'Program'}</h1>
     <div class="header-actions">
       {#if isCoach && isOwner}
-        <button class="btn-icon" on:click={openAssign} title="Assign to member">
+        <button class="btn-icon" on:click={openAssign} title="Assign to Member">
           <span class="material-symbols-rounded">person_add</span>
         </button>
       {/if}
-      <button class="btn-icon" on:click={duplicateProgram} title="Duplicate program" aria-label="Duplicate program">
+      <button class="btn-icon" on:click={duplicateProgram} title="Duplicate Program" aria-label="Duplicate program">
         <span class="material-symbols-rounded">content_copy</span>
       </button>
-      <button class="btn-icon danger" on:click={deleteProgram} title="Delete program">
+      <button class="btn-icon danger" on:click={deleteProgram} title="Delete Program">
         <span class="material-symbols-rounded">delete</span>
       </button>
     </div>
   </header>
 
   {#if loading}
-    <div class="loading">Loading...</div>
+    <Spinner block label="Loading program…" />
   {:else if program}
     <div class="content">
       <!-- Info bar -->
@@ -198,7 +199,7 @@
         <span class="goal-tag">{program.goal}</span>
         <span class="template-count">{program.templates?.length || 0} workouts</span>
         {#if program.is_active}
-          <button class="active-badge" on:click={deactivate} title="Tap to deactivate">
+          <button class="active-badge" on:click={deactivate} title="Tap to Deactivate">
             <span class="material-symbols-rounded" style="font-size:14px">check_circle</span>
             Active
           </button>
@@ -270,7 +271,7 @@
 </div>
 
 <!-- Assign to Member Sheet -->
-<Sheet open={showAssign} on:close={() => showAssign = false} title="Assign to member">
+<Sheet open={showAssign} on:close={() => showAssign = false} title="Assign to Member">
   <div class="assign-sheet">
     {#if assignMembers.length === 0}
       <div class="empty-inline">

@@ -10,6 +10,7 @@
 -->
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { fly, fade } from 'svelte/transition';
   import { portal } from '../../lib/portal.js';
   import { weightUnit } from '../../stores/settings.js';
@@ -72,7 +73,7 @@
   function toggleMic() {
     if (!webRecognition) return;
     if (listening) { try { webRecognition.stop(); } catch {} listening = false; return; }
-    try { webRecognition.start(); listening = true; } catch (e) { showError('Could not start mic'); }
+    try { webRecognition.start(); listening = true; } catch (e) { showError($_('common.errors.cant_start_mic')); }
   }
 
   async function runParse() {

@@ -34,8 +34,19 @@
   async function loadFullBackups() {
     try {
       const res = await fetch('/api/full-backup', { credentials: 'include' });
-      if (res.ok) fullBackups = await res.json();
-    } catch {}
+      if (!res.ok) {
+        // Surface the server's error so the user knows the list is empty
+        // because of a failure (not because there are no backups). The
+        // catch block previously swallowed both fetch errors AND non-2xx
+        // responses, leaving the user with a silent empty list.
+        const body = await res.json().catch(() => ({}));
+        showError(body?.error || `Couldn't load backups (${res.status})`);
+        return;
+      }
+      fullBackups = await res.json();
+    } catch (e) {
+      showError(e?.message || "Couldn't reach the server to load backups");
+    }
   }
 
   async function createFullBackup() {
@@ -117,7 +128,7 @@
         setTimeout(() => location.reload(), 1000);
       }, 600);
     };
-    xhr.onerror = () => { showError('Network error during upload'); restoreStatus = null; };
+    xhr.onerror = () => { showError($_('common.errors.network_error_upload')); restoreStatus = null; };
     const form = new FormData();
     form.append('backup', uploadRestoreFile);
     xhr.send(form);
@@ -247,7 +258,7 @@
         <button class="setting-row setting-action danger" on:click={() => showClearSettingsDialog = true}>
           <span class="material-symbols-rounded si-danger">manage_history</span>
           <div class="setting-label-group">
-            <span class="setting-label" style="color:var(--danger)">Clear all settings</span>
+            <span class="setting-label" style="color:var(--danger)">Clear All Settings</span>
             <div class="setting-desc">Resets preferences to defaults. Workout data is kept.</div>
           </div>
           <span class="material-symbols-rounded" style="font-size:18px;color:var(--danger);flex-shrink:0">chevron_right</span>
@@ -256,7 +267,7 @@
         <button class="setting-row setting-action danger" on:click={() => showClearDataDialog = true}>
           <span class="material-symbols-rounded si-danger">delete_forever</span>
           <div class="setting-label-group">
-            <span class="setting-label" style="color:var(--danger)">Clear all data</span>
+            <span class="setting-label" style="color:var(--danger)">Clear All Data</span>
             <div class="setting-desc">Deletes all workouts, programs, body stats, and chat history. Cannot be undone.</div>
           </div>
           <span class="material-symbols-rounded" style="font-size:18px;color:var(--danger);flex-shrink:0">chevron_right</span>

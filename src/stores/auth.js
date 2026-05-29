@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 import { loadServerSettings } from './settings.js';
-import { isNative, getServerUrl } from '../lib/platform.js';
+import { isNative, getServerUrl, apiUrl } from '../lib/platform.js';
 
 export const currentUser = writable(null);
 export const userMgmtActive = writable(false);
@@ -96,7 +96,38 @@ export async function loadAuthState() {
 }
 
 export async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  // OIDC RP-initiated logout: ask the server for an end_session URL so
+  // signing out also ends the IdP session and the next sign-in isn't
+  // silently completed by a still-alive IdP cookie. Mobile flag tells
+  // the server to use the lifttrace://oidc-callback deep link as
+  // post_logout_redirect_uri so the Capacitor browser can route back
+  // into the app after the IdP destroys the session.
+  let logoutUrl = null;
+  try {
+    const logoutPath = isNative
+      ? '/api/auth/oidc/logout?mobile=1'
+      : '/api/auth/oidc/logout';
+    // Native clients send back the id_token_hint + providerId they were
+    // handed at OIDC login time. PWA leaves the body empty and the server
+    // reads the matching httpOnly cookie instead.
+    let body = null;
+    if (isNative) {
+      try {
+        const raw = localStorage.getItem('lt:oidc_logout_hint');
+        if (raw) body = JSON.parse(raw);
+      } catch {}
+    }
+    const oidcRes = await fetch(apiUrl(logoutPath), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const oidcData = await oidcRes.json().catch(() => null);
+    logoutUrl = oidcData?.logoutUrl || null;
+    try { localStorage.removeItem('lt:oidc_logout_hint'); } catch {}
+  } catch {}
+  await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' });
   const userId = localStorage.getItem('wl:userId');
   if (userId) {
     const prefix = `wl_u${userId}_`;
@@ -115,4 +146,14 @@ export async function logout() {
     await clearSavedToken();
   } catch {}
   currentUser.set(null);
+  if (logoutUrl) {
+    if (isNative) {
+      try {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: logoutUrl, presentationStyle: 'popover' });
+      } catch {}
+    } else {
+      window.location.href = logoutUrl;
+    }
+  }
 }

@@ -19,6 +19,8 @@ const SERVER_SETTINGS = new Set([
   'appearance', 'accentColor', 'language',
   'navStyle', 'sidebarPersistent', 'startPage', 'disableAnimations',
   'pageBanners', 'bannerStyle', 'loopBannerAnimations',
+  // NutriTrace federation — workout calorie sync (Phase 2)
+  'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified',
   'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
   'autoGenerateWarmups', 'trackRpe',
@@ -291,6 +293,22 @@ export const aiAssistantName = createSettingStore('aiAssistantName', 'Trace');
 // on the SettingsTrace connection banner. The Trace FAB is NOT gated
 // on this — see NutriTrace's lesson, gating breaks legacy installs.
 export const aiKeyVerified   = createSettingStore('aiKeyVerified',   false);
+
+// ── NutriTrace federation (workout calorie sync) ─────────────────────────
+// User-entered URL + personal access token for a NutriTrace instance,
+// plus a flag that's auto-flipped on by a successful Save+Test. After
+// every completed workout, if federation is enabled and calorie
+// estimation is on, Diary.svelte fires a POST to the server proxy at
+// /api/nt/log-workout which forwards to NT's /api/v1/workouts. The
+// token never leaves the LiftTrace server after the initial save.
+export const ntInstanceUrl       = createSettingStore('ntInstanceUrl',       '');
+export const ntInstanceToken     = createSettingStore('ntInstanceToken',     '');
+export const ntFederationEnabled = createSettingStore('ntFederationEnabled', false);
+// Persisted "the URL + token verified successfully against NT" flag, so the
+// Connected pill survives a page re-mount instead of resetting to blank.
+// Mirrors SettingsTrace's aiKeyVerified pattern. Cleared by any field edit
+// in SettingsFederation; set true by a successful /api/nt/test response.
+export const ntConnectionVerified = createSettingStore('ntConnectionVerified', false);
 
 /** Apply accent color */
 let _lastAppliedAccent = null;

@@ -249,6 +249,8 @@
               const errMsg = params.get('error');
               const linked = params.get('linked');
               const token = params.get('token');
+              const idTokenHint = params.get('id_token_hint');
+              const providerId  = params.get('provider_id');
               if (errMsg) {
                 const { showError } = await import('./stores/toast.js');
                 showError(decodeURIComponent(errMsg));
@@ -259,6 +261,18 @@
               } else if (token) {
                 const { setAuthToken } = await import('./lib/platform.js');
                 setAuthToken(token);
+                // Stash the OIDC session hint so logout() can ask the IdP
+                // to end the session via RP-initiated logout. PWA stores
+                // this in an httpOnly cookie at the same point; native
+                // can't reach that jar so we keep the equivalent here.
+                if (idTokenHint && providerId) {
+                  try {
+                    localStorage.setItem('lt:oidc_logout_hint', JSON.stringify({
+                      providerId,
+                      idTokenHint,
+                    }));
+                  } catch {}
+                }
                 const { showSuccess } = await import('./stores/toast.js');
                 showSuccess('Signed in');
                 await loadAuthState();

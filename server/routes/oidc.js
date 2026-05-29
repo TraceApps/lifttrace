@@ -23,6 +23,7 @@ const COOKIE_OPTS = {
   maxAge:   30 * 24 * 60 * 60 * 1000,
   secure:   !_insecureCookies,
 };
+const LOGOUT_COOKIE = 'lt_oidc_logout';
 
 function _resolveRedirectUri(provider, req) {
   let configured = [];
@@ -153,9 +154,27 @@ router.get('/callback/:providerId', wrap(async (req, res) => {
     // Native (Capacitor) flow — token handed off via custom-scheme deep link.
     // Slash before the query string is required for Chrome Custom Tabs to
     // dispatch the OS intent reliably.
-    return res.redirect(`lifttrace://oidc-callback/?token=${encodeURIComponent(token)}`);
+    // id_token_hint + provider_id ride along so the app can persist them
+    // locally for RP-initiated logout later. The cookie path used by PWA
+    // doesn't reach the WebView's separate cookie jar, so the client has
+    // to remember these itself.
+    let deepLink = `lifttrace://oidc-callback/?token=${encodeURIComponent(token)}`;
+    if (tokenSet?.id_token) {
+      deepLink += `&id_token_hint=${encodeURIComponent(tokenSet.id_token)}`;
+      deepLink += `&provider_id=${encodeURIComponent(provider.id)}`;
+    }
+    return res.redirect(deepLink);
   }
   res.cookie('lt_token', token, { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
+  // Save enough OIDC session context for RP-initiated logout later.
+  if (tokenSet?.id_token) {
+    res.cookie(LOGOUT_COOKIE, JSON.stringify({ providerId: provider.id, idTokenHint: tokenSet.id_token }), {
+      ...COOKIE_OPTS,
+      maxAge: sessionMaxAge(),
+    });
+  } else {
+    res.clearCookie(LOGOUT_COOKIE);
+  }
   return _redirectToLogin(res, stored.returnPath, null, 'ok');
 }));
 
@@ -170,9 +189,63 @@ function _redirectToLogin(res, returnPath, error, ok) {
   res.redirect(`${dest}#${hash}${qs}`);
 }
 
+/**
+ * POST /api/auth/oidc/logout
+ * Clears LiftTrace's own session, then (when we recorded a provider at
+ * login) builds an end_session_endpoint URL with id_token_hint and
+ * post_logout_redirect_uri and returns it to the client. The client
+ * follows the URL to perform RP-initiated logout at the IdP so the
+ * next sign-in isn't silently completed by a still-alive IdP session.
+ */
 router.post('/logout', wrap(async (req, res) => {
+  const raw = req.cookies?.[LOGOUT_COOKIE];
   res.clearCookie('lt_token');
-  res.json({ ok: true });
+  res.clearCookie(LOGOUT_COOKIE);
+
+  // Native clients can't reach the LOGOUT_COOKIE jar set in the Custom Tabs
+  // browser, so they POST the same id_token_hint + providerId they were
+  // handed at login time. Body wins when present; otherwise fall back to
+  // the cookie (PWA path).
+  let saved = null;
+  if (req.body?.idTokenHint && req.body?.providerId) {
+    saved = { idTokenHint: String(req.body.idTokenHint), providerId: req.body.providerId };
+  } else if (raw) {
+    try { saved = JSON.parse(raw); } catch {}
+  }
+  if (!saved?.providerId) return res.json({ ok: true });
+
+  const provider = getProvider(saved.providerId);
+  if (!provider || !provider.is_active) return res.json({ ok: true });
+
+  try {
+    const client = await getClient(provider.id);
+    const endSessionEndpoint = client.issuer?.metadata?.end_session_endpoint;
+    if (!endSessionEndpoint) return res.json({ ok: true });
+
+    // Mobile (Capacitor) returns to the app via the same deep-link scheme
+    // used by the OIDC login callback. The user must register
+    // `lifttrace://oidc-callback` as a Post Logout Redirect URI at the
+    // IdP (alongside the equivalent HTTPS root URL for PWA).
+    const isMobile = req.query?.mobile === '1' || req.query?.mobile === 'true';
+    let postLogoutRedirectUri;
+    if (isMobile) {
+      postLogoutRedirectUri = 'lifttrace://oidc-callback';
+    } else {
+      const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      const basePath = (process.env.BASE_URL || '').replace(/\/$/, '');
+      postLogoutRedirectUri = `${proto}://${host}${basePath}/`;
+    }
+
+    const logoutUrl = new URL(endSessionEndpoint);
+    logoutUrl.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+    if (saved.idTokenHint) logoutUrl.searchParams.set('id_token_hint', saved.idTokenHint);
+
+    return res.json({ ok: true, logoutUrl: logoutUrl.toString() });
+  } catch (e) {
+    logger.warn(`[oidc] logout failed for provider ${saved.providerId}: ${e?.message || e}`);
+    return res.json({ ok: true });
+  }
 }));
 
 router.post('/unlink/:linkId', requireAuth, wrap((req, res) => {

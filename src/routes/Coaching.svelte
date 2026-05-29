@@ -7,6 +7,7 @@
   import { showError, showSuccess } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import Sheet from '../components/ui/Sheet.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
   import DateInput from '../components/ui/DateInput.svelte';
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import CoachingBanner from '../components/banners/CoachingBanner.svelte';
@@ -478,7 +479,7 @@
       {#if $bannerStyle === 'animated'}<CoachingBanner />{/if}
       <h1>{$_('routes.coaching.title')}</h1>
       <div class="header-actions">
-        <button class="btn-primary-sm" on:click={openAddCoachee} title="Add a coachee">
+        <button class="btn-primary-sm" on:click={openAddCoachee} title="Add a Coachee">
           <span class="material-symbols-rounded">person_add</span>
           Add
         </button>
@@ -498,7 +499,7 @@
               {/if}
             </h3>
             {#if unseenActivityIds.length > 0}
-              <button class="btn-link" on:click={markAllActivitySeen}>Mark all seen</button>
+              <button class="btn-link" on:click={markAllActivitySeen}>Mark All Seen</button>
             {/if}
           </div>
           {#each activity.slice(0, 6) as a (a.id)}
@@ -530,7 +531,7 @@
       {/if}
 
       {#if loadingList}
-        <div class="empty">Loading…</div>
+        <Spinner block label="Loading members…" />
       {:else if members.length === 0}
         <div class="empty">
           <span class="material-symbols-rounded empty-icon">groups</span>
@@ -584,7 +585,7 @@
 
     <div class="content">
       {#if loadingOverview}
-        <div class="empty">Loading…</div>
+        <Spinner block label="Loading overview…" />
       {:else if !overview}
         <div class="empty">Couldn't load member.</div>
       {:else}
@@ -730,7 +731,7 @@
 
 <!-- Assign Program Sheet — pre-scoped to the current memberId so the
      assignment lands on the right user without a separate member-picker step. -->
-<Sheet open={showAssignProgram} on:close={() => showAssignProgram = false} title="Assign a program">
+<Sheet open={showAssignProgram} on:close={() => showAssignProgram = false} title="Assign a Program">
   <div class="prescribe-sheet">
     <p class="hint">Pick one of your programs to assign to <strong>{memberLabel(overview?.user)}</strong>.</p>
 
@@ -771,7 +772,7 @@
 </Sheet>
 
 <!-- Add Coachee Sheet — claim an unassigned member from the pool. -->
-<Sheet open={showAddCoachee} on:close={() => showAddCoachee = false} title="Add a coachee">
+<Sheet open={showAddCoachee} on:close={() => showAddCoachee = false} title="Add a Coachee">
   <div class="prescribe-sheet">
     {#if unassignedMembers.length === 0}
       <p class="empty-inline">No unassigned members available. Members without a coach show up here; admins can also reassign members from Settings → User Management.</p>
@@ -803,7 +804,7 @@
        title={workoutDetail?.name || 'Workout'}>
   <div class="workout-detail">
     {#if workoutDetailLoading}
-      <div class="empty-inline">Loading…</div>
+      <Spinner block label="Loading workout…" />
     {:else if !workoutDetail}
       <div class="empty-inline">Couldn't load this workout.</div>
     {:else}
@@ -1004,7 +1005,7 @@
 </Sheet>
 
 <!-- Edit Prescription Sheet — change date or notes after creating. -->
-<Sheet open={showEditPrescription} on:close={() => showEditPrescription = false} title="Edit prescription">
+<Sheet open={showEditPrescription} on:close={() => showEditPrescription = false} title="Edit Prescription">
   <div class="prescribe-sheet">
     <p class="hint">Update the date or add notes. Leave the date empty for an anytime prescription that the member can do on their own schedule.</p>
 
@@ -1028,7 +1029,7 @@
 </Sheet>
 
 <!-- Prescribe Workout Sheet -->
-<Sheet open={showPrescribe} on:close={() => showPrescribe = false} title="Prescribe a workout">
+<Sheet open={showPrescribe} on:close={() => showPrescribe = false} title="Prescribe a Workout">
   <div class="prescribe-sheet">
     <p class="hint">Pick a workout template and optionally a date. If no date is set, the member can start it whenever.</p>
 

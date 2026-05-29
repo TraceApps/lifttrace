@@ -95,8 +95,23 @@ export function calc1RM(weight, reps) {
 export function estimateWorkoutCalories(workout, profile) {
   if (!workout || !profile) return null;
   const { weight_kg, height_cm, age, sex } = profile;
-  const duration_min = workout.duration_min || 0;
-  if (!weight_kg || !height_cm || !age || duration_min <= 0) return null;
+  if (!weight_kg || !height_cm || !age) return null;
+  let duration_min = workout.duration_min || 0;
+  if (duration_min <= 0) {
+    // No tracked duration — fall back to ~3 min per completed working
+    // set (set time + average inter-set rest), which lines up with most
+    // strength sessions in the 30-90 min range. Less accurate than a
+    // real clock, but better than refusing to estimate when the user
+    // forgot to start the timer or logged the workout after the fact.
+    // Callers that want to flag this as a rougher estimate can check
+    // `workout.duration_min > 0` themselves.
+    const workingSets = (workout.exercises || []).reduce(
+      (acc, ex) => acc + (ex.sets || []).filter(s => s.completed && !s.warmup).length,
+      0,
+    );
+    if (workingSets <= 0) return null;
+    duration_min = workingSets * 3;
+  }
 
   // Mifflin-St Jeor BMR. For non-binary / unset, average the male + female
   // formulas (a 166 kcal/day midpoint at a typical adult input range).

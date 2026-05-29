@@ -273,21 +273,21 @@
           <div class="card">
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Member completes prescribed workout</span>
+                <span class="setting-label">Member Completes Prescribed Workout</span>
                 <span class="setting-hint">Push when a member finishes a workout you prescribed for that day</span>
               </div>
               <Toggle bind:checked={$notifMemberCompletes} />
             </div>
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Member missed a prescription</span>
+                <span class="setting-label">Member Missed a Prescription</span>
                 <span class="setting-hint">Push the morning after a dated prescription's day passes without a completed workout</span>
               </div>
               <Toggle bind:checked={$notifMemberMissed} />
             </div>
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Member replied to feedback</span>
+                <span class="setting-label">Member Replied to Feedback</span>
                 <span class="setting-hint">Push when a coachee replies to one of your notes</span>
               </div>
               <Toggle bind:checked={$notifMemberReply} />
