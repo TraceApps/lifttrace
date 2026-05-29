@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import Sheet from '../ui/Sheet.svelte';
   import MediaInput from './MediaInput.svelte';
   import { LtApi } from '../../lib/api.js';
@@ -61,7 +62,7 @@
   function toggleEquip(e)     { equipment        = toggleIn(equipment, e); }
 
   async function save() {
-    if (!name.trim()) { showError('Name is required'); return; }
+    if (!name.trim()) { showError($_('common.errors.name_required')); return; }
     if (saving) return;
     saving = true;
     const payload = {

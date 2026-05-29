@@ -7,6 +7,7 @@
   import { confirmDialog } from '../stores/confirmDialog.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
   import { findSimilarExercises } from '../lib/exerciseSimilarity.js';
 
   let showEditor = false;
@@ -146,7 +147,7 @@
   <ExerciseEditor bind:open={showEditor} {exercise} on:saved={onEditorSaved} />
 
   {#if loading}
-    <div class="loading">Loading...</div>
+    <Spinner block label="Loading exercise…" />
   {:else if exercise}
     <div class="content">
       <button class="log-today-btn" on:click={logToday}>
@@ -207,8 +208,8 @@
       <p>Couldn't load this exercise.</p>
       {#if loadError}<p class="err-detail">{loadError}</p>{/if}
       <div class="err-actions">
-        <button class="btn btn-primary" on:click={load}>Try again</button>
-        <button class="btn btn-secondary" on:click={() => push('/exercises')}>Back to exercises</button>
+        <button class="btn btn-primary" on:click={load}>Try Again</button>
+        <button class="btn btn-secondary" on:click={() => push('/exercises')}>Back to Exercises</button>
       </div>
     </div>
   {/if}

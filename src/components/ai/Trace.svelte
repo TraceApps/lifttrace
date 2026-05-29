@@ -282,7 +282,7 @@
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       recordingMode = false;
-      showError('Voice input not supported in this browser');
+      showError($_('common.errors.voice_unsupported'));
       return;
     }
     try {

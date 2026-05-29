@@ -4,11 +4,13 @@
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes } from '../stores/settings.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
   import { celebrateWorkoutComplete, celebratePR, requestPermission } from '../lib/notifications.js';
+  import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
+  import Spinner from '../components/ui/Spinner.svelte';
   import { startRest as startRestTimer, stopRest } from '../stores/restTimer.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
   import GymTools from '../components/diary/GymTools.svelte';
@@ -1161,11 +1163,64 @@
     // Kill any rest still counting down.
     stopRest(false);
     celebrateWorkoutComplete(workoutName);
+    // Push the completed workout's estimated calories to NutriTrace if the
+    // user has federation set up + calorie estimation on. Fire-and-forget
+    // — failures show a soft toast but don't block the summary. The
+    // external_id is the natural per-user-per-date key (LT has UNIQUE
+    // (user_id, date) on workout_log, so one workout per day), which lets
+    // NT idempotently update when the user amends a workout afterwards.
+    if ($ntFederationEnabled && $caloriesBurnedEnabled) {
+      _pushWorkoutToNutriTrace({ finalDuration }).catch(() => {});
+    }
     if (auto) {
       if ($showCompletionSummary) showSummary = true;
     } else {
       // Manual finish always shows the summary so the user gets closure
       showSummary = true;
+    }
+  }
+
+  // User edited the duration on the WorkoutSummary card after-the-fact.
+  // Persist the new value, and if federation is enabled, re-push to
+  // NutriTrace — the external_id is deterministic per (user, date) so
+  // the previous row gets updated in place rather than duplicated.
+  async function handleSummaryDurationChange(newMin) {
+    if (!$todayLog || !Number.isFinite(newMin) || newMin <= 0) return;
+    const updated = { ...$todayLog, duration_min: newMin };
+    await saveWorkout($currentDate, updated);
+    if ($ntFederationEnabled && $caloriesBurnedEnabled) {
+      _pushWorkoutToNutriTrace({ finalDuration: newMin }).catch(() => {});
+    }
+  }
+
+  async function _pushWorkoutToNutriTrace({ finalDuration }) {
+    const dob = $currentUser?.birthday || null;
+    const sex = $currentUser?.gender || null;
+    const age = ageFromDob(dob);
+    const kcal = estimateWorkoutCalories(
+      { ...($todayLog || {}), exercises, duration_min: finalDuration },
+      { weight_kg: $currentWeightKg, height_cm: $heightCm, age, sex },
+    );
+    if (!Number.isFinite(kcal) || kcal <= 0) return;
+    try {
+      const res = await fetch('/api/nt/log-workout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: $currentDate,
+          name: workoutName,
+          duration_min: finalDuration,
+          calories_burned: kcal,
+          external_id: `lt:workout:${$currentDate}`,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showError(body?.error || `NutriTrace sync failed (${res.status})`);
+      }
+    } catch (e) {
+      showError(`Couldn't reach NutriTrace: ${e?.message || 'network error'}`);
     }
   }
 
@@ -1597,7 +1652,7 @@
     {#if $currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}
               on:click={openCoachInbox}
-              title="Coach feedback" aria-label="Coach feedback">
+              title="Coach Feedback" aria-label="Coach feedback">
         <span class="material-symbols-rounded">
           {unreadFeedbackCount > 0 ? 'mark_email_unread' : 'forum'}
         </span>
@@ -1831,10 +1886,7 @@
   <!-- Exercise list -->
   <div class="exercise-list">
     {#if loading}
-      <div class="empty-state">
-        <span class="material-symbols-rounded spin">hourglass_empty</span>
-        <p>Loading...</p>
-      </div>
+      <Spinner block label="Loading workout…" />
     {:else if exercises.length === 0}
       <div class="empty-state">
         <span class="material-symbols-rounded empty-icon">{isFuture ? 'event_note' : 'fitness_center'}</span>
@@ -2192,7 +2244,7 @@
   />
 
   <!-- Join existing superset picker -->
-  <Sheet bind:open={joinPickerOpen} title="Add to superset">
+  <Sheet bind:open={joinPickerOpen} title="Add to Superset">
     <div class="ss-picker-body">
       <p class="ss-picker-hint">Choose which superset to join:</p>
       {#each existingSupersets as ss}
@@ -2208,7 +2260,7 @@
   </Sheet>
 
   <!-- Create new superset: pick companions -->
-  <Sheet bind:open={newSsPickerOpen} title="Create superset">
+  <Sheet bind:open={newSsPickerOpen} title="Create Superset">
     <div class="ss-picker-body">
       <p class="ss-picker-hint">
         Group exercises with <strong>{exercises[exActionsIdx]?.exercise_name || ''}</strong>:
@@ -2302,12 +2354,12 @@
 
 <!-- Coach Feedback Inbox — list every note the member's coach has left.
      Tapping a row marks that specific row seen and jumps to the workout's
-     date. "Mark all seen" clears the inbox without navigating. -->
-<Sheet open={showCoachInbox} on:close={() => showCoachInbox = false} title="Coach feedback">
+     date. "Mark All Seen" clears the inbox without navigating. -->
+<Sheet open={showCoachInbox} on:close={() => showCoachInbox = false} title="Coach Feedback">
   <div class="inbox-sheet">
     {#if !inboxLoading && inboxRows.some(r => !r.seen_by_member_at)}
       <div class="inbox-toolbar">
-        <button class="btn-link" on:click={markAllInboxSeen}>Mark all seen</button>
+        <button class="btn-link" on:click={markAllInboxSeen}>Mark All Seen</button>
       </div>
     {/if}
     {#if inboxLoading}
@@ -2334,7 +2386,7 @@
     {/if}
   </div>
 </Sheet>
-<WorkoutSummary bind:open={showSummary} workout={$todayLog} prCount={prCountToday} streak={streakCount} />
+<WorkoutSummary bind:open={showSummary} workout={$todayLog} prCount={prCountToday} streak={streakCount} onDurationChange={handleSummaryDurationChange} />
 <ExerciseInfoSheet bind:open={infoSheetOpen} exerciseId={infoSheetExerciseId} exerciseName={infoSheetExerciseName} on:replace={handleInfoReplace} />
 
 <style>

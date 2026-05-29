@@ -151,7 +151,7 @@
                 </div>
               </div>
             </div>
-            <button class="btn btn-secondary" on:click={resetImport}>Import another file</button>
+            <button class="btn btn-secondary" on:click={resetImport}>Import Another File</button>
           {:else if importPreview}
             <div class="preview">
               <div class="preview-head">

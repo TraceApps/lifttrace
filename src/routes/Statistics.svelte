@@ -5,6 +5,7 @@
   import { LtApi } from '../lib/api.js';
   import { weightUnit, pageBanners, bannerStyle } from '../stores/settings.js';
   import StatisticsBanner from '../components/banners/StatisticsBanner.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
   import WeeklyVolumeChart from '../components/statistics/WeeklyVolumeChart.svelte';
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
   import Sparkline from '../components/statistics/Sparkline.svelte';
@@ -580,7 +581,7 @@
             <p>Choose an exercise above to see how your top set has changed over time. Useful for checking if you're actually progressing on key lifts like bench press, squat, or deadlift.</p>
           </div>
         {:else if progressLoading}
-          <div class="loading">Loading…</div>
+          <Spinner block label="Loading chart…" />
         {:else if !progressData.length}
           <div class="empty-state">
             <span class="material-symbols-rounded">info</span>

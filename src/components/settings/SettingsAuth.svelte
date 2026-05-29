@@ -256,12 +256,12 @@
         body: JSON.stringify(body),
       });
       const data = await r.json();
-      if (!r.ok) { showError(data?.error || 'Save failed'); return; }
+      if (!r.ok) { showError(data?.error || $_('common.errors.save_failed')); return; }
       showSuccess(isEdit ? 'Provider updated' : 'Provider created');
       oidcEditing = null;
       await loadData();
     } catch (e) {
-      showError('Could not reach server');
+      showError($_('common.errors.cant_reach_server'));
     } finally {
       oidcBusy = false;
     }
@@ -289,11 +289,11 @@
       });
       if (!r.ok) {
         const data = await r.json().catch(() => ({}));
-        showError(data?.error || 'Delete failed'); return;
+        showError(data?.error || $_('common.errors.delete_failed')); return;
       }
       showSuccess('Provider deleted');
       await loadData();
-    } catch { showError('Could not reach server'); }
+    } catch { showError($_('common.errors.cant_reach_server')); }
     finally { oidcBusy = false; }
   }
 
@@ -310,10 +310,10 @@
         body: JSON.stringify({ enabled: next }),
       });
       const data = await r.json();
-      if (!r.ok) { showError(data?.error || 'Save failed'); return; }
+      if (!r.ok) { showError(data?.error || $_('common.errors.save_failed')); return; }
       enablePasswordLogin = !!data.enable_email_password_login;
       showSuccess(enablePasswordLogin ? 'Password login enabled' : 'Password login disabled');
-    } catch { showError('Could not reach server'); }
+    } catch { showError($_('common.errors.cant_reach_server')); }
   }
 
   function addRedirectUri() {
@@ -484,7 +484,7 @@
                   {/if}
                 </div>
               {/each}
-              <button class="btn btn-ghost btn-sm" type="button" on:click={addRedirectUri}>+ Add redirect URI</button>
+              <button class="btn btn-ghost btn-sm" type="button" on:click={addRedirectUri}>+ Add Redirect URI</button>
               <div class="text-3 text-sm" style="margin-top:4px">Must match exactly what your IdP has configured. The path is <code>/api/auth/oidc/callback/&lt;provider-id&gt;</code> under your LiftTrace base URL.</div>
             </div>
             <div class="form-group">

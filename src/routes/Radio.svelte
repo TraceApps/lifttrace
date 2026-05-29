@@ -370,6 +370,11 @@
   }
 
   let loading = false;
+  // Last loadTab error, surfaced as an inline retry block. Cleared on
+  // successful load / tab switch / explicit retry so the empty grid no
+  // longer reads as "no data" after a Subsonic/Jellyfin connection drop.
+  let lastTabError = '';
+  let lastTabKey = '';
   let search = _savedRadio?.search || '';
 
   // Data — initialized from the module cache so re-mounts don't show empty
@@ -488,6 +493,8 @@
       }
     }
     loading = true;
+    lastTabError = '';
+    lastTabKey = t;
     try {
       if (t === 'albums') {
         albums = await sub.getAlbumList('random', 50);
@@ -518,7 +525,8 @@
       }
     } catch(e) {
       console.error('[radio] loadTab error:', t, e);
-      showError(`${t}: ${e.message}`);
+      lastTabError = e?.message || 'Connection failed';
+      showError(`${t}: ${lastTabError}`);
     }
     loading = false;
   }
@@ -932,10 +940,20 @@
           </button>
         {/each}
       </div>
-      {#if albums.length === 0}
+      {#if albums.length === 0 && !loading}
         <div class="empty-state">
-          <span class="material-symbols-rounded" style="font-size:48px;color:var(--text-3)">library_music</span>
-          <p>No albums found. Check your Subsonic server connection in Settings.</p>
+          <span class="material-symbols-rounded" style="font-size:48px;color:var(--text-3)">
+            {lastTabError && lastTabKey === 'albums' ? 'wifi_off' : 'library_music'}
+          </span>
+          {#if lastTabError && lastTabKey === 'albums'}
+            <p><strong>Couldn't reach your media server.</strong></p>
+            <p style="font-size:13px;color:var(--text-3)">{lastTabError}</p>
+            <button class="btn btn-secondary" style="margin-top:8px" on:click={() => loadTab('albums', { force: true })}>
+              <span class="material-symbols-rounded" style="font-size:16px">refresh</span> Retry
+            </button>
+          {:else}
+            <p>No albums found. Check your Subsonic server connection in Settings.</p>
+          {/if}
         </div>
       {/if}
 
@@ -952,8 +970,18 @@
       {/each}
       {#if !loading && artists.reduce((n, g) => n + (g.artist?.length || 0), 0) === 0}
         <div class="empty-state">
-          <span class="material-symbols-rounded" style="font-size:48px;color:var(--text-3)">person</span>
-          <p>No artists found. Check your Subsonic server connection in Settings.</p>
+          <span class="material-symbols-rounded" style="font-size:48px;color:var(--text-3)">
+            {lastTabError && lastTabKey === 'artists' ? 'wifi_off' : 'person'}
+          </span>
+          {#if lastTabError && lastTabKey === 'artists'}
+            <p><strong>Couldn't reach your media server.</strong></p>
+            <p style="font-size:13px;color:var(--text-3)">{lastTabError}</p>
+            <button class="btn btn-secondary" style="margin-top:8px" on:click={() => loadTab('artists', { force: true })}>
+              <span class="material-symbols-rounded" style="font-size:16px">refresh</span> Retry
+            </button>
+          {:else}
+            <p>No artists found. Check your Subsonic server connection in Settings.</p>
+          {/if}
         </div>
       {/if}
 
@@ -966,10 +994,20 @@
           <span class="artist-count">{pl.songCount || ''} tracks</span>
         </button>
       {/each}
-      {#if playlists.length === 0}
+      {#if playlists.length === 0 && !loading}
         <div class="empty-state">
-          <span class="material-symbols-rounded" style="font-size:48px;color:var(--text-3)">queue_music</span>
-          <p>No playlists found.</p>
+          <span class="material-symbols-rounded" style="font-size:48px;color:var(--text-3)">
+            {lastTabError && lastTabKey === 'playlists' ? 'wifi_off' : 'queue_music'}
+          </span>
+          {#if lastTabError && lastTabKey === 'playlists'}
+            <p><strong>Couldn't reach your media server.</strong></p>
+            <p style="font-size:13px;color:var(--text-3)">{lastTabError}</p>
+            <button class="btn btn-secondary" style="margin-top:8px" on:click={() => loadTab('playlists', { force: true })}>
+              <span class="material-symbols-rounded" style="font-size:16px">refresh</span> Retry
+            </button>
+          {:else}
+            <p>No playlists found.</p>
+          {/if}
         </div>
       {/if}
 

@@ -115,6 +115,7 @@ A self-hosted weightlifting tracker that runs entirely in a single Docker contai
 - **Admin group mapping** — promote users to admin based on group claims
 - Configurable from Settings → User Management → OIDC providers, or declared in env (`OIDC_*` / `OIDC_PROVIDER_N_*`). Env-defined providers show with a lock badge and are read-only in the UI.
 - Encrypted client secrets at rest (AES-GCM with HKDF-derived key)
+- **RP-initiated logout** — signing out also ends the session at the IdP via the standard OIDC end-session endpoint (using `id_token_hint`), so the next sign-in isn't silently completed by a still-alive IdP session. Register two Post Logout Redirect URIs at your IdP: `https://your-lifttrace-host/` for PWA and `lifttrace://oidc-callback` for Android. Falls back to a local-only clear when the IdP doesn't publish an `end_session_endpoint`.
 
 ### Workout History Import
 - Bring your old log in from **Strong**, **Hevy**, **FitNotes**, or **Jefit** (CSV exports)

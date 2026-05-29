@@ -7,6 +7,7 @@
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
 
   export let params = {};
@@ -578,7 +579,7 @@
   </header>
 
   {#if loading}
-    <div class="loading">Loading...</div>
+    <Spinner block label="Loading template…" />
   {:else if template}
     <div class="content">
       {#if exercises.length === 0}
