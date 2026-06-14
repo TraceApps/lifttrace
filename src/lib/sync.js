@@ -49,6 +49,36 @@ let _flushing = false;
 
 // ── Server fetch helper (uses CapacitorHttp to bypass WebView CORS) ──────
 
+/**
+ * Handle a 401 from any sync endpoint by clearing local auth state so
+ * App.svelte's reactive gate sends the user to Login. Without this,
+ * an expired JWT or rotated server-side JWT_SECRET puts sync into an
+ * unwinnable retry loop. Mirrors the same fix in NT sync.js
+ * (commit d1e8217) and CT (commit c4d6334).
+ */
+async function _handleSyncAuthError() {
+  console.warn('[sync] received 401 — clearing local auth so the user can re-sign-in');
+  try {
+    const { setAuthToken } = await import('./platform.js');
+    setAuthToken(null);
+  } catch {}
+  try { localStorage.removeItem('wl:userId'); } catch {}
+  try { localStorage.removeItem('lt:cachedUser'); } catch {}
+  try { localStorage.removeItem('lt:csrf'); } catch {}
+  // Also wipe the biometric-saved JWT. Without this, the user retrieves
+  // a stale token on next launch via biometric, hits 401 silently, and
+  // bounces back to Login with no visible feedback. NT confirmed this
+  // pattern via logcat (commit 9d33afb).
+  try {
+    const { clearSavedToken } = await import('./biometric.js');
+    await clearSavedToken();
+  } catch {}
+  try {
+    const { currentUser } = await import('../stores/auth.js');
+    currentUser.set(null);
+  } catch {}
+}
+
 async function _serverFetch(method, path, body) {
   const url = getServerUrl();
   if (!url) throw new Error('No server configured');
@@ -113,6 +143,7 @@ export async function pullSnapshot(silent = false) {
       pull = await _serverFetch('GET', `/api/sync/pull?since=${encodeURIComponent(since)}`);
     } catch (e) {
       console.warn('[sync] /api/sync/pull failed:', e.status, e.message);
+      if (e.status === 401) await _handleSyncAuthError();
       result.errors.push(['pull', e.message]);
       result.ok = false;
       return result;
@@ -160,6 +191,23 @@ export async function pullSnapshot(silent = false) {
 // based on deleted_at. Tag every applied write 'clean' so sync_state stays
 // truthful — the only 'pending' rows should be local writes the device
 // hasn't pushed yet.
+//
+// Pending guard: before each INSERT OR REPLACE, skip rows that are still
+// `sync_state='pending'` locally. Without this, a pull arriving while a
+// local write is in-flight (or its retry is queued) clobbers the user's
+// fresh edit with the server's pre-edit value. The bug is self-healing on
+// the next pull once the server registers the edit, but until then the
+// UI shows stale data and the user sees their input "disappear". NutriTrace
+// hit the same shape (see NT's dbUpsertFromServer guard).
+
+async function _localIsPending(table, idColumn, id) {
+  if (id == null) return false;
+  const rows = await dbQuery(
+    `SELECT sync_state FROM ${table} WHERE ${idColumn} = ? LIMIT 1`,
+    [id]
+  );
+  return rows[0]?.sync_state === 'pending';
+}
 
 async function _applyExercises(rows, result) {
   if (!rows?.length) { result.tables.exercises = 0; return; }
@@ -168,6 +216,7 @@ async function _applyExercises(rows, result) {
       await dbRun(`DELETE FROM exercises WHERE id = ?`, [e.id]);
       continue;
     }
+    if (await _localIsPending('exercises', 'id', e.id)) continue;
     await dbRun(
       `INSERT OR REPLACE INTO exercises
          (id, name, category, primary_muscles, secondary_muscles, equipment,
@@ -195,6 +244,7 @@ async function _applyPrograms(rows, result) {
   if (!rows?.length) { result.tables.programs = 0; return; }
   for (const p of rows) {
     if (p.deleted_at) { await dbRun(`DELETE FROM programs WHERE id = ?`, [p.id]); continue; }
+    if (await _localIsPending('programs', 'id', p.id)) continue;
     await dbRun(
       `INSERT OR REPLACE INTO programs (id, name, description, goal, created_by, visibility, created_at, updated_at, sync_state)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
@@ -213,6 +263,7 @@ async function _applyTemplates(rows, result) {
   if (!rows?.length) { result.tables.templates = 0; return; }
   for (const t of rows) {
     if (t.deleted_at) { await dbRun(`DELETE FROM workout_templates WHERE id = ?`, [t.id]); continue; }
+    if (await _localIsPending('workout_templates', 'id', t.id)) continue;
     await dbRun(
       `INSERT OR REPLACE INTO workout_templates (id, program_id, name, day_label, order_index, exercises, created_at, updated_at, sync_state)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
@@ -252,6 +303,7 @@ async function _applyWorkouts(rows, result) {
       await dbRun(`DELETE FROM workout_log WHERE id = ?`, [w.id]);
       continue;
     }
+    if (await _localIsPending('workout_log', 'id', w.id)) continue;
     await dbRun(
       `INSERT OR REPLACE INTO workout_log
          (id, user_id, date, template_id, program_id, name, exercises,
@@ -275,6 +327,7 @@ async function _applyBodyStats(rows, result) {
   if (!rows?.length) { result.tables.bodyStats = 0; return; }
   for (const b of rows) {
     if (b.deleted_at) { await dbRun(`DELETE FROM body_stats_log WHERE id = ?`, [b.id]); continue; }
+    if (await _localIsPending('body_stats_log', 'id', b.id)) continue;
     await dbRun(
       `INSERT OR REPLACE INTO body_stats_log (id, user_id, date, stats, updated_at, sync_state)
        VALUES (?, 1, ?, ?, ?, 'clean')`,
@@ -291,6 +344,12 @@ async function _applySettings(rows, result) {
   const { DB } = await import('./db.js');
   for (const s of rows) {
     if (!s.key) continue;
+    // Same pending guard as the other appliers but keyed on (user_id, key).
+    const localRows = await dbQuery(
+      `SELECT sync_state FROM user_settings WHERE user_id = 1 AND key = ? LIMIT 1`,
+      [s.key]
+    );
+    if (localRows[0]?.sync_state === 'pending') continue;
     await dbRun(
       `INSERT INTO user_settings (user_id, key, value, updated_at, sync_state)
        VALUES (1, ?, ?, ?, 'clean')
@@ -376,6 +435,19 @@ export async function flushQueue() {
         await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
         result.succeeded++;
       } catch (e) {
+        if (e.status === 401) {
+          // Auth lost — clear local auth so the user re-signs-in, and
+          // KEEP the queued write so it replays once they're back in.
+          // Stop the whole flush; the rest of the queue would just
+          // 401 too and waste cycles.
+          await _handleSyncAuthError();
+          await dbRun(
+            `UPDATE sync_queue SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
+            [String(e.message || e).slice(0, 500), row.id]
+          );
+          result.retained++;
+          break;
+        }
         if (e.status && e.status >= 400 && e.status < 500) {
           // Permanent failure — drop so it doesn't block forever.
           await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);

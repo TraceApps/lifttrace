@@ -310,6 +310,15 @@ export const ntFederationEnabled = createSettingStore('ntFederationEnabled', fal
 // in SettingsFederation; set true by a successful /api/nt/test response.
 export const ntConnectionVerified = createSettingStore('ntConnectionVerified', false);
 
+// Local-mode scheduled backup. Per-device (no server in local mode).
+// JS-side tick in src/lib/local-backup-scheduler.js fires when due.
+// TraceApps parity with NutriTrace + CookTrace.
+export const localBackupSchedule  = createSettingStore('localBackupSchedule',  'off');
+export const localBackupTime      = createSettingStore('localBackupTime',      '03:00');
+export const localBackupRetention = createSettingStore('localBackupRetention', 7);
+export const localBackupLastRun   = createSettingStore('localBackupLastRun',   null);
+export const localBackupLastError = createSettingStore('localBackupLastError', null);
+
 /** Apply accent color */
 let _lastAppliedAccent = null;
 export function applyAccentColor(value) {

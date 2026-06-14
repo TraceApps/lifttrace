@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { currentUser, userMgmtActive, loadAuthState } from '../stores/auth.js';
   import { loadServerSettings } from '../stores/settings.js';
   import { showError, showSuccess } from '../stores/toast.js';
@@ -74,9 +75,23 @@
       setAuthToken(saved);
       // /me brings the auth state up + refreshes CSRF.
       await loadAuthState();
+      // If /me rejected the saved token (expired, JWT_SECRET rotated,
+      // backup restored, server URL changed), loadAuthState cleared
+      // currentUser. Without an explicit check the user lands on '/'
+      // briefly then bounces right back to Login — looks like biometric
+      // "did nothing." Surface the error + wipe the stale stash so the
+      // next tap doesn't repeat the loop. Mirrors the NT fix (commit
+      // 9d33afb) confirmed via logcat when an NT JWT hit the 30-day
+      // expiry boundary.
+      if (!get(currentUser)) {
+        showError('Your saved sign-in expired. Use your password to sign in.');
+        await bio.clearSavedToken();
+        return;
+      }
       await loadServerSettings();
       push('/');
     } catch (e) {
+      console.warn('[login] biometric flow failed:', e);
       showError('Biometric sign-in failed. Use your password instead.');
     }
   }

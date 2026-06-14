@@ -33,7 +33,7 @@
   let addFullName = '';
   let addRole = 'member';
   let adding = false;
-  let sessionHours = '720';
+  let sessionHours = '8760';
   let sessionSaved = false;
 
   // Password Policy (admin-only) — 'standard' | 'strong'
@@ -61,7 +61,7 @@
     try { userList = await fetch('/api/auth/users', { credentials: 'include' }).then(r => r.json()); } catch {}
     try {
       const cfg = await fetch('/api/app-config', { credentials: 'include' }).then(r => r.json());
-      sessionHours = cfg.session_hours || '720';
+      sessionHours = cfg.session_hours || '8760';
       passwordPolicy = cfg.password_policy || 'standard';
     } catch {}
     await loadPendingInvites();

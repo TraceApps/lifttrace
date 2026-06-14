@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
 import multer from 'multer';
 import db from '../db.js';
+import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
 
@@ -15,6 +16,133 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = process.env.UPLOADS_PATH || path.resolve(__dirname, '..', 'uploads');
 const BACKUPS_DIR = process.env.BACKUPS_PATH || path.join(UPLOADS_DIR, 'backups');
 fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+
+// ── Schedule config — TraceApps parity with NT + CT ──────────────────
+// See NT's server/routes/full-backup.js for the canonical design.
+// Env-lock: BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION.
+const SCHEDULES = new Set(['off', 'daily', 'weekly', 'monthly']);
+const DEFAULT_SCHEDULE = 'off';
+const DEFAULT_TIME = '03:00';
+const DEFAULT_RETENTION = 7;
+
+export function isBackupEnvLocked() {
+  return !!(process.env.BACKUP_SCHEDULE
+         || process.env.BACKUP_TIME
+         || process.env.BACKUP_RETENTION);
+}
+
+function _cfg(key) {
+  return db.prepare('SELECT value FROM app_config WHERE key = ?').get(key)?.value;
+}
+function _setCfg(key, value) {
+  db.prepare('INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, value == null ? '' : String(value));
+}
+
+export function getScheduleConfig() {
+  const envSchedule  = process.env.BACKUP_SCHEDULE;
+  const envTime      = process.env.BACKUP_TIME;
+  const envRetention = process.env.BACKUP_RETENTION;
+  const schedule = SCHEDULES.has(envSchedule) ? envSchedule
+                 : SCHEDULES.has(_cfg('backup_schedule')) ? _cfg('backup_schedule')
+                 : DEFAULT_SCHEDULE;
+  const time     = (envTime && /^\d{1,2}:\d{2}$/.test(envTime)) ? envTime
+                 : (_cfg('backup_time') && /^\d{1,2}:\d{2}$/.test(_cfg('backup_time'))) ? _cfg('backup_time')
+                 : DEFAULT_TIME;
+  const retention = Math.max(1, Math.min(99, parseInt(envRetention || _cfg('backup_retention') || DEFAULT_RETENTION, 10) || DEFAULT_RETENTION));
+  return {
+    schedule, time, retention,
+    lastAutoRun:   _cfg('backup_last_auto_run')   || null,
+    lastAutoError: _cfg('backup_last_auto_error') || null,
+    envLocked:     isBackupEnvLocked(),
+  };
+}
+
+export function setScheduleConfig({ schedule, time, retention }) {
+  if (isBackupEnvLocked()) {
+    const err = new Error('Backup schedule is locked by environment variable');
+    err.code = 'ENV_LOCKED';
+    throw err;
+  }
+  if (schedule != null) {
+    if (!SCHEDULES.has(schedule)) throw new Error('schedule must be one of: off, daily, weekly, monthly');
+    _setCfg('backup_schedule', schedule);
+  }
+  if (time != null) {
+    if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('time must be HH:MM');
+    const [h, m] = time.split(':').map(n => parseInt(n, 10));
+    if (h < 0 || h > 23 || m < 0 || m > 59) throw new Error('time out of range');
+    _setCfg('backup_time', `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  }
+  if (retention != null) {
+    const r = parseInt(retention, 10);
+    if (!Number.isFinite(r) || r < 1 || r > 99) throw new Error('retention must be 1-99');
+    _setCfg('backup_retention', String(r));
+  }
+  return getScheduleConfig();
+}
+
+export function createBackup() {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename  = `lifttrace-backup-${timestamp}.zip`;
+  const destPath  = path.join(BACKUPS_DIR, filename);
+  const zip = new AdmZip();
+  zip.addFile('database.json', Buffer.from(JSON.stringify(dumpDatabase(), null, 2), 'utf8'));
+  if (fs.existsSync(UPLOADS_DIR)) {
+    const addDir = (dir, zipPath) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        const zp = zipPath ? `${zipPath}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) { if (full === BACKUPS_DIR) continue; addDir(full, zp); }
+        else { zip.addFile(`images/${zp}`, fs.readFileSync(full)); }
+      }
+    };
+    addDir(UPLOADS_DIR, '');
+  }
+  zip.writeZip(destPath);
+  const stat = fs.statSync(destPath);
+  return { filename, size: stat.size, createdAt: new Date().toISOString() };
+}
+
+export function pruneOldBackups(retention) {
+  const keep = Math.max(1, Math.min(99, parseInt(retention, 10) || DEFAULT_RETENTION));
+  const all = fs.readdirSync(BACKUPS_DIR)
+    .filter(f => f.startsWith('lifttrace-backup-') && f.endsWith('.zip'))
+    .sort()
+    .reverse();
+  const toDelete = all.slice(keep);
+  for (const f of toDelete) {
+    try { fs.unlinkSync(path.join(BACKUPS_DIR, f)); }
+    catch (e) { logger.warn?.(`[backup] prune failed for ${f}: ${e.message}`); }
+  }
+  return toDelete;
+}
+
+export async function runScheduledBackup() {
+  const cfg = getScheduleConfig();
+  try {
+    const result = createBackup();
+    pruneOldBackups(cfg.retention);
+    _setCfg('backup_last_auto_run', new Date().toISOString());
+    _setCfg('backup_last_auto_error', '');
+    logger.info?.(`[backup] scheduled backup ok: ${result.filename} (${(result.size / 1024 / 1024).toFixed(1)} MB), pruned to ${cfg.retention}`);
+    return result;
+  } catch (e) {
+    _setCfg('backup_last_auto_error', e.message || String(e));
+    logger.warn?.(`[backup] scheduled backup failed: ${e.message}`);
+    try {
+      const adminRow = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+      if (adminRow) {
+        const { pushNotify } = await import('../lib/push-notify.js');
+        await pushNotify(adminRow.id, 'notifBackupFailed',
+          '🛟 LiftTrace backup failed',
+          `Scheduled backup error: ${e.message || 'unknown'}`,
+          7);
+      }
+    } catch {}
+    throw e;
+  }
+}
 
 // Backup upload size cap: 512 MB by default. Override via env if you have
 // a genuinely huge backup (massive uploads/ folder). Was 2 GB.
@@ -186,26 +314,21 @@ function dumpDatabase() {
 
 router.post('/', requireAdmin, (req, res) => {
   try {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const filename = `lifttrace-backup-${timestamp}.zip`;
-    const destPath = path.join(BACKUPS_DIR, filename);
-    const zip = new AdmZip();
-    zip.addFile('database.json', Buffer.from(JSON.stringify(dumpDatabase(), null, 2), 'utf8'));
-    if (fs.existsSync(UPLOADS_DIR)) {
-      const addDir = (dir, zipPath) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const full = path.join(dir, entry.name);
-          const zp = zipPath ? `${zipPath}/${entry.name}` : entry.name;
-          if (entry.isDirectory()) { if (full === BACKUPS_DIR) continue; addDir(full, zp); }
-          else { zip.addFile(`images/${zp}`, fs.readFileSync(full)); }
-        }
-      };
-      addDir(UPLOADS_DIR, '');
-    }
-    zip.writeZip(destPath);
-    const stat = fs.statSync(destPath);
-    res.json({ filename, size: stat.size, createdAt: new Date().toISOString() });
+    res.json(createBackup());
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Auto-backup schedule (admin-only).
+router.get('/schedule', requireAdmin, (req, res) => {
+  try { res.json(getScheduleConfig()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.put('/schedule', requireAdmin, (req, res) => {
+  try { res.json(setScheduleConfig(req.body || {})); }
+  catch (err) {
+    const status = err.code === 'ENV_LOCKED' ? 409 : 400;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 router.get('/', requireAdmin, (req, res) => {
