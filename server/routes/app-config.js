@@ -27,11 +27,17 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
     const row = db.prepare(`SELECT value FROM app_config WHERE key = 'ai_enabled'`).get();
     ai_enabled = row?.value === 'true';
   }
+  // backup_locked: BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION env
+  // var set → Auto Backup UI disables, PUT schedule returns 409.
+  // TraceApps parity with NT + CT.
+  const { isBackupEnvLocked } = await import('./full-backup.js').catch(() => ({}));
+  const backup_locked = typeof isBackupEnvLocked === 'function' ? isBackupEnvLocked() : false;
   res.json({
     smtp: isSmtpEnvLocked(),
     ai: aiLocked,
     ai_enabled,
     oidc_provider_ids: getEnvLockedProviderIds(),
+    backup_locked,
   });
 }));
 

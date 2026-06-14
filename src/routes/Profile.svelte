@@ -493,7 +493,7 @@
           <span class="security-label">Sign In with Biometric</span>
           <div class="setting-hint">
             {#if _biometricSupported}
-              Use fingerprint or face unlock instead of typing your password each time. Your password is still required on the first sign-in.
+              Use fingerprint or face unlock instead of typing your password each time. Your password is still required on the first sign-in. Sign-in sessions stay valid for up to a year by default — admins can change this in <strong>Settings → Users → Session Duration</strong>.
             {:else}
               Set up a fingerprint or face unlock in <strong>Android Settings → Security</strong> first, then come back here.
             {/if}

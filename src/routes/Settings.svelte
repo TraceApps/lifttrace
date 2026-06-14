@@ -657,7 +657,12 @@
       onToggle={() => toggleSection('notifications')}
     />
 
-    {#if !localOnly}
+    <!-- SettingsBackup is now visible in BOTH server + local mode so
+         the new Auto Backup section is reachable from local-mode
+         installs too. The server full-backup sub-section gates itself
+         internally to server mode; local-mode users see only the
+         Auto Backup config. -->
+    {#if true}
       <SettingsBackup
         visible={sectionVisible(settingsQuery, 'data')}
         expanded={expanded.data}

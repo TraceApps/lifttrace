@@ -10,6 +10,12 @@
   } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import Dialog from '../ui/Dialog.svelte';
+  import TimePicker from '../ui/TimePicker.svelte';
+  import { isNative, getNativeMode } from '../../lib/platform.js';
+  import {
+    localBackupSchedule, localBackupTime, localBackupRetention,
+    localBackupLastRun, localBackupLastError,
+  } from '../../stores/settings.js';
 
   export let expanded = false;
   export let visible = true;
@@ -29,7 +35,103 @@
   let showClearDataDialog = false;
   let showClearSettingsDialog = false;
 
-  $: if (expanded) loadFullBackups();
+  // Mode gates — server full-backup APIs return 501 in local mode, so
+  // the manual Create / Restore / list buttons are server-mode only.
+  // Auto Backup config renders in both modes from different sources.
+  const _isNativeLocal = isNative && getNativeMode() === 'local';
+  $: serverEnabled = !_isNativeLocal;
+
+  // Scheduled-backup state — TraceApps parity with NT + CT.
+  let scheduleCfg = null;
+  let scheduleBusy = false;
+
+  async function loadSchedule() {
+    if (!serverEnabled) return;
+    try {
+      const res = await fetch('/api/full-backup/schedule', { credentials: 'include' });
+      if (!res.ok) return;
+      scheduleCfg = await res.json();
+    } catch {}
+  }
+
+  async function saveSchedule(patch) {
+    if (!scheduleCfg || scheduleCfg.envLocked) return;
+    scheduleBusy = true;
+    try {
+      const res = await fetch('/api/full-backup/schedule', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showError(data.error || 'Save failed');
+        await loadSchedule();
+        return;
+      }
+      scheduleCfg = data;
+    } catch (e) {
+      showError(e?.message || 'Save failed');
+    } finally {
+      scheduleBusy = false;
+    }
+  }
+
+  $: localScheduleCfg = _isNativeLocal ? {
+    schedule:      $localBackupSchedule  || 'off',
+    time:          $localBackupTime      || '03:00',
+    retention:     parseInt($localBackupRetention, 10) || 7,
+    lastAutoRun:   $localBackupLastRun   || null,
+    lastAutoError: $localBackupLastError || null,
+    envLocked:     false,
+  } : null;
+
+  function saveLocalSchedule(patch) {
+    if (!_isNativeLocal) return;
+    if (patch.schedule != null && ['off','daily','weekly','monthly'].includes(patch.schedule)) {
+      localBackupSchedule.set(patch.schedule);
+    }
+    if (patch.time != null && /^\d{1,2}:\d{2}$/.test(patch.time)) {
+      const [h, m] = patch.time.split(':').map(n => parseInt(n, 10));
+      if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+        localBackupTime.set(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+      }
+    }
+    if (patch.retention != null) {
+      const r = parseInt(patch.retention, 10);
+      if (Number.isFinite(r) && r >= 1 && r <= 99) localBackupRetention.set(r);
+    }
+  }
+
+  function _formatRelative(iso) {
+    if (!iso) return null;
+    const ms = Date.now() - new Date(iso).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return null;
+    const hours = ms / 3_600_000;
+    if (hours < 1)   return `${Math.max(1, Math.round(ms / 60_000))} min ago`;
+    if (hours < 36)  return `${Math.round(hours)} hr ago`;
+    return `${Math.round(hours / 24)} days ago`;
+  }
+  function _nextDueLabel(cfg) {
+    if (!cfg || cfg.schedule === 'off') return null;
+    const [hh, mm] = cfg.time.split(':').map(n => parseInt(n, 10));
+    const intervalDays = { daily: 1, weekly: 7, monthly: 28 }[cfg.schedule] || 1;
+    const now = new Date();
+    let next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0);
+    if (cfg.lastAutoRun) {
+      const last = new Date(cfg.lastAutoRun).getTime();
+      while (next.getTime() <= now.getTime() || (next.getTime() - last) / 86_400_000 < intervalDays - 0.5) {
+        next = new Date(next.getFullYear(), next.getMonth(), next.getDate() + 1, hh, mm, 0);
+      }
+    } else if (next.getTime() <= now.getTime()) {
+      next = new Date(next.getFullYear(), next.getMonth(), next.getDate() + 1, hh, mm, 0);
+    }
+    return next.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  $: if (expanded && serverEnabled) loadFullBackups();
+  $: if (expanded && serverEnabled) loadSchedule();
 
   async function loadFullBackups() {
     try {
@@ -185,10 +287,86 @@
   </button>
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
+
+      <!-- Auto Backup — admin-global (server) or per-device (local).
+           Mirrors NutriTrace + CookTrace 1:1. Off by default. -->
+      {#if scheduleCfg || localScheduleCfg}
+        {@const _cfg = scheduleCfg || localScheduleCfg}
+        {@const _isLocal = !scheduleCfg && !!localScheduleCfg}
+        <p class="sub-label">Auto Backup</p>
+        <div class="card">
+          <div style="padding:14px 16px">
+            <div class="auto-bk">
+              <div class="auto-bk-head">
+                <span class="auto-bk-title">Schedule</span>
+                {#if _cfg.envLocked}
+                  <span class="env-lock-pill" title="Locked by BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION env var">Locked by env</span>
+                {/if}
+              </div>
+              <div class="auto-bk-fields">
+                <label class="auto-bk-field">
+                  <span class="auto-bk-label">Schedule</span>
+                  <select class="select sel-sm"
+                    value={_cfg.schedule}
+                    disabled={_cfg.envLocked || scheduleBusy}
+                    on:change={(e) => _isLocal ? saveLocalSchedule({ schedule: e.target.value }) : saveSchedule({ schedule: e.target.value })}>
+                    <option value="off">Off</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </label>
+                {#if _cfg.schedule !== 'off'}
+                  <label class="auto-bk-field">
+                    <span class="auto-bk-label">Time</span>
+                    <TimePicker value={_cfg.time}
+                      disabled={_cfg.envLocked || scheduleBusy}
+                      on:change={(e) => _isLocal ? saveLocalSchedule({ time: e.detail }) : saveSchedule({ time: e.detail })} />
+                  </label>
+                  <label class="auto-bk-field">
+                    <span class="auto-bk-label">Keep Last</span>
+                    <input class="input" type="number" min="1" max="99"
+                      value={_cfg.retention}
+                      disabled={_cfg.envLocked || scheduleBusy}
+                      on:change={(e) => _isLocal ? saveLocalSchedule({ retention: e.target.value }) : saveSchedule({ retention: e.target.value })} />
+                  </label>
+                {/if}
+              </div>
+              {#if _cfg.schedule !== 'off'}
+                <div class="auto-bk-status">
+                  {#if _cfg.lastAutoError}
+                    <div class="auto-bk-status-row error">
+                      <span class="material-symbols-rounded" style="font-size:16px">error</span>
+                      <span>Last auto-backup failed: {_cfg.lastAutoError}</span>
+                    </div>
+                  {/if}
+                  {#if _cfg.lastAutoRun}
+                    <div class="auto-bk-status-row">
+                      <span class="material-symbols-rounded" style="font-size:16px">check_circle</span>
+                      <span>Last auto-backup: {_formatRelative(_cfg.lastAutoRun)}</span>
+                    </div>
+                  {/if}
+                  {#if _nextDueLabel(_cfg)}
+                    <div class="auto-bk-status-row">
+                      <span class="material-symbols-rounded" style="font-size:16px">schedule</span>
+                      <span>Next: {_nextDueLabel(_cfg)}{_isLocal ? ' (fires when app is open)' : ''}</span>
+                    </div>
+                  {/if}
+                  <div class="auto-bk-status-row subtle">
+                    Keeps the {_cfg.retention} newest {_isLocal ? 'auto-' : ''}backup{_cfg.retention === 1 ? '' : 's'}{_isLocal ? '; manual exports are never pruned' : '; older archives prune automatically after each run'}.
+                  </div>
+                </div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      {#if serverEnabled}
       <p class="sub-label">Full Backup</p>
       <div class="card">
         <div style="padding:12px 16px 4px">
-          <p class="setting-desc" style="margin:0 0 12px">A complete snapshot of everything — all workout data, programs, exercises, settings, and uploaded images. Saved on the server and available to download or restore at any time.</p>
+          <p class="setting-desc" style="margin:0 0 12px">A complete snapshot of everything: all workout data, programs, exercises, settings, and uploaded images. Saved on the server and available to download or restore at any time.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
             <button class="btn btn-primary" style="height:36px;font-size:13px"
               on:click={createFullBackup} disabled={fullBackupBusy}>
@@ -249,9 +427,10 @@
           {/each}
         {:else}
           <div class="setting-divider"></div>
-          <p style="padding:12px 16px;font-size:13px;color:var(--text-3);margin:0">No backups yet — click Create Backup to get started.</p>
+          <p style="padding:12px 16px;font-size:13px;color:var(--text-3);margin:0">No backups yet, tap Create Backup to get started.</p>
         {/if}
       </div>
+      {/if}
 
       <p class="sub-label danger-zone-label">Danger Zone</p>
       <div class="card danger-zone-card">
@@ -324,6 +503,39 @@
 />
 
 <style>
+  /* Auto Backup schedule block — TraceApps parity with NT + CT. */
+  .auto-bk { display: flex; flex-direction: column; gap: 10px; }
+  .auto-bk-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .auto-bk-title {
+    font-size: 13px; font-weight: 600; color: var(--text-1);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .env-lock-pill {
+    font-size: 11px; font-weight: 600;
+    padding: 2px 8px;
+    background: var(--surface-2); color: var(--text-3);
+    border: 1px solid var(--border); border-radius: 999px;
+  }
+  .auto-bk-fields { display: flex; flex-wrap: wrap; gap: 10px; }
+  .auto-bk-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-width: 110px; }
+  .auto-bk-label { font-size: 11px; color: var(--text-3); font-weight: 500; }
+  .auto-bk-field .input, .auto-bk-field .select { width: 100%; }
+  .auto-bk-field :global(.tp-trigger) {
+    width: 100%; justify-content: space-between; height: 36px;
+  }
+  .auto-bk-status {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border-radius: var(--radius-md);
+    font-size: 12px; color: var(--text-2);
+  }
+  .auto-bk-status-row { display: flex; align-items: center; gap: 6px; }
+  .auto-bk-status-row.subtle { color: var(--text-3); font-size: 11.5px; }
+  .auto-bk-status-row.error  { color: var(--danger); }
+
   .sub-label {
     font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
     text-transform: uppercase; color: var(--text-3);

@@ -179,6 +179,14 @@
   }
 
   onMount(async () => {
+    // Local-mode scheduled backup tick — JS-side scheduler that fires
+    // buildBackup() when due. TraceApps parity with NT + CT.
+    if (isNative && getNativeMode() === 'local') {
+      import('./lib/local-backup-scheduler.js').then(({ startLocalBackupScheduler }) => {
+        startLocalBackupScheduler();
+      }).catch(e => console.warn('[local-backup] scheduler start failed:', e?.message));
+    }
+
     // Migrate assistant name: legacy 'LiftBot' default → 'Trace'.
     // Users who set their own custom name keep it.
     {

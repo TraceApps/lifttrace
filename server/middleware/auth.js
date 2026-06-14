@@ -18,9 +18,15 @@ if (!process.env.JWT_SECRET) {
 // mean ~100 years which is pretty much forever — bad incident-recovery posture).
 // Override via MAX_SESSION_HOURS env var if you absolutely need a longer session.
 const MAX_SESSION_HOURS = parseInt(process.env.MAX_SESSION_HOURS || '8760', 10); // 1 year
+// Default raised from 720h (30 days) to 8760h (1 year) on 2026-06-09 after
+// users with biometric sign-in hit the silent 30-day token expiry. With
+// biometric on, the JWT is essentially a refresh proxy — the actual auth
+// gate is fingerprint/face on app open — so a 30-day expiry forces a
+// password re-login every month without any security benefit. Admins who
+// want shorter sessions still set Settings, Users, Session Duration.
 function _resolveSessionHours() {
   const cfg = db.prepare("SELECT value FROM app_config WHERE key = 'session_hours'").get();
-  const raw = cfg?.value != null && cfg.value !== '' ? parseInt(cfg.value) : 720;
+  const raw = cfg?.value != null && cfg.value !== '' ? parseInt(cfg.value) : 8760;
   if (!Number.isFinite(raw) || raw <= 0) return MAX_SESSION_HOURS;
   return Math.min(raw, MAX_SESSION_HOURS);
 }

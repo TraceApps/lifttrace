@@ -289,7 +289,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request guidance and the transla
 
 ## Troubleshooting
 
-- **Login appears to succeed but every page 401s** → cookies are being dropped because the server thinks it's on HTTPS but your reverse proxy is plain HTTP. Set `INSECURE_COOKIES=1` (LAN only) or put TLS in front (recommended).
+- **Login appears to succeed but every page 401s** → the auth cookie ships with the `Secure` flag, so browsers refuse to store it over plain HTTP. The login itself returns `200`, but the cookie is dropped client-side and every subsequent request comes through cookieless. Firefox logs `Cookie "lt_token" has been rejected because a non-HTTPS cookie can't be set as "secure"` in the console; Safari fails silently. Fix: set `INSECURE_COOKIES=1` (LAN-only) or put TLS in front (Caddy, nginx + certbot, Tailscale Funnel, etc.).
 - **Android app says "Connection failed" with HTTPS hint** → release APK rejects `http://`. See [DEPLOY.md](DEPLOY.md) → Connecting from Android for the four supported paths.
 - **Exercise images not loading on Android** → external image URLs are proxied through the server. Check that the server is reachable from the device and `/api/proxy` returns 200.
 - **Rest timer beeps don't fire when the app is backgrounded** → on Android, enable the WorkManager-based scheduler in Settings → Notifications.

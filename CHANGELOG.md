@@ -4,6 +4,29 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.0.0-rc.5 — 2026-06-10
+
+### Added
+
+- **Scheduled Automatic Backups** for both server mode and Android local-only mode. Pick daily or weekly, server backups land in the same directory as manual full-backups, local-mode backups export the device's SQLite mirror to the share sheet. Configure under Settings → Backup → Schedule.
+- **Multi-Architecture Docker Image**. The public image at `ghcr.io/traceapps/lifttrace` now ships both `amd64` and `arm64` builds, so Raspberry Pi 4 / 5 and other ARM self-hosters can `docker compose up -d` without building from source.
+- **Default Session Length Raised** from 30 days to 1 year so PWA users stop getting signed out every month. Admins can still set their own session length under Settings → User Management → Session Length.
+
+### Changed
+
+- **Better Biometric Failure Path** on Android. When a stored auth token has expired, biometric sign-in now surfaces a clear "Session Expired" prompt instead of silently bouncing back to the Login screen with no explanation.
+
+### Fixed
+
+- Sync no longer clobbers local pending edits during a pull. If a workout or setting was edited locally and not yet pushed to the server, an incoming server pull no longer overwrites it with older data.
+- Sync now clears local auth state on a 401 response so the user gets prompted to sign in again, instead of the app looping silently on every subsequent request.
+
+### Docs
+
+- The `INSECURE_COOKIES` env var is now called out inline in the example `docker-compose.yml` with a comment explaining the exact symptom (every request 401s after a successful login because the browser drops the `Secure` cookie over plain HTTP). README troubleshooting entry expanded with the Firefox console message that confirms the diagnosis. Closes the gap that surfaced as issue #4.
+
+---
+
 ## v1.0.0-rc.4 — 2026-05-29
 
 ### Added
