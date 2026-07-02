@@ -28,6 +28,43 @@ export async function loadWorkout(dateStr) {
   }
 }
 
+/** Refetch the server's current workout for `dateStr` and merge the
+ *  client's pending edits over it. Same cross-app fix as NutriTrace's
+ *  diary stale-cache race (NT #81): if the cached `todayLog` was
+ *  loaded before another device wrote, the full-row PUT echoes back
+ *  the stale state and wipes whatever the other device added.
+ *  Refetching first means metadata fields (name, notes, duration_min,
+ *  template_id, program_id) survive when the client didn't explicitly
+ *  set them. `exercises[]` is treated as authoritative on the client
+ *  side because it's the field the user actively edits in this
+ *  session; cross-device exercise editing on the same date in the
+ *  same session is rare and gets last-writer-wins as an accepted
+ *  tradeoff. `completed` also stays client-authoritative because
+ *  the user can legitimately un-complete a workout, and an OR-merge
+ *  would block that. Per-set timestamps would be the proper fix for
+ *  the exercises array; tracked for a follow-up. */
+async function _mergeAndSave(dateStr, clientEntry) {
+  let server = null;
+  try {
+    const data = await LtApi.getWorkout(dateStr);
+    server = data?.workout || null;
+  } catch {}
+  const toSave = server ? {
+    ...server,
+    ...clientEntry,
+    // Where client didn't explicitly set a metadata field, fall back to
+    // server's value so a stale-cache write doesn't wipe what another
+    // device added. `??` (nullish coalescing) means an explicit empty
+    // string or 0 from the client still wins over server.
+    name:         clientEntry.name         ?? server.name,
+    notes:        clientEntry.notes        ?? server.notes,
+    duration_min: clientEntry.duration_min ?? server.duration_min,
+    template_id:  clientEntry.template_id  ?? server.template_id,
+    program_id:   clientEntry.program_id   ?? server.program_id,
+  } : clientEntry;
+  return LtApi.saveWorkout(dateStr, toSave);
+}
+
 /** Save/update workout log for current date.
  *  Optimistically updates todayLog immediately, then debounces the server
  *  save so rapid typing doesn't overwrite the input mid-keystroke. */
@@ -43,7 +80,7 @@ export function saveWorkout(dateStr, entry) {
     _saveTimer = setTimeout(async () => {
       const toSave = _latestEntry;
       try {
-        const saved = await LtApi.saveWorkout(dateStr, toSave);
+        const saved = await _mergeAndSave(dateStr, toSave);
         // Only sync from server if no newer edits are queued
         if (_latestEntry === toSave) {
           todayLog.set(saved.workout);
@@ -60,7 +97,7 @@ export async function flushWorkoutSave(dateStr) {
   clearTimeout(_saveTimer);
   const toSave = _latestEntry;
   try {
-    const saved = await LtApi.saveWorkout(dateStr, toSave);
+    const saved = await _mergeAndSave(dateStr, toSave);
     if (_latestEntry === toSave) todayLog.set(saved.workout);
   } catch {}
 }

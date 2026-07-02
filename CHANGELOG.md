@@ -4,6 +4,32 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.0.0-rc.6 — 2026-07-01
+
+### Added
+
+- **Per-Exercise Sharing.** Every exercise now has a Share button in its detail header that produces a portable JSON file. Send the file to another LiftTrace user through any channel (WhatsApp, email, Drive, Signal), and they can tap the file to open it directly in LiftTrace, which prompts them to add the exercise to their library. On the receiving side, the Exercises page's "+" button also offers Import From File and Import From URL, so anyone can pull an exercise from a public URL (raw.githubusercontent.com links work out of the box; github.com/blob URLs are auto-rewritten). Enables community exercise libraries in a lightweight way: a public repo of JSON files, and users can bookmark or share individual links.
+
+- **CSV Workout Export.** The Workout Summary sheet gains a download button that produces a long-format CSV (one row per set) with date, exercise, set number, reps, weight, RPE, warmup flag, completion state, and per-set / exercise / workout notes. Unilateral splits become two rows so left and right stay separate. PWA downloads directly; Android writes the file to Cache and opens the system Share sheet. Made for anyone feeding an external analysis pipeline or spreadsheet.
+
+- **Custom Equipment.** Add your own equipment types (Slackboard, Sandbag, Weight Vest, whatever's in your home gym or hotel gym) via a new "+ Add" pill in the Exercise Editor's equipment picker. Custom entries sync across devices via your LiftTrace account. They also appear as dashed-border chips in the Exercises filter row when at least one exercise uses them.
+
+- **Multi-Select Equipment Filter** on the Exercises page. The equipment chip strip used to be one-at-a-time; it's now multi-select, so you can pick everything you have access to today (Barbell + Dumbbell + Bodyweight when you're travelling and the hotel gym is bare) and filter the library to only exercises that match. Selection persists across navigation.
+
+### Changed
+
+- **Animated Banner Redesigned.** Setting Banner Style to Animated used to show illustrated SVG art in every page's header. Those had cross-viewport rendering issues on narrow phones (the art crowded the title and hid action buttons on the Exercises page), so they've been replaced with the same compact accent bar as Gradient plus a subtle motion effect. Pick which motion under Settings → Appearance → Banner Animation: Shimmer (soft white sweep, default), Drift (slow hue rotation), Pulse (brightness breathing), or Aurora (overlapping accent clouds). All four honour Reduce Motion. If you're upgrading from rc.5 with Animated selected, the setting name stays the same but the look is new. The compact bar also reclaims about 40 pixels of vertical real estate on every page.
+
+- **Trace FAB Visualizer Feels Snappier on Android.** The frequency ring around the AI coach FAB now tracks music dynamics with the same amplitude as it does on the PWA. It was previously over-damped because two smoothing layers stacked instead of one, leaving the bars perpetually chasing shrinking targets.
+
+### Fixed
+
+- **Cross-Device Workout Save Race.** When editing the same workout from two devices near-simultaneously (phone + PWA), a save would sometimes clobber the other device's just-completed sets with a stale in-memory snapshot. The workout store now refetches and merges before writing, so both devices' edits survive.
+
+- **Password Manager Password Generation.** Browsers and password managers now correctly generate passwords that satisfy LiftTrace's policy (uppercase + lowercase + digit + special character, 8+ chars) when signing up, accepting an invite, resetting a password, or changing one from Profile. Previously the "suggest strong password" flow produced passwords without a special character, which the field then rejected.
+
+---
+
 ## v1.0.0-rc.5 — 2026-06-10
 
 ### Added
@@ -2276,7 +2302,7 @@ Diary deep-dive pass. Three focused packs:
 - **Diary date bar**: reduced to match NutriTrace height (17/12px text, 32px nav buttons, 6px padding). Safe-area padding only applied when no banner is above.
 - **Calendar date picker**: portal-based with `max-width: 600px; margin: 0 auto` (prevents desktop blowup).
 - **WorkoutTimer**: now shows `H:MM:SS` when duration exceeds 1 hour.
-- **Docker image**: moved from `ghcr.io/thebigjoe1/lifttrace` to `ghcr.io/traceapps/lifttrace`.
+- **Docker image**: moved from `ghcr.io/traceapps/lifttrace` to `ghcr.io/traceapps/lifttrace`.
 
 ### Fixed
 - Accent colors pink/rose/cyan/lime had no CSS rules — fell through to default orange.

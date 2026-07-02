@@ -9,6 +9,16 @@
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import { findSimilarExercises } from '../lib/exerciseSimilarity.js';
+  import { exportExercise } from '../lib/exerciseShare.js';
+
+  let exporting = false;
+  async function handleExport() {
+    if (!exercise || exporting) return;
+    exporting = true;
+    try { await exportExercise(exercise); }
+    catch (e) { showError(e.message || 'Export failed'); }
+    exporting = false;
+  }
 
   let showEditor = false;
 
@@ -134,6 +144,11 @@
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
     <h1>{exercise?.name || 'Exercise'}</h1>
+    {#if exercise}
+      <button class="header-btn" on:click={handleExport} disabled={exporting} title="Share exercise as JSON" aria-label="Share exercise as JSON">
+        <span class="material-symbols-rounded">{exporting ? 'hourglass_top' : 'share'}</span>
+      </button>
+    {/if}
     {#if isCustom}
       <button class="header-btn" on:click={() => showEditor = true} title="Edit" aria-label="Edit exercise">
         <span class="material-symbols-rounded">edit</span>

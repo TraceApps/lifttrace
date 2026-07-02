@@ -7,7 +7,6 @@
   import { showSuccess } from '../stores/toast.js';
   import { showError } from '../stores/toast.js';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
-  import RadioBanner from '../components/banners/RadioBanner.svelte';
   import Dialog from '../components/ui/Dialog.svelte';
   import * as sub from '../lib/radio-provider.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
@@ -721,8 +720,7 @@
        avoids the cumulative-top math that broke the bar's stick when
        the banner illustration was on (taller header → wrong calc). -->
   <div class="sticky-top">
-    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
-      {#if $bannerStyle === 'animated'}<RadioBanner />{/if}
+    <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
       {#if showBack}
         <button class="back-btn" on:click={back}>
           <span class="material-symbols-rounded">arrow_back</span>
@@ -1307,15 +1305,41 @@
   }
   /* Defeat the global page-header sticky inside our wrapper — the
      wrapper is the one doing the pinning now. Otherwise the header's
-     own sticky competes and produces inconsistent behavior. */
+     own sticky competes and produces inconsistent behavior.
+     `!important` here because base.css's `.page-header.banner-animated`
+     rule has equal specificity (2 classes vs 2 classes) and Vite's CSS
+     injection order isn't reliable between this scoped block and the
+     global base — without !important the cascade is a coin flip and
+     Animated mode lost on real builds, breaking the wrapper's pin. */
   .sticky-top :global(.page-header) {
-    position: static;
-    backdrop-filter: none; -webkit-backdrop-filter: none;
+    position: static !important;
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+    overflow: visible !important;     /* base's overflow:hidden on .banner-animated
+                                         created a block formatting context that
+                                         broke the wrapper's sticky on Radio's
+                                         3-row stack specifically. */
   }
-  /* Strip the header bg so the .sticky-top wrapper's glass shows through —
-     EXCEPT for the gradient variant, which is meant to repaint the bar
-     with the accent gradient. */
-  .sticky-top :global(.page-header:not(.banner-gradient)) {
+  /* Hide the animation pseudos when Animated mode is selected on Radio.
+     The radial / cloud-of-light pseudos in base.css depend on the
+     page-header being its own positioned containing block with
+     overflow:hidden — neither is true once the override above strips
+     those properties. Without hiding them, they paint relative to
+     .sticky-top and bleed into the radio-bar + search-bar. Animated
+     on Radio visually matches Gradient (same accent background); the
+     other three pages with .sticky-top wrappers still animate normally
+     because their CSS doesn't carry this override. */
+  .sticky-top :global(.page-header.banner-animated::before),
+  .sticky-top :global(.page-header.banner-animated::after) {
+    display: none !important;
+  }
+  /* Strip the header bg so the .sticky-top wrapper's glass shows through,
+     EXCEPT for the saturated-accent variants (Gradient and Animated),
+     which are meant to repaint the bar with their own background. Both
+     need to be excluded explicitly here; missing either makes Radio's
+     header read as transparent in that mode while every other page's
+     header looks accent-tinted. If a new banner-style class lands later,
+     add it to this exclusion list too. */
+  .sticky-top :global(.page-header:not(.banner-gradient):not(.banner-animated)) {
     background: transparent;
   }
 

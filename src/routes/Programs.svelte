@@ -8,7 +8,6 @@
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { GOALS } from '../lib/workout.js';
   import Sheet from '../components/ui/Sheet.svelte';
-  import ProgramsBanner from '../components/banners/ProgramsBanner.svelte';
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
 
@@ -67,8 +66,7 @@
 </script>
 
 <div class="page">
-  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
-    {#if $bannerStyle === 'animated'}<ProgramsBanner />{/if}
+  <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.programs.title')}</h1>
     <div class="header-actions">
       <button class="btn-primary-sm" on:click={() => showCreate = true}>

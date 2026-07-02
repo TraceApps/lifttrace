@@ -4,7 +4,6 @@
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { weightUnit, pageBanners, bannerStyle } from '../stores/settings.js';
-  import StatisticsBanner from '../components/banners/StatisticsBanner.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import WeeklyVolumeChart from '../components/statistics/WeeklyVolumeChart.svelte';
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
@@ -430,8 +429,7 @@
 </script>
 
 <div class="page">
-  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
-    {#if $bannerStyle === 'animated'}<StatisticsBanner />{/if}
+  <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.statistics.title')}</h1>
   </header>
 

@@ -6,7 +6,6 @@
   import { currentUser, userMgmtActive } from '../stores/auth.js';
   import { accentColor, applyAccentColor, pageBanners, bannerStyle } from '../stores/settings.js';
   import { showSuccess, showError } from '../stores/toast.js';
-  import SettingsBanner from '../components/banners/SettingsBanner.svelte';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
   import SettingsAppearance from '../components/settings/SettingsAppearance.svelte';
   import SettingsUnits from '../components/settings/SettingsUnits.svelte';
@@ -445,8 +444,7 @@
        at the same y position when scrolling instead of computing its own
        top offset (which budged when the header re-laid out under it). -->
   <div class="settings-sticky-top">
-    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
-      {#if $bannerStyle === 'animated'}<SettingsBanner />{/if}
+    <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
       <h1>{$_('routes.settings.title')}</h1>
     </header>
 
@@ -937,9 +935,6 @@
   .profile-hero-chev { color: var(--text-3); flex-shrink: 0; }
 
   /* ── Sticky search bar (NutriTrace pattern) ─────────────────────────── */
-  /* Default `top` assumes the compact (banner-off) header height.
-     The .has-banner sibling selector below shifts it down to clear
-     the taller illustrated header when banners are on. */
   /* Sticky container — keeps the page header AND the search bar pinned
      together as one unit so the search row doesn't shift relative to the
      header as the page scrolls. Single sticky-top is more reliable than

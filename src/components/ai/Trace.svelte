@@ -133,7 +133,16 @@
    */
   const _targetBars = new Float32Array(VIZ_N);
   const _displayBars = new Float32Array(VIZ_N);
-  const RENDER_LERP = 0.08;  // higher = snappier catch-up, lower = smoother
+  // RENDER_LERP at 0.08 over-dampened the Android visualizer: the Java
+  // side already applies the W3C-spec 0.75 smoothing on linear magnitudes
+  // BEFORE dB conversion (FftAudioProcessor.SMOOTHING), so a second lerp
+  // layer of 8%/frame meant the displayed bars couldn't catch up to peaks
+  // before the source decayed. The PWA path writes data directly to the
+  // store with no second-layer smoothing — it relies entirely on
+  // AnalyserNode's internal 0.75 STC. 0.35 keeps just enough easing to
+  // hide occasional Capacitor-bridge frame drops while letting bars reach
+  // ~93% of any peak within five 60Hz frames (~80ms).
+  const RENDER_LERP = 0.35;
   let _renderRaf = null;
 
   function _onNativeFft(bins) {
