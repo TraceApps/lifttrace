@@ -58,6 +58,48 @@ The English source text may also change occasionally without renaming the key. T
 - **Length awareness.** Some buttons are tight on small screens. If your translation is significantly longer than the English, test on a phone-sized viewport.
 - **Do not translate proper nouns or product names** — `LiftTrace`, `Trace` (the AI assistant), `wger`, `Strong`, `Hevy`, `FitNotes`, `Jefit`, `Subsonic`, `Jellyfin`, `Plex`, `Emby` stay as-is.
 
+### For code contributors — instrumenting new strings
+
+Every user-facing string added to the app should be extracted into `en.json` and rendered through `svelte-i18n`'s `$_()` helper. Hardcoded English literals in templates are the reason translation coverage lags the codebase — please prevent them at PR time rather than retrofit them later.
+
+The pattern:
+
+```svelte
+<script>
+  import { _ } from 'svelte-i18n';
+</script>
+
+<h1>{$_('routes.diary.title')}</h1>
+<input placeholder={$_('routes.exercises.search_placeholder')} />
+```
+
+Then in `src/i18n/en.json`:
+
+```json
+"routes": {
+  "diary": {
+    "title": "Diary"
+  },
+  "exercises": {
+    "search_placeholder": "Search exercises…"
+  }
+}
+```
+
+Guidelines:
+
+- **Group by area**, not by page. `settings.notifications.section` is better than `settings_notifications_section`.
+- **Only add English** in your PR. Do not machine-translate or hand-translate into other languages you don't natively speak — that misrepresents contributor work. The `en.json` addition is enough; translators fill in their locale files in follow-up PRs. `svelte-i18n`'s `fallbackLocale: 'en'` renders English until a translation lands.
+- **Skip developer-facing strings** — error stacks, log messages, JSON payload keys, class names. Only pull out what a user reads on screen.
+- **Interpolation** uses `{$_('key', { values: { name: user.name } })}` and `{name}` in the JSON value. Prefer this over string concatenation so translators can reorder words.
+- **Run `npm run i18n:check`** before opening the PR. It flags orphaned keys and missing translations across every locale file, catching typos and stale entries.
+
+If you're adding a section that has a lot of copy, group all the new keys under one namespace in `en.json` so they can be reviewed together.
+
+### On putting words in a contributor's mouth
+
+Do not add translations for locales you don't natively speak, and do not merge machine-translated content into a contributor's locale file. If a section can't be translated at code-write time (nobody on the PR speaks the language), extract to `en.json`, open a follow-up "Translations wanted" issue linking the new keys, and let a native speaker fill them in. `svelte-i18n`'s English fallback keeps the app fully functional in the meantime.
+
 ### What's translatable today vs not
 
 Only a subset of UI strings is currently extracted — the surface every user touches every session: navigation, page titles, settings section headers, auth flow, wizard, primary actions in Diary / Programs / Exercises, common toasts, action sheets, the AI assistant FAB. The remaining strings (deep Settings sub-section labels, Statistics chart internals, Coaching) are still English and will be extracted in subsequent releases. If you start translating and notice a screen you use heavily that's not yet in `en.json`, open an issue listing the screen — those are the targets to extract first.
