@@ -450,9 +450,9 @@
       <div class="form-group">
         <label class="form-label">{$_('reset_password.new_password')}</label>
         {#if showPw}
-          <input class="form-input" type="text" bind:value={newPassword} placeholder={$_('reset_password.password_placeholder')} />
+          <input class="form-input" type="text" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={newPassword} placeholder={$_('reset_password.password_placeholder')} />
         {:else}
-          <input class="form-input" type="password" bind:value={newPassword} placeholder={$_('reset_password.password_placeholder')} />
+          <input class="form-input" type="password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={newPassword} placeholder={$_('reset_password.password_placeholder')} />
         {/if}
         {#if newPassword}
           <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
@@ -465,9 +465,9 @@
       <div class="form-group">
         <label class="form-label">{$_('profile.confirm_new_password')}</label>
         {#if showPw}
-          <input class="form-input" type="text" bind:value={confirmPassword} placeholder="Re-enter new password" />
+          <input class="form-input" type="text" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={confirmPassword} placeholder="Re-enter new password" />
         {:else}
-          <input class="form-input" type="password" bind:value={confirmPassword} placeholder="Re-enter new password" />
+          <input class="form-input" type="password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={confirmPassword} placeholder="Re-enter new password" />
         {/if}
         {#if pwMatch}<span class="form-error">{pwMatch}</span>{/if}
       </div>

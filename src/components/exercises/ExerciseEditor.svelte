@@ -6,6 +6,24 @@
   import { LtApi } from '../../lib/api.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { CATEGORIES, EQUIPMENT, MUSCLES } from '../../lib/workout.js';
+  import { customEquipment } from '../../stores/settings.js';
+
+  // Combined picker list = built-in buckets + user-defined kit.
+  $: equipmentOptions = [...EQUIPMENT, ...(Array.isArray($customEquipment) ? $customEquipment : []).filter(e => !EQUIPMENT.includes(e))];
+
+  let addingCustomEq = false;
+  let newCustomEq = '';
+  function addCustomEquipment() {
+    const v = newCustomEq.trim();
+    if (!v) { addingCustomEq = false; return; }
+    const existing = Array.isArray($customEquipment) ? $customEquipment : [];
+    if (!existing.includes(v) && !EQUIPMENT.includes(v)) {
+      $customEquipment = [...existing, v];
+    }
+    if (!equipment.includes(v)) equipment = [...equipment, v];
+    newCustomEq = '';
+    addingCustomEq = false;
+  }
 
   /** If null, editor is in "create" mode. Otherwise edits the given exercise. */
   export let exercise = null;
@@ -118,11 +136,26 @@
     <div class="field">
       <label class="label">Equipment</label>
       <div class="chips">
-        {#each EQUIPMENT as e}
+        {#each equipmentOptions as e}
           <button type="button" class="chip" class:active={equipment.includes(e)} on:click={() => toggleEquip(e)}>
             {e}
           </button>
         {/each}
+        {#if addingCustomEq}
+          <input
+            class="custom-eq-input"
+            type="text"
+            placeholder="e.g. Slackboard"
+            bind:value={newCustomEq}
+            on:blur={addCustomEquipment}
+            on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomEquipment(); } if (e.key === 'Escape') { newCustomEq = ''; addingCustomEq = false; } }}
+            autofocus
+          />
+        {:else}
+          <button type="button" class="chip chip-add" on:click={() => { newCustomEq = ''; addingCustomEq = true; }} title="Add custom equipment">
+            <span class="material-symbols-rounded chip-add-icon">add</span>
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -216,6 +249,18 @@
     background: var(--accent-dim);
     color: var(--accent);
     border-color: var(--accent);
+  }
+  .chip-add { padding: 6px 10px; }
+  .chip-add-icon { font-size: 16px; vertical-align: middle; }
+  .custom-eq-input {
+    padding: 6px 10px;
+    border-radius: var(--radius-full);
+    background: var(--surface-2);
+    border: 1px dashed var(--accent);
+    color: var(--text-1);
+    font-size: 12px; font-family: inherit;
+    outline: none;
+    min-width: 120px;
   }
 
   .actions {

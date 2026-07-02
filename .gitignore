@@ -41,6 +41,9 @@ android/app/debug/
 android/keystore.properties
 *.keystore
 *.jks
+# Renamed release APKs that get dropped into the repo root for GitHub
+# Release uploads. Never want these in git history.
+lifttrace-*.apk
 android/app/src/main/assets/public/
 android/app/src/main/assets/capacitor.config.json
 android/app/src/main/assets/capacitor.plugins.json

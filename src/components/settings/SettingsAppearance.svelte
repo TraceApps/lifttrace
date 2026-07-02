@@ -5,7 +5,7 @@
   import {
     appearance, applyAppearance, accentColor, applyAccentColor,
     navStyle, sidebarPersistent, startPage, disableAnimations,
-    goalCelebrations, bannerStyle, loopBannerAnimations,
+    goalCelebrations, bannerStyle, bannerAnimation,
   } from '../../stores/settings.js';
 
   export let expanded = false;
@@ -141,7 +141,7 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <span class="setting-label">Page Banners</span>
-            <span class="setting-hint">Decorative header at the top of every page</span>
+            <span class="setting-hint">Header style at the top of every page. Animated is a compact accent-gradient bar with a chosen motion style; Gradient is the same bar, static; Off is a plain glass header.</span>
           </div>
           <select class="form-select-sm" value={$bannerStyle} on:change={e => bannerStyle.set(e.target.value)}>
             <option value="animated">Animated</option>
@@ -152,10 +152,15 @@
         {#if $bannerStyle === 'animated'}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Loop Banner Animations</span>
-              <span class="setting-hint">Continuously animate banners (off = play once)</span>
+              <span class="setting-label">Animation Style</span>
+              <span class="setting-hint">Shimmer is a soft white sweep, Drift is a slow hue rotation, Pulse is a gentle breathing, Aurora is a soft accent-tinted cloud-of-light. All honour Reduce Motion.</span>
             </div>
-            <Toggle bind:checked={$loopBannerAnimations} />
+            <select class="form-select-sm" value={$bannerAnimation} on:change={e => bannerAnimation.set(e.target.value)}>
+              <option value="shimmer">Shimmer</option>
+              <option value="drift">Drift</option>
+              <option value="pulse">Pulse</option>
+              <option value="aurora">Aurora</option>
+            </select>
           </div>
         {/if}
       </div>

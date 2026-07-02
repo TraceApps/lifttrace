@@ -468,9 +468,9 @@
               <input class="form-input-sm" style="width:100%" type="text" bind:value={addFullName} placeholder={$_('settings.users.full_name')} />
               <div class="um-pw-wrap">
                 {#if addShowPass}
-                  <input class="form-input-sm um-pw-input" type="text" bind:value={addPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
+                  <input class="form-input-sm um-pw-input" type="text" bind:value={addPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
                 {:else}
-                  <input class="form-input-sm um-pw-input" type="password" bind:value={addPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
+                  <input class="form-input-sm um-pw-input" type="password" bind:value={addPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
                 {/if}
                 <button class="um-pw-eye" type="button" on:click={() => addShowPass = !addShowPass} aria-label={addShowPass ? 'Hide' : 'Show'}>
                   <span class="material-symbols-rounded">{addShowPass ? 'visibility_off' : 'visibility'}</span>
@@ -544,18 +544,18 @@
               <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminName} placeholder={$_('settings.users.full_name')} />
               <div style="display:flex;gap:6px;align-items:center">
                 {#if enableShowPass}
-                  <input class="form-input-sm" style="flex:1" type="text" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
+                  <input class="form-input-sm" style="flex:1" type="text" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
                 {:else}
-                  <input class="form-input-sm" style="flex:1" type="password" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
+                  <input class="form-input-sm" style="flex:1" type="password" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
                 {/if}
                 <button class="btn-icon" type="button" on:click={() => enableShowPass = !enableShowPass} title={enableShowPass ? 'Hide' : 'Show'} style="flex-shrink:0">
                   <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>
                 </button>
               </div>
               {#if enableShowPass}
-                <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminConf} placeholder="Confirm password" autocomplete="new-password" />
+                <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminConf} placeholder="Confirm password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
               {:else}
-                <input class="form-input-sm" style="width:100%" type="password" bind:value={enableAdminConf} placeholder="Confirm password" autocomplete="new-password" />
+                <input class="form-input-sm" style="width:100%" type="password" bind:value={enableAdminConf} placeholder="Confirm password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
               {/if}
               {#if enableUmError}
                 <span class="form-error" style="font-size:12px;color:var(--danger)">{enableUmError}</span>

@@ -7,22 +7,110 @@
   import { CATEGORIES } from '../lib/workout.js';
   import { normalizeEquipment, sortByBucket } from '../lib/equipment.js';
   import { showSuccess, showError } from '../stores/toast.js';
-  import ExercisesBanner from '../components/banners/ExercisesBanner.svelte';
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
-  import { pageBanners, bannerStyle, favoriteExercises } from '../stores/settings.js';
+  import ActionSheet from '../components/ui/ActionSheet.svelte';
+  import Dialog from '../components/ui/Dialog.svelte';
+  import { pageBanners, bannerStyle, favoriteExercises, customEquipment } from '../stores/settings.js';
+  import { readSharedExerciseFile, fetchSharedExerciseUrl, importSharedExercise } from '../lib/exerciseShare.js';
 
   let showEditor = false;
+  let addMenuOpen = false;
+  let urlPromptOpen = false;
+  let urlInput = '';
+  let importBusy = false;
+  let fileInput;
 
   async function onEditorSaved(e) {
     // Re-fetch the library so the new / updated exercise appears immediately.
     try { exercises = await LtApi.getExercises(); } catch {}
   }
 
+  function onAddMenuPick(e) {
+    const v = e.detail?.value;
+    if (v === 'create')      showEditor = true;
+    else if (v === 'file')   fileInput?.click();
+    else if (v === 'url')  { urlInput = ''; urlPromptOpen = true; }
+  }
+
+  async function _doImport(payload, sourceLabel) {
+    importBusy = true;
+    try {
+      const created = await importSharedExercise(payload);
+      showSuccess(`Imported "${created?.name || payload.name}"`);
+      try { exercises = await LtApi.getExercises(); } catch {}
+    } catch(e) {
+      showError(`${sourceLabel}: ${e.message || 'Import failed'}`);
+    }
+    importBusy = false;
+  }
+
+  async function onFileChosen(e) {
+    const f = e.target?.files?.[0];
+    if (f) {
+      try {
+        const payload = await readSharedExerciseFile(f);
+        await _doImport(payload, 'File');
+      } catch(err) {
+        showError(`File: ${err.message || 'Invalid file'}`);
+      }
+    }
+    // Reset so picking the same file twice still fires `change`.
+    if (fileInput) fileInput.value = '';
+  }
+
+  async function onUrlConfirm() {
+    const url = urlInput.trim();
+    if (!url) return;
+    try {
+      const payload = await fetchSharedExerciseUrl(url);
+      await _doImport(payload, 'URL');
+    } catch(err) {
+      showError(`URL: ${err.message || 'Import failed'}`);
+    }
+  }
+
   let exercises = [];
   let usage = {};  // { [exerciseId]: { count, last_date } } — drives recency tag + Most Used sort
   let search = '';
   let selectedCategory = '';
-  let selectedEquipment = '';
+  // Multi-select: empty array = no equipment filter. Each entry is either
+  // one of the six normalized buckets (Barbell / Bodyweight / etc.) or
+  // a custom equipment string the user added via ExerciseEditor.
+  let selectedEquipment = [];
+  // Persist across nav so "Available today" picks survive going to an
+  // ExerciseDetail and back. Wipes on full app reload (sessionStorage).
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('lt:exEquip') || '[]');
+    if (Array.isArray(saved)) selectedEquipment = saved;
+  } catch {}
+  function _persistEq() {
+    try { sessionStorage.setItem('lt:exEquip', JSON.stringify(selectedEquipment)); } catch {}
+  }
+  function toggleEq(name) {
+    selectedEquipment = selectedEquipment.includes(name)
+      ? selectedEquipment.filter(e => e !== name)
+      : [...selectedEquipment, name];
+    _persistEq();
+  }
+  function clearEq() {
+    selectedEquipment = [];
+    _persistEq();
+  }
+
+  /** Does this exercise's equipment list intersect the user's selection?
+   *  Empty selection always passes. A selected entry matches an exercise's
+   *  equipment string either exactly (custom-equipment case) or via the
+   *  six-bucket normalization (built-in buckets case). */
+  function _eqMatch(ex, selected) {
+    if (!selected.length) return true;
+    const set = new Set(selected);
+    for (const raw of (ex.equipment || [])) {
+      if (set.has(raw)) return true;
+      const bucket = normalizeEquipment(raw);
+      if (bucket && set.has(bucket)) return true;
+    }
+    return false;
+  }
   let sortMode = 'alpha';  // 'alpha' | 'used' | 'recent' — persisted across visits
   let loading = true;
   let viewMode = 'list'; // 'list' | 'grid'
@@ -90,7 +178,7 @@
     const counts = {};
     for (const ex of exercises) {
       if (search && !ex.name.toLowerCase().includes(search.toLowerCase())) continue;
-      if (selectedEquipment && !(ex.equipment || []).some(e => normalizeEquipment(e) === selectedEquipment)) continue;
+      if (!_eqMatch(ex, selectedEquipment)) continue;
       const cat = ex.category || 'other';
       counts[cat] = (counts[cat] || 0) + 1;
     }
@@ -111,31 +199,44 @@
   $: filtered = exercises.filter(ex => {
     const matchSearch = !search || ex.name.toLowerCase().includes(search.toLowerCase());
     const matchCat = !selectedCategory || ex.category === selectedCategory;
-    const matchEq = !selectedEquipment || (ex.equipment || []).some(e => normalizeEquipment(e) === selectedEquipment);
-    return matchSearch && matchCat && matchEq;
+    return matchSearch && matchCat && _eqMatch(ex, selectedEquipment);
   });
 
   // Equipment is consolidated into 6 major buckets so the filter row
   // stays readable across sources. Logic shared with ExercisePicker via
   // lib/equipment.js.
 
-  // Available equipment for current category (dynamic sub-filter)
+  // Available equipment for the current search + category. Buckets are
+  // counted via normalizeEquipment; custom-equipment strings are counted
+  // by exact match so user-defined kit (Slackboard, Sandbag, etc.) shows
+  // up alongside the built-in buckets when at least one exercise uses it.
   $: availableEquipment = (() => {
     const catFiltered = exercises.filter(ex => {
       const matchSearch = !search || ex.name.toLowerCase().includes(search.toLowerCase());
       const matchCat = !selectedCategory || ex.category === selectedCategory;
       return matchSearch && matchCat;
     });
-    const counts = {};
+    const customSet = new Set(Array.isArray($customEquipment) ? $customEquipment : []);
+    const bucketCounts = {};
+    const customCounts = {};
     for (const ex of catFiltered) {
+      const seenBuckets = new Set();
+      const seenCustom = new Set();
       for (const eq of (ex.equipment || [])) {
-        const name = normalizeEquipment(eq);
-        if (name) counts[name] = (counts[name] || 0) + 1;
+        if (customSet.has(eq)) seenCustom.add(eq);
+        const b = normalizeEquipment(eq);
+        if (b) seenBuckets.add(b);
       }
+      for (const b of seenBuckets) bucketCounts[b] = (bucketCounts[b] || 0) + 1;
+      for (const c of seenCustom) customCounts[c] = (customCounts[c] || 0) + 1;
     }
-    return Object.entries(counts)
-      .sort((a, b) => sortByBucket(a[0], b[0]))
-      .map(([name, count]) => ({ name, count }));
+    const out = [];
+    for (const [name, count] of Object.entries(bucketCounts)) out.push({ name, count, custom: false });
+    out.sort((a, b) => sortByBucket(a.name, b.name));
+    const customs = Object.entries(customCounts)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count, custom: true }));
+    return [...out, ...customs];
   })();
 
   // Sort comparator factory keyed by sortMode. Favorites always rise to
@@ -193,18 +294,46 @@
        reachable while scrolling. Single sticky parent is more reliable
        than two separately-sticky siblings with computed top offsets. -->
   <div class="ex-sticky-top">
-    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
-      {#if $bannerStyle === 'animated'}<ExercisesBanner />{/if}
+    <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
       <h1>{$_('routes.exercises.title')}</h1>
       <span class="exercise-count" title="Filtered / total">
         {filtered.length}{#if filtered.length !== exercises.length} <span class="exercise-count-total">/ {exercises.length}</span>{/if}
       </span>
-      <button class="create-btn" on:click={() => showEditor = true} aria-label="Create custom exercise" title="Create custom exercise">
-        <span class="material-symbols-rounded">add</span>
+      <button class="create-btn" on:click={() => addMenuOpen = true} aria-label="Add exercise" title="Add exercise" disabled={importBusy}>
+        <span class="material-symbols-rounded">{importBusy ? 'hourglass_top' : 'add'}</span>
       </button>
     </header>
 
-  <div class="filter-bar" class:has-banner={$pageBanners}>
+    <input type="file" accept="application/json,.json" bind:this={fileInput} on:change={onFileChosen} hidden />
+
+    <ActionSheet
+      bind:open={addMenuOpen}
+      title="Add exercise"
+      actions={[
+        { label: 'Create new',       icon: 'add',          value: 'create' },
+        { label: 'Import from file', icon: 'upload_file',  value: 'file'   },
+        { label: 'Import from URL',  icon: 'link',         value: 'url'    },
+      ]}
+      on:select={onAddMenuPick}
+    />
+
+    <Dialog
+      bind:open={urlPromptOpen}
+      title="Import exercise from URL"
+      message="Paste a link to a LiftTrace exercise JSON file (raw.githubusercontent.com or github.com/blob URLs both work)."
+      confirmText="Import"
+      on:confirm={onUrlConfirm}
+    >
+      <input
+        class="url-input"
+        type="url"
+        placeholder="https://raw.githubusercontent.com/..."
+        bind:value={urlInput}
+        autocomplete="off" spellcheck="false"
+      />
+    </Dialog>
+
+  <div class="filter-bar">
     <div class="search-bar">
       <span class="material-symbols-rounded search-icon">search</span>
       <input class="search-input" type="text" placeholder="Search exercises..." bind:value={search} />
@@ -253,9 +382,9 @@
         <div class="equipment-chips"
           on:wheel={(e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.currentTarget.scrollLeft += e.deltaY; e.preventDefault(); } }}
         >
-          <button class="eq-chip" class:active={!selectedEquipment} on:click={() => selectedEquipment = ''}>All Equipment</button>
+          <button class="eq-chip" class:active={selectedEquipment.length === 0} on:click={clearEq}>All Equipment</button>
           {#each availableEquipment as eq}
-            <button class="eq-chip" class:active={selectedEquipment === eq.name} on:click={() => selectedEquipment = selectedEquipment === eq.name ? '' : eq.name}>
+            <button class="eq-chip" class:custom={eq.custom} class:active={selectedEquipment.includes(eq.name)} on:click={() => toggleEq(eq.name)}>
               {eq.name} <span class="eq-count">{eq.count}</span>
             </button>
           {/each}
@@ -277,7 +406,7 @@
           <button class="btn btn-primary" on:click={() => push('/settings')}>Go to Settings</button>
         {:else}
           <p>No exercises match the current filters.</p>
-          <button class="btn btn-secondary" on:click={() => { search = ''; selectedCategory = ''; selectedEquipment = ''; }}>
+          <button class="btn btn-secondary" on:click={() => { search = ''; selectedCategory = ''; clearEq(); }}>
             <span class="material-symbols-rounded" style="font-size:16px">filter_alt_off</span>
             Clear filters
           </button>
@@ -450,6 +579,10 @@
     transition: all var(--dur-fast);
   }
   .eq-chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  /* Custom (user-added) equipment chips read with a dashed border so
+     they stand apart from the six normalized buckets — same accent
+     when active so the multi-select still feels uniform. */
+  .eq-chip.custom { border-style: dashed; }
   .eq-count { font-size: 10px; opacity: 0.6; }
 
   .content { padding: 0 var(--page-px) 16px; }
@@ -539,4 +672,19 @@
   .loading, .empty { text-align: center; padding: 48px 24px; color: var(--text-3); }
   .empty .material-symbols-rounded { font-size: 48px; display: block; margin-bottom: 12px; }
   .empty .btn-primary { margin-top: 16px; }
+
+  /* URL prompt input inside the Dialog slot. Matches editor input look. */
+  .url-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-1);
+    font-size: 14px;
+    font-family: inherit;
+    margin-bottom: 16px;
+    outline: none;
+  }
+  .url-input:focus { border-color: var(--accent); }
 </style>

@@ -204,10 +204,14 @@
       // Always written
       setupComplete: true,
       appearance,
-      // Brand-new users finishing onboarding get the gradient banner as
-      // their default first impression. Existing users (who never re-run
-      // the wizard) keep whatever bannerStyle / legacy pageBanners they
-      // already had — the migration in settings.js handles that path.
+      // Brand-new users finishing onboarding get the Gradient banner as
+      // their default first impression (compact accent-gradient bar,
+      // static). Animated is the same bar with a slow horizontal drift,
+      // available under Settings → Appearance → Page Banners for users
+      // who want that. Defaulting to the static option keeps the first
+      // run quieter; users discover the animated option deliberately.
+      // Existing users (who never re-run the wizard) keep whatever
+      // bannerStyle they already had via the migration in settings.js.
       bannerStyle: 'gradient',
       // Unit system — driven by a single pick in step 2
       ...(unitSystem ? { weightUnit: isMetric ? 'kg' : 'lbs', heightUnit: isMetric ? 'cm' : 'ft' } : {}),
@@ -353,8 +357,8 @@
             <input class="wiz-input" type="text" bind:value={adminUser} placeholder={$_('wizard.users.username_placeholder')} />
             <input class="wiz-input" type="text" bind:value={adminName} placeholder={$_('wizard.users.fullname_placeholder')} />
             <input class="wiz-input" type="email" bind:value={adminEmail} placeholder={$_('wizard.users.email_placeholder')} />
-            <input class="wiz-input" type="password" bind:value={adminPass} placeholder={$_('wizard.users.password_placeholder')} />
-            <input class="wiz-input" type="password" bind:value={adminConf} placeholder={$_('wizard.users.confirm_placeholder')} />
+            <input class="wiz-input" type="password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={adminPass} placeholder={$_('wizard.users.password_placeholder')} />
+            <input class="wiz-input" type="password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={adminConf} placeholder={$_('wizard.users.confirm_placeholder')} />
             {#if umError}
               <span class="um-error">{umError}</span>
             {/if}

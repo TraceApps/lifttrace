@@ -96,7 +96,14 @@ input, select, textarea { font-family: inherit; }
 .font-medium { font-weight: 500; }
 .font-semibold { font-weight: 600; }
 
-/* Shared page header — sticky, consistent padding and title style */
+/* Shared page header — sticky, compact-height across all three banner
+   modes (Animated / Gradient / Off). The taller illustrated-SVG layout
+   from earlier RCs was retired in rc.6 because cross-viewport rendering
+   was a constant landmine (illustrations crowded H1 text on narrow
+   mobile widths) and the bespoke SVG-per-page maintenance burden
+   wasn't justified by the visual return. All three modes now share
+   the same compact geometry; the only differences are background
+   treatment and motion. */
 .page-header {
   position: sticky;
   top: 0;
@@ -109,13 +116,20 @@ input, select, textarea { font-family: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: calc(var(--page-top, var(--safe-top)) + 10px + var(--hamburger-row, 0px)) var(--page-px) 12px;
-  padding-left: max(var(--page-px), var(--hamburger-offset, 0px));
+  padding-top: calc(var(--page-top, var(--safe-top)) + 10px);
+  padding-bottom: 10px;
+  padding-right: var(--page-px);
+  /* Title sits NEXT TO the hamburger button (not below it), so the
+     left padding has to clear the button itself. --hamburger-clearance
+     is the button's RIGHT edge + small gap (~64px when shown, 0 when
+     the sidebar is pinned and the button isn't rendered). When the
+     hamburger isn't visible the standard --page-px gutter takes over. */
+  padding-left: max(var(--page-px), var(--hamburger-clearance, 0px));
 }
 .page-header h1 {
-  min-height: 40px;          /* minimum height for single-line titles; grows for multi-line */
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 800;
+  min-height: 40px;          /* keep the hamburger button's 40px tap target as the row baseline */
   margin: 0;
   line-height: 1.2;
   display: flex;
@@ -131,34 +145,12 @@ input, select, textarea { font-family: inherit; }
   text-overflow: ellipsis;
 }
 
-/* Banner variant — taller header with illustrated SVG backdrop.
-   Banners use viewBox 1200x120 (10:1) + preserveAspectRatio="slice"
-   so content fills the header at every width. Mobile crops the sides
-   (keeps the center content centered); desktop shows the full extent. */
-.page-header.has-banner {
-  clip-path: inset(0);       /* clip the SVG to the header bounds — avoids iOS Safari
-                                 bug where overflow:hidden on sticky stops child animations */
-  padding-bottom: 72px;      /* extend downward to give the illustration room */
-  align-items: flex-end;     /* push h1 (and any action buttons) to the bottom */
-}
-/* Ensure h1 gradient text is legible over the illustration */
-.page-header.has-banner h1 {
-  position: relative;        /* stack above the absolute SVG */
-  z-index: 1;
-  text-shadow: 0 2px 12px rgba(0,0,0,0.35);
-}
-
-/* Gradient variant — compact-height header (same geometry as the plain
-   .page-header:not(.has-banner) compact mode) but with the user's active
-   accent gradient as the background instead of glass. No tall-banner
-   padding, no SVG; just a themed compact bar. Top-left radial highlight
-   gives an otherwise-flat gradient a glossy, dimensional feel, and a
-   subtle white film + real backdrop blur ties it to the app's glass
-   sticky-chrome family rather than reading as a hard accent block. */
+/* Gradient variant — accent-tinted background, static. A subtle white
+   film + radial top-left highlight + real backdrop blur ties it to
+   the app's glass sticky-chrome family rather than reading as a flat
+   accent block. */
 .page-header.banner-gradient {
   background:
-    /* Subtle white film softens saturation and ties it to the overall
-       glass aesthetic without dulling the accent enough to matter. */
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.10) 0%,
       rgba(255, 255, 255, 0.04) 100%),
@@ -169,68 +161,170 @@ input, select, textarea { font-family: inherit; }
       color-mix(in srgb, var(--accent)   65%, transparent) 0%,
       color-mix(in srgb, var(--accent-2) 55%, transparent) 100%),
     var(--glass-surface);
-  /* Real backdrop refraction when anything peeks behind the sticky top. */
   backdrop-filter: blur(8px) saturate(140%);
   -webkit-backdrop-filter: blur(8px) saturate(140%);
-  border-bottom: 1px solid var(--border);
 }
 .page-header.banner-gradient h1 {
-  /* Solid white reads better on the saturated gradient than the accent-
-     gradient text fill (which would clash with the accent backdrop). */
   background: none;
   -webkit-text-fill-color: #fff;
   color: #fff;
 }
-/* Header action buttons blend into the saturated gradient with their
-   default transparent-bg + tinted-icon look. Give them a subtle frosted-
-   glass pill + pure-white icon so they read as tappable surfaces, scoped
-   to gradient mode only. Diary portals its right-side action buttons to
-   body (.diary-topbar-actions), so those are also caught via the
-   documentElement-level .banner-gradient-mode class App.svelte toggles. */
+
+/* Animated variant — same compact-height geometry and base look as
+   Gradient. The animation itself is picked separately under
+   Settings → Appearance → Banner Animation, applied via a
+   documentElement-level `banner-animation-<style>` class so the
+   rules below stay decoupled from the route markup. Four styles
+   ship: shimmer (default, soft white sweep), drift (slow hue
+   rotation), pulse (brightness breathing), aurora (overlapping
+   accent waves). All honour prefers-reduced-motion. */
+.page-header.banner-animated {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.04) 100%),
+    radial-gradient(ellipse 80% 100% at 15% -10%,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0)   60%),
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent)   65%, transparent) 0%,
+      color-mix(in srgb, var(--accent-2) 55%, transparent) 100%),
+    var(--glass-surface);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  /* Intentionally NOT setting position here. The base `.page-header { position: sticky }`
+     handles standalone routes (Programs, Statistics, Radio when banner mode is gradient/off, etc.)
+     and routes that wrap the page-header in a sticky-top container (Radio, Diary, Exercises,
+     Settings) force the inner header to `position: static` so the wrapper alone handles pinning.
+     Setting `position: sticky` here would create a nested sticky inside the wrapper that breaks
+     the outer sticky's pin behavior on Radio specifically. */
+  overflow: hidden;          /* clip the moving pseudo-elements to the header bounds */
+}
+.page-header.banner-animated h1 {
+  background: none;
+  -webkit-text-fill-color: #fff;
+  color: #fff;
+}
+/* Children of an animated header need to sit above any decorative
+   pseudo-elements painted by the per-style animation rules below.
+   Position: relative on each direct child + z-index: 1 keeps text
+   and buttons readable regardless of which animation is active. */
+.page-header.banner-animated > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Shimmer (default) ──────────────────────────────────────────────
+   A soft white-light highlight slowly sweeps across the header from
+   left to right every ~9 seconds, like a polished spotlight passing
+   over the accent bar. Pure CSS transform on a pseudo-element, GPU-
+   accelerated, viewport-agnostic. */
+html.banner-animation-shimmer .page-header.banner-animated::before {
+  content: '';
+  position: absolute;
+  inset: -20% 0;
+  background: radial-gradient(ellipse 35% 100% at 50% 50%,
+    rgba(255, 255, 255, 0.32) 0%,
+    rgba(255, 255, 255, 0)   100%);
+  pointer-events: none;
+  z-index: 0;
+  animation: lt-banner-shimmer 9s linear infinite;
+}
+@keyframes lt-banner-shimmer {
+  from { transform: translateX(-70%); }
+  to   { transform: translateX(170%); }
+}
+
+/* ── Drift ──────────────────────────────────────────────────────────
+   Gentle hue rotation of the accent gradient using filter:
+   hue-rotate(). H1 text is set to plain white in animated mode so
+   the rotation only visibly affects the background. */
+html.banner-animation-drift .page-header.banner-animated {
+  animation: lt-banner-drift 14s ease-in-out infinite alternate;
+}
+@keyframes lt-banner-drift {
+  from { filter: hue-rotate(0deg)  saturate(1);    }
+  to   { filter: hue-rotate(24deg) saturate(1.15); }
+}
+
+/* ── Pulse ──────────────────────────────────────────────────────────
+   Slow brightness + saturation breathing. The most subtle of the four,
+   reads as the gradient very quietly "inhaling". */
+html.banner-animation-pulse .page-header.banner-animated {
+  animation: lt-banner-pulse 6s ease-in-out infinite alternate;
+}
+@keyframes lt-banner-pulse {
+  from { filter: brightness(1)    saturate(1);    }
+  to   { filter: brightness(1.08) saturate(1.18); }
+}
+
+/* ── Aurora ─────────────────────────────────────────────────────────
+   Two large soft accent-tinted radials orbit past each other inside
+   the header, producing a slowly shifting cloud-of-light effect
+   reminiscent of northern lights or modern lock screens. Most
+   dramatic of the four. */
+html.banner-animation-aurora .page-header.banner-animated::before,
+html.banner-animation-aurora .page-header.banner-animated::after {
+  content: '';
+  position: absolute;
+  inset: -50% 0;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(28px);
+}
+html.banner-animation-aurora .page-header.banner-animated::before {
+  background: radial-gradient(ellipse 40% 120% at 50% 50%,
+    color-mix(in srgb, var(--accent-2) 55%, transparent) 0%,
+    transparent 70%);
+  animation: lt-banner-aurora-a 12s ease-in-out infinite alternate;
+}
+html.banner-animation-aurora .page-header.banner-animated::after {
+  background: radial-gradient(ellipse 40% 120% at 50% 50%,
+    color-mix(in srgb, var(--accent) 55%, transparent) 0%,
+    transparent 70%);
+  animation: lt-banner-aurora-b 16s ease-in-out infinite alternate;
+}
+@keyframes lt-banner-aurora-a {
+  from { transform: translateX(-30%); }
+  to   { transform: translateX( 60%); }
+}
+@keyframes lt-banner-aurora-b {
+  from { transform: translateX( 50%); }
+  to   { transform: translateX(-40%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.banner-animation-shimmer .page-header.banner-animated::before,
+  html.banner-animation-aurora  .page-header.banner-animated::before,
+  html.banner-animation-aurora  .page-header.banner-animated::after  { animation: none; }
+  html.banner-animation-drift   .page-header.banner-animated,
+  html.banner-animation-pulse   .page-header.banner-animated         { animation: none; }
+}
+
+/* Frosted-pill action buttons against accent backgrounds. Applies to
+   both Gradient and Animated modes since they share the saturated
+   accent look. Diary portals its right-side action buttons to body
+   (.diary-topbar-actions), so those are caught via the
+   documentElement-level .banner-gradient-mode / .banner-animated-mode
+   classes App.svelte toggles. */
 .page-header.banner-gradient .btn-icon,
-html.banner-gradient-mode .diary-topbar-actions .btn-icon {
+.page-header.banner-animated .btn-icon,
+html.banner-gradient-mode .diary-topbar-actions .btn-icon,
+html.banner-animated-mode .diary-topbar-actions .btn-icon {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
 }
 .page-header.banner-gradient .btn-icon:hover,
-html.banner-gradient-mode .diary-topbar-actions .btn-icon:hover {
+.page-header.banner-animated .btn-icon:hover,
+html.banner-gradient-mode .diary-topbar-actions .btn-icon:hover,
+html.banner-animated-mode .diary-topbar-actions .btn-icon:hover {
   background: rgba(255, 255, 255, 0.22);
 }
 .page-header.banner-gradient .btn-icon .material-symbols-rounded,
-html.banner-gradient-mode .diary-topbar-actions .btn-icon .material-symbols-rounded {
+.page-header.banner-animated .btn-icon .material-symbols-rounded,
+html.banner-gradient-mode .diary-topbar-actions .btn-icon .material-symbols-rounded,
+html.banner-animated-mode .diary-topbar-actions .btn-icon .material-symbols-rounded {
   color: #fff;
-}
-
-/* Compact variant — applied automatically whenever the user has page
-   banners turned off. The hamburger normally pushes the H1 onto its
-   own line (via --hamburger-row in the padding-top calc). For pages
-   without an illustrated banner there's no good reason for that empty
-   row — bring the title up alongside the hamburger, shrink the type a
-   notch, and drop the border so the sticky blur alone separates the
-   header from the content. Saves ~40px of vertical real estate on
-   every page without changing markup. */
-.page-header:not(.has-banner) {
-  padding-top: calc(var(--page-top, var(--safe-top)) + 10px);
-  /* Symmetric 10px gap above and below the inner 40px row so the title
-     sits in the centre of the compact bar instead of hugging the bottom
-     border. Sticky sub-bars below the header (date strip, search bar)
-     still sit flush against the border because the padding lives
-     INSIDE the border, not below it. */
-  padding-bottom: 10px;
-  /* Keep the thin bottom border so the compact header reads as its
-     own row, matching the rhythm of the sticky sub-bars below it
-     (Diary date strip, Settings search bar, etc.) which each have
-     their own bottom divider. */
-  /* Title sits NEXT TO the hamburger button (not below it), so the
-     left padding has to clear the button itself. --hamburger-clearance
-     is the button's RIGHT edge + small gap (~64px when shown, 0 when
-     the sidebar is pinned and the button isn't rendered). When the
-     hamburger isn't visible the standard --page-px gutter takes over. */
-  padding-left: max(var(--page-px), var(--hamburger-clearance, 0px));
-}
-.page-header:not(.has-banner) h1 {
-  font-size: 22px;
-  min-height: 40px;          /* keep the hamburger button's 40px tap target as the row baseline */
 }
 
 /* Page shell — used by all route pages */

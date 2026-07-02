@@ -9,7 +9,7 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
-  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle } from './stores/settings.js';
+  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation } from './stores/settings.js';
   import { locale } from 'svelte-i18n';
 
   // Drive svelte-i18n's active locale from the user's saved language setting.
@@ -131,10 +131,11 @@
     // sticky sub-bars (Diary date strip, Settings search) snap up
     // against the bottom of the compact header instead of leaving a
     // ~48px gap that assumed the old layout.
-    document.documentElement.style.setProperty(
-      '--hamburger-row',
-      (showHamburger && $pageBanners) ? '48px' : '0px'
-    );
+    // All three banner modes share the same compact-header geometry as
+    // of rc.6 (illustrated SVG banners were retired), so the title
+    // always sits beside the hamburger button and there's never a
+    // separate "row below" to push it into. --hamburger-row stays 0.
+    document.documentElement.style.setProperty('--hamburger-row', '0px');
     // 12px (left margin) + 40px (button width) + 12px (gap before title)
     document.documentElement.style.setProperty(
       '--hamburger-clearance',
@@ -171,6 +172,17 @@
   // pick up the frosted-pill treatment.
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('banner-gradient-mode', $bannerStyle === 'gradient');
+    document.documentElement.classList.toggle('banner-animated-mode', $bannerStyle === 'animated');
+    // Pick exactly one animation class so the CSS rules in base.css can
+    // target a single decorative style without conflicting selectors.
+    // Only active when bannerStyle is 'animated'; gradient + off get
+    // no animation class regardless of the saved animation pick.
+    for (const cls of ['banner-animation-shimmer','banner-animation-drift','banner-animation-pulse','banner-animation-aurora']) {
+      document.documentElement.classList.remove(cls);
+    }
+    if ($bannerStyle === 'animated') {
+      document.documentElement.classList.add(`banner-animation-${$bannerAnimation || 'shimmer'}`);
+    }
   }
   $: document.documentElement.style.setProperty('--mini-player-h', $miniPlayerVisible ? '56px' : '0px');
   $: {
@@ -250,6 +262,32 @@
             await Browser.close().catch(() => {});
           } catch {}
           try {
+            // File-open intent: Android dispatches *.lifttrace-exercise.json
+            // taps here as a content:// or file:// URL. iOS document
+            // picker (whenever we add it) will use the same event with a
+            // file:// URI. Read + parse + prompt to import.
+            if (/\.lifttrace-exercise\.json($|\?)/i.test(url) || url.startsWith('content://') || url.startsWith('file://')) {
+              try {
+                const { readSharedExerciseFromUri, importSharedExercise } = await import('./lib/exerciseShare.js');
+                const payload = await readSharedExerciseFromUri(url);
+                const { confirmDialog } = await import('./stores/confirmDialog.js');
+                const ok = await confirmDialog({
+                  title: 'Import exercise?',
+                  message: `Add "${payload.name}" to your library?`,
+                  confirmText: 'Import',
+                });
+                if (ok) {
+                  const created = await importSharedExercise(payload);
+                  const { showSuccess } = await import('./stores/toast.js');
+                  showSuccess(`Imported "${created?.name || payload.name}"`);
+                  window.location.hash = '#/exercises';
+                }
+              } catch (e) {
+                const { showError } = await import('./stores/toast.js');
+                showError(`Import: ${e.message || 'Could not read file'}`);
+              }
+              return;
+            }
             const u = new URL(url);
             const host = (u.hostname || u.host || '').toLowerCase();
             const params = u.searchParams;

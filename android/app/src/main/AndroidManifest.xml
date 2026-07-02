@@ -34,6 +34,32 @@
                 <data android:scheme="lifttrace" android:host="oidc-callback" />
             </intent-filter>
 
+            <!-- File-open: tap a *.lifttrace-exercise.json file in any app
+                 (WhatsApp, Drive, Files, Gmail, etc.) and Android offers
+                 LiftTrace as a handler. App.svelte#appUrlOpen reads the
+                 file via @capacitor/filesystem, validates against the
+                 portable schema, and prompts the user to import.
+
+                 pathPattern needs an explicit case per dot in the path —
+                 Android's matching is greedy from the start, so a path
+                 with N dots needs the N-prefix pattern. We cover up to
+                 four because content:// providers (Drive, Gmail) typically
+                 use 2–3 segments. mimeType="*/*" makes the chooser
+                 trigger on extension regardless of how the source app
+                 declares the MIME. -->
+            <intent-filter android:label="Import LiftTrace exercise">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.lifttrace-exercise\\.json" />
+                <data android:pathPattern=".*\\..*\\.lifttrace-exercise\\.json" />
+                <data android:pathPattern=".*\\..*\\..*\\.lifttrace-exercise\\.json" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.lifttrace-exercise\\.json" />
+            </intent-filter>
+
         </activity>
 
         <provider

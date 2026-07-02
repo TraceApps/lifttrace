@@ -98,6 +98,7 @@
       <div class="form-group">
         <label class="form-label">{$_('reset_password.new_password')}</label>
         <input class="input" type="password" autocomplete="new-password"
+          passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;"
           bind:value={password} placeholder={$_('reset_password.password_placeholder')} autofocus />
         {#if password}
           <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
@@ -109,6 +110,7 @@
       <div class="form-group">
         <label class="form-label">{$_('reset_password.confirm_password')}</label>
         <input class="input" type="password" autocomplete="new-password"
+          passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;"
           bind:value={confirm}
           on:keydown={e => e.key === 'Enter' && submit()} />
       </div>

@@ -4,6 +4,7 @@
   import { currentUser } from '../../stores/auth.js';
   import { DB } from '../../lib/db.js';
   import { shareWorkoutCard } from '../../lib/workoutCard.js';
+  import { exportWorkoutCsv } from '../../lib/workoutCsv.js';
   import { showError } from '../../stores/toast.js';
   import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume } from '../../lib/workout.js';
   import { timerState, timerMs } from '../../stores/workoutTimer.js';
@@ -63,6 +64,15 @@
     try { await shareWorkoutCard({ ...workout, duration_min: effectiveDurationMin }, $weightUnit); }
     catch (e) { showError(e.message || 'Share failed'); }
     sharing = false;
+  }
+
+  let exportingCsv = false;
+  async function handleExportCsv() {
+    if (!workout || exportingCsv) return;
+    exportingCsv = true;
+    try { await exportWorkoutCsv({ ...workout, duration_min: effectiveDurationMin }, $weightUnit); }
+    catch (e) { showError(e.message || 'Export failed'); }
+    exportingCsv = false;
   }
 
   $: stats = (() => {
@@ -265,6 +275,9 @@
       </div>
 
       <div class="ws-footer">
+        <button class="btn btn-secondary ws-icon-btn" on:click={handleExportCsv} disabled={exportingCsv} title="Export CSV" aria-label="Export workout as CSV">
+          <span class="material-symbols-rounded">{exportingCsv ? 'hourglass_top' : 'download'}</span>
+        </button>
         <button class="btn btn-secondary ws-share-btn" on:click={handleShare} disabled={sharing}>
           <span class="material-symbols-rounded" style="font-size:18px">share</span>
           {sharing ? 'Preparing…' : 'Share'}
@@ -505,5 +518,14 @@
     display: flex; align-items: center; gap: 6px;
     height: 42px;
   }
+  /* CSV export is an icon-only square so the footer stays balanced
+     with the wider Share + Done buttons. Same height as Share so the
+     two secondaries align visually. */
+  .ws-icon-btn {
+    flex: 0 0 auto;
+    width: 42px; height: 42px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ws-icon-btn .material-symbols-rounded { font-size: 20px; }
   .ws-done-btn { flex: 1; }
 </style>

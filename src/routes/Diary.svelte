@@ -14,7 +14,6 @@
   import { startRest as startRestTimer, stopRest } from '../stores/restTimer.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
   import GymTools from '../components/diary/GymTools.svelte';
-  import DiaryBanner from '../components/banners/DiaryBanner.svelte';
   import { showSuccess, showError } from '../stores/toast.js';
   import { localDateStr } from '../lib/db.js';
   import { LtApi } from '../lib/api.js';
@@ -1646,8 +1645,7 @@
        to one another as the header re-laid out. -->
   <div class="diary-sticky-top">
   <!-- Page header — same pattern as Exercises/Programs/Statistics/Settings -->
-  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
-    {#if $bannerStyle === 'animated'}<DiaryBanner />{/if}
+  <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.diary.title')}</h1>
     {#if $currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}
@@ -1666,7 +1664,7 @@
   <!-- Sticky date sub-bar — sits below the header inside the sticky-top
        container so the two move as one block instead of computing
        separate top offsets. -->
-  <div class="date-nav" class:has-banner={$pageBanners}>
+  <div class="date-nav">
     <button class="btn-icon accent" on:click={prevDay} aria-label={$_('diary.nav.previous_day')} title={$_('diary.nav.previous_day')}>
       <span class="material-symbols-rounded">chevron_left</span>
     </button>

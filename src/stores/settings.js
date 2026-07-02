@@ -18,10 +18,10 @@ const SERVER_SETTINGS = new Set([
   // Appearance/UI prefs
   'appearance', 'accentColor', 'language',
   'navStyle', 'sidebarPersistent', 'startPage', 'disableAnimations',
-  'pageBanners', 'bannerStyle', 'loopBannerAnimations',
+  'pageBanners', 'bannerStyle', 'bannerAnimation',
   // NutriTrace federation — workout calorie sync (Phase 2)
   'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified',
-  'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises',
+  'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises', 'customEquipment',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
   'autoGenerateWarmups', 'trackRpe',
   'radioStations',
@@ -150,13 +150,17 @@ function _migrateBannerStyle() {
   return 'animated';
 }
 export const bannerStyle = createSettingStore('bannerStyle', _migrateBannerStyle());
-// pageBanners means "the tall illustrated header layout" — true ONLY when
-// the user picks Animated. Gradient uses the compact header geometry with
-// an accent gradient background, so it should NOT trigger the tall-layout
-// hamburger-row sizing in App.svelte or the .has-banner padding sub-bars
-// in Diary/Exercises.
-export const pageBanners = derived(bannerStyle, $s => $s === 'animated');
-export const loopBannerAnimations = createSettingStore('loopBannerAnimations', true);
+// bannerAnimation picks which CSS animation applies when bannerStyle is
+// 'animated'. Four styles: 'shimmer' (default), 'drift', 'pulse', 'aurora'.
+// Implemented as documentElement-level classes in App.svelte so the route
+// markup stays unaware of which animation is active.
+export const bannerAnimation = createSettingStore('bannerAnimation', 'shimmer');
+// pageBanners is a legacy derived alias. The illustrated SVG banners
+// were retired in rc.6 along with the .has-banner CSS path that read
+// this. Kept around as `bannerStyle !== 'off'` for any third-party
+// embed code that still imports the symbol; new internal call sites
+// should read `bannerStyle` directly.
+export const pageBanners = derived(bannerStyle, $s => $s !== 'off');
 export const screenKeepAwake  = createSettingStore('screenKeepAwake',  false);
 // Android-only, per-device biometric unlock for sign-in. Intentionally NOT
 // in SERVER_SETTINGS — each device opts in independently.
@@ -165,6 +169,11 @@ export const goalCelebrations = createSettingStore('goalCelebrations', true);
 export const autoFillLastWeights = createSettingStore('autoFillLastWeights', true);
 export const showCompletionSummary = createSettingStore('showCompletionSummary', true);
 export const favoriteExercises = createSettingStore('favoriteExercises', []);
+// User-defined equipment names (Slackboard, Sandbag, etc.) that show up
+// alongside the six normalized buckets in the Exercises filter row and
+// in the ExerciseEditor equipment picker. Synced via SERVER_SETTINGS so
+// a user's home-gym kit follows them between devices.
+export const customEquipment = createSettingStore('customEquipment', []);
 export const exerciseReorderMethod = createSettingStore('exerciseReorderMethod', 'both'); // 'drag' | 'buttons' | 'both'
 export const autoCollapseCompleted = createSettingStore('autoCollapseCompleted', true);
 export const autoNameWorkouts = createSettingStore('autoNameWorkouts', true);
