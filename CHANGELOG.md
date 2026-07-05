@@ -4,6 +4,16 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.0.0-rc.7 — 2026-07-05
+
+Maintenance release. No user-facing feature changes since rc.6.
+
+### Security
+
+- **Dependency Security Bumps.** Multer 1.4.5-lts.1 → 2.2.0 (closes three high-severity CVEs on the LTS line covering unhandled-exception DoS, crafted-request DoS, and unclosed-stream memory leak) and nodemailer 8.0.7 → 9.0.3 (closes five CVEs including raw-option bypass, TLS OAuth cert validation, and CRLF header injection). Vite bumped alongside for the Windows `server.fs.deny` bypass patch. `npm audit` trees at both root and server now report zero vulnerabilities. Self-hosters should pull the new Docker image or rebuild from source.
+
+---
+
 ## v1.0.0-rc.6 — 2026-07-01
 
 ### Added
