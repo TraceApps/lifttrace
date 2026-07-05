@@ -1,6 +1,6 @@
 {
   "name": "lifttrace-api",
-  "version": "1.0.0-rc.6",
+  "version": "1.0.0-rc.7",
   "type": "module",
   "scripts": {
     "start": "node index.js",
@@ -17,8 +17,8 @@
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
-    "nodemailer": "^8.0.7",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3",
     "openid-client": "^5.7.1"
   }
 }
