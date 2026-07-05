@@ -158,38 +158,3 @@ export async function fetchSharedExerciseUrl(rawUrl) {
 export async function importSharedExercise(payload) {
   return LtApi.createExercise(payload);
 }
-
-/**
- * Read a `content://`, `file://`, or fully-qualified file URI delivered
- * by the OS file-open intent (Android intent filter on
- * `*.lifttrace-exercise.json`, iOS document picker), parse + validate,
- * and return the importable payload.
- *
- * Capacitor Filesystem.readFile accepts content URIs directly — Android's
- * intent system grants the activity read access to the URI, which the
- * Filesystem plugin then uses through the system ContentResolver. No
- * extra permission shuffling needed.
- */
-export async function readSharedExerciseFromUri(uri) {
-  if (!uri) throw new Error('No file URI');
-  const { Filesystem } = await import('@capacitor/filesystem');
-  const res = await Filesystem.readFile({ path: uri });
-  // Default encoding is base64; decode it through atob so the JSON
-  // round-trips even if it contains UTF-8 bytes that aren't ASCII.
-  // (Filesystem also supports an Encoding.UTF8 option, but it errors
-  // on some content:// providers — base64 + manual decode is the
-  // safer cross-provider path.)
-  const raw = typeof res?.data === 'string' ? res.data : '';
-  let text;
-  try {
-    const bin = atob(raw);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    text = new TextDecoder('utf-8').decode(bytes);
-  } catch {
-    // Fall back to the raw value in case the provider returned UTF-8
-    // directly (some Capacitor versions do).
-    text = raw;
-  }
-  return parseSharePayload(text);
-}

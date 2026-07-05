@@ -262,32 +262,6 @@
             await Browser.close().catch(() => {});
           } catch {}
           try {
-            // File-open intent: Android dispatches *.lifttrace-exercise.json
-            // taps here as a content:// or file:// URL. iOS document
-            // picker (whenever we add it) will use the same event with a
-            // file:// URI. Read + parse + prompt to import.
-            if (/\.lifttrace-exercise\.json($|\?)/i.test(url) || url.startsWith('content://') || url.startsWith('file://')) {
-              try {
-                const { readSharedExerciseFromUri, importSharedExercise } = await import('./lib/exerciseShare.js');
-                const payload = await readSharedExerciseFromUri(url);
-                const { confirmDialog } = await import('./stores/confirmDialog.js');
-                const ok = await confirmDialog({
-                  title: 'Import exercise?',
-                  message: `Add "${payload.name}" to your library?`,
-                  confirmText: 'Import',
-                });
-                if (ok) {
-                  const created = await importSharedExercise(payload);
-                  const { showSuccess } = await import('./stores/toast.js');
-                  showSuccess(`Imported "${created?.name || payload.name}"`);
-                  window.location.hash = '#/exercises';
-                }
-              } catch (e) {
-                const { showError } = await import('./stores/toast.js');
-                showError(`Import: ${e.message || 'Could not read file'}`);
-              }
-              return;
-            }
             const u = new URL(url);
             const host = (u.hostname || u.host || '').toLowerCase();
             const params = u.searchParams;
