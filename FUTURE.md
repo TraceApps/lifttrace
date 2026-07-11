@@ -2,7 +2,7 @@
 
 Ideas and planned features for LiftTrace. Not prioritized — this is a living list.
 
-Last refreshed at v0.9.4-beta.16 (2026-04-22).
+Last refreshed at v1.0.0-rc.7 (2026-07-05).
 
 ---
 
@@ -80,45 +80,11 @@ Roughly half a day.
 
 ---
 
-## 1.0 Milestone
+## Paid Android app (future distribution)
 
-Reserved for the public release. Staying on 0.x until both are ready.
-
-### Android radio HE-AAC decoder workaround (deferred)
-Chromium WebView's direct `<audio src=...>` path on Android hits a
-deterministic `PIPELINE_ERROR_DECODE` at exactly stream-timestamp
-5461333μs (packet #128) on iHeart-format HE-AAC streams (Z100, KIIS,
-etc.) — same micro on every reconnect. Likely an SBR/PS feature
-boundary issue in Chromium's media pipeline.
-
-Current state (v0.10.0-beta.x): WebView intercept proxy adds
-synthetic CORS headers, stream plays via direct `audio.src` for ~5s
-then errors; player.js auto-recovers via removeAttribute+load+new
-src cycle, giving continuous-with-gaps audio.
-
-Tried + reverted: wrap proxy URL in synthetic HLS manifest blob URL
-so hls.js handles AAC ADTS demuxing through MSE. Logs showed clean
-pipeline (AudioFlinger opens, no decode errors for 12+ seconds) but
-no audible output reached the speaker. Likely cause needs more
-investigation: hls.js EVENT-playlist with single infinite-duration
-segment may not correctly drain the buffer to the audio sink, OR
-the transmuxer's MSE feed has volume / format-conversion issues.
-
-Real fix paths to explore:
-- Direct MSE pipeline (skip hls.js): manually package raw AAC ADTS
-  into fragmented MP4 boxes via mux.js, append to SourceBuffer with
-  explicit `audio/mp4; codecs="mp4a.40.5"`. More work but full
-  control over the pipeline.
-- Native MediaCodec decode → re-encode as MP3 → serve via proxy.
-  Bypasses Chromium decoder entirely. Heavy but bulletproof.
-- Separate Android audio playback path (Java MediaPlayer / ExoPlayer)
-  exposed as a Capacitor plugin. Audio plays natively, JS only sees
-  state events. Loses Web Audio visualizer for streams.
-
-- **Native Android app** — Capacitor 8 wrap, scaffolding in progress (mirrors NutriTrace's pattern: standalone-or-server modes, full SQLite mirror, native WorkManager reminders)
-- **Release keystore** — generate `~/.android/lifttrace-release.keystore` with a real password, wire `signingConfigs.release` in `app/build.gradle` via gitignored `keystore.properties`. Until then a debug-signed APK is fine for personal use, but switching signing keys later requires uninstalling the old build first (Android refuses cross-key upgrades, which would wipe the local SQLite mirror).
-- **Voice input on Android** — current `SmartLogModal` voice path uses Web Speech API; reliability inside Android WebView is patchy. Switch to `@capacitor-community/speech-recognition` when the rest of the native app stabilises.
-- **Public release** — repo visibility, GHCR image promotion, announcement
+Speculative — LiftTrace is currently free everywhere (self-host + free
+signed APK from the release page). This section captures what would
+need doing IF a paid Play Store / F-Droid distribution ever happens.
 
 ### Licensing / distribution work required before the paid Android app
 
@@ -136,7 +102,6 @@ Real fix paths to explore:
 
 - **Template auto-suggest**: suggest today's template based on program rotation and last workout date
 - **Collapsed-card summary**: when an ExerciseCard auto-collapses after completing all sets, show the best working set on the header (e.g. `Bench Press · 4/4 · 225×5`) instead of just the name
-- **Banner shrink during workout** — when a workout is in progress (timer running or sets completed), collapse the illustrated page banner to a compact title row so more of the viewport is for logging
 - **RPE back-fill from imported notes** — the Strong / Hevy importers currently stash RPE into set notes as `"RPE 8"`. Promote those to the real `set.rpe` field with a one-shot migration now that RPE exists
 - **RPE trend chart in Statistics** — "average RPE at working weight" line chart per exercise. Useful for spotting accumulated fatigue
 - **Trace deload suggestions** — proactively suggest a deload week when user has logged RPE 9+ across three consecutive workouts on the same lift
@@ -145,54 +110,28 @@ Real fix paths to explore:
 
 - **Achievements / badges** — "100 workouts logged", "First 3-plate bench", "30-day streak", etc. Motivational layer, opt-in
 - **Progress photos timeline** — dated photos stored under body-stats, swipeable before/after view
-- **Onboarding tour** for first-time users — brief overlay that walks through Diary → Programs → Exercises → Trace → Radio
-- **Keyboard shortcuts overlay** — `?` opens a cheatsheet listing Space / Arrow / etc. We already have keyboard bindings for the radio player; surface them
-- **CSV/JSON export**: per-entity export (workouts.csv, programs.json, exercises.csv) separate from the existing full-backup ZIP
-- **Cardio-specific fields** on the set row (distance / pace / heart rate). Useful for users mixing conditioning with lifting
+- **Keyboard shortcuts overlay** — `?` opens a cheatsheet listing Space / Arrow / etc. Radio player already has keyboard bindings; surface them
+- **Per-entity CSV/JSON export** — workouts.csv, programs.json, exercises.csv separate from the existing full-backup ZIP. Workout CSV landed in rc.6 for one workout at a time; this is the batch / all-entity story
+- **Cardio-specific fields on the set row** — distance / pace / heart rate. Useful for users mixing conditioning with lifting. Related to Bundle B (BLE HR) but broader
 - **Orphan upload cleanup** — when a custom exercise is deleted, delete its `/uploads/exercises/<uuid>.ext` file too. Minor disk-leak for heavy users
+- **Native Android voice input** — current `SmartLogModal` voice path uses Web Speech API; reliability inside Android WebView is patchy. Switch to `@capacitor-community/speech-recognition` when a session lines up to touch that surface
 
 ## Migration — additional gym apps
 
 Already supported: Strong, Hevy, FitNotes, Jefit.
 
+- **Garmin FIT file import** (issue [#6](https://github.com/TraceApps/lifttrace/issues/6)) — Garmin Connect lets users download the raw `.fit` file for any activity; the FIT format has native strength-training records (per-set exercise category, weight, reps, duration). Parse in Node via `fit-file-parser`, map Garmin's `exercise_category` enum to LT's exercise catalog. Committed publicly on the issue thread. Awaiting a sample `.fit` file from the commenter. ~3 evenings once samples are in hand.
 - **Apple Health / Fitness** workouts (XML export from Health app) — summary-level only (workout duration + heart rate), no set-level data
 - **Google Fit / Health Connect** (less common for lifting, but possible)
 - **Fitbod**, **Gymshark Conquer**, **Gravitus** — lower priority, smaller userbases
 
 ## Tech debt
 
-- **Emby provider `/emby/*` route split.** Today the Emby library-
-  browsing methods delegate to `jellyfin.*` via `.apply(jellyfin, args)`,
-  which means they hit `/api/subsonic/provider/jf/*` routes on the
-  server (with Emby's URL in radioUrl). Works because Emby is a
-  Jellyfin fork with API-compatible endpoints and both auth with
-  `X-Emby-Token`. Would break if Emby ever diverges from Jellyfin's
-  `/Items`-style routes. Fix = duplicate the jellyfin methods into
-  the emby object with `/emby/` prefixes, or thread a `_prefix`
-  parameter through `_proxyJson`.
+- **Emby provider `/emby/*` route split.** Today the Emby library-browsing methods delegate to `jellyfin.*` via `.apply(jellyfin, args)`, which means they hit `/api/subsonic/provider/jf/*` routes on the server (with Emby's URL in radioUrl). Works because Emby is a Jellyfin fork with API-compatible endpoints and both auth with `X-Emby-Token`. Would break if Emby ever diverges from Jellyfin's `/Items`-style routes. Fix = duplicate the jellyfin methods into the emby object with `/emby/` prefixes, or thread a `_prefix` parameter through `_proxyJson`.
 
-- **Dependency major-version upgrades.** Standing policy is to only
-  bump majors on CVE, EOL of current major, or concrete benefit worth
-  the cost. Audit cadence is monthly (see memory
-  `project_lifttrace_dep_audit.md`). 2026-05-20 survey:
-  - **Svelte 4 → 5** (bundled with Vite 5 → 7 and the
-    `@sveltejs/vite-plugin-svelte` 3 → 7). Svelte 4.2.20 is EOL on
-    the 4.x line — no further patches. Svelte 5 brings runes
-    (replaces the `$:` reactivity rules), ~30-40% smaller bundles,
-    better TS inference, better perf. Closes the Svelte SSR
-    advisories npm audit flags (most don't apply to LiftTrace as a
-    SPA anyway). Cost: 1-3 days. Svelte ships an automatic migrator
-    that handles ~80%; remainder is store-to-runes plus complex
-    reactives. Schedule deliberately, off a `svelte-5` branch.
-  - **Express 4 → 5**. Native async/await error handling, updated
-    path-to-regexp. Medium risk on error paths. Run the migration on
-    a feature branch with thorough route testing.
-  - **bcryptjs 2 → 3**. ESM-only (server is already ESM), cleaner
-    promise API. Smallest of the three — good warm-up.
-  - **openid-client 5 → 6** (borderline). Complete rewrite, cleaner
-    API. Defer unless we're iterating on OIDC.
-  - **Skip**: better-sqlite3 9.x → 12.x and multer
-    1.4.5-lts.1 → 2.x. No LiftTrace-specific gain.
+- **Android radio HE-AAC decoder workaround.** Chromium WebView's direct `<audio src=...>` path on Android hits a deterministic `PIPELINE_ERROR_DECODE` at exactly stream-timestamp 5461333μs (packet #128) on iHeart-format HE-AAC streams (Z100, KIIS, etc.), same micro on every reconnect. Likely an SBR/PS feature boundary issue in Chromium's media pipeline. Current mitigation (v0.10.0-beta.x onward): WebView intercept proxy adds synthetic CORS headers, stream plays via direct `audio.src` for ~5s then errors; player.js auto-recovers via removeAttribute+load+new src cycle, giving continuous-with-gaps audio. Tried and reverted: wrap proxy URL in synthetic HLS manifest blob URL so hls.js handles AAC ADTS demuxing through MSE (logs looked clean but no audio reached the speaker). Real fix paths to explore: (a) direct MSE pipeline packaging raw AAC ADTS into fragmented MP4 via mux.js; (b) native MediaCodec decode → MP3 re-encode through the proxy; (c) separate Android audio playback path via Java MediaPlayer / ExoPlayer as a Capacitor plugin (loses Web Audio visualizer for streams).
+
+- **Remaining dep major-version upgrade** (only one left after the rc.5 and rc.7 sweeps closed Svelte 4→5, Express 4→5, bcryptjs 2→3, multer 1.4.5-lts.1→2.x, nodemailer 8→9): `openid-client 5 → 6`. Complete rewrite, cleaner API. Defer unless iterating on OIDC. Monthly `npm audit` cadence continues (see memory `project_lifttrace_dep_audit.md`).
 
 ## Radio — additional providers
 
@@ -421,6 +360,17 @@ are deferred, not blocked.
 ---
 
 ## Recently Shipped (moved from Planned)
+
+### 2026-07-05 (v1.0.0-rc.7)
+
+- ~~Security dep bumps~~ — multer 1.4.5-lts.1 → 2.2.0 (three high-severity CVEs on the LTS line: unhandled-exception DoS, crafted-request DoS, unclosed-stream memory leak), nodemailer 8.0.7 → 9.0.3 (five CVEs including raw-option bypass, TLS OAuth cert validation, CRLF header injection), vite bumped alongside for the Windows `server.fs.deny` bypass patch. `npm audit` at both root and server now reports zero vulnerabilities. Retires the standing "multer 1.4.5-lts.1 OK to stay on" rule.
+
+### 2026-07-01 (v1.0.0-rc.6)
+
+- ~~Animated banner redesigned~~ — illustrated SVG banners retired across every page. Setting Banner Style to Animated now paints the same compact accent bar as Gradient plus a subtle motion effect. Motion picked under Settings → Appearance → Banner Animation: Shimmer (default), Drift, Pulse, or Aurora. All honour Reduce Motion. Reclaims ~40 pixels of vertical real estate on every page.
+- ~~Trace FAB visualizer parity on Android~~ — bumped RENDER_LERP 0.08 → 0.35 so the frequency ring tracks music dynamics with the same amplitude as the PWA (was over-damped by an extra JS smoothing layer stacked on Java's already-correct 0.75 STC).
+- ~~Cross-device workout save race fix~~ — editing the same workout from phone + PWA near-simultaneously could clobber the other device's just-completed sets with a stale in-memory snapshot; the workout store now refetches and merges before writing.
+- ~~Password manager password-generation fix~~ — `passwordrules` attribute added to all 11 password-CREATION inputs so browsers and password managers generate passwords satisfying the LT policy (upper + lower + digit + special char, 8+ chars).
 
 ### 2026-06-29 (dev/main, post-rc.5)
 

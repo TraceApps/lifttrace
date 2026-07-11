@@ -38,12 +38,15 @@ services:
       # Optional — Trace AI (shared key for all users). When set, AI calls
       # are proxied through the server (key never reaches the browser) and the
       # provider/model/key fields are locked in Settings for all users.
-      # NOTE: only the cloud providers below are server-proxied. The "OpenAI
-      # Compatible" provider (Ollama, LM Studio, DeepSeek, Groq, etc.) runs
-      # entirely client-side and is configured per-user in Settings, not here.
-      # - AI_PROVIDER=${AI_PROVIDER:-}            # claude | openai | gemini
-      # - AI_API_KEY=${AI_API_KEY:-}
-      # - AI_MODEL=${AI_MODEL:-}
+      # Supports every provider the app supports — cloud (claude / openai /
+      # gemini) and OpenAI-compatible local endpoints (Ollama, LM Studio,
+      # LocalAI, vLLM, etc.). Set AI_PROVIDER=oai-compat + AI_BASE_URL +
+      # AI_MODEL to point at a private-network LLM the browser can't reach
+      # directly (e.g. an Ollama sidecar on this compose network).
+      # - AI_PROVIDER=${AI_PROVIDER:-}            # claude | openai | gemini | oai-compat
+      # - AI_API_KEY=${AI_API_KEY:-}              # required for cloud; optional for oai-compat
+      # - AI_MODEL=${AI_MODEL:-}                  # optional for cloud; REQUIRED for oai-compat
+      # - AI_BASE_URL=${AI_BASE_URL:-}            # REQUIRED for oai-compat, e.g. http://ollama:11434
       # - AI_ENABLED=${AI_ENABLED:-}
       # Optional — OIDC Single Sign-On declared in env instead of the Settings UI.
       # Single-provider shorthand (`OIDC_*` is an alias for `OIDC_PROVIDER_1_*`):

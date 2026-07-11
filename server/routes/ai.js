@@ -35,8 +35,6 @@ router.delete('/history', wrap((req, res) => {
 // POST /api/ai/chat — server-side proxy for AI calls (when env-locked)
 router.post('/chat', wrap(async (req, res) => {
   const cfg = getAiConfig();
-  if (!cfg.ai_api_key) return res.status(400).json({ error: 'AI API key not configured' });
-
   const { messages, systemPrompt } = req.body;
   // Budget guard — bound per-request payload + history depth to prevent a
   // misbehaving (or malicious) client from running up Anthropic / OpenAI
@@ -48,6 +46,17 @@ router.post('/chat', wrap(async (req, res) => {
   const provider = cfg.ai_provider || 'claude';
   const model = cfg.ai_model;
   const apiKey = cfg.ai_api_key;
+  const baseUrl = cfg.ai_base_url;
+
+  // API key required for cloud providers; oai-compat local endpoints (Ollama,
+  // LM Studio, etc.) often don't need one — mirror the client-side callAI().
+  if (!apiKey && provider !== 'oai-compat') {
+    return res.status(400).json({ error: 'AI API key not configured' });
+  }
+  if (provider === 'oai-compat') {
+    if (!baseUrl) return res.status(400).json({ error: 'AI_PROVIDER=oai-compat requires AI_BASE_URL in environment.' });
+    if (!model)   return res.status(400).json({ error: 'AI_PROVIDER=oai-compat requires AI_MODEL in environment.' });
+  }
 
   let text;
   if (provider === 'claude') {
@@ -63,10 +72,16 @@ router.post('/chat', wrap(async (req, res) => {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error?.message || `Claude API ${r.status}`);
     text = data.content[0].text;
-  } else if (provider === 'openai') {
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+  } else if (provider === 'openai' || provider === 'oai-compat') {
+    // oai-compat forwards to any /v1/chat/completions endpoint (Ollama,
+    // LM Studio, LocalAI, vLLM, etc). Base URL is required for oai-compat,
+    // defaults to the public OpenAI endpoint for the openai provider.
+    const endpoint = provider === 'oai-compat'
+      ? `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
+      : 'https://api.openai.com/v1/chat/completions';
+    const r = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey || 'no-key'}` },
       body: JSON.stringify({ model: model || 'gpt-4o-mini', max_tokens: 1024, messages: [{ role: 'system', content: systemPrompt }, ...messages] }),
     });
     const data = await r.json();

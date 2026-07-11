@@ -223,7 +223,7 @@ The most common ones — full reference in [DEPLOY.md](DEPLOY.md) and [.env.exam
 | `BASE_URL` | — | Mount at a subpath (e.g. `/lifttrace`) instead of root |
 | `RECOVERY_TOKEN` | — | Token required to use the "Disable user management" recovery endpoint |
 | `SMTP_*` | — | SMTP for password reset emails and user invites |
-| `AI_*` | — | Server-side AI proxy (Claude / OpenAI / Gemini) |
+| `AI_*` | — | Server-side AI proxy — `AI_PROVIDER` accepts `claude` \| `openai` \| `gemini` \| `oai-compat`; set `AI_BASE_URL` for `oai-compat` (Ollama, LM Studio, LocalAI, vLLM, etc.) so a private-network LLM works without exposing it to the browser |
 | `OIDC_*` / `OIDC_PROVIDER_N_*` | — | OIDC SSO declared in env instead of the UI |
 
 ### Data Persistence

@@ -1,7 +1,13 @@
 import db from './db.js';
 
 export function seedAiFromEnv() {
-  const map = { AI_ENABLED: 'ai_enabled', AI_PROVIDER: 'ai_provider', AI_API_KEY: 'ai_api_key', AI_MODEL: 'ai_model' };
+  // AI_BASE_URL enables server-side proxying for the `oai-compat` provider
+  // (Ollama, LM Studio, LocalAI, vLLM, etc.). Required when
+  // AI_PROVIDER=oai-compat; ignored otherwise. Lets self-hosters put an LLM
+  // on a private Docker network — the browser never talks to it directly,
+  // so mixed-content and internal-DNS resolution stop being blockers.
+  // Mirrors NutriTrace commit d9cb8ff (issue #90 gentlecolts).
+  const map = { AI_ENABLED: 'ai_enabled', AI_PROVIDER: 'ai_provider', AI_API_KEY: 'ai_api_key', AI_MODEL: 'ai_model', AI_BASE_URL: 'ai_base_url' };
   const upsert = db.prepare('INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
   const del = db.prepare('DELETE FROM app_config WHERE key = ?');
   let locked = false;
