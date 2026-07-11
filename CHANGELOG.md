@@ -4,6 +4,24 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.0.0-rc.8 — 2026-07-08
+
+### Added
+
+- **OpenAI-Compatible AI Endpoint via Server Proxy.** Self-hosters running Ollama, LM Studio, LocalAI, vLLM, or any other OpenAI-compatible LLM on a private network can now point the Trace assistant at their local endpoint via `AI_BASE_URL` env var (paired with `AI_PROVIDER=oai-compat`). The server proxies chat requests, so the browser never needs to reach the LLM directly. Docker Compose networks where the LLM sits alongside the LiftTrace container work out of the box.
+
+### Fixed
+
+- **Set Row Input Clobber on Android.** Typing a weight or reps value sometimes showed the new digit and then reverted to the previous value, or lost a decimal point (`1.` normalising to `1`). The weight and reps inputs now keep a local string mirror while focused so parent-store round-trips can't overwrite what you're typing.
+
+- **Set-Number Picker Hiding Behind the Weight Column.** Tapping the set-position digit to override the round number opened a picker that got clipped by the ExerciseCard's rounded corners and lost its stacking battle with the native number input next to it. The picker now portals to body with viewport-computed coordinates so it renders above the row consistently.
+
+- **L/R Alternating Reps Inputs on Narrow Phones.** With Alternating load type selected, the reps column's L and R inputs squeezed into the same width used for a single reps value, clipping the digits. The reps column widens to match the weight column (1fr / 1fr instead of 1.4fr / 0.7fr) whenever the split is active.
+
+- **Local Backup on Standalone Android Silently Dropping Images.** The auto-scheduled and manual local backups dumped every SQLite table but not the actual files under `lifttrace-uploads/`, so custom exercise photos and user avatars restored as broken references. The backup format now base64-inlines those files (schema v2), and the restore path writes them back. Backups made with rc.7 and earlier still restore cleanly, just without images (matches the old behaviour).
+
+---
+
 ## v1.0.0-rc.7 — 2026-07-05
 
 Maintenance release. No user-facing feature changes since rc.6.

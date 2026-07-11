@@ -92,9 +92,10 @@ services:
 | `SMTP_USER` | No | — | SMTP username |
 | `SMTP_PASS` | No | — | SMTP password |
 | `SMTP_FROM` | No | — | From address, e.g. `"LiftTrace" <noreply@example.com>` |
-| `AI_PROVIDER` | No | — | `claude` \| `openai` \| `gemini`. If set, AI calls are proxied server-side and the provider/model/key fields are locked in Settings for all users. |
-| `AI_API_KEY` | No | — | API key for the chosen provider. Server-only, never reaches the browser. |
-| `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-4-5-20251001`). |
+| `AI_PROVIDER` | No | — | `claude` \| `openai` \| `gemini` \| `oai-compat`. If set, AI calls are proxied server-side and the provider/model/key fields are locked in Settings for all users. |
+| `AI_API_KEY` | No | — | API key for the chosen provider. Server-only, never reaches the browser. Optional when `AI_PROVIDER=oai-compat`. |
+| `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-4-5-20251001`, `llama3.1:8b`). Required when `AI_PROVIDER=oai-compat`. |
+| `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`. Reached from the server container, not the browser — Docker Compose sidecars on internal networks work. |
 | `AI_ENABLED` | No | — | If `true`, auto-enables Trace for all users. |
 | `OIDC_*` | No | — | Single-provider OIDC shorthand. See `.env.example` and Settings → User Management → OIDC providers for the full multi-provider syntax. |
 

@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { trackRpe } from '../../stores/settings.js';
   import { haptic as _haptic } from '../../lib/haptics.js';
+  import { portal } from '../../lib/portal.js';
 
   export let set;
   export let setNum;
@@ -47,7 +48,18 @@
 
   // RPE picker
   let rpeOpen = false;
+  let rpeTriggerEl;
+  let rpePickerPos = { top: 0, left: 0 };
   const RPE_VALUES = [6, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+  function openRpePicker() {
+    if (!rpeTriggerEl) { rpeOpen = true; return; }
+    const r = rpeTriggerEl.getBoundingClientRect();
+    // Right-align the picker's right edge to the trigger's right edge
+    // (RPE column sits near the row's right side, so the picker opens
+    // toward the row's centre rather than off-screen).
+    rpePickerPos = { top: r.bottom + 4, left: Math.max(4, r.right - 200) };
+    rpeOpen = true;
+  }
   function pickRpe(v) { update('rpe', v); rpeOpen = false; }
   function clearRpe() { update('rpe', null); rpeOpen = false; }
 
@@ -57,8 +69,22 @@
   // identifies the round in a superset: round N is done across the group
   // when every exercise that has a set numbered N has it completed.
   let numOpen = false;
+  let numTriggerEl;
+  let numPickerPos = { top: 0, left: 0 };
   $: displayNum = set.number != null ? set.number : setNum;
   const NUM_VALUES = [1, 2, 3, 4, 5, 6, 7, 8];
+  function openNumPicker() {
+    if (!numTriggerEl) { numOpen = true; return; }
+    // Position the portaled picker with viewport-fixed coords so it
+    // escapes the ExerciseCard's `overflow: hidden` clip AND the
+    // native-input stacking quirk that hid earlier iterations behind
+    // the weight column. Right-align to the trigger's left edge so
+    // the 200px grid opens toward the row (not off-screen at the left
+    // edge of narrow phones).
+    const r = numTriggerEl.getBoundingClientRect();
+    numPickerPos = { top: r.bottom + 4, left: r.left };
+    numOpen = true;
+  }
   function pickNum(n) {
     // Picking the same value as the auto default clears the override so
     // the row goes back to position-based numbering.
@@ -94,6 +120,44 @@
 
   /** Select the whole value on focus so a single tap overwrites it. */
   function selectOnFocus(e) { e.target?.select?.(); }
+
+  // ── Input clobber guard ──────────────────────────────────────────────
+  // Each numeric input keeps a local string bound with bind:value. The
+  // parent's set prop only writes back into these locals when the
+  // corresponding input is NOT focused, so a fast keystroke on Android
+  // WebView + a synchronous parent round-trip can't overwrite the digit
+  // the user is currently typing (nor reformat a partial "1." to "1"
+  // mid-decimal). On blur we normalise, force-commit, and let the
+  // parent's value flow back in.
+  let weightFocused = false;
+  let repsFocused = false;
+  let repsLFocused = false;
+  let repsRFocused = false;
+
+  let weightStr = _fmt(set.weight);
+  let repsStr = _fmt(set.reps);
+  let repsLStr = _fmt(set.reps_l);
+  let repsRStr = _fmt(set.reps_r);
+
+  function _fmt(v) { return v == null || Number.isNaN(v) ? '' : String(v); }
+
+  // Sync the LOCAL string from the parent's set prop only when the
+  // input isn't the current source of change. When focused we let the
+  // user's typing win until they blur.
+  $: if (!weightFocused) weightStr = _fmt(set.weight);
+  $: if (!repsFocused)   repsStr   = _fmt(set.reps);
+  $: if (!repsLFocused)  repsLStr  = _fmt(set.reps_l);
+  $: if (!repsRFocused)  repsRStr  = _fmt(set.reps_r);
+
+  function commitNumber(field, raw, parser) {
+    // Empty string commits as 0 (matches the old behaviour). Otherwise
+    // parse — if the parse is NaN (mid-typing like "-" or "."), skip
+    // the dispatch and let the input keep showing what the user typed.
+    if (raw === '' || raw == null) { update(field, 0); return; }
+    const n = parser(raw);
+    if (Number.isNaN(n)) return;
+    if (n !== set[field]) update(field, n);
+  }
 </script>
 
 <div class="set-row" class:done={set.completed} class:pulse={pulseOn} class:warmup={showAsWarmup} class:is-next={isNext} class:pr={isPR}>
@@ -104,14 +168,20 @@
     <span class="set-num">W</span>
   {:else}
     <div class="set-num-wrap">
-      <button class="set-num set-num-btn" class:custom={set.number != null} on:click={() => numOpen = !numOpen} title="Set number (round)" aria-label="Edit set number">
+      <button class="set-num set-num-btn" class:custom={set.number != null}
+        bind:this={numTriggerEl}
+        on:click={() => numOpen ? (numOpen = false) : openNumPicker()}
+        title="Set number (round)" aria-label="Edit set number">
         {displayNum}
       </button>
       {#if numOpen}
+        <!-- Portaled to <body> so the picker escapes the ExerciseCard's
+             overflow: hidden clip and any native-input stacking quirks
+             on the weight column. -->
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="num-backdrop" on:click={() => numOpen = false}></div>
-        <div class="num-picker">
+        <div use:portal class="num-backdrop" on:click={() => numOpen = false}></div>
+        <div use:portal class="num-picker" style="top:{numPickerPos.top}px; left:{numPickerPos.left}px">
           {#each NUM_VALUES as n}
             <button class="num-opt" class:active={displayNum === n} on:click={() => pickNum(n)}>{n}</button>
           {/each}
@@ -128,9 +198,10 @@
     <input
       type="number"
       class="set-input"
-      value={set.weight ?? ''}
-      on:input={e => update('weight', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-      on:focus={selectOnFocus}
+      bind:value={weightStr}
+      on:input={() => commitNumber('weight', weightStr, parseFloat)}
+      on:focus={(e) => { weightFocused = true; selectOnFocus(e); }}
+      on:blur={() => { weightFocused = false; commitNumber('weight', weightStr, parseFloat); }}
       placeholder="0"
       inputmode="decimal"
     />
@@ -146,9 +217,10 @@
       <input
         type="number"
         class="set-input"
-        value={set.reps_l ?? ''}
-        on:input={e => update('reps_l', e.target.value === '' ? 0 : parseInt(e.target.value))}
-        on:focus={selectOnFocus}
+        bind:value={repsLStr}
+        on:input={() => commitNumber('reps_l', repsLStr, parseInt)}
+        on:focus={(e) => { repsLFocused = true; selectOnFocus(e); }}
+        on:blur={() => { repsLFocused = false; commitNumber('reps_l', repsLStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
       />
@@ -156,9 +228,10 @@
       <input
         type="number"
         class="set-input"
-        value={set.reps_r ?? ''}
-        on:input={e => update('reps_r', e.target.value === '' ? 0 : parseInt(e.target.value))}
-        on:focus={selectOnFocus}
+        bind:value={repsRStr}
+        on:input={() => commitNumber('reps_r', repsRStr, parseInt)}
+        on:focus={(e) => { repsRFocused = true; selectOnFocus(e); }}
+        on:blur={() => { repsRFocused = false; commitNumber('reps_r', repsRStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
       />
@@ -171,9 +244,10 @@
       <input
         type="number"
         class="set-input"
-        value={set.reps ?? ''}
-        on:input={e => update('reps', e.target.value === '' ? 0 : parseInt(e.target.value))}
-        on:focus={selectOnFocus}
+        bind:value={repsStr}
+        on:input={() => commitNumber('reps', repsStr, parseInt)}
+        on:focus={(e) => { repsFocused = true; selectOnFocus(e); }}
+        on:blur={() => { repsFocused = false; commitNumber('reps', repsStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
       />
@@ -194,14 +268,17 @@
 
   {#if $trackRpe && !showAsWarmup}
     <div class="rpe-wrap">
-      <button class="rpe-chip" class:set={set.rpe != null} on:click={() => rpeOpen = !rpeOpen} title="Rate of Perceived Exertion">
+      <button class="rpe-chip" class:set={set.rpe != null}
+        bind:this={rpeTriggerEl}
+        on:click={() => rpeOpen ? (rpeOpen = false) : openRpePicker()}
+        title="Rate of Perceived Exertion">
         {set.rpe != null ? `@${set.rpe}` : 'RPE'}
       </button>
       {#if rpeOpen}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="rpe-backdrop" on:click={() => rpeOpen = false}></div>
-        <div class="rpe-picker">
+        <div use:portal class="rpe-backdrop" on:click={() => rpeOpen = false}></div>
+        <div use:portal class="rpe-picker" style="top:{rpePickerPos.top}px; left:{rpePickerPos.left}px">
           {#each RPE_VALUES as v}
             <button class="rpe-opt" class:active={set.rpe === v} on:click={() => pickRpe(v)}>@{v}</button>
           {/each}
@@ -238,6 +315,17 @@
      `auto` track still adds a 6px gap. Toggled via :has() on the child. */
   .set-row:has(.rpe-wrap) {
     grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px auto 32px;
+  }
+  /* L/R split mode needs a lot more room in the reps column than a plain
+     single-value input (two <input>s + labels + chain-off button). At the
+     default 1.4fr/0.7fr ratio on a 360dp phone the split cells rendered
+     at ~15px wide and cut off the digits. Rebalance to 1fr/1fr so both
+     inputs can actually show their values. */
+  .set-row:has(.reps-split) {
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
+  }
+  .set-row:has(.reps-split):has(.rpe-wrap) {
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
   }
   .set-row.done { opacity: 0.6; }
   /* PR set: keep the row full-opacity (override .done) + accent ring so
@@ -309,10 +397,13 @@
   /* Custom number override gets a subtle accent so the user can spot which
      rows are addons / asymmetric in a superset. */
   .set-num-btn.custom { color: var(--accent); }
-  .num-backdrop { position: fixed; inset: 0; z-index: 30; }
-  .num-picker {
-    position: absolute; top: 100%; left: 0;
-    z-index: 31; padding: 6px;
+  /* Portaled to document.body so viewport coords apply. The z-index
+     stack here is above the sticky diary header (z:10) and the rest
+     bar (z:100) so the picker always wins. */
+  :global(.num-backdrop) { position: fixed; inset: 0; z-index: 200; }
+  :global(.num-picker) {
+    position: fixed;
+    z-index: 201; padding: 6px;
     background: var(--surface-1); border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: 0 8px 24px rgba(0,0,0,0.45);
@@ -415,10 +506,11 @@
   }
   .rpe-chip.set { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
   .rpe-chip:hover { border-color: var(--text-2); }
-  .rpe-backdrop { position: fixed; inset: 0; z-index: 30; }
-  .rpe-picker {
-    position: absolute; top: calc(100% + 4px); right: 0;
-    z-index: 31; padding: 6px;
+  /* Portaled to document.body — matches .num-picker treatment. */
+  :global(.rpe-backdrop) { position: fixed; inset: 0; z-index: 200; }
+  :global(.rpe-picker) {
+    position: fixed;
+    z-index: 201; padding: 6px;
     background: var(--surface-1); border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: 0 8px 24px rgba(0,0,0,0.45);
