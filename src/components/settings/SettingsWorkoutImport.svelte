@@ -9,13 +9,16 @@
   export let onToggle = () => {};
 
   // ── Workout import (Strong / Hevy / FitNotes / Jefit) ────────────────────
-  let importSource = 'strong';   // 'strong' | 'hevy' | 'fitnotes' | 'jefit'
+  let importSource = 'strong';   // 'strong' | 'hevy' | 'fitnotes' | 'jefit' | 'garmin-fit'
 
+  // fileKind is what the file-picker + button copy read to describe the
+  // artefact the user is looking for (CSV vs FIT etc.).
   const SOURCES = [
-    { id: 'strong',   name: 'Strong',    hint: 'Semicolon CSV · set-level + RPE' },
-    { id: 'hevy',     name: 'Hevy',      hint: 'Comma CSV · supersets preserved' },
-    { id: 'fitnotes', name: 'FitNotes',  hint: 'Android CSV · per-day organization' },
-    { id: 'jefit',    name: 'Jefit',     hint: 'Web export · flexible header layout' },
+    { id: 'strong',     name: 'Strong',    hint: 'Semicolon CSV · set-level + RPE',            fileKind: 'CSV', accept: '.csv,text/csv' },
+    { id: 'hevy',       name: 'Hevy',      hint: 'Comma CSV · supersets preserved',            fileKind: 'CSV', accept: '.csv,text/csv' },
+    { id: 'fitnotes',   name: 'FitNotes',  hint: 'Android CSV · per-day organization',         fileKind: 'CSV', accept: '.csv,text/csv' },
+    { id: 'jefit',      name: 'Jefit',     hint: 'Web export · flexible header layout',        fileKind: 'CSV', accept: '.csv,text/csv' },
+    { id: 'garmin-fit', name: 'Garmin',    hint: 'FIT file · strength workouts from your watch', fileKind: 'FIT', accept: '.fit,application/octet-stream' },
   ];
   const INSTRUCTIONS = {
     strong: [
@@ -37,6 +40,11 @@
       'Log in to Jefit web → Account → Export Data',
       'Pick Workout Log (CSV) and download',
       'Tap the button below and pick the file',
+    ],
+    'garmin-fit': [
+      'Open Garmin Connect on web → Activities → pick a strength-training activity',
+      'Click the gear icon (top-right) → Export Original',
+      'The download is a .fit file — tap the button below and pick it',
     ],
   };
   let importFileInput;
@@ -102,7 +110,10 @@
     importFile = null; importPreview = null; importResult = null;
   }
 
-  $: sourceLabel = SOURCES.find(s => s.id === importSource)?.name || 'CSV';
+  $: currentSource = SOURCES.find(s => s.id === importSource) || SOURCES[0];
+  $: sourceLabel = currentSource.name;
+  $: sourceFileKind = currentSource.fileKind;
+  $: sourceAccept = currentSource.accept;
 </script>
 
 {#if visible}
@@ -116,7 +127,7 @@
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <div class="card">
         <div class="card-body">
-          <p class="setting-desc">Bring in your workout history from Strong or Hevy via CSV export. Your exercises will be auto-matched against your LiftTrace library — anything we can't match stays as free-text so nothing is lost.</p>
+          <p class="setting-desc">Bring in your workout history from another gym app via CSV, or a Garmin strength-training session via its raw FIT file. Your exercises are auto-matched against your LiftTrace library; anything without a match stays as free-text so nothing is lost.</p>
 
           <div class="source-picker">
             {#each SOURCES as s}
@@ -130,9 +141,9 @@
           {#if !importFile}
             <button class="btn btn-primary import-btn" on:click={() => importFileInput.click()} disabled={importBusy}>
               <span class="material-symbols-rounded">upload_file</span>
-              {importBusy ? 'Reading…' : `Choose ${sourceLabel} CSV`}
+              {importBusy ? 'Reading…' : `Choose ${sourceLabel} ${sourceFileKind} file`}
             </button>
-            <input bind:this={importFileInput} type="file" accept=".csv,text/csv" style="display:none" on:change={onPickFile} />
+            <input bind:this={importFileInput} type="file" accept={sourceAccept} style="display:none" on:change={onPickFile} />
 
             <p class="help-title">How to export</p>
             <ol class="help-list">
@@ -209,13 +220,16 @@
   .card-body { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px; }
   .setting-desc { font-size: 12px; color: var(--text-3); margin: 0; line-height: 1.5; }
 
+  /* 5 sources: 2 columns on narrow phones (3rd row wraps the 5th),
+     up to 5-wide on desktop so each button gets equal share. Auto-fill
+     with a min-width lets the grid re-flow gracefully at any width. */
   .source-picker {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
   }
   @media (min-width: 640px) {
-    .source-picker { grid-template-columns: repeat(4, 1fr); }
+    .source-picker { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   }
   .source-btn {
     display: flex; flex-direction: column; gap: 4px;
