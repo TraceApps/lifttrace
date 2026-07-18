@@ -159,7 +159,7 @@ A self-hosted weightlifting tracker that runs entirely in a single Docker contai
 LiftTrace is a Progressive Web App. Open it in any modern browser and install via the address bar (Chrome) or share menu (Safari). It works offline once cached and gets a proper app icon, full-screen mode, and OS-level navigation.
 
 ### Android
-A native Android app is published on the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload the signed APK from any release tag (e.g. `lifttrace-1.0.0-rc.1.apk`). The app is a Capacitor 8 shell around the same PWA, with these native upgrades:
+A native Android app is published on the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload the signed APK from any release tag (e.g. `lifttrace-v1.0.0.apk`). The app is a Capacitor 8 shell around the same PWA, with these native upgrades:
 
 - **Offline-first** — runs entirely locally with on-device SQLite, or connects to a self-hosted LiftTrace server for sync
 - **Native setup wizard** on first launch: pick Local mode or Server mode
@@ -171,6 +171,8 @@ A native Android app is published on the [Releases](https://github.com/TraceApps
 - **Voice input** on the Trace FAB
 
 Release-signed APKs require HTTPS to your server (see [DEPLOY.md](DEPLOY.md) for the four supported paths including self-signed certs). Debug-signed APKs (built locally) accept any URL including plain HTTP.
+
+**Testing pre-release** — the [`dev-latest`](https://github.com/TraceApps/lifttrace/releases/tag/dev-latest) pre-release carries a rolling signed APK built from the `dev` branch. Same signing key as stable, so you can upgrade from stable to dev in place (Android blocks the reverse without an uninstall). Not recommended for production, but useful for beta-testing incoming fixes and features. Refreshed periodically when a dev build is deemed ready, not on every dev push.
 
 ### iOS
 There is no iOS app yet. Install the PWA from Safari (Share → Add to Home Screen) for the closest equivalent. A native iOS build is not blocked by code (Capacitor supports iOS), but it requires a Mac and a paid Apple Developer account, which isn't on the roadmap.
