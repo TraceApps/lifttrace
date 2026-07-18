@@ -62,25 +62,44 @@ export async function sendMail({ to, subject, html, text }) {
   await transport.sendMail({ from, to, subject, html, text });
 }
 
-/** Send a real test email to prove end-to-end delivery works, not just
+/** Send a real branded test email to prove end-to-end delivery, not just
  *  auth. If `overrides` is provided, uses those values for the connection
  *  (so unsaved form values can be tested). Recipient priority: explicit
- *  `to` arg, then the current user's email, then smtp_from. Returns the
- *  address the email was actually sent to so the UI can show it. */
-export async function testSmtp({ overrides, to } = {}) {
+ *  `to` arg, then smtp_from, then smtp_user. Returns the address the
+ *  email was actually sent to so the UI can show it. */
+export async function testSmtp({ overrides, to, origin, recipientName } = {}) {
   const cfg = _mergedCfg(overrides);
   const from = cfg.smtp_from || cfg.smtp_user || 'LiftTrace <noreply@lifttrace.app>';
   const recipient = to || cfg.smtp_from || cfg.smtp_user;
   if (!recipient) throw new Error('No recipient. Fill in a From address (or make sure your account has an email set).');
   const transport = createTransport(overrides);
+  const body = _testEmailBody(recipientName);
   await transport.sendMail({
     from,
     to: recipient,
     subject: 'LiftTrace SMTP test',
-    text: 'This is a test email from LiftTrace. Your SMTP settings work.\n\nIf you did not request this, someone with admin access to your LiftTrace instance ran the Send Test button in Settings, Email.',
-    html: '<p>This is a test email from LiftTrace. Your SMTP settings work.</p><p style="font-size:12px;color:#666">If you did not request this, someone with admin access to your LiftTrace instance ran the Send Test button in Settings, Email.</p>',
+    html: emailWrapper(origin || '', body, null),
+    text: `Hey${recipientName ? ' ' + recipientName : ''},\n\nThis is a test email from your LiftTrace instance. If you're reading this, your SMTP settings work end-to-end. Password resets, invites, and other transactional emails will be delivered through this config.\n\nSafe to delete this email.`,
   });
   return { to: recipient };
+}
+
+// Branded body for the SMTP test email. Same wrapper + helpers as
+// sendInvite / sendPasswordReset so the test proves the full email
+// pipeline (including images + styling), not just plaintext.
+function _testEmailBody(name) {
+  return `${greeting(name)}
+    <p style="margin:0 0 10px;font-size:22px;font-weight:700;color:#FFFFFF;">SMTP test successful</p>
+    <p style="margin:0 0 16px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      This is a test email from your <strong style="color:#FFFFFF;">LiftTrace</strong> instance. If you're reading this,
+      your SMTP settings work end-to-end.
+    </p>
+    <p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      Password resets, user invites, and other transactional emails will be delivered through this SMTP config.
+    </p>
+    <p style="margin:24px 0 0;font-size:13px;color:#5A6278;text-align:center;line-height:1.6;">
+      Safe to delete this email.
+    </p>`;
 }
 export function isEmailConfigured() { return !!getSmtpConfig().smtp_host; }
 

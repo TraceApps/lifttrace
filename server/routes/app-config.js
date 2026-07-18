@@ -81,8 +81,12 @@ router.post('/test-email', requireAuth, requireAdmin, wrap(async (req, res) => {
   // current user's account email → fall through to email.js defaults
   // (smtp_from / smtp_user).
   const to = (typeof body.to === 'string' && body.to.trim()) || req.user?.email || undefined;
+  // Origin lets the email template load the app logo. Recipient name
+  // personalizes the greeting.
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const recipientName = req.user?.full_name || req.user?.nickname || req.user?.username || null;
   try {
-    const result = await testSmtp({ overrides, to });
+    const result = await testSmtp({ overrides, to, origin, recipientName });
     res.json({ ok: true, to: result.to });
   } catch (e) {
     res.status(400).json({ error: e?.message || 'SMTP test failed' });
