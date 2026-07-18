@@ -76,14 +76,36 @@
     } finally { smtpSaving = false; }
   }
 
+  let smtpTestRecipient = '';
+
   async function testSmtp() {
     if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
     smtpTestStatus = 'testing';
+    smtpTestRecipient = '';
     try {
-      const res = await fetch('/api/app-config/test-email', { method: 'POST', credentials: 'include' });
+      // Send the current form values so the user doesn't need to Save
+      // first before testing. Omit the pass field when it's still the
+      // mask so the server falls back to the stored password.
+      const body = {
+        smtp_host: smtpHost,
+        smtp_port: String(smtpPort),
+        smtp_secure: String(smtpSecure),
+        smtp_user: smtpUser,
+        smtp_from: smtpFrom,
+      };
+      if (smtpPass && smtpPass !== PASS_MASK) body.smtp_pass = smtpPass;
+      const res = await fetch('/api/app-config/test-email', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        smtpTestRecipient = data.to || '';
         smtpTestStatus = 'ok';
-        showSuccess('SMTP test email sent, check your inbox');
+        showSuccess(smtpTestRecipient
+          ? `SMTP test email sent to ${smtpTestRecipient}`
+          : 'SMTP test email sent, check your inbox');
       } else {
         smtpTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
@@ -99,13 +121,15 @@
   // Banner status mirrors NutriTrace's SMTP pattern: SMTP is fire-and-forget
   // (not a persistent connection) so the banner shows "Configured" as soon as
   // host + from are filled in (creds entered, never verified), and flips to
-  // "Last test sent" after a successful test. A failed test takes priority.
+  // "Last Test Sent" after a successful test. A failed test takes priority.
   $: smtpBannerStatus = smtpTestStatus === 'testing' || smtpTestStatus === 'fail'
     ? smtpTestStatus
     : (smtpHost && smtpFrom ? 'ok' : '');
   $: smtpBannerLabel   = smtpTestStatus === 'ok' ? 'Last Test Sent' : 'Configured';
   $: smtpBannerSubtext = smtpTestStatus === 'ok'
-    ? 'Use Send Test again any time to re-verify'
+    ? (smtpTestRecipient
+        ? `Sent to ${smtpTestRecipient}. Use Send Test again any time to re-verify.`
+        : 'Use Send Test again any time to re-verify')
     : 'No test has been sent yet';
 </script>
 

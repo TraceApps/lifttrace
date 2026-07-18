@@ -63,8 +63,29 @@ router.put('/', requireAuth, requireAdmin, wrap((req, res) => {
 }));
 
 router.post('/test-email', requireAuth, requireAdmin, wrap(async (req, res) => {
-  await testSmtp();
-  res.json({ ok: true });
+  // Optional body: SMTP field overrides so the user can test unsaved
+  // form values without saving first. Blocked when the env-lock is on
+  // (config is baked into env vars, not the request).
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const envLocked = isSmtpEnvLocked();
+  const overrides = envLocked ? undefined : {
+    smtp_host:   body.smtp_host,
+    smtp_port:   body.smtp_port,
+    smtp_secure: body.smtp_secure,
+    smtp_user:   body.smtp_user,
+    // Never accept the redaction mask as a real password
+    smtp_pass:   body.smtp_pass === '••••••••' ? undefined : body.smtp_pass,
+    smtp_from:   body.smtp_from,
+  };
+  // Recipient: prefer the current user's email so admins get proof the
+  // email actually delivers, not just that SMTP accepted the handoff.
+  const to = req.user?.email || undefined;
+  try {
+    const result = await testSmtp({ overrides, to });
+    res.json({ ok: true, to: result.to });
+  } catch (e) {
+    res.status(400).json({ error: e?.message || 'SMTP test failed' });
+  }
 }));
 
 export default router;
