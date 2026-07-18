@@ -77,7 +77,7 @@ export async function testSmtp({ overrides, to, origin, recipientName } = {}) {
   await transport.sendMail({
     from,
     to: recipient,
-    subject: 'LiftTrace SMTP test',
+    subject: 'LiftTrace SMTP Test',
     html: emailWrapper(origin || '', body, null),
     text: `Hey${recipientName ? ' ' + recipientName : ''},\n\nThis is a test email from your LiftTrace instance. If you're reading this, your SMTP settings work end-to-end. Password resets, invites, and other transactional emails will be delivered through this config.\n\nSafe to delete this email.`,
   });
