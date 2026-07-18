@@ -51,15 +51,21 @@
   let rpeTriggerEl;
   let rpePickerPos = { top: 0, left: 0 };
   const RPE_VALUES = [6, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+  // Open-lock (350ms) prevents a stray backdrop dismissal from silently
+  // closing the picker before a slightly-slipped tap on an option button
+  // registers. Same pattern used in ActionSheet.svelte and TemplateSpecRow.
+  let rpeLocked = false;
+  let rpeLockTimer;
   function openRpePicker() {
     if (!rpeTriggerEl) { rpeOpen = true; return; }
     const r = rpeTriggerEl.getBoundingClientRect();
-    // Right-align the picker's right edge to the trigger's right edge
-    // (RPE column sits near the row's right side, so the picker opens
-    // toward the row's centre rather than off-screen).
     rpePickerPos = { top: r.bottom + 4, left: Math.max(4, r.right - 200) };
     rpeOpen = true;
+    clearTimeout(rpeLockTimer);
+    rpeLocked = true;
+    rpeLockTimer = setTimeout(() => { rpeLocked = false; }, 350);
   }
+  function closeRpeIfUnlocked() { if (!rpeLocked) rpeOpen = false; }
   function pickRpe(v) { update('rpe', v); rpeOpen = false; }
   function clearRpe() { update('rpe', null); rpeOpen = false; }
 
@@ -73,18 +79,18 @@
   let numPickerPos = { top: 0, left: 0 };
   $: displayNum = set.number != null ? set.number : setNum;
   const NUM_VALUES = [1, 2, 3, 4, 5, 6, 7, 8];
+  let numLocked = false;
+  let numLockTimer;
   function openNumPicker() {
     if (!numTriggerEl) { numOpen = true; return; }
-    // Position the portaled picker with viewport-fixed coords so it
-    // escapes the ExerciseCard's `overflow: hidden` clip AND the
-    // native-input stacking quirk that hid earlier iterations behind
-    // the weight column. Right-align to the trigger's left edge so
-    // the 200px grid opens toward the row (not off-screen at the left
-    // edge of narrow phones).
     const r = numTriggerEl.getBoundingClientRect();
     numPickerPos = { top: r.bottom + 4, left: r.left };
     numOpen = true;
+    clearTimeout(numLockTimer);
+    numLocked = true;
+    numLockTimer = setTimeout(() => { numLocked = false; }, 350);
   }
+  function closeNumIfUnlocked() { if (!numLocked) numOpen = false; }
   function pickNum(n) {
     // Picking the same value as the auto default clears the override so
     // the row goes back to position-based numbering.
@@ -171,8 +177,9 @@
       <button class="set-num set-num-btn" class:custom={set.number != null}
         bind:this={numTriggerEl}
         on:click={() => numOpen ? (numOpen = false) : openNumPicker()}
-        title="Set number (round)" aria-label="Edit set number">
-        {displayNum}
+        title="Set number — tap to reassign for asymmetric supersets" aria-label="Edit set number">
+        <span class="set-num-value">{displayNum}</span>
+        <span class="material-symbols-rounded set-num-caret" aria-hidden="true">arrow_drop_down</span>
       </button>
       {#if numOpen}
         <!-- Portaled to <body> so the picker escapes the ExerciseCard's
@@ -180,13 +187,13 @@
              on the weight column. -->
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div use:portal class="num-backdrop" on:click={() => numOpen = false}></div>
+        <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked}></div>
         <div use:portal class="num-picker" style="top:{numPickerPos.top}px; left:{numPickerPos.left}px">
           {#each NUM_VALUES as n}
-            <button class="num-opt" class:active={displayNum === n} on:click={() => pickNum(n)}>{n}</button>
+            <button class="num-opt" class:active={displayNum === n} on:click|stopPropagation={() => pickNum(n)}>{n}</button>
           {/each}
           {#if set.number != null}
-            <button class="num-opt clear" on:click={clearNum}>Auto</button>
+            <button class="num-opt clear" on:click|stopPropagation={clearNum}>Auto</button>
           {/if}
         </div>
       {/if}
@@ -277,13 +284,13 @@
       {#if rpeOpen}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div use:portal class="rpe-backdrop" on:click={() => rpeOpen = false}></div>
+        <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked}></div>
         <div use:portal class="rpe-picker" style="top:{rpePickerPos.top}px; left:{rpePickerPos.left}px">
           {#each RPE_VALUES as v}
-            <button class="rpe-opt" class:active={set.rpe === v} on:click={() => pickRpe(v)}>@{v}</button>
+            <button class="rpe-opt" class:active={set.rpe === v} on:click|stopPropagation={() => pickRpe(v)}>@{v}</button>
           {/each}
           {#if set.rpe != null}
-            <button class="rpe-opt clear" on:click={clearRpe}>Clear</button>
+            <button class="rpe-opt clear" on:click|stopPropagation={clearRpe}>Clear</button>
           {/if}
         </div>
       {/if}
@@ -388,15 +395,36 @@
     color: var(--text-3);
   }
   .set-num-wrap { position: relative; }
+  /* Compact chip so touch users can tell the number is tappable —
+     matches the TemplateSpecRow chip pattern, scaled to the diary's
+     tight 28px first-column budget by shrinking the caret and
+     removing left/right padding. Custom overrides get an accent-dim
+     background so re-assigned rows in an asymmetric superset stand
+     out from the default sequential numbering. */
   .set-num-btn {
-    background: none; border: none; padding: 0; font: inherit;
-    color: var(--text-3); cursor: pointer; border-radius: 4px;
-    min-width: 24px; min-height: 24px;
+    min-width: 26px; height: 24px;
+    padding: 0 1px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-2);
+    font: inherit; font-size: 12px; font-weight: 700;
+    cursor: pointer;
+    transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
   }
-  .set-num-btn:hover { background: var(--surface-2); color: var(--text-1); }
-  /* Custom number override gets a subtle accent so the user can spot which
-     rows are addons / asymmetric in a superset. */
-  .set-num-btn.custom { color: var(--accent); }
+  .set-num-btn:hover { background: var(--surface-3); color: var(--text-1); }
+  .set-num-btn.custom {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .set-num-value { line-height: 1; }
+  .set-num-caret {
+    font-size: 12px;
+    opacity: 0.7;
+    margin-left: -3px;
+  }
   /* Portaled to document.body so viewport coords apply. The z-index
      stack here is above the sticky diary header (z:10) and the rest
      bar (z:100) so the picker always wins. */
@@ -410,11 +438,17 @@
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
     min-width: 200px;
   }
+  /* 40px min-height meets Android's 44dp tap-target guidance close
+     enough that real-world thumb slop stops missing. Previously 28px
+     high; a slightly-slipped tap would land on the backdrop and close
+     without picking, matching the "doesn't take, have to redo" report. */
   .num-opt {
-    padding: 6px 8px; border-radius: var(--radius-sm);
+    min-height: 40px;
+    padding: 8px 10px; border-radius: var(--radius-sm);
     background: var(--surface-2); border: 1px solid var(--border);
-    color: var(--text-1); font-size: 12px; font-weight: 700; font-family: inherit;
+    color: var(--text-1); font-size: 14px; font-weight: 700; font-family: inherit;
     cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
   }
   .num-opt:hover { background: var(--surface-3); }
   .num-opt.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -518,10 +552,12 @@
     min-width: 200px;
   }
   .rpe-opt {
-    padding: 6px 8px; border-radius: var(--radius-sm);
+    min-height: 40px;
+    padding: 8px 10px; border-radius: var(--radius-sm);
     background: var(--surface-2); border: 1px solid var(--border);
-    color: var(--text-1); font-size: 12px; font-weight: 700; font-family: inherit;
+    color: var(--text-1); font-size: 14px; font-weight: 700; font-family: inherit;
     cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
   }
   .rpe-opt:hover { background: var(--surface-3); }
   .rpe-opt.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }

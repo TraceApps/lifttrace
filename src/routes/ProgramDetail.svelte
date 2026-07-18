@@ -7,6 +7,7 @@
   import { currentUser } from '../stores/auth.js';
   import Sheet from '../components/ui/Sheet.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
+  import ActionSheet from '../components/ui/ActionSheet.svelte';
 
   export let params = {};
 
@@ -147,10 +148,28 @@
     }
   }
 
+  /** Build a non-colliding "(Copy)" name for a duplicate.
+   *  Strips any trailing `(Copy)` / `(Copy 2)` etc. from the source name so
+   *  duplicating a duplicate doesn't chain suffixes ("X (Copy) (Copy)").
+   *  Then picks the lowest unused `(Copy)` / `(Copy N)` given the current
+   *  program library, so bulk-duplicating a base program produces
+   *  `X (Copy)`, `X (Copy 2)`, `X (Copy 3)`, etc. */
+  function _nextCopyName(sourceName, existingNames) {
+    const base = String(sourceName || '').replace(/\s*\(Copy(?:\s+\d+)?\)\s*$/, '').trim() || 'Program';
+    const taken = new Set(existingNames);
+    if (!taken.has(`${base} (Copy)`)) return `${base} (Copy)`;
+    let n = 2;
+    while (taken.has(`${base} (Copy ${n})`)) n++;
+    return `${base} (Copy ${n})`;
+  }
+
   async function duplicateProgram() {
     try {
+      // Fetch the library so the new name doesn't collide.
+      let existingNames = [];
+      try { existingNames = (await LtApi.getPrograms()).map(p => p.name); } catch {}
       const p = await LtApi.createProgram({
-        name: `${program.name} (Copy)`,
+        name: _nextCopyName(program.name, existingNames),
         description: program.description,
         goal: program.goal,
       });
@@ -167,6 +186,65 @@
       push(`/programs/${p.id}`);
     } catch(e) { showError(e.message); }
   }
+
+  // ── Rename ───────────────────────────────────────────────────────────
+  // Menu-triggered (not tap-title): keeps the title unclickable so a
+  // stray thumb near the header doesn't accidentally open an editor.
+  // Once triggered, the H1 flips to an inline input so the edit still
+  // happens in-place; commit on blur / Enter, revert on Escape.
+  let editingName = false;
+  let nameInput = '';
+  let nameEl;
+  let savingName = false;
+  function startRename() {
+    if (!isOwner) return;
+    nameInput = program?.name || '';
+    editingName = true;
+    requestAnimationFrame(() => { nameEl?.focus(); nameEl?.select?.(); });
+  }
+  async function commitRename() {
+    if (!editingName || savingName) return;
+    const next = nameInput.trim();
+    if (!next || next === program.name) { editingName = false; return; }
+    savingName = true;
+    try {
+      const updated = await LtApi.updateProgram(params.id, { name: next });
+      program = updated?.id ? { ...program, ...updated } : { ...program, name: next };
+      showSuccess('Program renamed');
+    } catch(e) {
+      showError(e.message || 'Rename failed');
+    }
+    savingName = false;
+    editingName = false;
+  }
+  function onNameKey(e) {
+    if (e.key === 'Enter')   { e.preventDefault(); commitRename(); }
+    if (e.key === 'Escape')  { e.preventDefault(); editingName = false; }
+  }
+
+  // ── Overflow menu ────────────────────────────────────────────────────
+  // Single ⋮ button in the header opens an ActionSheet with every
+  // program-level action, gated by role/ownership. Replaces the earlier
+  // row of individual icon buttons (Assign / Duplicate / Delete) so
+  // adding future actions doesn't keep widening the header.
+  let programMenuOpen = false;
+  $: programMenuActions = (() => {
+    const items = [];
+    if (isOwner)                items.push({ label: 'Rename',           icon: 'edit',           value: 'rename' });
+    /* Duplicate is available to anyone viewing the program (matches
+       the previous unconditional Duplicate icon behaviour). */
+                                items.push({ label: 'Duplicate',        icon: 'content_copy',   value: 'duplicate' });
+    if (isCoach && isOwner)     items.push({ label: 'Assign to Member', icon: 'person_add',     value: 'assign' });
+    if (isOwner)                items.push({ label: 'Delete Program',   icon: 'delete',         value: 'delete',    danger: true });
+    return items;
+  })();
+  function onProgramMenuSelect(e) {
+    const v = e.detail?.value;
+    if      (v === 'rename')    startRename();
+    else if (v === 'duplicate') duplicateProgram();
+    else if (v === 'assign')    openAssign();
+    else if (v === 'delete')    deleteProgram();
+  }
 </script>
 
 <div class="page">
@@ -174,21 +252,36 @@
     <button class="back-btn" on:click={() => push('/programs')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
-    <h1>{program?.name || 'Program'}</h1>
+    {#if editingName}
+      <input
+        class="name-input"
+        type="text"
+        bind:this={nameEl}
+        bind:value={nameInput}
+        on:blur={commitRename}
+        on:keydown={onNameKey}
+        disabled={savingName}
+        maxlength="120"
+        aria-label="Program name"
+      />
+    {:else}
+      <h1>{program?.name || 'Program'}</h1>
+    {/if}
     <div class="header-actions">
-      {#if isCoach && isOwner}
-        <button class="btn-icon" on:click={openAssign} title="Assign to Member">
-          <span class="material-symbols-rounded">person_add</span>
+      {#if programMenuActions.length}
+        <button class="btn-icon" on:click={() => programMenuOpen = true} title="Program actions" aria-label="Program actions" aria-haspopup="menu">
+          <span class="material-symbols-rounded">more_vert</span>
         </button>
       {/if}
-      <button class="btn-icon" on:click={duplicateProgram} title="Duplicate Program" aria-label="Duplicate program">
-        <span class="material-symbols-rounded">content_copy</span>
-      </button>
-      <button class="btn-icon danger" on:click={deleteProgram} title="Delete Program">
-        <span class="material-symbols-rounded">delete</span>
-      </button>
     </div>
   </header>
+
+  <ActionSheet
+    bind:open={programMenuOpen}
+    title={program?.name || 'Program'}
+    actions={programMenuActions}
+    on:select={onProgramMenuSelect}
+  />
 
   {#if loading}
     <Spinner block label="Loading program…" />
@@ -451,4 +544,24 @@
   .form-input:focus { border-color: var(--accent); }
   .form-actions { display: flex; gap: 10px; margin-top: 24px; }
   .form-actions button { flex: 1; padding: 13px; font-size: 15px; }
+
+  /* Inline rename input styled to match the H1 exactly so the swap
+     doesn't cause a font-weight / height / colour jump. Rename is
+     triggered from the ⋮ menu; the H1 itself stays non-interactive
+     to avoid accidental thumb-taps near the header on mobile. */
+  .name-input {
+    flex: 1; min-width: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 2px 6px;
+    font: inherit;
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.2;
+    color: var(--text-1);
+    outline: none;
+    height: 40px;
+  }
+  .name-input:disabled { opacity: 0.6; }
 </style>
