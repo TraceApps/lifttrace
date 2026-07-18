@@ -1,9 +1,11 @@
 <script>
   import { slide } from 'svelte/transition';
+  import { tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
+  import { currentUser } from '../../stores/auth.js';
 
   export let expanded = false;
   export let visible = true;
@@ -78,20 +80,41 @@
 
   let smtpTestRecipient = '';
 
-  async function testSmtp() {
+  // Dialog state for Send Test: user picks the recipient at click time
+  // (pre-filled from their account email if available). Prevents "sent
+  // to nowhere" when smtp_from is a noreply@ that can't receive.
+  let showTestDialog = false;
+  let testRecipient = '';
+  let testDialogInputEl;
+
+  function openTestDialog() {
     if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
+    testRecipient = $currentUser?.email || '';
+    showTestDialog = true;
+    tick().then(() => testDialogInputEl?.focus());
+  }
+
+  function closeTestDialog() {
+    showTestDialog = false;
+  }
+
+  async function confirmTestSmtp() {
+    const to = (testRecipient || '').trim();
+    if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      showError('Enter a valid email address');
+      return;
+    }
+    showTestDialog = false;
     smtpTestStatus = 'testing';
     smtpTestRecipient = '';
     try {
-      // Send the current form values so the user doesn't need to Save
-      // first before testing. Omit the pass field when it's still the
-      // mask so the server falls back to the stored password.
       const body = {
         smtp_host: smtpHost,
         smtp_port: String(smtpPort),
         smtp_secure: String(smtpSecure),
         smtp_user: smtpUser,
         smtp_from: smtpFrom,
+        to,
       };
       if (smtpPass && smtpPass !== PASS_MASK) body.smtp_pass = smtpPass;
       const res = await fetch('/api/app-config/test-email', {
@@ -101,11 +124,9 @@
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        smtpTestRecipient = data.to || '';
+        smtpTestRecipient = data.to || to;
         smtpTestStatus = 'ok';
-        showSuccess(smtpTestRecipient
-          ? `SMTP test email sent to ${smtpTestRecipient}`
-          : 'SMTP test email sent, check your inbox');
+        showSuccess(`SMTP test email sent to ${smtpTestRecipient}`);
       } else {
         smtpTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
@@ -117,6 +138,10 @@
       showError(`SMTP test failed: ${e?.message || 'network error'}`);
     }
   }
+
+  // Passed into ConnectionStatus as `onRetest`. Opens the recipient
+  // dialog instead of firing directly.
+  const testSmtp = openTestDialog;
 
   // Banner status mirrors NutriTrace's SMTP pattern: SMTP is fire-and-forget
   // (not a persistent connection) so the banner shows "Configured" as soon as
@@ -233,6 +258,25 @@
   {/if}
 {/if}
 
+{#if showTestDialog}
+  <div class="test-dialog-overlay" on:click={closeTestDialog}
+    on:keydown={(e) => e.key === 'Escape' && closeTestDialog()}>
+    <div class="test-dialog" role="dialog" aria-labelledby="test-dialog-title"
+      on:click|stopPropagation>
+      <h3 id="test-dialog-title">Send Test Email</h3>
+      <p>Where should we send the test?</p>
+      <input bind:this={testDialogInputEl} class="form-input" type="email"
+        placeholder="you@example.com" bind:value={testRecipient}
+        on:keydown={(e) => e.key === 'Enter' && confirmTestSmtp()} />
+      <div class="test-dialog-actions">
+        <button class="btn btn-ghost" on:click={closeTestDialog}>Cancel</button>
+        <button class="btn btn-primary" on:click={confirmTestSmtp}
+          disabled={!testRecipient.trim()}>Send</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .sub-label {
     font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
@@ -282,5 +326,33 @@
   }
   .pass-hint {
     margin: 4px 0 0; font-size: 11px; color: var(--text-3);
+  }
+
+  /* Send Test recipient dialog */
+  .test-dialog-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .test-dialog {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    width: 100%; max-width: 380px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  }
+  .test-dialog h3 {
+    margin: 0 0 6px;
+    font-size: 16px; font-weight: 700; color: var(--text-1);
+  }
+  .test-dialog p {
+    margin: 0 0 14px;
+    font-size: 13px; color: var(--text-2);
+  }
+  .test-dialog-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 16px;
   }
 </style>
