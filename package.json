@@ -4,7 +4,7 @@
   "description": "Track every rep, set, and PR — your complete weightlifting companion",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TraceApps/lifttrace-dev.git"
+    "url": "git+https://github.com/TraceApps/lifttrace.git"
   },
   "license": "AGPL-3.0",
   "private": true,
