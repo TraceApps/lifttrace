@@ -77,9 +77,10 @@ router.post('/test-email', requireAuth, requireAdmin, wrap(async (req, res) => {
     smtp_pass:   body.smtp_pass === '••••••••' ? undefined : body.smtp_pass,
     smtp_from:   body.smtp_from,
   };
-  // Recipient: prefer the current user's email so admins get proof the
-  // email actually delivers, not just that SMTP accepted the handoff.
-  const to = req.user?.email || undefined;
+  // Recipient priority: explicit body.to (from the Send Test dialog) →
+  // current user's account email → fall through to email.js defaults
+  // (smtp_from / smtp_user).
+  const to = (typeof body.to === 'string' && body.to.trim()) || req.user?.email || undefined;
   try {
     const result = await testSmtp({ overrides, to });
     res.json({ ok: true, to: result.to });
