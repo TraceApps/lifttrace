@@ -32,8 +32,21 @@ function getSmtpConfig() {
   return cfg;
 }
 
-function createTransport() {
-  const cfg = getSmtpConfig();
+// Merge stored config with any inline overrides. Empty-string overrides
+// still count as "user cleared this field"; only undefined falls back
+// to storage. Lets the Settings UI test unsaved form values.
+function _mergedCfg(overrides) {
+  const stored = getSmtpConfig();
+  if (!overrides) return stored;
+  const merged = { ...stored };
+  for (const k of ['smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_pass', 'smtp_from']) {
+    if (overrides[k] !== undefined) merged[k] = overrides[k];
+  }
+  return merged;
+}
+
+function createTransport(overrides) {
+  const cfg = _mergedCfg(overrides);
   if (!cfg.smtp_host) throw new Error('Email not configured.');
   return nodemailer.createTransport({
     host: cfg.smtp_host, port: parseInt(cfg.smtp_port || '587'),
@@ -49,7 +62,26 @@ export async function sendMail({ to, subject, html, text }) {
   await transport.sendMail({ from, to, subject, html, text });
 }
 
-export async function testSmtp() { const transport = createTransport(); await transport.verify(); }
+/** Send a real test email to prove end-to-end delivery works, not just
+ *  auth. If `overrides` is provided, uses those values for the connection
+ *  (so unsaved form values can be tested). Recipient priority: explicit
+ *  `to` arg, then the current user's email, then smtp_from. Returns the
+ *  address the email was actually sent to so the UI can show it. */
+export async function testSmtp({ overrides, to } = {}) {
+  const cfg = _mergedCfg(overrides);
+  const from = cfg.smtp_from || cfg.smtp_user || 'LiftTrace <noreply@lifttrace.app>';
+  const recipient = to || cfg.smtp_from || cfg.smtp_user;
+  if (!recipient) throw new Error('No recipient. Fill in a From address (or make sure your account has an email set).');
+  const transport = createTransport(overrides);
+  await transport.sendMail({
+    from,
+    to: recipient,
+    subject: 'LiftTrace SMTP test',
+    text: 'This is a test email from LiftTrace. Your SMTP settings work.\n\nIf you did not request this, someone with admin access to your LiftTrace instance ran the Send Test button in Settings, Email.',
+    html: '<p>This is a test email from LiftTrace. Your SMTP settings work.</p><p style="font-size:12px;color:#666">If you did not request this, someone with admin access to your LiftTrace instance ran the Send Test button in Settings, Email.</p>',
+  });
+  return { to: recipient };
+}
 export function isEmailConfigured() { return !!getSmtpConfig().smtp_host; }
 
 function emailWrapper(origin, bodyHtml, footerNote) {
