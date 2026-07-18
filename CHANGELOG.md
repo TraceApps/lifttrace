@@ -4,6 +4,40 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.0.0 — 2026-07-18
+
+First stable release under the new semver scheme. Delivers Garmin FIT strength imports, per-set template parity between the Program editor and Diary set rows, a real Send Test email flow, multi-tag Docker publishing, and a high-severity `adm-zip` CVE patch in the backup restore path.
+
+Every future release uses strict semver: PATCH for bug fixes, MINOR for new features, MAJOR for breaking changes. Existing `v1.0.0-rc.1` through `v1.0.0-rc.8` image tags and release assets stay live indefinitely; anyone pinned to a specific rc release is unaffected.
+
+### Added
+
+- **Garmin FIT Workout Import.** Export a strength-training session from Garmin Connect as its original `.fit` file and import it under Settings → Data → Workout Import. Recognises sets, reps, weights, rest periods; skips non-strength activities. Sits alongside the existing Strong / Hevy / FitNotes / Jefit CSV importers.
+- **Per-Set Template Parity with Diary.** The Program editor's per-set spec rows now accept the same fields as the Diary SetRow: warmup flag, RPE target, unilateral L/R rep split, and (in supersets) a round-number override picker. Templates carry those flags into the workout when loaded, so a program can pre-mark warm-up sets or prescribe RPE without hand-editing every session.
+- **Multi-Tag Docker Publishing.** The `ghcr.io/traceapps/lifttrace` image now publishes four tags per release: `:1.0.0`, `:1.0`, `:1`, `:latest`. Pin `:1.0` to auto-receive patches without opting into future 1.1.0 features.
+- **`:dev` Docker Tag.** Rolling image built from the `dev` branch, updated on every push.
+- **Send Test Email Dialog.** Asks where to send the test email, pre-filled with your account email, so admins can verify SMTP with a real inbox instead of a silent auth check.
+- **Public Contributor Docs.** `ARCHITECTURE.md` and `ROADMAP.md`.
+
+### Changed
+
+- **Retired the `-rc.N` suffix.** LiftTrace uses strict `MAJOR.MINOR.PATCH` from here on.
+- **Send Test actually sends an email now** (previously only verified SMTP auth, returning success even when delivery would fail).
+- **Branded HTML test email** with the LiftTrace logo, matching invite and reset emails.
+- **Password field uses a Change button** when the server has a stored password, since the redacted placeholder can never be revealed. Tap Change to enter a new password; the field is otherwise read-only.
+- **Set-Number Picker Has a Visible Pill + Caret.** The tap affordance on the round-number override was too subtle before; a chip with a dropdown caret makes it discoverable at a glance.
+
+### Fixed
+
+- **Set-Number / RPE Picker Taps Sometimes Didn't Register.** On Android WebView, if a finger tap on a picker option slipped a few pixels the click landed on the backdrop and closed the picker silently. Added a 350 ms open-lock plus 40 px minimum tap targets so real-world thumb slop stops missing.
+- **Email Settings Blank on the Android App.** SMTP config loaded from a relative URL without auth headers, so the Android app got an empty payload and rendered blank fields. Now routes via `apiUrl()` with a bearer token like every other Settings section.
+
+### Security
+
+- **`adm-zip 0.5.x → 0.6.0`** (CVE-2026-39244, high). A crafted ZIP file could trigger a 4 GB memory allocation during full-backup restore, crashing the server. Admin-only endpoint, but a compromised admin session was enough to weaponise. The existing zip-slip + zip-bomb defense accumulates uncompressed bytes AFTER the vulnerable `Buffer.alloc` call, so the dep bump is the actual fix.
+
+---
+
 ## v1.0.0-rc.8 — 2026-07-08
 
 ### Added

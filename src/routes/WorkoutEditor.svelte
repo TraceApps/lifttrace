@@ -3,7 +3,8 @@
   import { push } from 'svelte-spa-router';
   import { LtApi } from '../lib/api.js';
   import { showSuccess, showError } from '../stores/toast.js';
-  import { exerciseLoadTypes } from '../stores/settings.js';
+  import { exerciseLoadTypes, trackRpe } from '../stores/settings.js';
+  import TemplateSpecRow from '../components/programs/TemplateSpecRow.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
@@ -672,22 +673,16 @@
                       {#if ex.set_specs && ex.set_specs.length > 0}
                         <div class="per-set-rows">
                           {#each ex.set_specs as spec, setIdx}
-                            <div class="per-set-row">
-                              <input
-                                class="per-set-num-input"
-                                class:custom={spec.number != null && spec.number !== setIdx + 1}
-                                type="number" min="1" max="99" inputmode="numeric"
-                                value={spec.number != null ? spec.number : setIdx + 1}
-                                title="Set number / round (override for asymmetric supersets)"
-                                on:input={e => updateSpecNumber(idx, setIdx, e.target.value)}
-                              />
-                              <input class="ps-input" type="text" value={spec.weight || ''} on:input={e => updateSpec(idx, setIdx, 'weight', e.target.value)} placeholder="Weight" />
-                              <span class="ps-x">×</span>
-                              <input class="ps-input" type="text" value={spec.reps || ''} on:input={e => updateSpec(idx, setIdx, 'reps', e.target.value)} placeholder="Reps" />
-                              <button class="btn-icon-xs" on:click={() => removeSpecSet(idx, setIdx)} title="Remove set" aria-label="Remove set">
-                                <span class="material-symbols-rounded">close</span>
-                              </button>
-                            </div>
+                            <TemplateSpecRow
+                              {spec}
+                              {setIdx}
+                              loadType={exLoadType(ex)}
+                              trackRpe={$trackRpe}
+                              showNumberPicker={true}
+                              onUpdate={(field, value) => updateSpec(idx, setIdx, field, value)}
+                              onUpdateNumber={(raw) => updateSpecNumber(idx, setIdx, raw)}
+                              onRemove={() => removeSpecSet(idx, setIdx)}
+                            />
                           {/each}
                           <div class="per-set-actions">
                             <button class="per-set-add" on:click={() => addSpecSet(idx)}>
@@ -789,15 +784,16 @@
               {#if ex.set_specs && ex.set_specs.length > 0}
                 <div class="per-set-rows">
                   {#each ex.set_specs as spec, setIdx}
-                    <div class="per-set-row">
-                      <span class="per-set-num">#{setIdx + 1}</span>
-                      <input class="ps-input" type="text" value={spec.weight || ''} on:input={e => updateSpec(idx, setIdx, 'weight', e.target.value)} placeholder="Weight" />
-                      <span class="ps-x">×</span>
-                      <input class="ps-input" type="text" value={spec.reps || ''} on:input={e => updateSpec(idx, setIdx, 'reps', e.target.value)} placeholder="Reps" />
-                      <button class="btn-icon-xs" on:click={() => removeSpecSet(idx, setIdx)} title="Remove set" aria-label="Remove set">
-                        <span class="material-symbols-rounded">close</span>
-                      </button>
-                    </div>
+                    <TemplateSpecRow
+                      {spec}
+                      {setIdx}
+                      loadType={exLoadType(ex)}
+                      trackRpe={$trackRpe}
+                      showNumberPicker={false}
+                      onUpdate={(field, value) => updateSpec(idx, setIdx, field, value)}
+                      onUpdateNumber={(raw) => updateSpecNumber(idx, setIdx, raw)}
+                      onRemove={() => removeSpecSet(idx, setIdx)}
+                    />
                   {/each}
                   <div class="per-set-actions">
                     <button class="per-set-add" on:click={() => addSpecSet(idx)}>

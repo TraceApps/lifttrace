@@ -5,6 +5,7 @@
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
   import { generateWarmupSets, exerciseVolume } from '../../lib/workout.js';
   import { exerciseLoadTypes } from '../../stores/settings.js';
+  import { portal } from '../../lib/portal.js';
 
   export let exercise;
   export let idx;
@@ -64,7 +65,23 @@
                    : 'Bilateral';
 
   let loadMenuOpen = false;
+  let loadMenuTriggerEl;
+  let loadMenuPos = { top: 0, left: 0, width: 260 };
   let rememberLoad = false;
+
+  function openLoadMenu() {
+    if (!loadMenuTriggerEl) { loadMenuOpen = true; return; }
+    // Portal-based positioning: compute viewport coords from the load-chip
+    // trigger's rect. Fixes the collapsed-card bug where the menu was
+    // clipped by .ex-card { overflow: hidden } when the card's height
+    // shrank below the menu's top offset.
+    const r = loadMenuTriggerEl.getBoundingClientRect();
+    const width = Math.min(320, Math.max(240, window.innerWidth - 28));
+    const maxLeft = Math.max(14, window.innerWidth - width - 14);
+    loadMenuPos = { top: r.bottom + 6, left: Math.min(r.left, maxLeft), width };
+    loadMenuOpen = true;
+  }
+
   function pickLoadType(nextType) {
     loadMenuOpen = false;
     // Always store the chosen type on the exercise instance so it survives
@@ -243,15 +260,17 @@
 
 <div class="ex-card" class:all-done={completedCount === workingSets.length && workingSets.length > 0} class:standalone={!inSuperset} data-progress={progress}>
   {#if loadMenuOpen}
-    <!-- Load-type chooser. Tap outside the menu (backdrop) to close. -->
+    <!-- Load-type chooser. Portaled to <body> so it renders regardless
+         of the exercise card's collapsed state and its overflow: hidden. -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="load-menu-backdrop" on:click={() => loadMenuOpen = false}></div>
-    <div class="load-menu" role="menu" on:click|stopPropagation>
+    <div use:portal class="load-menu-backdrop" on:click={() => loadMenuOpen = false}></div>
+    <div use:portal class="load-menu" role="menu" on:click|stopPropagation
+         style="top:{loadMenuPos.top}px; left:{loadMenuPos.left}px; width:{loadMenuPos.width}px">
       <div class="load-menu-head">Load type</div>
-      {#each [['bilateral','Bilateral','single load — barbell, machine, both arms move one thing'],
-              ['paired','Per side','both arms work together with separate equal loads — dumbbells, paired cables'],
-              ['unilateral','Alternating','one side at a time — single-arm cable row, single-arm DB row']] as [val, label, hint]}
+      {#each [['bilateral','Bilateral','single load: barbell, machine, both arms move one thing'],
+              ['paired','Per side','both arms work together with separate equal loads: dumbbells, paired cables'],
+              ['unilateral','Alternating','one side at a time: single-arm cable row, single-arm DB row']] as [val, label, hint]}
         <button class="load-menu-item" class:active={loadType === val} role="menuitem"
                 on:click={() => pickLoadType(val)}>
           <div class="lm-text">
@@ -276,7 +295,8 @@
       <div class="ex-name-row">
         <span class="ex-name">{exercise.exercise_name}</span>
         <button class="load-chip" class:non-default={loadType !== 'bilateral'}
-                on:click|stopPropagation={() => loadMenuOpen = !loadMenuOpen}
+                bind:this={loadMenuTriggerEl}
+                on:click|stopPropagation={() => loadMenuOpen ? (loadMenuOpen = false) : openLoadMenu()}
                 title="Load type">
           {#if loadType === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{loadTypeLabel}
           {:else if loadType === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{loadTypeLabel}
@@ -448,13 +468,16 @@
     border-style: solid;
   }
 
-  /* Load-type menu — small popover anchored to the card */
-  .load-menu-backdrop {
-    position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,0.2);
+  /* Load-type menu — portaled to document.body, positioned in viewport
+     coordinates computed from the load-chip trigger's bounding rect.
+     z-index sits above the sticky diary header (z:10) and the rest bar
+     (z:100), matching the SetRow picker portal treatment. */
+  :global(.load-menu-backdrop) {
+    position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.2);
   }
-  .load-menu {
-    position: absolute; top: 56px; left: 14px; right: 14px;
-    z-index: 31;
+  :global(.load-menu) {
+    position: fixed;
+    z-index: 201;
     background: var(--surface-1); border: 1px solid var(--border);
     border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
     padding: 8px;

@@ -1,9 +1,26 @@
 <script>
   import { slide } from 'svelte/transition';
+  import { tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
+  import { currentUser } from '../../stores/auth.js';
+  import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
+
+  // Build request headers matching SettingsUserManagement's pattern.
+  // On Android server-connected mode, uses Bearer auth. On PWA, cookies.
+  // Without this, /api/app-config calls from the Android app never route
+  // to the server, and the SMTP form shows up empty even though the
+  // server has real config.
+  function _authHeaders(extra = {}) {
+    const h = { 'Content-Type': 'application/json', ...extra };
+    if (isNative && getServerUrl()) {
+      const t = getAuthToken();
+      if (t) h['Authorization'] = `Bearer ${t}`;
+    }
+    return h;
+  }
 
   export let expanded = false;
   export let visible = true;
@@ -21,15 +38,36 @@
   let smtpSaved = false;
   let smtpTestStatus = '';
   let _loaded = false;
+  let smtpPassInputEl;
+
+  // Server redacts stored passwords on GET and returns bullets as a
+  // placeholder — the real value is never sent to the browser. Detect
+  // that state so the toggle can't pretend to "reveal" a value we don't
+  // have, and offer a clear Change action instead.
+  const PASS_MASK = '••••••••';
+  $: passIsStored = smtpPass === PASS_MASK;
+
+  function changeSmtpPass() {
+    smtpPass = '';
+    smtpShowPass = false;
+    // Next tick — after the input becomes editable, put the cursor in it.
+    setTimeout(() => smtpPassInputEl?.focus(), 0);
+  }
 
   $: if (expanded && !_loaded) loadSmtpConfig();
 
   async function loadSmtpConfig() {
     _loaded = true;
     try {
-      const locks = await fetch('/api/app-config/env-locks', { credentials: 'include' }).then(r => r.json());
+      const locks = await fetch(apiUrl('/api/app-config/env-locks'), {
+        credentials: 'include',
+        headers: _authHeaders(),
+      }).then(r => r.json());
       smtpLocked = locks.smtp;
-      const cfg = await fetch('/api/app-config', { credentials: 'include' }).then(r => r.json());
+      const cfg = await fetch(apiUrl('/api/app-config'), {
+        credentials: 'include',
+        headers: _authHeaders(),
+      }).then(r => r.json());
       smtpHost   = cfg.smtp_host   || '';
       smtpPort   = cfg.smtp_port   || '587';
       smtpSecure = cfg.smtp_secure === 'true';
@@ -40,9 +78,9 @@
   }
 
   async function saveSmtpField(key, value) {
-    await fetch('/api/app-config', {
+    await fetch(apiUrl('/api/app-config'), {
       method: 'PUT', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: _authHeaders(),
       body: JSON.stringify({ key: `smtp_${key}`, value: String(value) }),
     }).catch(() => {});
   }
@@ -61,14 +99,55 @@
     } finally { smtpSaving = false; }
   }
 
-  async function testSmtp() {
+  let smtpTestRecipient = '';
+
+  // Dialog state for Send Test: user picks the recipient at click time
+  // (pre-filled from their account email if available). Prevents "sent
+  // to nowhere" when smtp_from is a noreply@ that can't receive.
+  let showTestDialog = false;
+  let testRecipient = '';
+  let testDialogInputEl;
+
+  function openTestDialog() {
     if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
+    testRecipient = $currentUser?.email || '';
+    showTestDialog = true;
+    tick().then(() => testDialogInputEl?.focus());
+  }
+
+  function closeTestDialog() {
+    showTestDialog = false;
+  }
+
+  async function confirmTestSmtp() {
+    const to = (testRecipient || '').trim();
+    if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      showError('Enter a valid email address');
+      return;
+    }
+    showTestDialog = false;
     smtpTestStatus = 'testing';
+    smtpTestRecipient = '';
     try {
-      const res = await fetch('/api/app-config/test-email', { method: 'POST', credentials: 'include' });
+      const body = {
+        smtp_host: smtpHost,
+        smtp_port: String(smtpPort),
+        smtp_secure: String(smtpSecure),
+        smtp_user: smtpUser,
+        smtp_from: smtpFrom,
+        to,
+      };
+      if (smtpPass && smtpPass !== PASS_MASK) body.smtp_pass = smtpPass;
+      const res = await fetch(apiUrl('/api/app-config/test-email'), {
+        method: 'POST', credentials: 'include',
+        headers: _authHeaders(),
+        body: JSON.stringify(body),
+      });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        smtpTestRecipient = data.to || to;
         smtpTestStatus = 'ok';
-        showSuccess('SMTP test email sent, check your inbox');
+        showSuccess(`SMTP test email sent to ${smtpTestRecipient}`);
       } else {
         smtpTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
@@ -81,16 +160,22 @@
     }
   }
 
+  // Passed into ConnectionStatus as `onRetest`. Opens the recipient
+  // dialog instead of firing directly.
+  const testSmtp = openTestDialog;
+
   // Banner status mirrors NutriTrace's SMTP pattern: SMTP is fire-and-forget
   // (not a persistent connection) so the banner shows "Configured" as soon as
   // host + from are filled in (creds entered, never verified), and flips to
-  // "Last test sent" after a successful test. A failed test takes priority.
+  // "Last Test Sent" after a successful test. A failed test takes priority.
   $: smtpBannerStatus = smtpTestStatus === 'testing' || smtpTestStatus === 'fail'
     ? smtpTestStatus
     : (smtpHost && smtpFrom ? 'ok' : '');
   $: smtpBannerLabel   = smtpTestStatus === 'ok' ? 'Last Test Sent' : 'Configured';
   $: smtpBannerSubtext = smtpTestStatus === 'ok'
-    ? 'Use Send Test again any time to re-verify'
+    ? (smtpTestRecipient
+        ? `Sent to ${smtpTestRecipient}. Use Send Test again any time to re-verify.`
+        : 'Use Send Test again any time to re-verify')
     : 'No test has been sent yet';
 </script>
 
@@ -143,17 +228,36 @@
         <div class="form-group">
           <label class="form-label">Password</label>
           <div style="display:flex;gap:8px;align-items:center">
-            {#if smtpShowPass}
-              <input class="form-input" style="flex:1" type="text" autocomplete="new-password" placeholder="SMTP password or app password"
-                bind:value={smtpPass} disabled={smtpLocked} />
+            <!-- Single input masked via CSS text-security instead of a
+                 type-swap: on some Android WebView builds the swap left
+                 stale password dots visible. When passIsStored is true
+                 the field is read-only + the toggle is replaced with a
+                 Change button, because the server redacts the real value
+                 and there's nothing meaningful to "reveal". -->
+            <input bind:this={smtpPassInputEl}
+              class="form-input smtp-pass" class:masked={!smtpShowPass && !passIsStored}
+              style="flex:1" type="text" autocomplete="new-password"
+              placeholder="SMTP password or app password"
+              bind:value={smtpPass} disabled={smtpLocked || passIsStored} />
+            {#if passIsStored}
+              <button type="button" class="btn-icon-toggle change-btn"
+                on:click={changeSmtpPass}
+                title="Change password"
+                aria-label="Change password">
+                Change
+              </button>
             {:else}
-              <input class="form-input" style="flex:1" type="password" autocomplete="new-password" placeholder="SMTP password or app password"
-                bind:value={smtpPass} disabled={smtpLocked} />
+              <button type="button" class="btn-icon-toggle"
+                on:click={() => smtpShowPass = !smtpShowPass}
+                title={smtpShowPass ? 'Hide' : 'Show'}
+                aria-label={smtpShowPass ? 'Hide password' : 'Show password'}>
+                <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
+              </button>
             {/if}
-            <button class="btn-icon-toggle" on:click={() => smtpShowPass = !smtpShowPass} title={smtpShowPass ? 'Hide' : 'Show'}>
-              <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
-            </button>
           </div>
+          {#if passIsStored}
+            <p class="pass-hint">Password saved. Tap Change to replace it.</p>
+          {/if}
         </div>
         <div class="form-group">
           <label class="form-label">From address</label>
@@ -173,6 +277,25 @@
       </div>
     </div>
   {/if}
+{/if}
+
+{#if showTestDialog}
+  <div class="test-dialog-overlay" on:click={closeTestDialog}
+    on:keydown={(e) => e.key === 'Escape' && closeTestDialog()}>
+    <div class="test-dialog" role="dialog" aria-labelledby="test-dialog-title"
+      on:click|stopPropagation>
+      <h3 id="test-dialog-title">Send Test Email</h3>
+      <p>Where should we send the test?</p>
+      <input bind:this={testDialogInputEl} class="form-input" type="email"
+        placeholder="you@example.com" bind:value={testRecipient}
+        on:keydown={(e) => e.key === 'Enter' && confirmTestSmtp()} />
+      <div class="test-dialog-actions">
+        <button class="btn btn-ghost" on:click={closeTestDialog}>Cancel</button>
+        <button class="btn btn-primary" on:click={confirmTestSmtp}
+          disabled={!testRecipient.trim()}>Send</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -200,8 +323,57 @@
     font-size: 13px; color: var(--warning);
   }
   .btn-icon-toggle {
-    background: none; border: none; cursor: pointer; color: var(--text-3);
-    padding: 6px; display: flex; border-radius: var(--radius-sm);
+    background: none; border: 1px solid var(--border); cursor: pointer;
+    color: var(--text-3); padding: 8px 10px; min-width: 40px; min-height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm);
   }
   .btn-icon-toggle:hover { color: var(--text-1); background: var(--surface-2); }
+  .smtp-pass.masked {
+    -webkit-text-security: disc;
+    text-security: disc;
+    font-family: text-security-disc, monospace;
+    letter-spacing: 0.1em;
+  }
+  .smtp-pass:disabled {
+    color: var(--text-3);
+    cursor: not-allowed;
+  }
+  .btn-icon-toggle.change-btn {
+    padding: 8px 12px; min-width: 0;
+    font-size: 12px; font-weight: 700; font-family: inherit;
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .pass-hint {
+    margin: 4px 0 0; font-size: 11px; color: var(--text-3);
+  }
+
+  /* Send Test recipient dialog */
+  .test-dialog-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .test-dialog {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    width: 100%; max-width: 380px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  }
+  .test-dialog h3 {
+    margin: 0 0 6px;
+    font-size: 16px; font-weight: 700; color: var(--text-1);
+  }
+  .test-dialog p {
+    margin: 0 0 14px;
+    font-size: 13px; color: var(--text-2);
+  }
+  .test-dialog-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 16px;
+  }
 </style>

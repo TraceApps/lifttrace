@@ -204,6 +204,8 @@ docker compose up -d
 
 Open `http://localhost:3002` and you're lifting.
 
+**Choosing a tag.** `:latest` follows every stable release. Pin `:1.0` to auto-receive patches without opting into future minors, `:1` for auto-minor within the major, or `:1.0.0` for an exact reproducible pin. `:dev` tracks the leading edge (not recommended for production). Legacy `:1.0.0-rc.N` tags stay published indefinitely. See [DEPLOY.md](DEPLOY.md) for the full tag table.
+
 See [DEPLOY.md](DEPLOY.md) for the full guide: reverse proxies, subpath mounting, Cloudflare Tunnel, Docker secrets, and the four Android HTTPS paths.
 
 ### Environment Variables

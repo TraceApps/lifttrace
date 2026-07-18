@@ -757,16 +757,29 @@
         sets = ex.set_specs.map((spec, i) => {
           const parsedWeight = parseFloat(spec.weight);
           const parsedReps = parseInt(spec.reps);
-          return {
+          const parsedRepsL = parseInt(spec.reps_l);
+          const parsedRepsR = parseInt(spec.reps_r);
+          const set = {
             weight: Number.isFinite(parsedWeight) ? parsedWeight : (lastSets?.[i]?.weight ?? 0),
             reps: Number.isFinite(parsedReps) ? parsedReps : (lastSets?.[i]?.reps ?? 0),
             completed: false,
             notes: '',
-            // Asymmetric supersets: template author can pin a set to a
-            // specific round via spec.number. Falls back to position when
-            // unset, matching the diary's display convention.
-            ...(spec.number != null ? { number: spec.number } : {}),
           };
+          // Asymmetric supersets: template author can pin a set to a
+          // specific round via spec.number. Falls back to position when
+          // unset, matching the diary's display convention.
+          if (spec.number != null) set.number = spec.number;
+          // Warmup flag from template — SetRow filters warmups out of
+          // volume / PR / superset-round gating automatically.
+          if (spec.warmup) set.warmup = true;
+          // RPE target from template — SetRow renders it in the RPE chip
+          // when the trackRpe setting is on, editable by the lifter.
+          if (spec.rpe != null) set.rpe = spec.rpe;
+          // Unilateral L/R split target — SetRow detects isSplit from
+          // the presence of reps_l/reps_r and renders the L/R inputs.
+          if (Number.isFinite(parsedRepsL)) set.reps_l = parsedRepsL;
+          if (Number.isFinite(parsedRepsR)) set.reps_r = parsedRepsR;
+          return set;
         });
       } else {
         const numSets = ex.target_sets || 1;

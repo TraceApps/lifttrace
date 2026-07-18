@@ -3,11 +3,12 @@ import multer from 'multer';
 import db from '../db.js';
 import { wrap, logger } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
-import { parseStrong }   from '../lib/workout-import/strong.js';
-import { parseHevy }     from '../lib/workout-import/hevy.js';
-import { parseFitnotes } from '../lib/workout-import/fitnotes.js';
-import { parseJefit }    from '../lib/workout-import/jefit.js';
-import { matchExercise } from '../lib/workout-import/common.js';
+import { parseStrong }    from '../lib/workout-import/strong.js';
+import { parseHevy }      from '../lib/workout-import/hevy.js';
+import { parseFitnotes }  from '../lib/workout-import/fitnotes.js';
+import { parseJefit }     from '../lib/workout-import/jefit.js';
+import { parseGarminFit } from '../lib/workout-import/garmin-fit.js';
+import { matchExercise }  from '../lib/workout-import/common.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -17,13 +18,17 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB — generous for multi-year exports
 });
 
-const SUPPORTED_SOURCES = ['strong', 'hevy', 'fitnotes', 'jefit'];
+const SUPPORTED_SOURCES = ['strong', 'hevy', 'fitnotes', 'jefit', 'garmin-fit'];
+// Sources whose payload is binary (not UTF-8 text). Route sends the
+// raw Buffer to the parser instead of decoding to string.
+const BINARY_SOURCES = new Set(['garmin-fit']);
 
-function _parse(source, text, userUnit) {
-  if (source === 'strong')   return parseStrong(text,   userUnit);
-  if (source === 'hevy')     return parseHevy(text,     userUnit);
-  if (source === 'fitnotes') return parseFitnotes(text, userUnit);
-  if (source === 'jefit')    return parseJefit(text,    userUnit);
+function _parse(source, buf, userUnit) {
+  if (source === 'strong')     return parseStrong(buf.toString('utf8'),   userUnit);
+  if (source === 'hevy')       return parseHevy(buf.toString('utf8'),     userUnit);
+  if (source === 'fitnotes')   return parseFitnotes(buf.toString('utf8'), userUnit);
+  if (source === 'jefit')      return parseJefit(buf.toString('utf8'),    userUnit);
+  if (source === 'garmin-fit') return parseGarminFit(buf,                 userUnit);
   throw new Error(`Unsupported source: ${source}`);
 }
 
@@ -37,11 +42,10 @@ router.post('/preview', upload.single('file'), wrap((req, res) => {
   if (!SUPPORTED_SOURCES.includes(source)) return res.status(400).json({ error: 'Unsupported source' });
 
   const userId = uid(req);
-  const text = req.file.buffer.toString('utf8');
   const userUnit = _getUserWeightUnit(userId);
 
   let workouts;
-  try { workouts = _parse(source, text, userUnit); }
+  try { workouts = _parse(source, req.file.buffer, userUnit); }
   catch(e) { return res.status(400).json({ error: `Parse failed: ${e.message}` }); }
 
   if (workouts.length === 0) return res.status(400).json({ error: 'No workouts found in file' });
@@ -93,11 +97,10 @@ router.post('/commit', upload.single('file'), wrap((req, res) => {
   const dupeMode = onDuplicate === 'replace' ? 'replace' : 'skip';
 
   const userId = uid(req);
-  const text = req.file.buffer.toString('utf8');
   const userUnit = _getUserWeightUnit(userId);
 
   let workouts;
-  try { workouts = _parse(source, text, userUnit); }
+  try { workouts = _parse(source, req.file.buffer, userUnit); }
   catch(e) { return res.status(400).json({ error: `Parse failed: ${e.message}` }); }
 
   const library = _loadLibraryForUser(userId);
