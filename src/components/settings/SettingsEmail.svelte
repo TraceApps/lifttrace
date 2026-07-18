@@ -21,6 +21,21 @@
   let smtpSaved = false;
   let smtpTestStatus = '';
   let _loaded = false;
+  let smtpPassInputEl;
+
+  // Server redacts stored passwords on GET and returns bullets as a
+  // placeholder — the real value is never sent to the browser. Detect
+  // that state so the toggle can't pretend to "reveal" a value we don't
+  // have, and offer a clear Change action instead.
+  const PASS_MASK = '••••••••';
+  $: passIsStored = smtpPass === PASS_MASK;
+
+  function changeSmtpPass() {
+    smtpPass = '';
+    smtpShowPass = false;
+    // Next tick — after the input becomes editable, put the cursor in it.
+    setTimeout(() => smtpPassInputEl?.focus(), 0);
+  }
 
   $: if (expanded && !_loaded) loadSmtpConfig();
 
@@ -143,17 +158,36 @@
         <div class="form-group">
           <label class="form-label">Password</label>
           <div style="display:flex;gap:8px;align-items:center">
-            {#if smtpShowPass}
-              <input class="form-input" style="flex:1" type="text" autocomplete="new-password" placeholder="SMTP password or app password"
-                bind:value={smtpPass} disabled={smtpLocked} />
+            <!-- Single input masked via CSS text-security instead of a
+                 type-swap: on some Android WebView builds the swap left
+                 stale password dots visible. When passIsStored is true
+                 the field is read-only + the toggle is replaced with a
+                 Change button, because the server redacts the real value
+                 and there's nothing meaningful to "reveal". -->
+            <input bind:this={smtpPassInputEl}
+              class="form-input smtp-pass" class:masked={!smtpShowPass && !passIsStored}
+              style="flex:1" type="text" autocomplete="new-password"
+              placeholder="SMTP password or app password"
+              bind:value={smtpPass} disabled={smtpLocked || passIsStored} />
+            {#if passIsStored}
+              <button type="button" class="btn-icon-toggle change-btn"
+                on:click={changeSmtpPass}
+                title="Change password"
+                aria-label="Change password">
+                Change
+              </button>
             {:else}
-              <input class="form-input" style="flex:1" type="password" autocomplete="new-password" placeholder="SMTP password or app password"
-                bind:value={smtpPass} disabled={smtpLocked} />
+              <button type="button" class="btn-icon-toggle"
+                on:click={() => smtpShowPass = !smtpShowPass}
+                title={smtpShowPass ? 'Hide' : 'Show'}
+                aria-label={smtpShowPass ? 'Hide password' : 'Show password'}>
+                <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
+              </button>
             {/if}
-            <button class="btn-icon-toggle" on:click={() => smtpShowPass = !smtpShowPass} title={smtpShowPass ? 'Hide' : 'Show'}>
-              <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
-            </button>
           </div>
+          {#if passIsStored}
+            <p class="pass-hint">Password saved. Tap Change to replace it.</p>
+          {/if}
         </div>
         <div class="form-group">
           <label class="form-label">From address</label>
@@ -200,8 +234,29 @@
     font-size: 13px; color: var(--warning);
   }
   .btn-icon-toggle {
-    background: none; border: none; cursor: pointer; color: var(--text-3);
-    padding: 6px; display: flex; border-radius: var(--radius-sm);
+    background: none; border: 1px solid var(--border); cursor: pointer;
+    color: var(--text-3); padding: 8px 10px; min-width: 40px; min-height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm);
   }
   .btn-icon-toggle:hover { color: var(--text-1); background: var(--surface-2); }
+  .smtp-pass.masked {
+    -webkit-text-security: disc;
+    text-security: disc;
+    font-family: text-security-disc, monospace;
+    letter-spacing: 0.1em;
+  }
+  .smtp-pass:disabled {
+    color: var(--text-3);
+    cursor: not-allowed;
+  }
+  .btn-icon-toggle.change-btn {
+    padding: 8px 12px; min-width: 0;
+    font-size: 12px; font-weight: 700; font-family: inherit;
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .pass-hint {
+    margin: 4px 0 0; font-size: 11px; color: var(--text-3);
+  }
 </style>
