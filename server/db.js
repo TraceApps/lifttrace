@@ -272,6 +272,31 @@ function addColumnIfMissing(table, column, ddl) {
 // Phase 1 — trainer-member relationship. Nullable FK on users.
 addColumnIfMissing('users', 'trainer_id', 'trainer_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
 
+// Multi-week progression plans (issue #13). All additive — a program with
+// duration_weeks = 1 (the default) reproduces the old flat-prescription
+// behaviour, so existing programs and templates are untouched. The per-week
+// matrix itself lives inside the templates' `exercises` JSON (optional
+// `weeks[]` / `tempo` / `rest_sec` keys), which needs no schema change.
+addColumnIfMissing('programs', 'duration_weeks', 'duration_weeks INTEGER DEFAULT 1');
+// How the athlete's current plan week advances: 'sessions' (default —
+// advance once the week's prescribed number of program sessions is logged)
+// or 'calendar' (floor(days/7)+1 from start).
+addColumnIfMissing('programs', 'advance_mode', "advance_mode TEXT DEFAULT 'sessions'");
+// Behaviour past the final week: 'hold' (default — stay on the last week) or
+// 'repeat' (loop back to week 1 for repeating blocks).
+addColumnIfMissing('programs', 'on_complete', "on_complete TEXT DEFAULT 'hold'");
+// Manual week override so an athlete can repeat/regress a week. NULL = auto.
+// week_cursor_session_base captures sessions_in_program at the moment the
+// cursor was pinned, so auto-advance resumes *relative to* the pin rather
+// than freezing on it.
+addColumnIfMissing('program_assignments', 'week_cursor', 'week_cursor INTEGER');
+addColumnIfMissing('program_assignments', 'week_cursor_session_base', 'week_cursor_session_base INTEGER');
+// The plan week a logged session was performed in, stamped when the workout
+// is loaded from a multi-week program. NULL for non-programmed workouts.
+// Persisted (not derived) so a past session keeps its week after the athlete
+// advances — a logged Week 2 always reads Week 2.
+addColumnIfMissing('workout_log', 'program_week', 'program_week INTEGER');
+
 // Phase 2 — trainer prescribes workouts to members (undated "try this" or
 // dated "do this on YYYY-MM-DD"). Either template_id references a template,
 // or name+exercises hold an inline ad-hoc workout. date NULL = undated.

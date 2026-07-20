@@ -46,6 +46,7 @@ export const LtApi = {
   unassignProgram: (programId, userId) => fetch(`/api/programs/${programId}/assign/${userId}`, { ...opts, method: 'DELETE' }).then(_json),
   setActiveProgram: (id) => fetch(`/api/programs/${id}/activate`, { ...opts, method: 'POST' }).then(_json),
   deactivateProgram: () => fetch('/api/programs/deactivate', { ...opts, method: 'POST' }).then(_json),
+  setProgramWeekCursor: (id, week) => fetch(`/api/programs/${id}/week-cursor`, { ...jsonOpts, method: 'POST', body: JSON.stringify({ week }) }).then(_json),
 
   // ── Workout Templates ──────────────────────────────────────────────────
   getTemplate: (id) => fetch(`/api/templates/${id}`, opts).then(_json),

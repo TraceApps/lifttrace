@@ -443,6 +443,107 @@
     template.exercises = updated;
   }
 
+  // ── Multi-week progression matrix (issue #13) ───────────────────────
+  // A program's duration_weeks (joined onto the template) drives a Week tab
+  // strip. Week 1 keeps mirroring the flat target_* / exercise-level defaults
+  // (full back-compat); weeks 2..N live in the exercise's optional weeks[]
+  // array. Field name mapping between the strip's fields and the flat keys:
+  const FLAT_FIELD = { sets: 'target_sets', reps: 'target_reps', weight: 'target_weight', tempo: 'tempo', rest_sec: 'rest_sec' };
+  $: durationWeeks = template?.duration_weeks || 1;
+  let activeWeek = 1;
+  $: if (activeWeek > durationWeeks) activeWeek = durationWeeks;
+
+  // Read a field's value for a specific plan week (1-based). Week 1 (or a
+  // non-progressed program) reads the flat keys; later weeks read weeks[wk-1].
+  function fieldFor(ex, field, wk) {
+    if (durationWeeks <= 1 || wk === 1) {
+      const v = ex?.[FLAT_FIELD[field]];
+      return v == null ? '' : v;
+    }
+    const v = ex?.weeks?.[wk - 1]?.[field];
+    return v == null ? '' : v;
+  }
+  // `wk` is passed explicitly (always `activeWeek`) at every call site so the
+  // template expression names activeWeek and Svelte re-reads the field when
+  // you switch weeks. Reading activeWeek only inside the body wouldn't create
+  // that dependency, so the inputs would stay stuck on week 1.
+  function weekVal(ex, field, wk) { return fieldFor(ex, field, wk); }
+
+  // Write a field for the active week. Empty clears the key so sparse week
+  // rows inherit the exercise-level default (matches the diary's resolveWeek).
+  function setWeekVal(idx, field, value) {
+    const empty = value === '' || value == null || (typeof value === 'number' && Number.isNaN(value));
+    if (durationWeeks <= 1 || activeWeek === 1) {
+      const fallback = (field === 'sets' || field === 'rest_sec') ? 0 : '';
+      updateExercise(idx, FLAT_FIELD[field], empty ? fallback : value);
+      return;
+    }
+    const updated = [...exercises];
+    const ex = { ...updated[idx] };
+    const weeks = [...(ex.weeks || [])];
+    while (weeks.length < activeWeek) weeks.push(null);
+    const entry = { ...(weeks[activeWeek - 1] || {}) };
+    if (empty) delete entry[field];
+    else entry[field] = value;
+    weeks[activeWeek - 1] = entry;
+    ex.weeks = weeks;
+    updated[idx] = ex;
+    template.exercises = updated;
+  }
+
+  const WEEK_FIELDS = ['sets', 'reps', 'weight', 'tempo', 'rest_sec'];
+
+  // Return a copy of `ex` with week `src`'s effective values written into
+  // week `dst`'s entry (creating the sparse array slot as needed).
+  function withWeekCopied(ex, src, dst) {
+    const nx = { ...ex };
+    const weeks = [...(nx.weeks || [])];
+    while (weeks.length < dst) weeks.push(null);
+    const entry = {};
+    for (const f of WEEK_FIELDS) {
+      const v = fieldFor(ex, f, src);
+      if (v !== '' && v != null) entry[f] = v;
+    }
+    weeks[dst - 1] = entry;
+    nx.weeks = weeks;
+    return nx;
+  }
+
+  // Does exercise `ex`'s week `wk` prescription differ from week `wk+1`'s?
+  // Drives the "dirty" state of the copy controls — copying is only offered
+  // when it would actually change the next week. `wk`/`dw` are passed
+  // explicitly so the template expressions depend on activeWeek/durationWeeks
+  // and re-evaluate when you switch weeks.
+  function weekDiffersFromNext(ex, wk, dw) {
+    if (wk >= dw) return false;
+    return WEEK_FIELDS.some(f =>
+      String(fieldFor(ex, f, wk) ?? '') !== String(fieldFor(ex, f, wk + 1) ?? '')
+    );
+  }
+
+  // Strip-level: is there any exercise whose current week differs from next?
+  $: canCopyWeek = activeWeek < durationWeeks
+    && exercises.some(ex => weekDiffersFromNext(ex, activeWeek, durationWeeks));
+
+  // Duplicate the active week's uniform prescription into the next week for
+  // every exercise — coaches typically fill Week 1 then tweak later weeks.
+  // Advances to the copied week so the result is visible for tweaking.
+  function copyWeekToNext() {
+    if (activeWeek >= durationWeeks) return;
+    const src = activeWeek, dst = activeWeek + 1;
+    template.exercises = exercises.map(ex => withWeekCopied(ex, src, dst));
+    activeWeek = dst;
+  }
+
+  // Per-exercise: copy just this exercise's active-week values into next week.
+  // Stays on the current week so the coach can keep copying/tweaking others.
+  function copyExerciseWeekToNext(idx) {
+    if (activeWeek >= durationWeeks) return;
+    const updated = [...exercises];
+    updated[idx] = withWeekCopied(updated[idx], activeWeek, activeWeek + 1);
+    template.exercises = updated;
+  }
+
   // ── Per-set targets (e.g. pyramid sets) ─────────────────────────────
   // When ex.set_specs is an array, each set has its own {weight, reps}.
   // When absent, the uniform target_sets × target_reps @ target_weight is used.
@@ -583,6 +684,26 @@
     <Spinner block label="Loading template…" />
   {:else if template}
     <div class="content">
+      {#if durationWeeks > 1}
+        <!-- Week tab strip — switches which plan week's targets are edited.
+             The copy arrow sits between the active week and the next, and is
+             only enabled when the current week actually differs from next. -->
+        <div class="week-strip">
+          {#each Array(durationWeeks) as _, i}
+            <button class="week-tab" class:active={activeWeek === i + 1} on:click={() => activeWeek = i + 1}>
+              Week {i + 1}
+            </button>
+            {#if activeWeek === i + 1 && i + 1 < durationWeeks}
+              <button class="week-copy-arrow" disabled={!canCopyWeek}
+                on:click={copyWeekToNext}
+                title={canCopyWeek ? `Copy Week ${activeWeek} into Week ${activeWeek + 1}` : `Week ${activeWeek + 1} already matches Week ${activeWeek}`}
+                aria-label="Copy this week into the next week">
+                <span class="material-symbols-rounded">arrow_forward</span>
+              </button>
+            {/if}
+          {/each}
+        </div>
+      {/if}
       {#if exercises.length === 0}
         <div class="empty">
           <span class="material-symbols-rounded">playlist_add</span>
@@ -642,6 +763,14 @@
                         <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title="View exercise details" aria-label="View exercise details">
                           <span class="material-symbols-rounded">info</span>
                         </button>
+                        {#if durationWeeks > 1 && activeWeek < durationWeeks}
+                          <button type="button" class="ex-week-copy" disabled={!weekDiffersFromNext(ex, activeWeek, durationWeeks)}
+                            on:click|stopPropagation={() => copyExerciseWeekToNext(idx)}
+                            title={weekDiffersFromNext(ex, activeWeek, durationWeeks) ? `Copy this exercise's Week ${activeWeek} into Week ${activeWeek + 1}` : `Week ${activeWeek + 1} already matches Week ${activeWeek}`}
+                            aria-label="Copy this exercise into Week {activeWeek + 1}">
+                            <span class="material-symbols-rounded">arrow_forward</span>{activeWeek + 1}
+                          </button>
+                        {/if}
                         <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExActions(idx)} title="Options">
                           <span class="material-symbols-rounded">more_vert</span>
                         </button>
@@ -695,15 +824,25 @@
                         <div class="ex-fields three-col">
                           <div class="field">
                             <label>Sets</label>
-                            <input type="number" value={ex.target_sets || ''} on:input={e => updateExercise(idx, 'target_sets', parseInt(e.target.value) || 0)} placeholder="—" />
+                            <input type="number" value={weekVal(ex, 'sets', activeWeek)} on:input={e => setWeekVal(idx, 'sets', parseInt(e.target.value))} placeholder="—" />
                           </div>
                           <div class="field">
                             <label>Reps</label>
-                            <input type="text" value={ex.target_reps || ''} on:input={e => updateExercise(idx, 'target_reps', e.target.value)} placeholder="e.g. 8-12" />
+                            <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder="e.g. 8-12" />
                           </div>
                           <div class="field">
                             <label>Weight</label>
-                            <input type="text" value={ex.target_weight || ''} on:input={e => updateExercise(idx, 'target_weight', e.target.value)} placeholder="e.g. 135" />
+                            <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder="e.g. 135" />
+                          </div>
+                        </div>
+                        <div class="ex-fields two-col">
+                          <div class="field">
+                            <label>Tempo</label>
+                            <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder="e.g. 3.1.1" />
+                          </div>
+                          <div class="field">
+                            <label>Rest (s)</label>
+                            <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder="e.g. 90" />
                           </div>
                         </div>
                         <button class="per-set-link" on:click={() => enablePerSet(idx)}>
@@ -753,6 +892,14 @@
                 <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title="View exercise details" aria-label="View exercise details">
                   <span class="material-symbols-rounded">info</span>
                 </button>
+                {#if durationWeeks > 1 && activeWeek < durationWeeks}
+                  <button type="button" class="ex-week-copy" disabled={!weekDiffersFromNext(ex, activeWeek, durationWeeks)}
+                    on:click|stopPropagation={() => copyExerciseWeekToNext(idx)}
+                    title={weekDiffersFromNext(ex, activeWeek, durationWeeks) ? `Copy this exercise's Week ${activeWeek} into Week ${activeWeek + 1}` : `Week ${activeWeek + 1} already matches Week ${activeWeek}`}
+                    aria-label="Copy this exercise into Week {activeWeek + 1}">
+                    <span class="material-symbols-rounded">arrow_forward</span>{activeWeek + 1}
+                  </button>
+                {/if}
                 <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExActions(idx)} title="Options">
                   <span class="material-symbols-rounded">more_vert</span>
                 </button>
@@ -806,15 +953,25 @@
                 <div class="ex-fields three-col">
                   <div class="field">
                     <label>Sets</label>
-                    <input type="number" value={ex.target_sets || 3} on:input={e => updateExercise(idx, 'target_sets', parseInt(e.target.value) || 1)} />
+                    <input type="number" value={weekVal(ex, 'sets', activeWeek)} on:input={e => setWeekVal(idx, 'sets', parseInt(e.target.value))} placeholder="—" />
                   </div>
                   <div class="field">
                     <label>Reps</label>
-                    <input type="text" value={ex.target_reps || ''} on:input={e => updateExercise(idx, 'target_reps', e.target.value)} placeholder="e.g. 8-12" />
+                    <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder="e.g. 8-12" />
                   </div>
                   <div class="field">
                     <label>Weight</label>
-                    <input type="text" value={ex.target_weight || ''} on:input={e => updateExercise(idx, 'target_weight', e.target.value)} placeholder="e.g. 135" />
+                    <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder="e.g. 135" />
+                  </div>
+                </div>
+                <div class="ex-fields two-col">
+                  <div class="field">
+                    <label>Tempo</label>
+                    <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder="e.g. 3.1.1" />
+                  </div>
+                  <div class="field">
+                    <label>Rest (s)</label>
+                    <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder="e.g. 90" />
                   </div>
                 </div>
                 <button class="per-set-link" on:click={() => enablePerSet(idx)}>
@@ -1027,11 +1184,56 @@
   }
   .ex-name { flex: 1; font-size: 14px; font-weight: 600; color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .btn-icon-sm { background: none; border: none; cursor: pointer; color: var(--text-3); padding: 4px; display: flex; border-radius: var(--radius-xs); flex-shrink: 0; }
-  .btn-icon-sm:hover { color: var(--text-1); background: var(--surface-2); }
+  .btn-icon-sm:hover:not(:disabled) { color: var(--text-1); background: var(--surface-2); }
+  .btn-icon-sm:disabled { opacity: 0.35; cursor: default; }
+
+  /* Per-exercise "copy into next week" pill — shows an arrow to the target
+     week number (e.g. "→2" on Week 1). Disabled when nothing to copy. */
+  .ex-week-copy {
+    display: inline-flex; align-items: center; gap: 1px;
+    flex-shrink: 0; padding: 3px 9px 3px 4px;
+    background: var(--accent-dim); border: none;
+    border-radius: var(--radius-full); color: var(--accent);
+    font-size: 12px; font-weight: 800; font-family: inherit;
+    font-variant-numeric: tabular-nums; cursor: pointer;
+    transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
+  }
+  .ex-week-copy:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); }
+  .ex-week-copy:disabled { opacity: 0.35; cursor: default; }
+  .ex-week-copy .material-symbols-rounded { font-size: 16px; }
 
   .ex-fields { display: grid; gap: 8px; margin-bottom: 4px; }
   .two-col { grid-template-columns: 1fr 1fr; }
   .three-col { grid-template-columns: 1fr 1fr 1fr; }
+
+  /* ── Week tab strip (multi-week progression, issue #13) ─────────── */
+  .week-strip {
+    display: flex; align-items: center; gap: 6px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px; margin-bottom: 12px;
+  }
+  .week-strip::-webkit-scrollbar { display: none; }
+  .week-tab {
+    flex-shrink: 0; padding: 7px 14px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-full); color: var(--text-2);
+    font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+  }
+  .week-tab:hover { color: var(--text-1); }
+  .week-tab.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  /* Copy arrow sits inline between the active week chip and the next one. */
+  .week-copy-arrow {
+    flex-shrink: 0; width: 28px; height: 28px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; cursor: pointer;
+    color: var(--accent);
+    transition: color var(--dur-fast), opacity var(--dur-fast), transform var(--dur-fast);
+  }
+  .week-copy-arrow:hover:not(:disabled) { transform: translateX(1px); }
+  .week-copy-arrow:disabled { color: var(--text-3); opacity: 0.4; cursor: default; }
+  .week-copy-arrow .material-symbols-rounded { font-size: 20px; }
   .field label { display: block; font-size: 11px; color: var(--text-3); margin-bottom: 3px; font-weight: 600; text-transform: uppercase; }
   .field input {
     width: 100%; background: var(--surface-2); border: 1px solid var(--border);

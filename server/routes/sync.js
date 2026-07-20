@@ -286,16 +286,16 @@ router.post('/push', wrap((req, res) => {
             db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
           } else {
             db.prepare(
-              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, updated_at=datetime('now') WHERE id=?`
-            ).run(w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, existing.id);
+              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, program_week=?, updated_at=datetime('now') WHERE id=?`
+            ).run(w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, existing.id);
           }
         }
         result.workout_log.push({ client_id: w.client_id, server_id: existing.id });
       } else if (!w.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-        ).run(u, w.date, w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null);
+          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, program_week, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(u, w.date, w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null);
         result.workout_log.push({ client_id: w.client_id, server_id: r.lastInsertRowid });
       }
     }

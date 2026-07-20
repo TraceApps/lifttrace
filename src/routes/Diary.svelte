@@ -746,11 +746,51 @@
     catch(e) { showError(e.message); }
   }
 
+  // Repeat/regress the current plan week (issue #13). Pass null to clear the
+  // manual pin and return to auto-advance. Re-fetches so current_week and the
+  // week-aware prefill reflect the change immediately.
+  async function setPlanWeek(week) {
+    if (!selectedProgram) return;
+    try {
+      await LtApi.setProgramWeekCursor(selectedProgram.id, week);
+      selectedProgram = await LtApi.getProgram(selectedProgram.id);
+    } catch(e) { showError(e.message); }
+  }
+
+  // Effective prescription for a given 1-based plan week (issue #13).
+  // Merges the exercise's weeks[wk-1] entry over its exercise-level defaults;
+  // absent weeks[] or week falls back to the flat target_* — full back-compat.
+  // Clamps to the last authored week entry if wk overshoots.
+  function resolveWeek(ex, wk) {
+    const base = {
+      sets: ex.target_sets, reps: ex.target_reps, weight: ex.target_weight,
+      tempo: ex.tempo, rest_sec: ex.rest_sec,
+    };
+    if (!wk || !ex.weeks?.length) return base;
+    const w = ex.weeks[Math.min(wk, ex.weeks.length) - 1];
+    if (!w) return base;
+    return {
+      sets: w.sets ?? base.sets,
+      reps: w.reps ?? base.reps,
+      weight: w.weight ?? base.weight,
+      tempo: w.tempo ?? base.tempo,
+      rest_sec: w.rest_sec ?? base.rest_sec,
+    };
+  }
+
   async function loadTemplate(template) {
     showLoadWorkout = false;
+    // Current plan week for a multi-week program — drives week-aware prefill.
+    // Only meaningful when this template's program is the active one.
+    const planWeek = selectedProgram?.is_active ? (selectedProgram?.current_week || null) : null;
     // Clone the template exercises, auto-filling from last session if enabled
     const templateExercises = await Promise.all((template.exercises || []).map(async ex => {
       const lastSets = await getLastSets(ex.exercise_id);
+      // Resolve this week's prescription. When the exercise carries a weeks[]
+      // matrix and we're inside the active program, the plan value wins over
+      // last-session progressive-overload memory for the current week.
+      const eff = resolveWeek(ex, planWeek);
+      const planWins = !!(planWeek && ex.weeks?.length);
       let sets;
       if (ex.set_specs && ex.set_specs.length > 0) {
         // Per-set targets defined in template — use them as the target weight/reps
@@ -782,16 +822,18 @@
           return set;
         });
       } else {
-        const numSets = ex.target_sets || 1;
-        // Template's uniform target weight/reps — used as the base fallback
+        const numSets = eff.sets || 1;
+        // This week's uniform target weight/reps — used as the base fallback
         // when there's no last-session history to pull from.
-        const tplWeight = parseFloat(ex.target_weight);
-        const tplReps = parseInt(ex.target_reps);
+        const tplWeight = parseFloat(eff.weight);
+        const tplReps = parseInt(eff.reps);
         const baseWeight = Number.isFinite(tplWeight) ? tplWeight : 0;
         const baseReps = Number.isFinite(tplReps) ? tplReps : 0;
-        if (lastSets) {
+        if (lastSets && !planWins) {
           // Prior session wins (progressive-overload memory), template values
-          // fill any gaps beyond what the last session had.
+          // fill any gaps beyond what the last session had. Inside a
+          // periodized block (planWins) we skip this so the plan's prescribed
+          // week isn't overwritten by last week's logged load.
           sets = Array.from({ length: numSets }, (_, i) => ({
             weight: lastSets[i]?.weight ?? lastSets[lastSets.length - 1]?.weight ?? baseWeight,
             reps: lastSets[i]?.reps ?? lastSets[lastSets.length - 1]?.reps ?? baseReps,
@@ -799,13 +841,15 @@
             notes: '',
           }));
         } else {
-          // No history — use template's planned weight/reps.
+          // No history, or plan wins — use this week's planned weight/reps.
           sets = Array.from({ length: numSets }, () => ({
             weight: baseWeight, reps: baseReps, completed: false, notes: '',
           }));
         }
       }
-      return { ...ex, sets };
+      // Surface the resolved week's tempo/rest onto the logged exercise so the
+      // rest timer (and any display) can use the plan's per-exercise values.
+      return { ...ex, tempo: eff.tempo, rest_sec: eff.rest_sec, sets };
     }));
 
     // Prepend warm-up ramp when the user has opted into auto-warm-ups and
@@ -825,6 +869,10 @@
       name: template.name,
       template_id: template.id,
       program_id: selectedProgram?.id || null,
+      // Stamp the plan week this session was performed in (issue #13) so the
+      // diary can label it and it stays accurate after the athlete advances.
+      program_week: planWeek,
+      program_duration_weeks: planWeek ? (selectedProgram?.duration_weeks || null) : null,
       exercises: withWarmups,
     });
     notes = '';
@@ -1079,7 +1127,9 @@
           startRestTimer({
             exerciseId:   nextEx.exercise_id || null,
             exerciseName: nextEx.exercise_name || '',
-            durationSec:  $restDuration,
+            // A plan's per-exercise rest (issue #13) overrides the global
+            // default when present; otherwise fall back to the user's setting.
+            durationSec:  Number(nextEx.rest_sec) > 0 ? Number(nextEx.rest_sec) : $restDuration,
           });
         }
 
@@ -1871,6 +1921,13 @@
           <span class="material-symbols-rounded title-edit-icon">edit</span>
         </button>
       {/if}
+      {#if $todayLog?.program_week}
+        <!-- Plan week this session was logged in (issue #13). Persisted on the
+             log, so it stays accurate even after the athlete advances. -->
+        <span class="week-chip" title="Program week this workout was logged in">
+          Week {$todayLog.program_week}{#if $todayLog.program_duration_weeks} of {$todayLog.program_duration_weeks}{/if}
+        </span>
+      {/if}
     </div>
   {/if}
 
@@ -2153,6 +2210,26 @@
             </button>
           {/each}
         </div>
+
+        <!-- Multi-week progression: current plan week + repeat/regress. Only
+             shown for a progressed program (duration_weeks > 1). -->
+        {#if selectedProgram?.duration_weeks > 1 && selectedProgram?.is_active}
+          <div class="lw-week-bar">
+            <button class="lw-week-nav" title="Regress a week"
+              disabled={(selectedProgram.current_week || 1) <= 1}
+              on:click={() => setPlanWeek((selectedProgram.current_week || 1) - 1)}>
+              <span class="material-symbols-rounded">chevron_left</span>
+            </button>
+            <span class="lw-week-label">Week {selectedProgram.current_week || 1} of {selectedProgram.duration_weeks}</span>
+            <button class="lw-week-nav" title="Advance a week"
+              disabled={(selectedProgram.current_week || 1) >= selectedProgram.duration_weeks}
+              on:click={() => setPlanWeek((selectedProgram.current_week || 1) + 1)}>
+              <span class="material-symbols-rounded">chevron_right</span>
+            </button>
+            <button class="lw-week-auto" title="Resume automatic week tracking"
+              on:click={() => setPlanWeek(null)}>Auto</button>
+          </div>
+        {/if}
 
         <!-- Templates list — restored to the original single-button-per-row
              layout that was reliably full-width. The info preview is now
@@ -2663,7 +2740,15 @@
   .exercise-list { padding: 12px var(--page-px); display: flex; flex-direction: column; gap: 12px; }
 
   /* Inline workout title */
-  .workout-title-row { padding: 8px var(--page-px) 0; }
+  .workout-title-row { padding: 8px var(--page-px) 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .week-chip {
+    flex-shrink: 0;
+    padding: 3px 10px;
+    background: var(--accent-dim); color: var(--accent);
+    border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 800; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
   .workout-title {
     display: inline-flex; align-items: center; gap: 6px;
     background: none; border: none; cursor: pointer;
@@ -3130,6 +3215,30 @@
   }
   .lw-program-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .lw-active-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* Current plan week + repeat/regress controls (issue #13) */
+  .lw-week-bar {
+    display: flex; align-items: center; gap: 8px;
+    margin: 0 0 12px; padding: 6px 8px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .lw-week-label { flex: 1; text-align: center; font-size: 14px; font-weight: 700; color: var(--text-1); }
+  .lw-week-nav {
+    width: 32px; height: 32px; padding: 0; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-1); cursor: pointer;
+  }
+  .lw-week-nav:disabled { opacity: 0.35; cursor: default; }
+  .lw-week-nav .material-symbols-rounded { font-size: 20px; }
+  .lw-week-auto {
+    flex-shrink: 0; padding: 6px 10px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-2);
+    font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer;
+  }
+  .lw-week-auto:hover { color: var(--text-1); border-color: var(--text-3); }
 
   .lw-templates {
     display: flex; flex-direction: column; gap: 4px;
