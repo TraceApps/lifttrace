@@ -4,6 +4,12 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **Multi-Week Progression Plans.** Programs can now span a training block of multiple weeks, with a per-week Sets / Reps / Tempo / Rest / Load matrix instead of one flat prescription. Set a program's **Duration (weeks)** and the Workout editor gains a Week tab strip (with a "copy this week → next" shortcut) plus new **Tempo** and **Rest (s)** fields. The Diary resolves which week you're on — by default advancing as you log sessions (calendar mode optional) — and prefills that week's targets when you load the workout; inside a programmed block the plan's prescription wins over last-session auto-fill. A per-exercise **Rest** feeds the rest timer. Repeat or regress a week from the Load Workout sheet, and choose whether the plan holds on the final week or repeats. Existing single-week programs are unchanged.
+
 ## v1.0.0 — 2026-07-18
 
 First stable release under the new semver scheme. Delivers Garmin FIT strength imports, per-set template parity between the Program editor and Diary set rows, a real Send Test email flow, multi-tag Docker publishing, and a high-severity `adm-zip` CVE patch in the backup restore path.

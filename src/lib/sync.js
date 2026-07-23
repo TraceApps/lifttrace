@@ -246,11 +246,12 @@ async function _applyPrograms(rows, result) {
     if (p.deleted_at) { await dbRun(`DELETE FROM programs WHERE id = ?`, [p.id]); continue; }
     if (await _localIsPending('programs', 'id', p.id)) continue;
     await dbRun(
-      `INSERT OR REPLACE INTO programs (id, name, description, goal, created_by, visibility, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
+      `INSERT OR REPLACE INTO programs (id, name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
       [
         p.id, p.name, p.description || null, p.goal || 'general',
         p.created_by || null, p.visibility || 'private',
+        p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold',
         p.created_at || new Date().toISOString(),
         p.updated_at || new Date().toISOString(),
       ]
@@ -283,11 +284,12 @@ async function _applyAssignments(rows, result) {
   for (const a of rows) {
     if (a.deleted_at) { await dbRun(`DELETE FROM program_assignments WHERE id = ?`, [a.id]); continue; }
     await dbRun(
-      `INSERT OR REPLACE INTO program_assignments (id, program_id, assigned_to, assigned_by, start_date, active, assigned_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO program_assignments (id, program_id, assigned_to, assigned_by, start_date, active, week_cursor, week_cursor_session_base, week_cursor_pinned_at, assigned_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         a.id, a.program_id, a.assigned_to, a.assigned_by || null,
         a.start_date || null, a.active ? 1 : 0,
+        a.week_cursor ?? null, a.week_cursor_session_base ?? null, a.week_cursor_pinned_at || null,
         a.assigned_at || new Date().toISOString(),
         a.updated_at || new Date().toISOString(),
       ]
@@ -307,14 +309,15 @@ async function _applyWorkouts(rows, result) {
     await dbRun(
       `INSERT OR REPLACE INTO workout_log
          (id, user_id, date, template_id, program_id, name, exercises,
-          notes, duration_min, completed, created_at, updated_at, sync_state)
-       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
+          notes, duration_min, completed, program_week, created_at, updated_at, sync_state)
+       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
       [
         w.id, w.date, w.template_id || null, w.program_id || null,
         w.name || null,
         JSON.stringify(w.exercises || []),
         w.notes || null, w.duration_min ?? null,
         w.completed ? 1 : 0,
+        w.program_week ?? null,
         w.created_at || new Date().toISOString(),
         w.updated_at || new Date().toISOString(),
       ]

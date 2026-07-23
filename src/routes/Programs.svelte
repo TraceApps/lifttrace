@@ -18,6 +18,7 @@
   let showCreate = false;
   let newName = '';
   let newGoal = 'general';
+  let newDurationWeeks = 1;
   let creating = false;
 
   // Re-fetch when a background sync brings updates (native+server mode).
@@ -44,10 +45,11 @@
     if (!newName.trim() || creating) return;
     creating = true;
     try {
-      const p = await LtApi.createProgram({ name: newName.trim(), goal: newGoal });
+      const p = await LtApi.createProgram({ name: newName.trim(), goal: newGoal, duration_weeks: newDurationWeeks });
       showCreate = false;
       newName = '';
       newGoal = 'general';
+      newDurationWeeks = 1;
       push(`/programs/${p.id}`);
     } catch(e) { showError(e.message); }
     creating = false;
@@ -118,7 +120,9 @@
                  getting too tall. Program detail page has the full list. -->
             {#if p.is_active && (p.weeks_active > 0 || p.sessions_in_program > 0)}
               <div class="card-progress">
-                {#if p.weeks_active > 0}
+                {#if p.duration_weeks > 1 && p.current_week}
+                  <span class="progress-stat">Week {p.current_week} of {p.duration_weeks}</span>
+                {:else if p.weeks_active > 0}
                   <span class="progress-stat">Week {p.weeks_active}</span>
                 {/if}
                 {#if p.sessions_in_program > 0}
@@ -148,6 +152,12 @@
       <select class="form-select" bind:value={newGoal}>
         {#each GOALS as g}<option value={g.id}>{g.label}</option>{/each}
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Duration (weeks)</label>
+      <input class="form-input" type="number" min="1" max="52" bind:value={newDurationWeeks}
+        placeholder="1" />
+      <p class="form-hint">Weeks in this training block. More than 1 enables per-week progression (different sets/reps/tempo/rest each week).</p>
     </div>
     <div class="form-actions">
       <button class="btn btn-secondary" on:click={() => showCreate = false}>Cancel</button>
@@ -238,6 +248,7 @@
     font-size: 15px; font-family: inherit; outline: none;
   }
   .form-input:focus, .form-select:focus { border-color: var(--accent); }
+  .form-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-3); line-height: 1.4; }
   .form-actions { display: flex; gap: 10px; margin-top: 24px; }
   .form-actions button { flex: 1; padding: 13px; font-size: 15px; }
 

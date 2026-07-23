@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid, userMgmtActive } from '../middleware/auth.js';
+import { currentPlanWeek } from '../lib/programWeek.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -52,7 +53,8 @@ router.get('/', wrap((req, res) => {
 
     if (p.is_active && userId != null) {
       const assigned = db.prepare(
-        `SELECT assigned_at FROM program_assignments
+        `SELECT assigned_at, start_date, week_cursor, week_cursor_session_base, week_cursor_pinned_at
+           FROM program_assignments
           WHERE program_id = ? AND assigned_to = ? AND active = 1`
       ).get(p.id, userId);
       if (assigned?.assigned_at) {
@@ -74,6 +76,21 @@ router.get('/', wrap((req, res) => {
             AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
             ${sinceFilter}
       `).get(...args)?.c || 0;
+      // Multi-week progression: resolve which plan week the athlete is on.
+      p.current_week = currentPlanWeek(p, assigned, {
+        sessionsInProgram: p.sessions_in_program,
+        sessionsPerWeek: p.template_count,
+      });
+    } else if (p.is_active && userId == null) {
+      // Single-user mode has no program_assignments row — the active flag and
+      // the manual week cursor both live in app_config. Resolve current_week
+      // here too so the list card matches the detail view + Load-Workout sheet.
+      const cursor = readSoloCursor();
+      p.sessions_in_program = sessionsInProgram(null, p.id, null);
+      p.current_week = currentPlanWeek(p, cursor, {
+        sessionsInProgram: p.sessions_in_program,
+        sessionsPerWeek: p.template_count,
+      });
     }
   }
   res.json(programs);
@@ -88,35 +105,104 @@ router.get('/:id', wrap((req, res) => {
   for (const t of templates) t.exercises = JSON.parse(t.exercises || '[]');
   program.templates = templates;
 
-  // Check if active
+  // Check if active + resolve the current plan week for the caller.
   const userId = uid(req);
+  let assignment = null;
   if (userId != null) {
-    const pa = db.prepare('SELECT active FROM program_assignments WHERE program_id = ? AND assigned_to = ?').get(id, userId);
-    program.is_active = pa?.active === 1;
+    assignment = db.prepare(
+      `SELECT active, assigned_at, start_date, week_cursor, week_cursor_session_base, week_cursor_pinned_at
+         FROM program_assignments WHERE program_id = ? AND assigned_to = ?`
+    ).get(id, userId);
+    program.is_active = assignment?.active === 1;
   } else {
     const active = db.prepare("SELECT value FROM app_config WHERE key = 'active_program'").get();
     program.is_active = active && parseInt(active.value) === id;
+    if (program.is_active) assignment = readSoloCursor();
+  }
+
+  if (program.is_active) {
+    const sessions = sessionsInProgram(userId, id, assignment?.assigned_at);
+    program.sessions_in_program = sessions;
+    program.current_week = currentPlanWeek(program, assignment, {
+      sessionsInProgram: sessions,
+      sessionsPerWeek: templates.length,
+    });
   }
   res.json(program);
 }));
 
+// Completed program-attributed sessions since assignment. userId null =
+// single-user mode (no user_id filter needed).
+function sessionsInProgram(userId, programId, assignedAt) {
+  const sinceFilter = assignedAt ? "AND date >= date(?)" : "";
+  const userFilter = userId != null ? "wl.user_id = ? AND" : "";
+  const args = [];
+  if (userId != null) args.push(userId);
+  args.push(programId);
+  if (assignedAt) args.push(assignedAt);
+  return db.prepare(`
+    SELECT COUNT(*) as c FROM workout_log wl
+      WHERE ${userFilter} wl.completed = 1
+        AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
+        ${sinceFilter}
+  `).get(...args)?.c || 0;
+}
+
+// Single-user (no-auth) mode has no program_assignments row, so the manual
+// week cursor lives in app_config as JSON alongside the active_program key.
+function readSoloCursor() {
+  const row = db.prepare("SELECT value FROM app_config WHERE key = 'active_program_cursor'").get();
+  if (!row?.value) return {};
+  try {
+    const { week, base, pinnedAt } = JSON.parse(row.value);
+    return {
+      week_cursor: week ?? null,
+      week_cursor_session_base: base ?? 0,
+      week_cursor_pinned_at: pinnedAt ?? null,
+    };
+  } catch { return {}; }
+}
+
 // POST /api/programs
 router.post('/', wrap((req, res) => {
-  const { name, description, goal, visibility } = req.body;
+  const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
-  const result = db.prepare('INSERT INTO programs (name, description, goal, created_by, visibility) VALUES (?, ?, ?, ?, ?)')
-    .run(name, description || null, goal || 'general', uid(req), visibility || 'private');
+  const result = db.prepare(
+    `INSERT INTO programs (name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    name, description || null, goal || 'general', uid(req), visibility || 'private',
+    clampDuration(duration_weeks), advanceMode(advance_mode), onComplete(on_complete)
+  );
   res.json(db.prepare('SELECT * FROM programs WHERE id = ?').get(result.lastInsertRowid));
 }));
 
 // PUT /api/programs/:id
 router.put('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  const { name, description, goal, visibility } = req.body;
-  db.prepare('UPDATE programs SET name=COALESCE(?,name), description=COALESCE(?,description), goal=COALESCE(?,goal), visibility=COALESCE(?,visibility) WHERE id=?')
-    .run(name || null, description, goal || null, visibility || null, id);
+  const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = req.body;
+  db.prepare(
+    `UPDATE programs SET name=COALESCE(?,name), description=COALESCE(?,description),
+            goal=COALESCE(?,goal), visibility=COALESCE(?,visibility),
+            duration_weeks=COALESCE(?,duration_weeks), advance_mode=COALESCE(?,advance_mode),
+            on_complete=COALESCE(?,on_complete) WHERE id=?`
+  ).run(
+    name || null, description, goal || null, visibility || null,
+    duration_weeks != null ? clampDuration(duration_weeks) : null,
+    advance_mode != null ? advanceMode(advance_mode) : null,
+    on_complete != null ? onComplete(on_complete) : null,
+    id
+  );
   res.json(db.prepare('SELECT * FROM programs WHERE id = ?').get(id));
 }));
+
+// Sanitise the progression fields so bad input can't corrupt week resolution.
+function clampDuration(v) {
+  const n = parseInt(v);
+  return Number.isFinite(n) ? Math.min(52, Math.max(1, n)) : 1;
+}
+function advanceMode(v) { return v === 'calendar' ? 'calendar' : 'sessions'; }
+function onComplete(v) { return v === 'repeat' ? 'repeat' : 'hold'; }
 
 // DELETE /api/programs/:id
 router.delete('/:id', wrap((req, res) => {
@@ -131,6 +217,7 @@ router.post('/deactivate', wrap((req, res) => {
     db.prepare('UPDATE program_assignments SET active = 0 WHERE assigned_to = ?').run(userId);
   } else {
     db.prepare("DELETE FROM app_config WHERE key = 'active_program'").run();
+    db.prepare("DELETE FROM app_config WHERE key = 'active_program_cursor'").run();
   }
   res.json({ ok: true });
 }));
@@ -152,8 +239,51 @@ router.post('/:id/activate', wrap((req, res) => {
   } else {
     db.prepare("INSERT INTO app_config (key, value) VALUES ('active_program', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(String(id));
+    // Switching the solo active program invalidates any pinned week cursor.
+    db.prepare("DELETE FROM app_config WHERE key = 'active_program_cursor'").run();
   }
   res.json({ ok: true });
+}));
+
+// POST /api/programs/:id/week-cursor — manually pin the current plan week so
+// the athlete can repeat or regress a week. { week: null } clears the pin and
+// returns to auto-advance. Captures the current session count as the baseline
+// so auto-advance resumes relative to the pin (see lib/programWeek.js).
+router.post('/:id/week-cursor', wrap((req, res) => {
+  const id = parseInt(req.params.id);
+  const userId = uid(req);
+  const program = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  if (!program) return res.status(404).json({ error: 'Program not found' });
+
+  let week = req.body?.week;
+  if (week != null) {
+    week = parseInt(week);
+    if (!Number.isFinite(week)) return res.status(400).json({ error: 'week must be a number or null' });
+    week = Math.min(Math.max(1, program.duration_weeks || 1), Math.max(1, week));
+  }
+
+  if (userId != null) {
+    const assigned = db.prepare(
+      'SELECT assigned_at FROM program_assignments WHERE program_id = ? AND assigned_to = ? AND active = 1'
+    ).get(id, userId);
+    if (!assigned) return res.status(400).json({ error: 'Program is not active for this user' });
+    const base = week != null ? sessionsInProgram(userId, id, assigned.assigned_at) : null;
+    const pinnedAt = week != null ? new Date().toISOString() : null;
+    db.prepare(
+      `UPDATE program_assignments SET week_cursor = ?, week_cursor_session_base = ?, week_cursor_pinned_at = ?
+        WHERE program_id = ? AND assigned_to = ?`
+    ).run(week ?? null, base, pinnedAt, id, userId);
+  } else {
+    if (week == null) {
+      db.prepare("DELETE FROM app_config WHERE key = 'active_program_cursor'").run();
+    } else {
+      const base = sessionsInProgram(null, id, null);
+      db.prepare(
+        "INSERT INTO app_config (key, value) VALUES ('active_program_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+      ).run(JSON.stringify({ week, base, pinnedAt: new Date().toISOString() }));
+    }
+  }
+  res.json({ ok: true, week: week ?? null });
 }));
 
 // POST /api/programs/:id/assign — trainer/admin assigns program to user.

@@ -236,16 +236,16 @@ router.post('/push', wrap((req, res) => {
             db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
           } else {
             db.prepare(
-              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, updated_at=datetime('now') WHERE id=?`
-            ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.server_id);
+              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, duration_weeks=?, advance_mode=?, on_complete=?, updated_at=datetime('now') WHERE id=?`
+            ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold', p.server_id);
           }
         }
         result.programs.push({ client_id: p.client_id, server_id: p.server_id });
       } else if (!p.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO programs (name, description, goal, visibility, created_by, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`
-        ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', u);
+          `INSERT INTO programs (name, description, goal, visibility, duration_weeks, advance_mode, on_complete, created_by, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold', u);
         result.programs.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -286,16 +286,16 @@ router.post('/push', wrap((req, res) => {
             db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
           } else {
             db.prepare(
-              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, updated_at=datetime('now') WHERE id=?`
-            ).run(w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, existing.id);
+              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, program_week=?, updated_at=datetime('now') WHERE id=?`
+            ).run(w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, existing.id);
           }
         }
         result.workout_log.push({ client_id: w.client_id, server_id: existing.id });
       } else if (!w.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-        ).run(u, w.date, w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null);
+          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, program_week, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(u, w.date, w.name || null, JSON.stringify(w.exercises || []), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null);
         result.workout_log.push({ client_id: w.client_id, server_id: r.lastInsertRowid });
       }
     }

@@ -61,6 +61,7 @@ async function _mergeAndSave(dateStr, clientEntry) {
     duration_min: clientEntry.duration_min ?? server.duration_min,
     template_id:  clientEntry.template_id  ?? server.template_id,
     program_id:   clientEntry.program_id   ?? server.program_id,
+    program_week: clientEntry.program_week ?? server.program_week,
   } : clientEntry;
   return LtApi.saveWorkout(dateStr, toSave);
 }
