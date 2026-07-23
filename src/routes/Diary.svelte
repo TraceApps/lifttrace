@@ -2236,7 +2236,7 @@
             </button>
             <span class="lw-week-label">Week {selectedProgram.current_week || 1} of {selectedProgram.duration_weeks}</span>
             <button class="lw-week-nav" title="Advance a week"
-              disabled={selectedProgram.on_complete === 'hold' && (selectedProgram.current_week || 1) >= selectedProgram.duration_weeks}
+              disabled={selectedProgram.on_complete !== 'repeat' && (selectedProgram.current_week || 1) >= selectedProgram.duration_weeks}
               on:click={advancePlanWeek}>
               <span class="material-symbols-rounded">chevron_right</span>
             </button>
