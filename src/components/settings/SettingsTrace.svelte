@@ -28,11 +28,44 @@
   let testError = '';
 
   $: providerModels = AI_MODELS[$aiProvider] || [];
-  // Reset model to provider default when switching to a built-in provider.
-  // 'oai-compat' has no curated model list (free-text input), so skip the reset.
-  $: if ($aiProvider !== 'oai-compat' && $aiProvider && !providerModels.find(m => m.value === $aiModel)) {
-    $aiModel = AI_DEFAULT_MODELS[$aiProvider];
+
+  // Branded providers render a <select>. To let users pick a model outside
+  // the hardcoded list (e.g. after a vendor renames), the select has a
+  // 'Custom…' option that reveals a free-text input.
+  //   aiModelSelectVal — the select's current option ('__custom__' or preset id)
+  //   aiCustomModelVal — the free-text input's value (only meaningful in custom mode)
+  //   $aiModel         — source-of-truth persisted to the store
+  let aiModelSelectVal;
+  let aiCustomModelVal = '';
+  {
+    const saved = $aiModel;
+    const isPreset = AI_MODELS[$aiProvider]?.some(m => m.value === saved && m.value !== '__custom__');
+    if (saved && !isPreset && $aiProvider !== 'oai-compat') {
+      aiModelSelectVal = '__custom__';
+      aiCustomModelVal = saved;
+    } else {
+      aiModelSelectVal = saved || AI_DEFAULT_MODELS[$aiProvider] || '';
+    }
+  }
+
+  function _syncModelFromSelect() {
+    if ($aiProvider === 'oai-compat') return;
+    const next = (aiModelSelectVal === '__custom__')
+      ? aiCustomModelVal.trim()
+      : (aiModelSelectVal || '');
+    $aiModel = next;
     _invalidate();
+  }
+  function _onProviderChange() {
+    if ($aiProvider === 'oai-compat') return;
+    const isPreset = AI_MODELS[$aiProvider]?.some(m => m.value === $aiModel && m.value !== '__custom__');
+    if (!$aiModel || !isPreset) {
+      aiModelSelectVal = AI_DEFAULT_MODELS[$aiProvider] || '';
+      aiCustomModelVal = '';
+      $aiModel = aiModelSelectVal;
+    } else {
+      aiModelSelectVal = $aiModel;
+    }
   }
 
   // Any change to provider/model/key/baseUrl clears the prior verification —
@@ -152,7 +185,7 @@
         {#if _displayedAiEnabled}
           <div class="setting-row">
             <span class="setting-label">Provider</span>
-            <select class="form-select-sm" bind:value={$aiProvider}>
+            <select class="form-select-sm" bind:value={$aiProvider} on:change={_onProviderChange}>
               <option value="claude">Anthropic Claude</option>
               <option value="openai">OpenAI</option>
               <option value="gemini">Google Gemini</option>
@@ -191,12 +224,29 @@
           {:else}
             <div class="setting-row">
               <span class="setting-label">Model</span>
-              <select class="form-select-sm" bind:value={$aiModel}>
+              <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={_syncModelFromSelect}>
                 {#each providerModels as m}
                   <option value={m.value}>{m.label}</option>
                 {/each}
               </select>
             </div>
+            {#if aiModelSelectVal === '__custom__'}
+              <div class="setting-row">
+                <span class="setting-label">Custom Model ID</span>
+                <input class="form-input-sm" type="text"
+                  placeholder={$aiProvider === 'gemini' ? 'gemini-3.5-flash' : $aiProvider === 'claude' ? 'claude-sonnet-5' : 'gpt-4o'}
+                  bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} />
+              </div>
+              <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:flex-start">
+                <span class="material-symbols-rounded" style="font-size:16px;color:var(--muted);flex-shrink:0;margin-top:2px">info</span>
+                <div class="setting-hint" style="margin:0;line-height:1.5">
+                  Enter the exact model ID from the vendor (e.g.
+                  {#if $aiProvider === 'gemini'}<a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener" class="about-link">Google's model list</a>
+                  {:else if $aiProvider === 'claude'}<a href="https://docs.anthropic.com/en/docs/about-claude/models/overview" target="_blank" rel="noopener" class="about-link">Anthropic's model list</a>
+                  {:else}<a href="https://platform.openai.com/docs/models" target="_blank" rel="noopener" class="about-link">OpenAI's model list</a>{/if}). Use this if the preset dropdown doesn't have the model you want.
+                </div>
+              </div>
+            {/if}
           {/if}
 
           <div class="setting-row" style="flex-wrap:wrap;gap:8px">

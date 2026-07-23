@@ -68,22 +68,27 @@ export const AI_PROVIDERS = [
 export const AI_MODELS = {
   claude: [
     { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
-    { value: 'claude-sonnet-4-6',         label: 'Claude Sonnet (smarter)'    },
+    { value: 'claude-sonnet-5',           label: 'Claude Sonnet (smarter)'    },
+    { value: 'claude-opus-4-8',           label: 'Claude Opus (smartest)'     },
+    { value: '__custom__',                label: 'Custom…'                    },
   ],
   openai: [
-    { value: 'gpt-4o-mini', label: 'GPT-4o mini (fast, cheap)' },
-    { value: 'gpt-4o',      label: 'GPT-4o (smarter)'          },
+    { value: 'gpt-4o-mini',  label: 'GPT-4o mini (fast, cheap)' },
+    { value: 'gpt-4o',       label: 'GPT-4o (smarter)'          },
+    { value: '__custom__',   label: 'Custom…'                   },
   ],
   gemini: [
-    { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (fast, cheap)' },
-    { value: 'gemini-1.5-pro',   label: 'Gemini 1.5 Pro (smarter)'       },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (cheapest)' },
+    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (fast, cheap)'   },
+    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (smarter)'         },
+    { value: '__custom__',            label: 'Custom…'                          },
   ],
 };
 
 export const AI_DEFAULT_MODELS = {
   claude: 'claude-haiku-4-5-20251001',
   openai: 'gpt-4o-mini',
-  gemini: 'gemini-1.5-flash',
+  gemini: 'gemini-2.5-flash',
 };
 
 // ── Helpers for multimodal content ───────────────────────────────────────────
@@ -173,8 +178,17 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, baseUrl = 'htt
 }
 
 // ── Google Gemini ─────────────────────────────────────────────────────────────
+// Models Google has shut down or scheduled for shutdown. Saved selections
+// pointing at any of these are quietly remapped to the current default so
+// users who never opened Settings after a bump don't suddenly hit 404s.
+const GEMINI_RETIRED = new Set([
+  'gemini-1.5-flash', 'gemini-1.5-pro',
+  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+]);
+
 async function _callGemini(apiKey, model, messages, systemPrompt) {
-  const m = model || AI_DEFAULT_MODELS.gemini;
+  let m = model || AI_DEFAULT_MODELS.gemini;
+  if (GEMINI_RETIRED.has(m)) m = AI_DEFAULT_MODELS.gemini;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
   // Gemini uses "model" instead of "assistant" for AI turns
   const contents = messages.map(msg => ({
