@@ -757,17 +757,31 @@
     } catch(e) { showError(e.message); }
   }
 
+  // Advance the plan week. Past the final week a 'repeat' block loops back to
+  // week 1 (the "step from Week 4 to Week 1" case); 'hold' can't advance past
+  // the end so the button is disabled there.
+  function advancePlanWeek() {
+    const cur = selectedProgram.current_week || 1;
+    const dur = selectedProgram.duration_weeks || 1;
+    if (cur >= dur) {
+      if (selectedProgram.on_complete === 'repeat') setPlanWeek(1);
+    } else {
+      setPlanWeek(cur + 1);
+    }
+  }
+
   // Effective prescription for a given 1-based plan week (issue #13).
   // Merges the exercise's weeks[wk-1] entry over its exercise-level defaults;
-  // absent weeks[] or week falls back to the flat target_* — full back-compat.
-  // Clamps to the last authored week entry if wk overshoots.
+  // absent weeks[] / week / a missing weeks[wk-1] slot falls back to the flat
+  // target_* base — matching WorkoutEditor's fieldFor and the design doc so
+  // the same template resolves to identical targets in both views.
   function resolveWeek(ex, wk) {
     const base = {
       sets: ex.target_sets, reps: ex.target_reps, weight: ex.target_weight,
       tempo: ex.tempo, rest_sec: ex.rest_sec,
     };
     if (!wk || !ex.weeks?.length) return base;
-    const w = ex.weeks[Math.min(wk, ex.weeks.length) - 1];
+    const w = ex.weeks[wk - 1];
     if (!w) return base;
     return {
       sets: w.sets ?? base.sets,
@@ -2222,8 +2236,8 @@
             </button>
             <span class="lw-week-label">Week {selectedProgram.current_week || 1} of {selectedProgram.duration_weeks}</span>
             <button class="lw-week-nav" title="Advance a week"
-              disabled={(selectedProgram.current_week || 1) >= selectedProgram.duration_weeks}
-              on:click={() => setPlanWeek((selectedProgram.current_week || 1) + 1)}>
+              disabled={selectedProgram.on_complete === 'hold' && (selectedProgram.current_week || 1) >= selectedProgram.duration_weeks}
+              on:click={advancePlanWeek}>
               <span class="material-symbols-rounded">chevron_right</span>
             </button>
             <button class="lw-week-auto" title="Resume automatic week tracking"

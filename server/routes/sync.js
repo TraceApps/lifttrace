@@ -236,16 +236,16 @@ router.post('/push', wrap((req, res) => {
             db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
           } else {
             db.prepare(
-              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, updated_at=datetime('now') WHERE id=?`
-            ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.server_id);
+              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, duration_weeks=?, advance_mode=?, on_complete=?, updated_at=datetime('now') WHERE id=?`
+            ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold', p.server_id);
           }
         }
         result.programs.push({ client_id: p.client_id, server_id: p.server_id });
       } else if (!p.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO programs (name, description, goal, visibility, created_by, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`
-        ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', u);
+          `INSERT INTO programs (name, description, goal, visibility, duration_weeks, advance_mode, on_complete, created_by, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold', u);
         result.programs.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
     }

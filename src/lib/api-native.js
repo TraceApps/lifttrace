@@ -18,6 +18,7 @@ import {
   getSyncMeta,
   setSyncMeta,
 } from './db-native.js';
+import { currentPlanWeek } from './programWeek.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -48,6 +49,51 @@ function _exerciseFromRow(r) {
 
 function _programFromRow(r) {
   return r ? { ...r, deleted_at: undefined, sync_state: undefined } : null;
+}
+
+// Sanitise the multi-week progression fields on write — mirror of the server's
+// clampDuration / advanceMode / onComplete in server/routes/programs.js so a
+// program created offline resolves weeks identically once synced.
+function _clampDuration(v) {
+  const n = parseInt(v);
+  return Number.isFinite(n) ? Math.min(52, Math.max(1, n)) : 1;
+}
+const _advanceMode = v => (v === 'calendar' ? 'calendar' : 'sessions');
+const _onComplete  = v => (v === 'repeat' ? 'repeat' : 'hold');
+
+// Completed program-attributed sessions for a program (single-user: user_id=1).
+// Mirrors server/routes/programs.js sessionsInProgram.
+async function _sessionsInProgram(programId, assignedAt) {
+  const sinceFilter = assignedAt ? 'AND date >= date(?)' : '';
+  const args = [ME, programId];
+  if (assignedAt) args.push(assignedAt);
+  const row = (await dbQuery(
+    `SELECT COUNT(*) AS c FROM workout_log wl
+       WHERE wl.user_id = ? AND wl.completed = 1
+         AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
+         ${sinceFilter}`,
+    args
+  ))[0];
+  return row?.c || 0;
+}
+
+// Resolve current_week for an active program row + its assignment, so the
+// Diary's week bar and week-aware prefill work offline. Returns { current_week,
+// sessions_in_program } or null when the program isn't progressed/active.
+async function _resolveCurrentWeek(program, assignment) {
+  if (!program || (program.duration_weeks || 1) <= 1) return null;
+  const tplCount = (await dbQuery(
+    `SELECT COUNT(*) AS c FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL`,
+    [program.id]
+  ))[0]?.c || 0;
+  const sessions = await _sessionsInProgram(program.id, assignment?.assigned_at);
+  return {
+    sessions_in_program: sessions,
+    current_week: currentPlanWeek(program, assignment, {
+      sessionsInProgram: sessions,
+      sessionsPerWeek: tplCount,
+    }),
+  };
 }
 
 function _templateFromRow(r) {
@@ -272,13 +318,26 @@ const Programs = {
         `SELECT COUNT(*) AS c FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL`,
         [r.id]
       ))[0]?.c || 0;
-      out.push({
-        ..._programFromRow(r),
+      const prog = _programFromRow(r);
+      const entry = {
+        ...prog,
         is_active: r._active ? 1 : 0,
         is_assigned: 0,
         assigned_by_name: null,
         template_count: tplCount,
-      });
+      };
+      // Resolve the current plan week for the active progressed program so the
+      // list card can show "Week N" (matches the server's GET /api/programs).
+      if (entry.is_active) {
+        const assignment = (await dbQuery(
+          `SELECT assigned_at, start_date, week_cursor, week_cursor_session_base, week_cursor_pinned_at
+             FROM program_assignments WHERE program_id = ? AND assigned_to = ? AND active = 1`,
+          [r.id, ME]
+        ))[0];
+        const wk = await _resolveCurrentWeek(prog, assignment);
+        if (wk) Object.assign(entry, wk);
+      }
+      out.push(entry);
     }
     return out;
   },
@@ -290,17 +349,29 @@ const Programs = {
       `SELECT * FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL ORDER BY order_index, id`,
       [id]
     );
-    const isActive = (await dbQuery(
-      `SELECT active FROM program_assignments WHERE program_id = ? AND assigned_to = ?`,
+    const assignment = (await dbQuery(
+      `SELECT active, assigned_at, start_date, week_cursor, week_cursor_session_base, week_cursor_pinned_at
+         FROM program_assignments WHERE program_id = ? AND assigned_to = ?`,
       [id, ME]
-    ))[0]?.active === 1;
-    return { ..._programFromRow(rows[0]), is_active: isActive, templates: tpls.map(_templateFromRow) };
+    ))[0];
+    const isActive = assignment?.active === 1;
+    const prog = _programFromRow(rows[0]);
+    const out = { ...prog, is_active: isActive, templates: tpls.map(_templateFromRow) };
+    if (isActive) {
+      const wk = await _resolveCurrentWeek(prog, assignment);
+      if (wk) Object.assign(out, wk);
+    }
+    return out;
   },
   async create(body) {
     const r = await dbRun(
-      `INSERT INTO programs (name, description, goal, created_by, visibility, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [body.name, body.description || null, body.goal || 'general', ME, body.visibility || 'private', _now(), _now()]
+      `INSERT INTO programs (name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        body.name, body.description || null, body.goal || 'general', ME, body.visibility || 'private',
+        _clampDuration(body.duration_weeks), _advanceMode(body.advance_mode), _onComplete(body.on_complete),
+        _now(), _now(),
+      ]
     );
     return Programs.get(r.lastId);
   },
@@ -310,6 +381,10 @@ const Programs = {
     for (const c of ['name', 'description', 'goal', 'visibility']) {
       if (body[c] !== undefined) { sets.push(`${c} = ?`); args.push(body[c]); }
     }
+    // Multi-week progression fields — sanitised the same way the server does.
+    if (body.duration_weeks !== undefined) { sets.push(`duration_weeks = ?`); args.push(_clampDuration(body.duration_weeks)); }
+    if (body.advance_mode   !== undefined) { sets.push(`advance_mode = ?`);   args.push(_advanceMode(body.advance_mode)); }
+    if (body.on_complete    !== undefined) { sets.push(`on_complete = ?`);    args.push(_onComplete(body.on_complete)); }
     sets.push(`updated_at = ?`); args.push(_now());
     sets.push(`sync_state = 'pending'`);
     args.push(id);
@@ -335,6 +410,34 @@ const Programs = {
     await dbRun(`UPDATE program_assignments SET active = 0 WHERE assigned_to = ?`, [ME]);
     return { ok: true };
   },
+  // Manually pin the current plan week so the athlete can repeat/regress
+  // (issue #13). Mirrors the server's POST /:id/week-cursor: clamp to
+  // [1, duration], capture the session base + pin timestamp so auto-advance
+  // resumes relative to the pin. { week: null } clears the pin.
+  async setWeekCursor(id, body) {
+    const prog = (await dbQuery(`SELECT * FROM programs WHERE id = ? AND deleted_at IS NULL`, [id]))[0];
+    if (!prog) throw new _Unsupported('Program not found');
+    let week = body?.week;
+    if (week != null) {
+      week = parseInt(week);
+      if (!Number.isFinite(week)) throw new _Unsupported('week must be a number or null');
+      week = Math.min(Math.max(1, prog.duration_weeks || 1), Math.max(1, week));
+    }
+    const assigned = (await dbQuery(
+      `SELECT assigned_at FROM program_assignments WHERE program_id = ? AND assigned_to = ? AND active = 1`,
+      [id, ME]
+    ))[0];
+    if (!assigned) throw new _Unsupported('Program is not active');
+    const base = week != null ? await _sessionsInProgram(id, assigned.assigned_at) : null;
+    const pinnedAt = week != null ? _now() : null;
+    await dbRun(
+      `UPDATE program_assignments
+          SET week_cursor = ?, week_cursor_session_base = ?, week_cursor_pinned_at = ?, updated_at = ?
+        WHERE program_id = ? AND assigned_to = ?`,
+      [week ?? null, base, pinnedAt, _now(), id, ME]
+    );
+    return { ok: true, week: week ?? null };
+  },
   async reorder(id, body) {
     const order = Array.isArray(body?.order) ? body.order : [];
     for (let i = 0; i < order.length; i++) {
@@ -356,7 +459,15 @@ const Templates = {
     return rows.map(_templateFromRow);
   },
   async get(id) {
-    const rows = await dbQuery(`SELECT * FROM workout_templates WHERE id = ? AND deleted_at IS NULL`, [id]);
+    // Join the parent program's duration_weeks so the WorkoutEditor renders the
+    // right number of week tabs (matches the server's GET /api/templates/:id).
+    const rows = await dbQuery(
+      `SELECT wt.*, p.duration_weeks
+         FROM workout_templates wt
+         JOIN programs p ON p.id = wt.program_id
+        WHERE wt.id = ? AND wt.deleted_at IS NULL`,
+      [id]
+    );
     return _templateFromRow(rows[0]);
   },
   async create(body) {
@@ -400,7 +511,17 @@ const Workout = {
       `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
       [ME, date]
     );
-    return _workoutFromRow(rows[0]) || null;
+    const w = _workoutFromRow(rows[0]);
+    if (!w) return null;
+    // Surface the program's plan length alongside the stamped program_week so
+    // the diary can render "Week N of M" (matches the server's GET /:date).
+    if (w.program_id) {
+      w.program_duration_weeks = (await dbQuery(
+        `SELECT duration_weeks FROM programs WHERE id = ?`,
+        [w.program_id]
+      ))[0]?.duration_weeks ?? null;
+    }
+    return w;
   },
   async upsert(date, body) {
     const exercises = body.exercises || [];
@@ -421,7 +542,7 @@ const Workout = {
       await dbRun(
         `UPDATE workout_log
             SET template_id = ?, program_id = ?, name = ?, exercises = ?,
-                notes = ?, duration_min = ?, completed = ?, updated_at = ?, sync_state = 'pending'
+                notes = ?, duration_min = ?, completed = ?, program_week = ?, updated_at = ?, sync_state = 'pending'
           WHERE user_id = ? AND date = ?`,
         [
           body.template_id ?? existing.template_id ?? null,
@@ -431,15 +552,16 @@ const Workout = {
           body.notes ?? existing.notes ?? null,
           body.duration_min ?? existing.duration_min ?? null,
           body.completed ? 1 : 0,
+          body.program_week ?? existing.program_week ?? null,
           _now(), ME, date,
         ]
       );
     } else {
       await dbRun(
         `INSERT INTO workout_log
-          (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed,
+          (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week,
            created_at, updated_at, sync_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
         [
           ME, date,
           body.template_id ?? null,
@@ -449,6 +571,7 @@ const Workout = {
           body.notes ?? null,
           body.duration_min ?? null,
           body.completed ? 1 : 0,
+          body.program_week ?? null,
           _now(), _now(),
         ]
       );
@@ -977,8 +1100,9 @@ async function handle(method, path, body, query) {
     if (/^\d+$/.test(id) && m === 'GET')        return Programs.get(Number(id));
     if (/^\d+$/.test(id) && m === 'PUT')        return Programs.update(Number(id), body || {});
     if (/^\d+$/.test(id) && m === 'DELETE')     return Programs.del(Number(id));
-    if (/^\d+$/.test(id) && sub === 'activate' && m === 'POST') return Programs.activate(Number(id));
-    if (/^\d+$/.test(id) && sub === 'reorder'  && m === 'PUT')  return Programs.reorder(Number(id), body || {});
+    if (/^\d+$/.test(id) && sub === 'activate'    && m === 'POST') return Programs.activate(Number(id));
+    if (/^\d+$/.test(id) && sub === 'week-cursor' && m === 'POST') return Programs.setWeekCursor(Number(id), body || {});
+    if (/^\d+$/.test(id) && sub === 'reorder'     && m === 'PUT')  return Programs.reorder(Number(id), body || {});
     // /api/programs/:id/assign[/:userId] — POST (assign) or DELETE (unassign).
     // Standalone has no other user to assign to, so these are no-ops here.
     // In native+server mode the dispatcher hits the server first and only

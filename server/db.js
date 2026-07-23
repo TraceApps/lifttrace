@@ -288,9 +288,12 @@ addColumnIfMissing('programs', 'on_complete', "on_complete TEXT DEFAULT 'hold'")
 // Manual week override so an athlete can repeat/regress a week. NULL = auto.
 // week_cursor_session_base captures sessions_in_program at the moment the
 // cursor was pinned, so auto-advance resumes *relative to* the pin rather
-// than freezing on it.
+// than freezing on it. week_cursor_pinned_at is the calendar-mode analogue:
+// the timestamp the cursor was pinned, so calendar-mode programs advance by
+// days-since-pin instead of freezing on the pinned week.
 addColumnIfMissing('program_assignments', 'week_cursor', 'week_cursor INTEGER');
 addColumnIfMissing('program_assignments', 'week_cursor_session_base', 'week_cursor_session_base INTEGER');
+addColumnIfMissing('program_assignments', 'week_cursor_pinned_at', 'week_cursor_pinned_at TEXT');
 // The plan week a logged session was performed in, stamped when the workout
 // is loaded from a multi-week program. NULL for non-programmed workouts.
 // Persisted (not derived) so a past session keeps its week after the athlete

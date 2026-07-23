@@ -170,6 +170,9 @@ async function _createSchema(db) {
       goal        TEXT DEFAULT 'general',
       created_by  INTEGER,
       visibility  TEXT DEFAULT 'private',
+      duration_weeks INTEGER DEFAULT 1,
+      advance_mode   TEXT DEFAULT 'sessions',
+      on_complete    TEXT DEFAULT 'hold',
       created_at  TEXT DEFAULT (datetime('now')),
       updated_at  TEXT DEFAULT (datetime('now')),
       deleted_at  TEXT,
@@ -197,6 +200,9 @@ async function _createSchema(db) {
       assigned_by INTEGER,
       start_date  TEXT,
       active      INTEGER DEFAULT 1,
+      week_cursor              INTEGER,
+      week_cursor_session_base INTEGER,
+      week_cursor_pinned_at    TEXT,
       assigned_at TEXT DEFAULT (datetime('now')),
       updated_at  TEXT DEFAULT (datetime('now')),
       deleted_at  TEXT,
@@ -215,6 +221,7 @@ async function _createSchema(db) {
       notes        TEXT,
       duration_min REAL,
       completed    INTEGER DEFAULT 0,
+      program_week INTEGER,
       created_at   TEXT DEFAULT (datetime('now')),
       updated_at   TEXT DEFAULT (datetime('now')),
       deleted_at   TEXT,
@@ -289,6 +296,15 @@ async function _createSchema(db) {
     `ALTER TABLE program_assignments ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))`,
     `ALTER TABLE program_assignments ADD COLUMN deleted_at TEXT`,
     `ALTER TABLE ai_chat_history     ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))`,
+    // Multi-week progression (issue #13). Additive columns that existing
+    // local databases won't have from their original CREATE TABLE.
+    `ALTER TABLE programs            ADD COLUMN duration_weeks INTEGER DEFAULT 1`,
+    `ALTER TABLE programs            ADD COLUMN advance_mode TEXT DEFAULT 'sessions'`,
+    `ALTER TABLE programs            ADD COLUMN on_complete TEXT DEFAULT 'hold'`,
+    `ALTER TABLE program_assignments ADD COLUMN week_cursor INTEGER`,
+    `ALTER TABLE program_assignments ADD COLUMN week_cursor_session_base INTEGER`,
+    `ALTER TABLE program_assignments ADD COLUMN week_cursor_pinned_at TEXT`,
+    `ALTER TABLE workout_log         ADD COLUMN program_week INTEGER`,
   ];
   for (const stmt of _alters) {
     try { await db.execute(stmt); } catch { /* duplicate column / table missing — fine */ }
