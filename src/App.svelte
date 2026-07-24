@@ -226,7 +226,33 @@
         try {
           const { App: CapApp } = await import('@capacitor/app');
           CapApp.addListener('resume', () => sync.fullSync().catch(() => {}));
+          // Pause (app backgrounded) → flush any pending debounced workout
+          // save so Android can't kill the process with unsynced work in
+          // the 350ms window. Without this, a set/exercise added just
+          // before the user swipes away is lost silently.
+          CapApp.addListener('pause', async () => {
+            try {
+              const { flushWorkoutSave } = await import('./stores/workout.js');
+              await flushWorkoutSave();
+            } catch {}
+          });
         } catch {}
+        // Web/PWA fallbacks — same reason as above but for the browser
+        // page lifecycle (tab hidden, page unload). Cheap idempotent
+        // flush; no-op if nothing pending.
+        document.addEventListener('visibilitychange', async () => {
+          if (document.visibilityState !== 'hidden') return;
+          try {
+            const { flushWorkoutSave } = await import('./stores/workout.js');
+            await flushWorkoutSave();
+          } catch {}
+        });
+        window.addEventListener('pagehide', async () => {
+          try {
+            const { flushWorkoutSave } = await import('./stores/workout.js');
+            await flushWorkoutSave();
+          } catch {}
+        });
       } catch (e) { console.warn('[App] background sync init failed:', e?.message || e); }
     } else {
       // Web / native+local — preserve existing behavior (no periodic).

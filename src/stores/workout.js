@@ -71,10 +71,16 @@ async function _mergeAndSave(dateStr, clientEntry) {
  *  save so rapid typing doesn't overwrite the input mid-keystroke. */
 let _saveTimer;
 let _latestEntry = null;
+// Track the date alongside the entry so flushWorkoutSave can be invoked from
+// lifecycle handlers (App.pause / visibilitychange / pagehide) that don't
+// have a specific date in scope — without this, a 350ms-debounced save that
+// hasn't fired yet when Android kills the app is lost silently.
+let _latestDate = null;
 export function saveWorkout(dateStr, entry) {
   // Optimistic local update — keeps UI in sync with user input instantly
   todayLog.set(entry);
   _latestEntry = entry;
+  _latestDate  = dateStr;
 
   return new Promise((resolve, reject) => {
     clearTimeout(_saveTimer);
@@ -92,13 +98,16 @@ export function saveWorkout(dateStr, entry) {
   });
 }
 
-/** Force-flush any pending save immediately (for navigation away, etc.) */
+/** Force-flush any pending save immediately (for navigation away, App.pause,
+ *  visibilitychange, pagehide, etc.). dateStr is optional — falls back to
+ *  the date of the most recent saveWorkout call. */
 export async function flushWorkoutSave(dateStr) {
-  if (!_latestEntry) return;
+  const date = dateStr || _latestDate;
+  if (!_latestEntry || !date) return;
   clearTimeout(_saveTimer);
   const toSave = _latestEntry;
   try {
-    const saved = await _mergeAndSave(dateStr, toSave);
+    const saved = await _mergeAndSave(date, toSave);
     if (_latestEntry === toSave) todayLog.set(saved.workout);
   } catch {}
 }
