@@ -18,6 +18,13 @@
  *   OIDC_PROVIDER_1_AUTO_REGISTER          (1|0, default 0)
  *   OIDC_PROVIDER_1_IS_ACTIVE              (1|0, default 1)
  *
+ * SSO-only mode:
+ *   OIDC_ENABLE_EMAIL_PASSWORD_LOGIN=0   (or 'false' / 'no' / 'off')
+ *     Disables password login server-wide so users must sign in via an
+ *     OIDC provider. Truthy values (1 / true / yes / on) explicitly enable
+ *     password login. Unset means default (enabled) and admin UI keeps
+ *     control of the toggle.
+ *
  * Numbered prefix scales: OIDC_PROVIDER_2_*, OIDC_PROVIDER_3_*, etc.
  *
  * For the common single-provider case, `OIDC_*` (no number) is treated as
@@ -37,12 +44,17 @@
  * edits to env-defined providers.
  */
 import db from '../db.js';
-import { encryptClientSecret } from './oidc.js';
+import { encryptClientSecret, setPasswordLoginEnabled } from './oidc.js';
 import { logger } from '../logger.js';
 
 // In-memory set of provider row IDs that were defined by env vars.
 // Populated at boot by seedOidcFromEnv(); read by admin endpoints.
 const _envLockedIds = new Set();
+
+// Whether OIDC_ENABLE_EMAIL_PASSWORD_LOGIN was set at boot. Read by the
+// admin API + client env-locks endpoint so the UI can disable the toggle
+// and the endpoint can refuse writes when the operator controls the value.
+let _passwordLoginEnvLocked = false;
 
 export function isProviderEnvLocked(id) {
   return _envLockedIds.has(Number(id));
@@ -50,6 +62,10 @@ export function isProviderEnvLocked(id) {
 
 export function getEnvLockedProviderIds() {
   return Array.from(_envLockedIds);
+}
+
+export function isPasswordLoginEnvLocked() {
+  return _passwordLoginEnvLocked;
 }
 
 // ── env-var helpers ────────────────────────────────────────────────────────
@@ -194,5 +210,19 @@ export function seedOidcFromEnv() {
 
   if (count) {
     logger.info(`[oidc-env] Loaded ${count} OIDC provider${count === 1 ? '' : 's'} from environment (IDs: ${getEnvLockedProviderIds().join(', ')})`);
+  }
+
+  // Seed the SSO-only flag from env: OIDC_ENABLE_EMAIL_PASSWORD_LOGIN.
+  // Accepts truthy forms (1|true|yes|on) to enable password login (default),
+  // falsy forms (0|false|no|off) to disable it. When unset, the module-level
+  // env-lock flag stays false so admin UI keeps control. Cross-app fix
+  // mirrored from NutriTrace.
+  _passwordLoginEnvLocked = false;
+  const rawFlag = process.env.OIDC_ENABLE_EMAIL_PASSWORD_LOGIN;
+  if (rawFlag != null && rawFlag !== '') {
+    const enabled = /^(1|true|yes|on)$/i.test(String(rawFlag).trim());
+    setPasswordLoginEnabled(enabled);
+    _passwordLoginEnvLocked = true;
+    logger.info(`[oidc-env] Password login ${enabled ? 'enabled' : 'disabled'} via OIDC_ENABLE_EMAIL_PASSWORD_LOGIN`);
   }
 }

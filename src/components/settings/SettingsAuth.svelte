@@ -4,7 +4,13 @@
   import Toggle from './Toggle.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { currentUser, userMgmtActive } from '../../stores/auth.js';
+  import { envLocks as envLocksStore } from '../../stores/settings.js';
   import { isNative, getServerUrl, resolveAssetUrl, apiUrl, getAuthToken } from '../../lib/platform.js';
+
+  // True when the operator set OIDC_ENABLE_EMAIL_PASSWORD_LOGIN. Disables
+  // the toggle + surfaces a "controlled by environment" note. Matches how
+  // other env-locked settings (SMTP, AI, backup) render.
+  $: passwordLoginEnvLocked = !!$envLocksStore?.oidc_password_login_locked;
 
   // ── OIDC providers (admin) ───────────────────────────────────────────────
   let oidcProviders = [];
@@ -552,9 +558,14 @@
       <div class="setting-row">
         <div>
           <span class="setting-label">Allow Password Login</span>
-          <div class="setting-desc">When off, users sign in only via OIDC. Recovery still works via the <code>RECOVERY_TOKEN</code> env var.</div>
+          <div class="setting-desc">
+            When off, users sign in only via OIDC. Recovery still works via the <code>RECOVERY_TOKEN</code> env var.
+            {#if passwordLoginEnvLocked}
+              <br /><em>Locked by <code>OIDC_ENABLE_EMAIL_PASSWORD_LOGIN</code> environment variable.</em>
+            {/if}
+          </div>
         </div>
-        <Toggle checked={enablePasswordLogin} on:change={togglePasswordLogin} />
+        <Toggle checked={enablePasswordLogin} on:change={togglePasswordLogin} disabled={passwordLoginEnvLocked} />
       </div>
     </div>
   {/if}

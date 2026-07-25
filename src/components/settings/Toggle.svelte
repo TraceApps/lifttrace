@@ -1,9 +1,14 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   export let checked = false;
+  // Optional lock — when true, clicks are no-ops and the toggle renders
+  // dimmed. Callers use this to convey "value controlled by environment"
+  // for env-locked settings without also having to unmount the Toggle.
+  export let disabled = false;
   const dispatch = createEventDispatcher();
 
   function toggle() {
+    if (disabled) return;
     checked = !checked;
     dispatch('change', checked);
   }
@@ -12,8 +17,10 @@
 <button
   class="toggle"
   class:checked
+  class:disabled
   role="switch"
   aria-checked={checked}
+  aria-disabled={disabled}
   on:click={toggle}
   type="button"
 >
@@ -55,5 +62,9 @@
   .checked .thumb {
     transform: translateX(20px);
     background: var(--accent-text);
+  }
+  .toggle.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

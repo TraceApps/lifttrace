@@ -131,6 +131,7 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **Auto-link** verified emails to existing accounts and **Auto-register** blanket-signup toggles
 - **Admin group mapping** — promote users to admin based on group claims
 - Configurable from Settings → User Management → OIDC providers, or declared in env (`OIDC_*` / `OIDC_PROVIDER_N_*`). Env-defined providers show with a lock badge and are read-only in the UI.
+- **SSO-only mode via env** — set `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN=0` (or `false` / `no`) to disable password login server-wide; users must sign in via an OIDC provider. When set, the "Allow Password Login" toggle in Settings also becomes read-only with an env-lock note. Recovery via `RECOVERY_TOKEN` still works.
 - Encrypted client secrets at rest (AES-GCM with HKDF-derived key)
 - **RP-initiated logout** — signing out also ends the session at the IdP via the standard OIDC end-session endpoint (using `id_token_hint`), so the next sign-in isn't silently completed by a still-alive IdP session. Register two Post Logout Redirect URIs at your IdP: `https://your-lifttrace-host/` for PWA and `lifttrace://oidc-callback` for Android. Falls back to a local-only clear when the IdP doesn't publish an `end_session_endpoint`.
 
@@ -246,6 +247,7 @@ The most common ones — full reference in [DEPLOY.md](DEPLOY.md) and [.env.exam
 | `SMTP_*` | — | SMTP for password reset emails and user invites |
 | `AI_*` | — | Server-side AI proxy — `AI_PROVIDER` accepts `claude` \| `openai` \| `gemini` \| `oai-compat`; set `AI_BASE_URL` for `oai-compat` (Ollama, LM Studio, LocalAI, vLLM, etc.) so a private-network LLM works without exposing it to the browser |
 | `OIDC_*` / `OIDC_PROVIDER_N_*` | — | OIDC SSO declared in env instead of the UI |
+| `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` | — | Set to `0` (or `false` / `no`) to disable password login server-wide (SSO-only). Truthy values (`1` / `true` / `yes`) explicitly enable. Locks the corresponding admin UI toggle when set. |
 
 ### Data Persistence
 
