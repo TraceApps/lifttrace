@@ -19,6 +19,33 @@
   let newTemplateName = '';
   let creating = false;
 
+  // Program settings sheet — duration + progression mode (issue #13)
+  let showSettings = false;
+  let settingsDuration = 1;
+  let settingsAdvance = 'sessions';
+  let settingsOnComplete = 'hold';
+  let savingSettings = false;
+  function openSettings() {
+    settingsDuration = program?.duration_weeks || 1;
+    settingsAdvance = program?.advance_mode || 'sessions';
+    settingsOnComplete = program?.on_complete || 'hold';
+    showSettings = true;
+  }
+  async function saveSettings() {
+    if (savingSettings) return;
+    savingSettings = true;
+    try {
+      const dw = Math.min(52, Math.max(1, parseInt(settingsDuration) || 1));
+      const updated = await LtApi.updateProgram(params.id, {
+        duration_weeks: dw, advance_mode: settingsAdvance, on_complete: settingsOnComplete,
+      });
+      program = updated?.id ? { ...program, ...updated } : { ...program, duration_weeks: dw, advance_mode: settingsAdvance, on_complete: settingsOnComplete };
+      showSettings = false;
+      showSuccess('Program settings saved');
+    } catch(e) { showError(e.message); }
+    savingSettings = false;
+  }
+
   // Assign-to-member sheet (trainer/admin)
   let showAssign = false;
   let assignMembers = [];
@@ -172,6 +199,9 @@
         name: _nextCopyName(program.name, existingNames),
         description: program.description,
         goal: program.goal,
+        duration_weeks: program.duration_weeks,
+        advance_mode: program.advance_mode,
+        on_complete: program.on_complete,
       });
       // Copy all templates
       for (const t of program.templates || []) {
@@ -231,6 +261,7 @@
   $: programMenuActions = (() => {
     const items = [];
     if (isOwner)                items.push({ label: 'Rename',           icon: 'edit',           value: 'rename' });
+    if (isOwner)                items.push({ label: 'Duration & progression', icon: 'tune',     value: 'settings' });
     /* Duplicate is available to anyone viewing the program (matches
        the previous unconditional Duplicate icon behaviour). */
                                 items.push({ label: 'Duplicate',        icon: 'content_copy',   value: 'duplicate' });
@@ -241,6 +272,7 @@
   function onProgramMenuSelect(e) {
     const v = e.detail?.value;
     if      (v === 'rename')    startRename();
+    else if (v === 'settings')  openSettings();
     else if (v === 'duplicate') duplicateProgram();
     else if (v === 'assign')    openAssign();
     else if (v === 'delete')    deleteProgram();
@@ -291,6 +323,11 @@
       <div class="info-bar">
         <span class="goal-tag">{program.goal}</span>
         <span class="template-count">{program.templates?.length || 0} workouts</span>
+        {#if program.duration_weeks > 1}
+          <span class="goal-tag">
+            {program.is_active && program.current_week ? `Week ${program.current_week} of ${program.duration_weeks}` : `${program.duration_weeks} weeks`}
+          </span>
+        {/if}
         {#if program.is_active}
           <button class="active-badge" on:click={deactivate} title="Tap to Deactivate">
             <span class="material-symbols-rounded" style="font-size:14px">check_circle</span>
@@ -384,6 +421,40 @@
         </button>
       {/each}
     {/if}
+  </div>
+</Sheet>
+
+<!-- Duration & progression settings (issue #13) -->
+<Sheet open={showSettings} on:close={() => showSettings = false}>
+  <div class="form-sheet">
+    <h3 class="form-title">Duration & progression</h3>
+    <div class="form-group">
+      <label class="form-label">Duration (weeks)</label>
+      <input class="form-input" type="number" min="1" max="52" bind:value={settingsDuration} placeholder="1" />
+      <p class="form-hint">More than 1 enables a per-week progression matrix in the workout editor.</p>
+    </div>
+    {#if settingsDuration > 1}
+      <div class="form-group">
+        <label class="form-label">Advance the week by</label>
+        <select class="form-select" bind:value={settingsAdvance}>
+          <option value="sessions">Sessions completed</option>
+          <option value="calendar">Calendar (7 days per week)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Past the final week</label>
+        <select class="form-select" bind:value={settingsOnComplete}>
+          <option value="hold">Hold on the final week</option>
+          <option value="repeat">Repeat from week 1</option>
+        </select>
+      </div>
+    {/if}
+    <div class="form-actions">
+      <button class="btn btn-secondary" on:click={() => showSettings = false}>Cancel</button>
+      <button class="btn btn-primary" on:click={saveSettings} disabled={savingSettings}>
+        {savingSettings ? 'Saving...' : 'Save'}
+      </button>
+    </div>
   </div>
 </Sheet>
 
@@ -535,13 +606,14 @@
   .form-title { font-size: 20px; font-weight: 700; color: var(--text-1); margin: 0 0 20px; }
   .form-group { margin-bottom: 16px; }
   .form-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
-  .form-input {
+  .form-input, .form-select {
     width: 100%; padding: 12px 14px;
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md); color: var(--text-1);
     font-size: 15px; font-family: inherit; outline: none;
   }
-  .form-input:focus { border-color: var(--accent); }
+  .form-input:focus, .form-select:focus { border-color: var(--accent); }
+  .form-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-3); line-height: 1.4; }
   .form-actions { display: flex; gap: 10px; margin-top: 24px; }
   .form-actions button { flex: 1; padding: 13px; font-size: 15px; }
 

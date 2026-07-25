@@ -9,7 +9,18 @@
  * Schema is in server/db.js (oidc_providers, user_oidc_links). Client
  * secrets are stored encrypted via server/lib/token-crypto.js.
  */
-import { Issuer, generators } from 'openid-client';
+import { Issuer, generators, custom } from 'openid-client';
+
+// openid-client v5.7.x defaults outgoing HTTP requests to a 3500ms timeout,
+// which is too tight in practice — first-time Authentik / Keycloak / Authelia
+// callbacks that involve token exchange + userinfo + JWKS fetches can spike
+// past 3s on a slightly cold network without anything actually being wrong.
+// Users see "callback failed" on the first OIDC sign-in attempt; retry
+// succeeds because the discovery cache is warm. Bumping to 10s matches most
+// OAuth client library defaults and gives real network flakiness a chance
+// to recover without silently failing the auth flow. Cross-app fix mirrored
+// from NutriTrace.
+custom.setHttpOptionsDefaults({ timeout: 10000 });
 import db from '../db.js';
 import { encrypt, decrypt } from './token-crypto.js';
 import { logger } from '../logger.js';

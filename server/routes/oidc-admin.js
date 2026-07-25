@@ -13,7 +13,7 @@ import {
   encryptClientSecret, invalidateDiscovery,
   isPasswordLoginEnabled, setPasswordLoginEnabled,
 } from '../lib/oidc.js';
-import { isProviderEnvLocked, getEnvLockedProviderIds } from '../lib/oidc-env.js';
+import { isProviderEnvLocked, getEnvLockedProviderIds, isPasswordLoginEnvLocked } from '../lib/oidc-env.js';
 
 // Refuse mutation when the provider was defined via OIDC_PROVIDER_*_* env
 // vars. The client (Settings UI) tags these rows with a lock badge so the
@@ -193,6 +193,14 @@ router.post('/providers/:id/test', wrap(async (req, res) => {
 }));
 
 router.put('/password-login', wrap((req, res) => {
+  // Refuse mutation when the operator has set OIDC_ENABLE_EMAIL_PASSWORD_LOGIN
+  // in the environment. Returning 403 mirrors how other env-locked settings
+  // behave and gives the admin UI a stable signal to disable the toggle.
+  if (isPasswordLoginEnvLocked()) {
+    return res.status(403).json({
+      error: 'This setting is locked by the OIDC_ENABLE_EMAIL_PASSWORD_LOGIN environment variable and cannot be changed from the admin UI.',
+    });
+  }
   const v = req.body && (req.body.enabled === true || req.body.enabled === 1 || req.body.enabled === '1');
   setPasswordLoginEnabled(!!v);
   res.json({ enable_email_password_login: !!v });

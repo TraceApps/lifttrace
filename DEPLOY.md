@@ -14,6 +14,68 @@ The app will be available at `http://localhost:3002`.
 
 ---
 
+## Local Development
+
+Two ways to run the app from a source checkout. **Pick the single-origin
+path when you need to verify your own branch end-to-end.** The Vite dev
+server has a well-known blank-screen pitfall (below) and, being a separate
+origin, exercises a different request path than production.
+
+> Docker (`docker compose up -d`) pulls the published
+> `ghcr.io/traceapps/lifttrace:latest` image, which does **not** contain
+> your local changes. To test a branch you must run one of the paths below
+> (or `docker build` a local image from the `Dockerfile`).
+
+### Path A: Vite dev server (hot reload, day-to-day frontend work)
+
+```bash
+cd server && node index.js   # API on :3003
+npm run dev                  # Vite on :5173, proxies /api → :3003
+```
+
+Fast HMR, but it runs the frontend on a **separate origin** (`:5173`) from
+the API (`:3003`) via a proxy. This is convenient for iterating on markup
+but is the source of the recurring **blank-page-with-only-the-nav-bar**
+symptom (see below).
+
+### Path B: Single origin (recommended for verifying a branch)
+
+The Express server serves the built frontend from `server/dist` (this is
+exactly what the production image does; see `Dockerfile`). Building and
+serving it yourself gives you one origin, no proxy, and the same code path
+users hit:
+
+```bash
+npm run build                # → dist/  (Vite output)
+rm -rf server/dist && cp -r dist server/dist
+cd server && node index.js   # app + API together on :3003
+```
+
+Open `http://localhost:3003`. Re-run the three lines after any **frontend**
+change; the server pre-templates `dist/index.html` at startup, so a rebuild
+needs a server restart to be picked up. Backend-only changes just need the
+server restarted (or use `npm run dev` in `server/` for `--watch`).
+
+### Troubleshooting: blank page (nav/shell renders, content area empty)
+
+Almost always a **dev-only artifact of the Vite split setup (Path A)**, not a
+code bug. Two usual causes:
+
+1. **Stale PWA service worker.** LiftTrace registers a service worker; a
+   worker cached from an earlier session keeps serving a stale app shell
+   while the real route content fails to load. Fix: DevTools → **Application**
+   → **Service Workers** → **Unregister**, then **Storage** → **Clear site
+   data**, then hard-reload (`Cmd/Ctrl+Shift+R`).
+2. **Cross-origin proxy gap.** `GET /` requests landing on `:3003` (the API
+   port, which has no frontend in Path A) or a stalled auth probe leave the
+   shell mounted with no data.
+
+If clearing the service worker doesn't fix it, **switch to Path B.** Serving
+from a single origin sidesteps both causes entirely and is the reliable way
+to confirm whether a blank screen is your code or just the dev setup.
+
+---
+
 ## Image tags
 
 Every release publishes a multi-arch (linux/amd64 + linux/arm64) image

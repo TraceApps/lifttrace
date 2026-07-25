@@ -13,6 +13,31 @@ import { seedAiFromEnv } from '../ai.js';
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Multi-week progression columns (issue #13) were added after the first
+// backup format. Older dumps predate them, so their rows lack the keys —
+// and better-sqlite3 throws on a missing named parameter. Fill defaults so
+// a legacy backup still restores, while a current backup round-trips the
+// real values.
+function _withField(row, key, fallback = null) {
+  return key in row ? row : { ...row, [key]: fallback };
+}
+function _withProgramDefaults(p) {
+  return {
+    ...p,
+    duration_weeks: p.duration_weeks ?? 1,
+    advance_mode:   p.advance_mode   ?? 'sessions',
+    on_complete:    p.on_complete    ?? 'hold',
+  };
+}
+function _withAssignDefaults(a) {
+  return {
+    ...a,
+    week_cursor:              a.week_cursor              ?? null,
+    week_cursor_session_base: a.week_cursor_session_base ?? null,
+    week_cursor_pinned_at:    a.week_cursor_pinned_at    ?? null,
+  };
+}
+
 const UPLOADS_DIR = process.env.UPLOADS_PATH || path.resolve(__dirname, '..', 'uploads');
 const BACKUPS_DIR = process.env.BACKUPS_PATH || path.join(UPLOADS_DIR, 'backups');
 fs.mkdirSync(BACKUPS_DIR, { recursive: true });
@@ -212,20 +237,20 @@ function restoreFromZip(zip) {
     const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at)`);
     for (const e of data.exercises || []) insExercise.run(e);
 
-    const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at)`);
-    for (const p of data.programs || []) insProgram.run(p);
+    const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete)`);
+    for (const p of data.programs || []) insProgram.run(_withProgramDefaults(p));
 
     const insTemplate = db.prepare(`INSERT OR IGNORE INTO workout_templates (id,program_id,name,day_label,order_index,exercises,created_at) VALUES (@id,@program_id,@name,@day_label,@order_index,@exercises,@created_at)`);
     for (const t of data.workout_templates || []) insTemplate.run(t);
 
-    const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at)`);
-    for (const a of data.program_assignments || []) insAssign.run(a);
+    const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at,week_cursor,week_cursor_session_base,week_cursor_pinned_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at,@week_cursor,@week_cursor_session_base,@week_cursor_pinned_at)`);
+    for (const a of data.program_assignments || []) insAssign.run(_withAssignDefaults(a));
 
     const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at)`);
     for (const cp of data.coach_prescriptions || []) insPrescription.run(cp);
 
-    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at)`);
-    for (const w of data.workout_log || []) insWorkout.run(w);
+    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week)`);
+    for (const w of data.workout_log || []) insWorkout.run(_withField(w, 'program_week'));
 
     const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats) VALUES (@id,@user_id,@date,@stats)`);
     for (const b of data.body_stats_log || []) insBody.run(b);

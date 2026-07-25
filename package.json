@@ -1,6 +1,6 @@
 {
   "name": "lifttrace",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Track every rep, set, and PR — your complete weightlifting companion",
   "repository": {
     "type": "git",
@@ -52,6 +52,7 @@
     "vite-plugin-pwa": "^1.0.0"
   },
   "overrides": {
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "brace-expansion": "^5.0.7"
   }
 }

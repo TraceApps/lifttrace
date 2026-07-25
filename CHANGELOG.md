@@ -4,6 +4,44 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## Unreleased
+
+## v1.0.1 — 2026-07-25
+
+### Added
+
+- **Multi-Week Progression Plans** (#13). Programs can now span a training block of multiple weeks, with a per-week Sets / Reps / Tempo / Rest / Load matrix instead of one flat prescription. Set a program's **Duration (weeks)** and the Workout editor gains a Week tab strip (with a "copy this week → next" shortcut) plus new **Tempo** and **Rest (s)** fields. The Diary resolves which week you're on — by default advancing as you log sessions (calendar mode optional) — and prefills that week's targets when you load the workout; inside a programmed block the plan's prescription wins over last-session auto-fill. A per-exercise **Rest** feeds the rest timer. Repeat or regress a week from the Load Workout sheet, and choose whether the plan holds on the final week or repeats. Existing single-week programs are unchanged.
+
+- **SSO-only mode via environment variable** (#16). Set `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN=0` (or `false` / `no`) at boot to disable password login server-wide, so users must sign in via an OIDC provider. Locks the corresponding admin UI toggle with an env-lock note. Mirrors the pattern across the TraceApps family.
+
+- **`/api/auth/status` now returns configured OIDC providers** so the Android app can render OIDC sign-in buttons on first install, before the user has a session.
+
+- **"Custom…" option on the Model dropdown for Claude, OpenAI, and Gemini.** Enter any model ID the vendor supports without waiting for the preset list to catch up. Same behavior the OpenAI Compatible provider has always had.
+
+- **Retirement remap for retired Gemini models.** Saved selections of `gemini-1.5-*` or `gemini-2.0-*` (both retired by Google) are quietly upgraded to the current default at request time, avoiding 404s.
+
+- **Settings search covers new territory:** `garmin`, SMTP test, voice input, custom exercises.
+
+### Changed
+
+- **Claude model presets refreshed.** Sonnet bumped to Sonnet 5, Opus 4.8 added as a "smartest" tier option, older Sonnet 4.6 removed.
+
+### Fixed
+
+- **OIDC sign-in now works on Android first-install for OIDC-only servers.** NativeSetup previously required a username + password to submit, blocking users on Authentik / Keycloak / Authelia-backed servers with password login disabled. The setup form is now a two-step flow: enter server URL → app fetches `/api/auth/status` → renders whichever auth methods the server actually supports (password fields only when enabled, OIDC provider buttons with logos when configured, both when both).
+
+- **OIDC callbacks no longer fail on the first attempt** with a spurious `callback_failed`. openid-client v5's default 3.5 s outgoing HTTP timeout was tight enough that cold token-exchange requests to slower IdPs would sometimes time out. Bumped to 10 seconds.
+
+- **Sets logged just before backgrounding the phone are no longer lost.** The debounced save timer now flushes pending writes on `pause`, `visibilitychange`, and `pagehide`, so a set entered right before switching apps is guaranteed to hit the server or the local queue instead of dying with the timer.
+
+- **Advance-week button correctly disables in edge cases** — tightened the check so the button doesn't invite you into a state it can't actually enter.
+
+### Security
+
+- **fast-uri bumped to 3.1.4** (GHSA-4c8g-83qw-93j6, high). ReDoS in URI parsing.
+- **brace-expansion bumped to 5.0.8** (GHSA-mh99-v99m-4gvg, high). DoS via unbounded expansion length.
+- **body-parser bumped to 2.3.0** (GHSA-v422-hmwv-36x6, low). DoS when an invalid `limit` value silently disables size enforcement.
+
 ## v1.0.0 — 2026-07-18
 
 First stable release under the new semver scheme. Delivers Garmin FIT strength imports, per-set template parity between the Program editor and Diary set rows, a real Send Test email flow, multi-tag Docker publishing, and a high-severity `adm-zip` CVE patch in the backup restore path.

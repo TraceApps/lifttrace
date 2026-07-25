@@ -5,12 +5,31 @@
   import { destroyLocalDb } from '../lib/db-native.js';
 
   // 'choose'         — Use Locally / Connect to Server picker
-  // 'server-form'    — URL + credentials form
-  // 'migrate-choice' — three-option dialog when local data exists
+  // 'server-url'     — enter URL (NEW step, unlocks OIDC-only discovery)
+  // 'server-auth'    — password form + OIDC buttons based on /api/auth/status
+  // 'migrate-choice' — three-option dialog when local data exists (password flow only)
   // 'migrating'      — upload in flight, with progress
   // 'migration-done' — final summary screen with continue button
+  //
+  // The two-step split (server-url → server-auth) unlocks OIDC-only servers
+  // (NT #110, mirrored here): the old single form demanded username+password
+  // to submit, so users of Authentik-backed OIDC-only LiftTrace servers
+  // couldn't get past this screen on a fresh install. Now the URL is
+  // validated first, then we ask the server which auth methods to render.
+  //
+  // Migration limitation: the local-data migration prompt only fires on the
+  // password path (connectToServer). OIDC completion happens via deep-link
+  // callback in App.svelte which bypasses this component's logic. Existing
+  // LT standalone users converting to OIDC-only auth would skip the
+  // migration prompt — very narrow case (someone with pre-existing local
+  // data setting up a brand-new OIDC-only server) and they can still clear
+  // local data via Settings → Clear Local. Not fixing until a real report
+  // surfaces.
   let step = 'choose';
   let serverUrl = '';
+  let validatedUrl = '';        // set after successful step-1 validation
+  let providers = [];            // OIDC providers array from /api/auth/status
+  let passwordLoginEnabled = true;
   let username = '';
   let password = '';
   let showPw = false;
@@ -31,28 +50,56 @@
   }
 
   function chooseServer() {
-    step = 'server-form';
+    step = 'server-url';
   }
 
-  async function connectToServer() {
+  // Step 1 → step 2: validate server reachability + discover which auth
+  // methods the server supports. Uses CapacitorHttp to bypass WebView CORS.
+  async function validateAndNext() {
     if (!serverUrl.trim()) { showError('Enter your server URL'); return; }
-    if (!username.trim() || !password.trim()) { showError('Enter your credentials'); return; }
-
     const url = serverUrl.trim().replace(/\/$/, '');
     connecting = true;
-
     try {
       const { CapacitorHttp } = await import('@capacitor/core');
-
-      // 1. Reachability check
       const healthRes = await CapacitorHttp.get({ url: `${url}/api/health` });
       if (healthRes.status < 200 || healthRes.status >= 300) {
         throw new Error(`Server returned ${healthRes.status}`);
       }
+      // Discover auth methods. If /api/auth/status fails or is missing OIDC
+      // shape, fall back to password-only (safe default matching pre-fix).
+      let discoveredProviders = [];
+      let discoveredPasswordEnabled = true;
+      try {
+        const statusRes = await CapacitorHttp.get({ url: `${url}/api/auth/status` });
+        if (statusRes.status >= 200 && statusRes.status < 300) {
+          const data = typeof statusRes.data === 'string' ? JSON.parse(statusRes.data) : statusRes.data;
+          if (data?.oidc) {
+            discoveredProviders = Array.isArray(data.oidc.providers) ? data.oidc.providers : [];
+            discoveredPasswordEnabled = data.oidc.enable_email_password_login !== false;
+          }
+        }
+      } catch { /* leave defaults — safe fallback */ }
+      validatedUrl = url;
+      providers = discoveredProviders;
+      passwordLoginEnabled = discoveredPasswordEnabled;
+      step = 'server-auth';
+    } catch (e) {
+      showError(e.message || 'Could not reach server');
+    } finally {
+      connecting = false;
+    }
+  }
 
-      // 2. Login → get JWT for native (cookies don't persist across WebView reloads)
+  // Step 2 (password branch): traditional username+password sign-in. Preserves
+  // the existing LT flow including the local-data migration prompt that fires
+  // after successful login.
+  async function loginWithPassword() {
+    if (!username.trim() || !password.trim()) { showError('Enter your credentials'); return; }
+    connecting = true;
+    try {
+      const { CapacitorHttp } = await import('@capacitor/core');
       const loginRes = await CapacitorHttp.post({
-        url: `${url}/api/auth/login`,
+        url: `${validatedUrl}/api/auth/login`,
         headers: { 'Content-Type': 'application/json' },
         data: { username: username.trim(), password },
       });
@@ -61,17 +108,15 @@
         throw new Error(data?.error || 'Login failed');
       }
 
-      // 3. Flip native mode → server BEFORE checking for local data, so the
+      // Flip native mode → server BEFORE checking for local data, so the
       // upload pass (if the user picks it) routes through apiFetch correctly.
-      // Local SQLite stays intact; we just stop reading from it for new
-      // operations.
-      setServerUrl(url);
+      // Local SQLite stays intact; we just stop reading from it for new ops.
+      setServerUrl(validatedUrl);
       setAuthToken(data.token);
       setNativeMode('server');
 
-      // 4. If the user has been running standalone, count what's there. If
-      // anything exists, show the three-option migration dialog. Otherwise
-      // we're done — reload straight into the connected app.
+      // If user has been running standalone, count what's there. If anything
+      // exists, show the three-option migration dialog. Otherwise done.
       try {
         localCounts = await countLocalData();
       } catch {
@@ -91,7 +136,36 @@
     }
   }
 
-  // ── Migration handlers ────────────────────────────────────────────────────
+  // Step 2 (OIDC branch): opens the Authentik/Keycloak/etc. sign-in flow in
+  // the Capacitor browser. Server URL + native mode are persisted BEFORE
+  // opening the browser because the deep-link callback (App.svelte
+  // appUrlOpen handler) sets only the auth token — it relies on the app
+  // already knowing which server to talk to. If the user cancels mid-OIDC,
+  // the app is in a "URL known, no token" state and next launch lands on
+  // Login.svelte which correctly renders the OIDC button now that
+  // getServerUrl() is populated.
+  //
+  // NOTE: OIDC path skips the LT-specific local-data migration prompt. See
+  // header comment for rationale.
+  async function loginWithOidc(providerId) {
+    setServerUrl(validatedUrl);
+    setNativeMode('server');
+    try {
+      const ret = encodeURIComponent('#/');
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({
+        url: `${validatedUrl}/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`,
+        presentationStyle: 'popover',
+      });
+      // Deep-link callback (lifttrace://oidc-callback?token=…) handled by
+      // App.svelte's appUrlOpen listener — it sets the token, calls
+      // loadAuthState, redirects to '#/', and the main app renders.
+    } catch (e) {
+      showError('Could not open sign-in browser');
+    }
+  }
+
+  // ── Migration handlers (unchanged from pre-fix; only reached via password path) ──
   async function migrateUpload(alsoPullAfter = false) {
     migrateBusy = true;
     step = 'migrating';
@@ -105,8 +179,6 @@
         },
       });
       migrateSummary = summary;
-      // After upload finishes, optionally pull the server snapshot to refresh
-      // the local cache so the UI reflects the merged state on next render.
       if (alsoPullAfter) {
         try {
           const { runSync } = await import('../lib/sync.js');
@@ -123,8 +195,6 @@
   }
 
   async function migrateDownload() {
-    // "Replace local with server" — wipe the standalone SQLite, then the
-    // existing pullSnapshot() on next launch repopulates from the server.
     migrateBusy = true;
     try {
       await destroyLocalDb();
@@ -138,9 +208,6 @@
   }
 
   function migrateSkip() {
-    // User chose to not upload local data. It stays in SQLite, untouched,
-    // but is unreachable through the UI from now on (server is source of
-    // truth). They can still wipe it later via Settings → Clear Local.
     window.location.reload();
   }
 
@@ -151,11 +218,22 @@
   function backToChoose() {
     step = 'choose';
     serverUrl = '';
+    validatedUrl = '';
+    providers = [];
+    passwordLoginEnabled = true;
     username = '';
     password = '';
   }
 
-  // Pretty-print stage names for the in-flight progress UI.
+  function backToServerUrl() {
+    step = 'server-url';
+    validatedUrl = '';
+    providers = [];
+    passwordLoginEnabled = true;
+    username = '';
+    password = '';
+  }
+
   const STAGE_LABELS = {
     customExercises: 'custom exercises',
     programs:        'programs',
@@ -194,7 +272,7 @@
         </button>
       </div>
 
-    {:else if step === 'server-form'}
+    {:else if step === 'server-url'}
       <div class="setup-form">
         <div class="form-group">
           <label class="form-label">Server URL</label>
@@ -206,44 +284,96 @@
             autocapitalize="off"
             autocorrect="off"
           />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Username</label>
-          <input
-            class="input"
-            type="text"
-            placeholder="Your username"
-            bind:value={username}
-            autocapitalize="off"
-            autocorrect="off"
-          />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <div style="position:relative">
-            {#if showPw}
-              <input class="input" type="text" placeholder="Your password" bind:value={password} style="padding-right:40px" />
-            {:else}
-              <input class="input" type="password" placeholder="Your password" bind:value={password} style="padding-right:40px" />
-            {/if}
-            <button type="button" class="pw-toggle" on:click={() => showPw = !showPw}>
-              <span class="material-symbols-rounded" style="font-size:20px">{showPw ? 'visibility_off' : 'visibility'}</span>
-            </button>
-          </div>
+          <p class="form-hint">
+            After you enter your server, sign-in options (password or SSO)
+            will be shown based on what your server supports.
+          </p>
         </div>
 
         <div class="setup-form-actions">
           <button class="btn btn-ghost" on:click={backToChoose} disabled={connecting}>Back</button>
-          <button class="btn btn-primary" on:click={connectToServer} disabled={connecting}>
-            {connecting ? 'Connecting…' : 'Connect'}
+          <button class="btn btn-primary" on:click={validateAndNext} disabled={connecting}>
+            {connecting ? 'Checking…' : 'Next'}
           </button>
+        </div>
+      </div>
+
+    {:else if step === 'server-auth'}
+      <div class="setup-form">
+        <p class="server-line">
+          <span class="material-symbols-rounded server-icon">cloud_done</span>
+          <span class="server-url">{validatedUrl}</span>
+        </p>
+
+        {#if providers.length}
+          <div class="oidc-list">
+            {#each providers as p (p.id)}
+              <button class="btn btn-primary oidc-btn" on:click={() => loginWithOidc(p.id)} disabled={connecting}>
+                {#if p.logo_url}
+                  <img src={resolveAssetUrl(p.logo_url)} alt="" class="oidc-logo" on:error={e => e.target.style.display='none'} />
+                {:else}
+                  <span class="material-symbols-rounded" style="font-size:20px">login</span>
+                {/if}
+                Sign in with {p.display_name || p.name || p.id}
+              </button>
+            {/each}
+          </div>
+        {/if}
+
+        {#if passwordLoginEnabled && providers.length}
+          <div class="auth-divider"><span>or</span></div>
+        {/if}
+        {#if passwordLoginEnabled}
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input
+              class="input"
+              type="text"
+              placeholder="Your username"
+              bind:value={username}
+              autocapitalize="off"
+              autocorrect="off"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <div style="position:relative">
+              {#if showPw}
+                <input class="input" type="text" placeholder="Your password" bind:value={password} style="padding-right:40px" />
+              {:else}
+                <input class="input" type="password" placeholder="Your password" bind:value={password} style="padding-right:40px" />
+              {/if}
+              <button type="button" class="pw-toggle" on:click={() => showPw = !showPw}>
+                <span class="material-symbols-rounded" style="font-size:20px">{showPw ? 'visibility_off' : 'visibility'}</span>
+              </button>
+            </div>
+          </div>
+        {/if}
+
+        {#if !providers.length && !passwordLoginEnabled}
+          <div class="no-auth-warning">
+            <span class="material-symbols-rounded">warning</span>
+            <div>
+              This server has no sign-in methods configured. Ask your admin
+              to enable password login or configure an OIDC provider.
+            </div>
+          </div>
+        {/if}
+
+        <div class="setup-form-actions">
+          <button class="btn btn-ghost" on:click={backToServerUrl} disabled={connecting}>Back</button>
+          {#if passwordLoginEnabled}
+            <button class="btn btn-primary" on:click={loginWithPassword} disabled={connecting}>
+              {connecting ? 'Signing in…' : 'Sign In'}
+            </button>
+          {/if}
         </div>
       </div>
 
     {:else if step === 'migrate-choice' && localCounts}
       <!-- Three-option migration dialog. Mirrors NutriTrace's pattern but
            shows per-table counts up front so the user knows what's about
-           to move. -->
+           to move. Only reached via password login (see header comment). -->
       <div class="migrate-summary">
         <div class="migrate-title">You have local data on this device</div>
         <p class="migrate-sub">Choose how to combine it with your server account.</p>
@@ -378,102 +508,126 @@
     cursor: pointer;
     text-align: center;
     transition: background 0.15s, border-color 0.15s, transform 0.1s;
-    color: var(--text-1);
   }
   .setup-card:hover {
     background: var(--surface-2);
-    border-color: var(--accent, #FF7433);
+    border-color: var(--accent, #3b82f6);
   }
-  .setup-card:active {
-    transform: scale(0.98);
+  .setup-card:active { transform: scale(0.98); }
+  .setup-card-icon { font-size: 40px; color: var(--accent, #3b82f6); }
+  .setup-card-title { font-size: 18px; font-weight: 600; color: var(--text-1); }
+  .setup-card-desc { font-size: 13px; color: var(--text-3); margin: 0; line-height: 1.5; }
+  .setup-form { display: flex; flex-direction: column; gap: 16px; }
+  .form-hint {
+    font-size: 12px; color: var(--text-3);
+    margin: 6px 0 0; line-height: 1.5;
   }
-  .setup-card-icon {
-    font-size: 40px;
-    color: var(--accent, #FF7433);
-  }
-  .setup-card-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-1);
-  }
-  .setup-card-desc {
-    font-size: 13px;
-    color: var(--text-3);
-    margin: 0;
-    line-height: 1.5;
-  }
-  .setup-form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  .setup-form-actions {
-    display: flex;
-    gap: 12px;
-    margin-top: 8px;
-  }
-  .setup-form-actions .btn {
-    flex: 1;
-  }
+  .setup-form-actions { display: flex; gap: 12px; margin-top: 8px; }
+  .setup-form-actions .btn { flex: 1; }
   .pw-toggle {
     position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
     background: none; border: none; cursor: pointer; color: var(--text-3); padding: 4px;
   }
+  .server-line {
+    display: flex; align-items: center; gap: 8px;
+    margin: 0; padding: 10px 12px;
+    background: var(--surface-2); border-radius: 8px;
+    font-size: 13px; color: var(--text-2);
+  }
+  .server-icon { font-size: 18px; color: var(--accent, #3b82f6); }
+  .server-url {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+  }
+  .oidc-list { display: flex; flex-direction: column; gap: 8px; }
+  .oidc-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
+  .oidc-logo { width: 20px; height: 20px; object-fit: contain; }
+  .auth-divider {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-3); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .auth-divider::before, .auth-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .no-auth-warning {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 12px 14px;
+    background: color-mix(in srgb, #f59e0b 8%, transparent);
+    border-left: 3px solid #f59e0b; border-radius: 4px;
+    font-size: 13px; line-height: 1.5; color: var(--text-2);
+  }
+  .no-auth-warning .material-symbols-rounded {
+    font-size: 20px; color: #f59e0b; flex-shrink: 0;
+  }
   .migrate-summary {
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 16px);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
     text-align: center;
   }
-  .migrate-title {
-    font-size: 18px; font-weight: 600; color: var(--text-1);
-  }
-  .migrate-sub {
-    font-size: 13px; color: var(--text-3); margin: 0; line-height: 1.5;
-  }
+  .migrate-title { font-size: 18px; font-weight: 600; color: var(--text-1); }
+  .migrate-sub { font-size: 13px; color: var(--text-3); margin: 0; }
   .count-list {
-    list-style: none; padding: 0; margin: 0;
-    display: flex; flex-direction: column; gap: 6px;
-    font-size: 14px; color: var(--text-2);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-2);
+    line-height: 1.6;
   }
-  .count-list li {
-    padding: 6px 12px;
-    background: var(--surface-1);
-    border-radius: var(--radius-md, 8px);
-  }
-  .migrate-skip {
-    margin-top: 8px; font-size: 13px;
-  }
+  .migrate-skip { margin-top: 8px; }
   .migrate-progress {
-    display: flex; flex-direction: column; align-items: center; gap: 16px;
-    padding: 32px 16px; text-align: center;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 16px);
+    padding: 32px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
   }
   .migrate-spinner {
-    font-size: 48px; color: var(--accent, #FF7433);
-    animation: spin 1.5s linear infinite;
+    font-size: 40px;
+    color: var(--accent, #3b82f6);
+    animation: spin 1s linear infinite;
   }
-  .migrate-done-icon {
-    font-size: 48px; color: #34C759;
-  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .progress-bar {
-    width: 100%; max-width: 280px; height: 6px;
-    background: var(--surface-2); border-radius: 3px; overflow: hidden;
+    width: 100%;
+    height: 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 8px;
   }
   .progress-fill {
-    height: 100%; background: var(--accent, #FF7433);
-    transition: width 0.2s ease;
+    height: 100%;
+    background: var(--accent, #3b82f6);
+    transition: width 0.2s;
   }
-  .progress-text {
-    font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums;
-  }
+  .progress-text { font-size: 12px; color: var(--text-3); }
+  .migrate-done-icon { font-size: 40px; color: #22c55e; }
   .migrate-errors {
-    width: 100%; padding: 12px; background: var(--surface-1);
-    border-radius: 8px; font-size: 12px; color: var(--text-3);
+    background: color-mix(in srgb, #ef4444 8%, transparent);
+    border-left: 3px solid #ef4444;
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-2);
+    align-self: stretch;
     text-align: left;
   }
   .migrate-errors ul {
-    margin: 4px 0 0; padding-left: 16px;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
+    margin: 4px 0 0;
+    padding-left: 18px;
   }
 </style>

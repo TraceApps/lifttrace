@@ -1,8 +1,25 @@
-# LiftTrace
+<h1 align="center">LiftTrace</h1>
 
-**Track every rep, set, and PR — your complete weightlifting companion.**
+<p align="center"><b>Track Every Rep, Set, and PR</b></p>
 
-A self-hosted weightlifting tracker that runs entirely in a single Docker container on your own hardware. No accounts on external services, no data leaving your network, no subscriptions.
+<p align="center">A self-hosted weightlifting tracker.<br/>
+No accounts, no telemetry, no cloud sync unless you opt in.</p>
+
+<p align="center">
+  <img src="public/icons/logo-transparent.png" alt="LiftTrace" width="180" />
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
+  <a href="https://github.com/traceapps/lifttrace/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/traceapps/lifttrace?label=release&color=blue"></a>
+  <a href="https://github.com/traceapps/lifttrace/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/traceapps/lifttrace/total?label=downloads&color=blue"></a>
+  <a href="https://github.com/traceapps/lifttrace/pkgs/container/lifttrace"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Ftraceapps%2Flifttrace-2496ED?logo=docker&logoColor=white"></a>
+  <a href="https://github.com/traceapps/lifttrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/lifttrace?style=flat"></a>
+</p>
+
+---
+
+LiftTrace runs entirely in a single Docker container on your own hardware, with a PWA for the browser and a native Android app for your phone. No accounts on external services, no data leaving your network, no subscriptions.
 
 ![Diary screenshot](docs/screenshots/01-diary.png)
 
@@ -114,6 +131,7 @@ A self-hosted weightlifting tracker that runs entirely in a single Docker contai
 - **Auto-link** verified emails to existing accounts and **Auto-register** blanket-signup toggles
 - **Admin group mapping** — promote users to admin based on group claims
 - Configurable from Settings → User Management → OIDC providers, or declared in env (`OIDC_*` / `OIDC_PROVIDER_N_*`). Env-defined providers show with a lock badge and are read-only in the UI.
+- **SSO-only mode via env** — set `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN=0` (or `false` / `no`) to disable password login server-wide; users must sign in via an OIDC provider. When set, the "Allow Password Login" toggle in Settings also becomes read-only with an env-lock note. Recovery via `RECOVERY_TOKEN` still works.
 - Encrypted client secrets at rest (AES-GCM with HKDF-derived key)
 - **RP-initiated logout** — signing out also ends the session at the IdP via the standard OIDC end-session endpoint (using `id_token_hint`), so the next sign-in isn't silently completed by a still-alive IdP session. Register two Post Logout Redirect URIs at your IdP: `https://your-lifttrace-host/` for PWA and `lifttrace://oidc-callback` for Android. Falls back to a local-only clear when the IdP doesn't publish an `end_session_endpoint`.
 
@@ -159,7 +177,7 @@ A self-hosted weightlifting tracker that runs entirely in a single Docker contai
 LiftTrace is a Progressive Web App. Open it in any modern browser and install via the address bar (Chrome) or share menu (Safari). It works offline once cached and gets a proper app icon, full-screen mode, and OS-level navigation.
 
 ### Android
-A native Android app is published on the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload the signed APK from any release tag (e.g. `lifttrace-1.0.0-rc.1.apk`). The app is a Capacitor 8 shell around the same PWA, with these native upgrades:
+A native Android app is published on the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload the signed APK from any release tag (e.g. `lifttrace-v1.0.0.apk`). The app is a Capacitor 8 shell around the same PWA, with these native upgrades:
 
 - **Offline-first** — runs entirely locally with on-device SQLite, or connects to a self-hosted LiftTrace server for sync
 - **Native setup wizard** on first launch: pick Local mode or Server mode
@@ -171,6 +189,8 @@ A native Android app is published on the [Releases](https://github.com/TraceApps
 - **Voice input** on the Trace FAB
 
 Release-signed APKs require HTTPS to your server (see [DEPLOY.md](DEPLOY.md) for the four supported paths including self-signed certs). Debug-signed APKs (built locally) accept any URL including plain HTTP.
+
+**Testing pre-release** — the [`dev-latest`](https://github.com/TraceApps/lifttrace/releases/tag/dev-latest) pre-release carries a rolling signed APK built from the `dev` branch. Same signing key as stable, so you can upgrade from stable to dev in place (Android blocks the reverse without an uninstall). Not recommended for production, but useful for beta-testing incoming fixes and features. Refreshed periodically when a dev build is deemed ready, not on every dev push.
 
 ### iOS
 There is no iOS app yet. Install the PWA from Safari (Share → Add to Home Screen) for the closest equivalent. A native iOS build is not blocked by code (Capacitor supports iOS), but it requires a Mac and a paid Apple Developer account, which isn't on the roadmap.
@@ -227,6 +247,7 @@ The most common ones — full reference in [DEPLOY.md](DEPLOY.md) and [.env.exam
 | `SMTP_*` | — | SMTP for password reset emails and user invites |
 | `AI_*` | — | Server-side AI proxy — `AI_PROVIDER` accepts `claude` \| `openai` \| `gemini` \| `oai-compat`; set `AI_BASE_URL` for `oai-compat` (Ollama, LM Studio, LocalAI, vLLM, etc.) so a private-network LLM works without exposing it to the browser |
 | `OIDC_*` / `OIDC_PROVIDER_N_*` | — | OIDC SSO declared in env instead of the UI |
+| `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` | — | Set to `0` (or `false` / `no`) to disable password login server-wide (SSO-only). Truthy values (`1` / `true` / `yes`) explicitly enable. Locks the corresponding admin UI toggle when set. |
 
 ### Data Persistence
 

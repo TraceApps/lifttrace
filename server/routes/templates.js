@@ -8,7 +8,15 @@ router.use(requireAuth);
 
 // GET /api/templates/:id
 router.get('/:id', wrap((req, res) => {
-  const t = db.prepare('SELECT * FROM workout_templates WHERE id = ?').get(parseInt(req.params.id));
+  // Join the parent program's duration_weeks so the editor knows how many
+  // week tabs to render for the per-week progression matrix (issue #13)
+  // without a second round-trip.
+  const t = db.prepare(
+    `SELECT wt.*, p.duration_weeks
+       FROM workout_templates wt
+       JOIN programs p ON p.id = wt.program_id
+      WHERE wt.id = ?`
+  ).get(parseInt(req.params.id));
   if (!t) return res.status(404).json({ error: 'Template not found' });
   t.exercises = JSON.parse(t.exercises || '[]');
   res.json(t);

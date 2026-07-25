@@ -80,6 +80,12 @@ router.get('/:date', wrap((req, res) => {
 
   if (workout) {
     workout.exercises = JSON.parse(workout.exercises || '[]');
+    // Surface the program's plan length alongside the stamped program_week so
+    // the diary can render "Week N of M" without a second request.
+    if (workout.program_id) {
+      workout.program_duration_weeks =
+        db.prepare('SELECT duration_weeks FROM programs WHERE id = ?').get(workout.program_id)?.duration_weeks ?? null;
+    }
     // Include any coach feedback left on this workout so the member's diary
     // can render it inline (workout-level banner + per-exercise notes).
     workout.feedback = db.prepare(`
@@ -98,7 +104,7 @@ router.get('/:date', wrap((req, res) => {
 router.put('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
-  const { template_id, program_id, name, exercises, notes, duration_min, completed } = req.body;
+  const { template_id, program_id, name, exercises, notes, duration_min, completed, program_week } = req.body;
 
   const existing = userId != null
     ? db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
@@ -120,14 +126,14 @@ router.put('/:date', wrap((req, res) => {
 
   if (existing) {
     db.prepare(
-      `UPDATE workout_log SET template_id=?, program_id=?, name=?, exercises=?, notes=?, duration_min=?, completed=?
+      `UPDATE workout_log SET template_id=?, program_id=?, name=?, exercises=?, notes=?, duration_min=?, completed=?, program_week=?
        WHERE id=?`
-    ).run(template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, existing.id);
+    ).run(template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null, existing.id);
   } else if (exercises && exercises.length > 0) {
     db.prepare(
-      `INSERT INTO workout_log (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(userId, date, template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0);
+      `INSERT INTO workout_log (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(userId, date, template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null);
   } else {
     return res.json({ workout: null });
   }
