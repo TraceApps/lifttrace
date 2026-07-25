@@ -7,6 +7,15 @@ import { getAiConfig, isAiEnvLocked } from '../ai.js';
 const router = Router();
 router.use(requireAuth);
 
+// Models Google has shut down (404) or scheduled for shutdown.
+// Saved env-locked configs pointing at any of these are remapped to the
+// current default so the proxy doesn't 404 against a dead endpoint.
+const GEMINI_RETIRED = new Set([
+  'gemini-1.5-flash', 'gemini-1.5-pro',
+  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+]);
+const GEMINI_DEFAULT = 'gemini-2.5-flash';
+
 // GET /api/ai/history — chat history
 router.get('/history', wrap((req, res) => {
   const userId = uid(req);
@@ -88,7 +97,7 @@ router.post('/chat', wrap(async (req, res) => {
     if (!r.ok) throw new Error(data.error?.message || `OpenAI API ${r.status}`);
     text = data.choices[0].message.content;
   } else if (provider === 'gemini') {
-    const m = model || 'gemini-1.5-flash';
+    const m = GEMINI_RETIRED.has(model) ? GEMINI_DEFAULT : (model || GEMINI_DEFAULT);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
     const contents = messages.map(msg => ({ role: msg.role === 'assistant' ? 'model' : 'user', parts: [{ text: msg.content }] }));
     const r = await fetch(url, {
