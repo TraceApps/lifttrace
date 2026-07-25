@@ -1,8 +1,25 @@
-# LiftTrace
+<h1 align="center">LiftTrace</h1>
 
-**Track every rep, set, and PR — your complete weightlifting companion.**
+<p align="center"><b>Track Every Rep, Set, and PR</b></p>
 
-A self-hosted weightlifting tracker that runs entirely in a single Docker container on your own hardware. No accounts on external services, no data leaving your network, no subscriptions.
+<p align="center">A self-hosted weightlifting tracker.<br/>
+No accounts, no telemetry, no cloud sync unless you opt in.</p>
+
+<p align="center">
+  <img src="public/icons/logo-transparent.png" alt="LiftTrace" width="180" />
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
+  <a href="https://github.com/traceapps/lifttrace/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/traceapps/lifttrace?label=release&color=blue"></a>
+  <a href="https://github.com/traceapps/lifttrace/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/traceapps/lifttrace/total?label=downloads&color=blue"></a>
+  <a href="https://github.com/traceapps/lifttrace/pkgs/container/lifttrace"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Ftraceapps%2Flifttrace-2496ED?logo=docker&logoColor=white"></a>
+  <a href="https://github.com/traceapps/lifttrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/lifttrace?style=flat"></a>
+</p>
+
+---
+
+LiftTrace runs entirely in a single Docker container on your own hardware, with a PWA for the browser and a native Android app for your phone. No accounts on external services, no data leaving your network, no subscriptions.
 
 ![Diary screenshot](docs/screenshots/01-diary.png)
 
