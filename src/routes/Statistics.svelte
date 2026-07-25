@@ -9,6 +9,8 @@
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
   import Sparkline from '../components/statistics/Sparkline.svelte';
   import MuscleRecovery from '../components/statistics/MuscleRecovery.svelte';
+  import BodyMap from '../components/statistics/BodyMap.svelte';
+  import { MUSCLES, MUSCLE_NAME, rankOf } from '../lib/muscles.js';
   import { weeklyWorkoutGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
@@ -50,6 +52,7 @@
   let frequency = [];
   let records = [];
   let muscleGroups = [];
+  let muscleLoad = {};   // { [slug]: effectiveSets } for the body map
   let weekdayDist = [];
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
@@ -137,16 +140,17 @@
   async function loadData() {
     loading = true;
     try {
-      const [v, f, r, s, mg, wd] = await Promise.all([
+      const [v, f, r, s, mg, mes, wd] = await Promise.all([
         LtApi.getVolume(startDate, endDate),
         LtApi.getFrequency(startDate, endDate),
         LtApi.getRecords(),
         LtApi.getStreaks(),
         LtApi.getMuscleGroupVolume(startDate, endDate),
+        LtApi.getMuscleEffectiveSets(startDate, endDate),
         LtApi.getWeekdayDistribution(startDate, endDate),
       ]);
       volume = v; frequency = f; records = r; streaks = s;
-      muscleGroups = mg; weekdayDist = wd;
+      muscleGroups = mg; muscleLoad = mes || {}; weekdayDist = wd;
 
       // Heatmap dates + cached full records (the calorie estimator needs
       // exercises + duration_min, both already in this payload).
@@ -287,7 +291,6 @@
   })();
   $: maxVolWeek = volume.length ? Math.max(...volume.map(v => v.volume)) : 0;
   $: maxFreqWeek = frequency.length ? Math.max(...frequency.map(f => f.count)) : 0;
-  $: maxMuscleVol = muscleGroups.length ? Math.max(...muscleGroups.map(m => m.volume)) : 0;
   $: maxWeekdayCount = weekdayDist.length ? Math.max(...weekdayDist.map(w => w.count)) : 0;
 
   // Heatmap (90 days, Mon-first week)
@@ -747,21 +750,43 @@
 
         <WeeklyVolumeChart {volume} unit={$weightUnit} />
 
-        {#if muscleGroups.length > 0}
+        {#if muscleLoad && Object.keys(muscleLoad).length > 0}
+          {@const rank = rankOf(muscleLoad)}
+          {@const totalSets = MUSCLES.reduce((s, m) => s + (muscleLoad[m] || 0), 0)}
           <div class="chart-card">
-            <h3 class="chart-title">Volume by Muscle Group</h3>
-            <div class="muscle-list">
-              {#each muscleGroups as mg}
-                <div class="muscle-row">
-                  <span class="muscle-name">{mg.muscle}</span>
-                  <div class="muscle-bar-wrap">
-                    <div class="muscle-bar" style="width: {maxMuscleVol ? (mg.volume / maxMuscleVol * 100) : 0}%"></div>
-                  </div>
-                  <span class="muscle-value">{fmtVol(mg.volume)}</span>
-                </div>
-              {/each}
+            <h3 class="chart-title">Muscle Balance</h3>
+            <p class="chart-sub" style="margin-top:-4px;margin-bottom:12px">
+              Shaded by effective sets, relative to the hardest-worked muscle in this range.
+            </p>
+            <BodyMap load={muscleLoad} />
+
+            <!-- Shade legend, five steps matching the .bm-m.l0…l4 scale.
+                 Same vocabulary the muscle-heat coloring uses so "more
+                 accent = more training" reads the same everywhere. -->
+            <div class="bm-legend">
+              <span class="bm-legend-label">Less</span>
+              <span class="bm-legend-swatch l0"></span>
+              <span class="bm-legend-swatch l1"></span>
+              <span class="bm-legend-swatch l2"></span>
+              <span class="bm-legend-swatch l3"></span>
+              <span class="bm-legend-swatch l4"></span>
+              <span class="bm-legend-label">More</span>
             </div>
-            <p class="chart-sub">Total sets: {muscleGroups.reduce((s, m) => s + m.sets, 0)}</p>
+
+            {#if rank.missed.length > 0}
+              <div class="bm-missed">
+                <p class="bm-missed-title">Not trained in this period</p>
+                <div class="bm-chips">
+                  {#each rank.missed as slug}
+                    <span class="bm-chip">{MUSCLE_NAME[slug]}</span>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            <p class="chart-sub" style="margin-top:14px">
+              {totalSets.toFixed(1)} effective sets across {rank.worked.length} muscle{rank.worked.length === 1 ? '' : 's'}.
+            </p>
           </div>
         {/if}
 
@@ -1133,13 +1158,40 @@
   .record-weight { font-size: 14px; font-weight: 700; color: var(--accent); }
   .record-meta { font-size: 11px; color: var(--text-3); }
 
-  /* Muscle group rows */
-  .muscle-list { display: flex; flex-direction: column; gap: 10px; }
-  .muscle-row { display: grid; grid-template-columns: 80px 1fr auto; gap: 10px; align-items: center; }
-  .muscle-name { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: capitalize; }
-  .muscle-bar-wrap { height: 8px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
-  .muscle-bar { height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius: 4px; transition: width var(--dur-slow); }
-  .muscle-value { font-size: 12px; font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; }
+  /* Body-map legend + not-trained chip row (rendered inside .chart-card
+     under Muscle Balance). Colours mirror the .bm-m.l0…l4 scale in
+     BodyMap.svelte so users can eyeball "these three muscles are l4"
+     off the SVG. */
+  .bm-legend {
+    display: flex; align-items: center; gap: 6px;
+    justify-content: center;
+    margin-top: 10px;
+    font-size: 11px; color: var(--text-3);
+  }
+  .bm-legend-swatch {
+    width: 16px; height: 12px; border-radius: 3px;
+    border: 1px solid color-mix(in srgb, var(--text-3) 30%, transparent);
+  }
+  .bm-legend-swatch.l0 { background: color-mix(in srgb, var(--text-3) 25%, transparent); }
+  .bm-legend-swatch.l1 { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+  .bm-legend-swatch.l2 { background: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .bm-legend-swatch.l3 { background: color-mix(in srgb, var(--accent) 75%, transparent); }
+  .bm-legend-swatch.l4 { background: var(--accent); }
+
+  .bm-missed { margin-top: 14px; }
+  .bm-missed-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--text-3);
+    margin: 0 0 6px;
+  }
+  .bm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .bm-chip {
+    padding: 3px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    font-size: 11px; font-weight: 600; color: var(--text-2);
+  }
 
   /* List card (history) */
   .list-card {

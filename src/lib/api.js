@@ -78,6 +78,7 @@ export const LtApi = {
   getProgress: (exerciseId, start, end) => fetch(`/api/stats/progress/${exerciseId}?start=${start}&end=${end}`, opts).then(_json),
   getStreaks: () => fetch('/api/stats/streaks', opts).then(_json),
   getMuscleGroupVolume: (start, end) => fetch(`/api/stats/muscle-group-volume?start=${start}&end=${end}`, opts).then(_json),
+  getMuscleEffectiveSets: (start, end) => fetch(`/api/stats/muscle-effective-sets?start=${start}&end=${end}`, opts).then(_json),
   getWeekdayDistribution: (start, end) => fetch(`/api/stats/weekday-distribution?start=${start}&end=${end}`, opts).then(_json),
 
   // ── Settings ───────────────────────────────────────────────────────────
