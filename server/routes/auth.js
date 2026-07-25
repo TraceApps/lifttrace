@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } from '../middleware/auth.js';
-import { isPasswordLoginEnabled } from '../lib/oidc.js';
+import { isPasswordLoginEnabled, listProviders as oidcListProviders, publicProvider as oidcPublicProvider } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
 
@@ -99,12 +99,25 @@ router.get('/status', wrap((req, res) => {
   // Same fix as NutriTrace #34.
   const singleUser = db.prepare(`SELECT value FROM app_config WHERE key = 'single_user_mode'`).get()?.value === '1';
   const policy = db.prepare(`SELECT value FROM app_config WHERE key = 'password_policy'`).get()?.value || 'standard';
+  // Surface OIDC providers + password-login flag for the Login page + the
+  // Android NativeSetup flow (which uses these to decide which auth buttons
+  // to render). Was previously absent from LT's /status response, so the
+  // NativeSetup fix from LT #15 fell through to "no OIDC providers found"
+  // and only rendered the password form even when the admin had configured
+  // Authentik/Keycloak/etc. Matches NutriTrace's shape verbatim.
+  let providers = [];
+  let enable_email_password_login = true;
+  try {
+    providers = oidcListProviders({ activeOnly: true }).map(oidcPublicProvider);
+    enable_email_password_login = isPasswordLoginEnabled();
+  } catch { /* OIDC not available for some reason — safe fallback */ }
   res.json({
     active,
     setup_required: !active && !singleUser,
     single_user_mode: singleUser,
     password_policy: policy,                  // 'standard' | 'strong'
     password_min_score: policy === 'strong' ? STRONG_MIN_SCORE : 0,
+    oidc: { providers, enable_email_password_login },
   });
 }));
 
