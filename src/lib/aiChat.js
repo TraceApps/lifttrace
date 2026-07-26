@@ -43,11 +43,19 @@ export async function callAIProxy({ messages, systemPrompt }) {
     const token = getAuthToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
+  // Server proxy expects OpenAI wire shape regardless of the env-locked
+  // provider (the server maps to Claude / Gemini at the boundary). Our
+  // internal shape stores images as `{type:'image', dataUrl}`; forwarding
+  // that verbatim would blow up on oai-compat endpoints (LiteLLM et al.)
+  // that strictly validate the OpenAI schema. Normalise here.
+  const wireMessages = messages.map(m => (
+    typeof m.content === 'string' ? m : { role: m.role, content: _toOpenAIContent(m.content) }
+  ));
   const res = await fetch(apiUrl('/api/ai/chat'), {
     method: 'POST',
     credentials: 'include',
     headers,
-    body: JSON.stringify({ messages, systemPrompt }),
+    body: JSON.stringify({ messages: wireMessages, systemPrompt }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

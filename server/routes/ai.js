@@ -41,10 +41,35 @@ router.delete('/history', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
+// Normalise any image content part on an incoming message to the OpenAI
+// wire shape `{type:'image_url', image_url:{url:'data:...'}}` so the
+// oai-compat forward path never sees Anthropic-shape or LT's internal
+// shape (which strict schema proxies like LiteLLM reject).
+// Idempotent; non-array content untouched. Defense-in-depth for
+// NT #114-class client drift.
+function _normaliseImagePartsToOpenAI(msg) {
+  if (!msg || !Array.isArray(msg.content)) return msg;
+  const normalised = msg.content.map(part => {
+    if (!part || typeof part !== 'object') return part;
+    if (part.type === 'image' && part.source?.type === 'base64' && part.source.media_type && part.source.data) {
+      return {
+        type: 'image_url',
+        image_url: { url: `data:${part.source.media_type};base64,${part.source.data}` },
+      };
+    }
+    if (part.type === 'image' && typeof part.dataUrl === 'string') {
+      return { type: 'image_url', image_url: { url: part.dataUrl } };
+    }
+    return part;
+  });
+  return { ...msg, content: normalised };
+}
+
 // POST /api/ai/chat — server-side proxy for AI calls (when env-locked)
 router.post('/chat', wrap(async (req, res) => {
   const cfg = getAiConfig();
-  const { messages, systemPrompt } = req.body;
+  const { messages: rawMessages, systemPrompt } = req.body;
+  const messages = Array.isArray(rawMessages) ? rawMessages.map(_normaliseImagePartsToOpenAI) : rawMessages;
   // Budget guard — bound per-request payload + history depth to prevent a
   // misbehaving (or malicious) client from running up Anthropic / OpenAI
   // bills on the server's API key. Caps mirror NutriTrace's audit values.
