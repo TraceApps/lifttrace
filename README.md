@@ -64,6 +64,7 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **Starter templates** seeded for new users (Push/Pull/Legs, Upper/Lower, Full Body 3x)
 - Template reordering, duplication, and assignment to users
 - Active program indicator — load today's workout with one tap
+- **Multi-week progression** (v1.0.1) — programs can carry per-week Sets, Reps, Tempo, Rest, and Load matrices instead of a flat template. Advance modes: **Sessions** (roll to the next week when the current one is complete) or **Calendar** (roll on a fixed day of the week). On-complete behavior: **Hold** at the final week or **Repeat** the cycle. The diary previews the next session's target load so you know what to lift before you walk in
 
 ### Exercise Library
 - Multi-source exercise catalog:
