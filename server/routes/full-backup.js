@@ -252,6 +252,36 @@ function restoreFromZip(zip) {
     const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week)`);
     for (const w of data.workout_log || []) insWorkout.run(_withField(w, 'program_week'));
 
+    // Coach feedback: trainer notes on member workouts, plus the member's
+    // read-receipt (seen_by_member_at) and single reply (member_reply /
+    // member_replied_at). Round-trip everything so the feedback loop
+    // survives restore. Must run AFTER workout_log insert because
+    // coach_feedback.workout_id references workout_log(id). Legacy backups
+    // predate these columns, so default them to NULL via _withField.
+    // The earlier DELETE FROM users cascades and already emptied this table;
+    // the DELETE here is defensive in case that cascade path ever changes.
+    db.prepare('DELETE FROM coach_feedback').run();
+    const insFeedback = db.prepare(`INSERT OR IGNORE INTO coach_feedback (id,trainer_id,member_id,workout_id,exercise_idx,note,created_at,updated_at,seen_by_member_at,member_reply,member_replied_at) VALUES (@id,@trainer_id,@member_id,@workout_id,@exercise_idx,@note,@created_at,@updated_at,@seen_by_member_at,@member_reply,@member_replied_at)`);
+    for (const f of data.coach_feedback || []) {
+      const row = _withField(_withField(_withField(_withField(_withField(f,
+        'updated_at'), 'seen_by_member_at'), 'member_reply'), 'member_replied_at'), 'exercise_idx');
+      insFeedback.run(row);
+    }
+
+    // Coach activity feed: the trainer's inbox of member events
+    // (prescription completed / missed, feedback replies) with per-event
+    // seen_at state. Preserving occurred_at + seen_at keeps unread counts
+    // accurate across a restore. Must run AFTER coach_prescriptions,
+    // workout_log, and coach_feedback because the FK columns
+    // (prescription_id, workout_id, feedback_id) reference them. The
+    // feedback_id column is a later addition; legacy backups without it
+    // default to NULL.
+    db.prepare('DELETE FROM coach_activity').run();
+    const insActivity = db.prepare(`INSERT OR IGNORE INTO coach_activity (id,trainer_id,member_id,kind,prescription_id,workout_id,occurred_at,seen_at,feedback_id) VALUES (@id,@trainer_id,@member_id,@kind,@prescription_id,@workout_id,@occurred_at,@seen_at,@feedback_id)`);
+    for (const a of data.coach_activity || []) {
+      insActivity.run(_withField(a, 'feedback_id'));
+    }
+
     const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats) VALUES (@id,@user_id,@date,@stats)`);
     for (const b of data.body_stats_log || []) insBody.run(b);
 
@@ -325,6 +355,8 @@ function dumpDatabase() {
     workout_templates:   db.prepare('SELECT * FROM workout_templates').all(),
     program_assignments: db.prepare('SELECT * FROM program_assignments').all(),
     coach_prescriptions: db.prepare('SELECT * FROM coach_prescriptions').all(),
+    coach_feedback:      safe('SELECT * FROM coach_feedback'),
+    coach_activity:      safe('SELECT * FROM coach_activity'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
     user_settings:       db.prepare('SELECT * FROM user_settings').all(),
