@@ -64,6 +64,23 @@ localStorage-backed `endTime` in `src/stores/restTimer.js` so it
 survives reload. Countdown beeps schedule via `setTimeout`
 (not tick polling) so background-throttled timers don't miss them.
 
+### Trace assistant (tool use)
+
+Trace calls typed tools instead of relying on a pre-stuffed context
+payload. 18 tools live in `src/lib/aiTools.js` (11 read + 7 write):
+workouts, exercises, programs, PRs, body stats, coach prescriptions,
+plus writers for logging a workout, adding an exercise, appending a
+set, logging a body stat, loading a template, switching active
+program, and coach-only prescription. Tool execution stays
+client-side against `fetch('/api/...')` even in env-locked mode so
+the server never gains write access to the user's data. The shared
+loop in `src/lib/aiChat.js` caps tool-use at 5 rounds per turn across
+Claude, OpenAI, Gemini, and OpenAI-compatible providers. The system
+prompt in `src/components/ai/Trace.svelte` stays trimmed to a stable
+core (persona, weight unit, today's date + day, user profile, active
+program name, one-line recent-activity summary); everything else is
+fetched via tools on demand.
+
 ### Smart Log (natural-language workout entry)
 
 AI parses prose like `"bench 3x5 @ 225, A1: curls 3x12 @ 30, A2: pushdowns 3x12 @ 40"`
@@ -153,7 +170,7 @@ responsive grid of thumbnails.
 - Magic-byte upload validation in `server/lib/image-magic.js`
 - `secure: true` cookie default with `INSECURE_COOKIES=1` opt-out
 - JSON body limit 1 MB global
-- AI chat caps (60 messages / 200 KB)
+- AI chat caps (60 messages / 8 MB)
 - Backup `:name` extension guard
 - Session duration capped at 1 year via `MAX_SESSION_HOURS`
 - JWT_SECRET refuse-to-start in production if unset
