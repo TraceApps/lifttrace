@@ -6,6 +6,20 @@ All notable changes to LiftTrace are documented here.
 
 ## Unreleased
 
+### Added
+
+- **Muscle Balance body-map on Statistics.** The Volume metric's "Volume by Muscle Group" horizontal-bar list is replaced with a shaded body-map view: front + back silhouettes with each of 18 muscles coloured 0–4 relative to the hardest-worked muscle in the current range. Below it, a **Not Trained in This Period** chip row spells out exactly which muscles the current window skipped. Counts effective sets (primary muscles = 1.0, secondary = 0.4) not weight lifted, since 100 kg of leg press vs 12 kg of lateral raise says nothing meaningful about which muscle worked harder. SVG geometry is fetched lazily on first render so nothing else in the bundle grows.
+
+- **Public exercise catalogs import in standalone Android** (#18). wger, Free Exercise DB, and ExerciseDB (open-source) all show up as Import cards in Settings → Exercise Catalog when the Android app runs in local-only mode. Tapping Import fetches the source directly via CapacitorHttp (no server needed, no CORS constraint) and writes to the on-device SQLite mirror. That's roughly 3,000 exercises with images and GIFs available offline on day one. Previously the section returned 501 in standalone; anyone who imported public catalogs before switching to a server keeps them locally as a dormant cache, and the server's catalog takes over in server mode. The paid ExerciseDB (RapidAPI) card still points at server mode for now.
+
+### Changed
+
+- **Gemini default bumped to `gemini-2.5-flash`.** Saved selections of retired `gemini-1.5-*` or `gemini-2.0-*` models are quietly remapped at request time so calls don't 404 after Google's retirement dates.
+
+### Fixed
+
+- **OpenAI-compatible endpoints accept vision requests again.** Image content blocks are normalised on both the server proxy and `callAIProxy` client wrapper before forwarding, so a request with an image attached goes through whether the block is a string URL or an object with `image_url.url`.
+
 ## v1.0.1 — 2026-07-25
 
 ### Added
