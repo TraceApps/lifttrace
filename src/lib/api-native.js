@@ -293,10 +293,171 @@ const Exercises = {
     return { ok: true };
   },
   async sourcesList() {
-    return { sources: [] };
+    // Same 4 sources the server exposes, with per-source counts from the
+    // local SQLite mirror. Enabled state is a user-scoped toggle stored
+    // under user_settings (key `catalog_disabled_<id>`).
+    const counts = await dbQuery(
+      `SELECT source, COUNT(*) as c FROM exercises
+       WHERE deleted_at IS NULL AND source IN ('wger','free-db','exercisedb','exercisedb-oss')
+       GROUP BY source`
+    );
+    const countMap = Object.fromEntries(counts.map(r => [r.source, r.c]));
+    const disabledRows = await dbQuery(
+      `SELECT key, value FROM user_settings WHERE user_id = ? AND key LIKE 'catalog_disabled_%'`,
+      [ME]
+    );
+    const isDisabled = (id) => {
+      const row = disabledRows.find(r => r.key === `catalog_disabled_${id}`);
+      return row && row.value && row.value !== 'false';
+    };
+    return SOURCES_META.map(s => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      requiresKey: s.requiresKey,
+      count: countMap[s.id] || 0,
+      enabled: countMap[s.id] > 0 ? !isDisabled(s.id) : true,
+    })).sort((a, b) => a.name.localeCompare(b.name));
   },
-  unsupported() { throw new _Unsupported('Catalog imports require a server connection.'); },
+  async sourcesImport(sourceId, apiKey) {
+    if (!sourceId) throw new Error('source required');
+    const meta = SOURCES_META.find(s => s.id === sourceId);
+    if (!meta) throw new Error(`Unknown source: ${sourceId}`);
+    if (meta.requiresKey && !apiKey) throw new Error(`${meta.name} requires an API key`);
+
+    // Existing external_ids so a re-import doesn't INSERT-then-IGNORE
+    // (cheap, but also feeds the oss cursor-loop detector).
+    const existing = await dbQuery(
+      `SELECT external_id FROM exercises WHERE source = ? AND external_id IS NOT NULL`,
+      [sourceId]
+    );
+    const existingIds = new Set(existing.map(r => String(r.external_id)));
+
+    let rows;
+    if (sourceId === 'wger') {
+      const { fetchWgerRows } = await import('./exercise-sources/wger.js');
+      rows = await fetchWgerRows({ fetchFn: nativeFetch });
+    } else if (sourceId === 'free-db') {
+      const { fetchFreeDbRows } = await import('./exercise-sources/free-db.js');
+      rows = await fetchFreeDbRows({ fetchFn: nativeFetch });
+    } else if (sourceId === 'exercisedb-oss') {
+      const { fetchExerciseDbOssRows } = await import('./exercise-sources/exercisedb-oss.js');
+      rows = await fetchExerciseDbOssRows({ fetchFn: nativeFetch, existingIds });
+    } else {
+      throw new _Unsupported(`${meta.name} imports aren't available offline yet.`);
+    }
+
+    // Insert loop. INSERT OR IGNORE using name + source pair as the natural
+    // dedup key (there's no server-assigned id here — external_id can be
+    // null for free-db so we can't rely on it alone).
+    let count = 0;
+    for (const r of rows) {
+      const existsRow = r.external_id
+        ? await dbQuery(`SELECT id FROM exercises WHERE source = ? AND external_id = ? LIMIT 1`, [sourceId, r.external_id])
+        : await dbQuery(`SELECT id FROM exercises WHERE source = ? AND name = ? LIMIT 1`, [sourceId, r.name]);
+      if (existsRow.length > 0) continue;
+      await dbRun(
+        `INSERT INTO exercises
+         (name, category, primary_muscles, secondary_muscles, equipment,
+          instructions, img_url, gif_url, video_url, external_id, source,
+          is_global, created_at, updated_at, sync_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'synced')`,
+        [
+          r.name, r.category,
+          _stringify(r.primary_muscles || []),
+          _stringify(r.secondary_muscles || []),
+          _stringify(r.equipment || []),
+          r.instructions || null,
+          r.img_url || null, r.gif_url || null, r.video_url || null,
+          r.external_id != null ? String(r.external_id) : null,
+          sourceId,
+          _now(), _now(),
+        ]
+      );
+      count++;
+    }
+    return { ok: true, count };
+  },
+  async sourcesToggle(sourceId, enabled) {
+    if (!sourceId) throw new Error('source required');
+    const key = `catalog_disabled_${sourceId}`;
+    if (enabled) {
+      await dbRun(`DELETE FROM user_settings WHERE user_id = ? AND key = ?`, [ME, key]);
+    } else {
+      await dbRun(
+        `INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)`,
+        [ME, key, 'true']
+      );
+    }
+    return { ok: true };
+  },
+  async sourcesClear(sourceId) {
+    if (!sourceId) throw new Error('source required');
+    const r = await dbRun(
+      `DELETE FROM exercises WHERE source = ? AND created_by IS NULL`,
+      [sourceId]
+    );
+    return { ok: true, cleared: r.changes || 0 };
+  },
+  unsupported() { throw new _Unsupported('That catalog action requires a server connection.'); },
 };
+
+// Mirrors server/exercise-sources/index.js SOURCES (id + descriptive
+// metadata only). Kept here rather than imported from a shared file so
+// standalone can render the Catalog UI without pulling a server module.
+const SOURCES_META = [
+  {
+    id: 'wger',
+    name: 'wger',
+    description: 'Free open-source exercise database (~600 exercises, sparse images, no GIFs)',
+    requiresKey: false,
+  },
+  {
+    id: 'free-db',
+    name: 'Free Exercise DB',
+    description: 'Public-domain catalog (~870 exercises) with start/end position images for every entry',
+    requiresKey: false,
+  },
+  {
+    id: 'exercisedb',
+    name: 'ExerciseDB (RapidAPI)',
+    description: '~1,300 exercises with animated GIFs. Requires a RapidAPI key (paid). Note: not available in standalone yet — connect to a server to import.',
+    requiresKey: true,
+  },
+  {
+    id: 'exercisedb-oss',
+    name: 'ExerciseDB (open-source)',
+    description: '~1,500 exercises with animated GIFs. AGPL-3.0. Free, no key — uses oss.exercisedb.dev (community-hosted, no SLA).',
+    requiresKey: false,
+  },
+];
+
+// Isomorphic fetch adapter for the shared exercise-source modules.
+// Browser fetch inside the WebView hits CORS on wger/free-db/oss, so on
+// native we route via CapacitorHttp which bypasses CORS entirely. Response
+// is normalised to look like a Fetch Response so the shared modules see
+// the same shape as node.
+async function nativeFetch(url, init = {}) {
+  const { CapacitorHttp } = await import('@capacitor/core');
+  const method = (init.method || 'GET').toUpperCase();
+  const opts = { url, headers: init.headers || {} };
+  if (init.body != null) opts.data = init.body;
+  const fn = method === 'GET' ? CapacitorHttp.get
+          : method === 'POST' ? CapacitorHttp.post
+          : method === 'PUT' ? CapacitorHttp.put
+          : method === 'DELETE' ? CapacitorHttp.delete
+          : CapacitorHttp.request;
+  const res = await fn.call(CapacitorHttp, opts);
+  return {
+    ok: res.status >= 200 && res.status < 300,
+    status: res.status,
+    headers: {
+      get: (name) => res.headers?.[name] ?? res.headers?.[name?.toLowerCase?.()],
+    },
+    json: async () => typeof res.data === 'string' ? JSON.parse(res.data) : res.data,
+    text: async () => typeof res.data === 'string' ? res.data : JSON.stringify(res.data),
+  };
+}
 
 const Programs = {
   async list() {
@@ -977,8 +1138,11 @@ async function handle(method, path, body, query) {
       return out;
     }
     if (id === 'sources' && sub === 'list')                     return Exercises.sourcesList();
+    if (id === 'sources' && sub === 'import' && m === 'POST')   return Exercises.sourcesImport(body?.source, body?.apiKey);
+    if (id === 'sources' && sub === 'toggle' && m === 'POST')   return Exercises.sourcesToggle(body?.source, body?.enabled);
+    if (id === 'sources' && sub === 'clear'  && m === 'POST')   return Exercises.sourcesClear(body?.source);
     if (id === 'sources')                                        Exercises.unsupported();
-    if (id === 'sync-wger')                                      Exercises.unsupported();
+    if (id === 'sync-wger' && m === 'POST')                     return Exercises.sourcesImport('wger');
     if (/^\d+$/.test(id) && m === 'GET')    return Exercises.get(Number(id));
     if (/^\d+$/.test(id) && m === 'PUT')    return Exercises.update(Number(id), body || {});
     if (/^\d+$/.test(id) && m === 'DELETE') return Exercises.del(Number(id));

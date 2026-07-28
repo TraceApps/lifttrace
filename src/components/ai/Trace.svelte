@@ -6,6 +6,7 @@
   import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { callAI, callAIProxy, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
+  import { TOOLS, runTool } from '../../lib/aiTools.js';
   import { aiEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, dateFormat, weightUnit, weeklyWorkoutGoal } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
   import { DB } from '../../lib/db.js';
@@ -19,11 +20,11 @@
   // TraceFaceMusic is always mounted; the `playing` prop drives a CSS
   // transition that drops the headphones onto the head when music
   // starts and slips them off when it stops. Gate on both isPlaying
-  // and a non-null currentTrack as defense-in-depth — pause flips
+  // and a non-null currentTrack as defense-in-depth, pause flips
   // isPlaying false on its own, but some stop paths only clear
   // currentTrack, so checking both keeps the overlay in sync.
   $: _headphonesOn = $isPlaying && $currentTrack != null;
-  // (Component is named "Trace" — the AI persona used across TraceApps.
+  // (Component is named "Trace", the AI persona used across TraceApps.
   // Originally shipped as "LiftBot"; renamed for brand cohesion with NutriTrace.)
 
   let panelOpen = false;
@@ -59,7 +60,7 @@
   // ── Frequency visualizer ring (reacts to currently playing music) ─────────
   // Two paths feed the same `freqBars` store:
   //   1. Web Audio AnalyserNode (music tracks via the audio element)
-  //   2. Native LtRadioPlayer FFT events (radio streams on Capacitor —
+  //   2. Native LtRadioPlayer FFT events (radio streams on Capacitor ,
   //      audio plays natively via ExoPlayer, the AnalyserNode can't see it)
   // Uses a writable store rather than `let freqBars = …`. Under Svelte 5
   // compat mode, reassigning a `let` array from inside a RAF callback
@@ -76,7 +77,7 @@
   let _nativeFftUnsub = null;
 
   async function _setupViz() {
-    // Native ExoPlayer path — radio streams on Capacitor. The audio doesn't
+    // Native ExoPlayer path, radio streams on Capacitor. The audio doesn't
     // pass through the WebView's <audio> element so AnalyserNode sees
     // nothing; instead the LtRadioPlayer plugin emits real FFT data
     // captured by android.media.audiofx.Visualizer attached to the
@@ -129,7 +130,7 @@
    * (_renderTick) eases the displayed bars toward the target every
    * frame. This decouples data updates from render updates so the ring
    * stays fluid even when the WebView's SVG render pipeline misses a
-   * frame — the bars keep gliding toward the most recent FFT.
+   * frame, the bars keep gliding toward the most recent FFT.
    */
   const _targetBars = new Float32Array(VIZ_N);
   const _displayBars = new Float32Array(VIZ_N);
@@ -138,7 +139,7 @@
   // BEFORE dB conversion (FftAudioProcessor.SMOOTHING), so a second lerp
   // layer of 8%/frame meant the displayed bars couldn't catch up to peaks
   // before the source decayed. The PWA path writes data directly to the
-  // store with no second-layer smoothing — it relies entirely on
+  // store with no second-layer smoothing, it relies entirely on
   // AnalyserNode's internal 0.75 STC. 0.35 keeps just enough easing to
   // hide occasional Capacitor-bridge frame drops while letting bars reach
   // ~93% of any peak within five 60Hz frames (~80ms).
@@ -242,7 +243,7 @@
   let _fabCenterY = 0;
   let _commitNextTranscript = false;
 
-  // Smart Log modal state — mounted globally from this component
+  // Smart Log modal state, mounted globally from this component
   let showSmartLog = false;
   let smartLogPreParsed = null;
   let smartLogText = '';
@@ -303,7 +304,7 @@
         if (!_commitNextTranscript) return;
         const transcript = e.results[0]?.[0]?.transcript || '';
         if (transcript) await _processTranscript(transcript);
-        else showError("Didn't catch that — try again");
+        else showError("Didn't catch that, try again");
       };
       rec.onerror = (e) => {
         if (_commitNextTranscript) showError('Voice error: ' + (e.error || 'unknown'));
@@ -500,7 +501,7 @@
   }
 
   // ── Send ───────────────────────────────────────────────────────────────────
-  /** USER PROFILE block for the system prompt — always-available context
+  /** USER PROFILE block for the system prompt, always-available context
    *  so Trace can answer "what's my name / age / gender" without a tool
    *  round-trip and won't hallucinate substitutes. Pulls from $currentUser
    *  first (server-backed) and falls back to the wizard-written settings
@@ -527,181 +528,36 @@
     return bits.join(', ');
   }
 
+  // Context trimmed 2026-07-27: Trace now uses tool-use for live data (see aiTools.js).
+  // Only stable + never-would-fetch-on-demand values stay in the prompt. The full workout
+  // history, PRs, body-stat trends, weekly frequency, muscle recovery, and full active-program
+  // template that this function used to build are all reachable through tools now, so the
+  // model fetches on demand instead of paying tokens per turn.
   async function buildContext() {
     const parts = [];
+    if ($activeProgram?.name) parts.push(`Active program: ${$activeProgram.name}`);
     try {
-      // Today's workout — warm-ups excluded so "work done" means work done.
-      // RPE appended per set when present (e.g. "225×5 @8") so the coach
-      // can spot fatigue patterns.
-      const log = $todayLog;
-      if (log && log.exercises?.length) {
-        const exList = (log.exercises || []).map(e => {
-          const sets = (e.sets || []).filter(s => s.completed && !s.warmup);
-          const setStr = sets.map(s => {
-            const rpe = (s.rpe != null && s.rpe !== '') ? ` @${s.rpe}` : '';
-            return `${s.weight}${$weightUnit}×${s.reps}${rpe}`;
-          }).join(', ');
-          const warmups = (e.sets || []).filter(s => s.completed && s.warmup).length;
-          const wu = warmups ? ` (+ ${warmups} warm-up)` : '';
-          return `  - ${e.exercise_name}: ${setStr || 'no sets completed'}${wu}`;
-        }).join('\n');
-        parts.push(`TODAY'S WORKOUT (${$currentDate}):\n${log.name ? `Name: ${log.name}\n` : ''}${exList}`);
+      const wRes = await fetch('/api/workout/recent?limit=7', { credentials: 'include' });
+      if (wRes.ok) {
+        const recent = await wRes.json();
+        const withWork = (recent || []).filter(r => (r.exercises || []).some(e => (e.sets || []).some(s => s.completed && !s.warmup)));
+        const daysCovered = new Set(withWork.map(r => r.date)).size;
+        let line = `Trained on ${daysCovered} of the last 7 days.`;
+        const last = withWork[0];
+        if (last) {
+          const lastDate = new Date(last.date + 'T12:00:00');
+          const today = new Date($currentDate + 'T12:00:00');
+          const daysAgo = Math.max(0, Math.round((today - lastDate) / (24 * 3600 * 1000)));
+          const when = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
+          const name = last.name ? ` (${last.name})` : '';
+          line += ` Last session: ${when}${name}.`;
+        } else {
+          line += ' No completed sets in the window.';
+        }
+        parts.push(line);
       }
-
-      // Trainer prescription for today, if any
-      try {
-        const pxRes = await fetch(`/api/prescriptions/my/${$currentDate}`, { credentials: 'include' });
-        if (pxRes.ok) {
-          const px = await pxRes.json();
-          if (px && (px.name || px.template_name)) {
-            parts.push(`COACH PRESCRIPTION TODAY: ${px.template_name || px.name}${px.trainer_name ? ` — prescribed by ${px.trainer_name}` : ''}${px.notes ? `\nNotes: ${px.notes}` : ''}`);
-          }
-        }
-      } catch {}
-
-      // Active program + its templates
-      if ($activeProgram?.id) {
-        try {
-          const pRes = await fetch(`/api/programs/${$activeProgram.id}`, { credentials: 'include' });
-          if (pRes.ok) {
-            const p = await pRes.json();
-            const tplList = (p.templates || []).slice(0, 8).map(t => {
-              const dayLabel = t.day_label ? ` (${t.day_label})` : '';
-              const exNames = (t.exercises || []).slice(0, 6).map(e => e.exercise_name).filter(Boolean).join(', ');
-              return `  - ${t.name}${dayLabel}${exNames ? `: ${exNames}` : ''}`;
-            }).join('\n');
-            parts.push(`ACTIVE PROGRAM: ${p.name}${p.goal ? ` — goal: ${p.goal}` : ''}\n${tplList}`);
-          }
-        } catch {}
-      }
-
-      // Last 14 days of workouts (keeps context small but covers ~2 weeks).
-      // Warm-ups excluded from top-set selection. RPE appended when logged.
-      try {
-        const wRes = await fetch('/api/workout/recent?limit=14', { credentials: 'include' });
-        if (wRes.ok) {
-          const recent = await wRes.json();
-          const past = (recent || []).filter(r => r.date !== $currentDate && (r.exercises || []).some(e => (e.sets || []).some(s => s.completed && !s.warmup)));
-          if (past.length) {
-            const lines = past.slice(0, 14).map(r => {
-              const exSummary = (r.exercises || []).map(e => {
-                const top = (e.sets || []).filter(s => s.completed && !s.warmup)
-                  .reduce((best, s) => (!best || (s.weight || 0) > (best.weight || 0)) ? s : best, null);
-                if (!top) return null;
-                const rpe = (top.rpe != null && top.rpe !== '') ? ` @${top.rpe}` : '';
-                return `${e.exercise_name} ${top.weight}${$weightUnit}×${top.reps}${rpe}`;
-              }).filter(Boolean).slice(0, 6).join(', ');
-              return `  - ${r.date}${r.name ? ` "${r.name}"` : ''}: ${exSummary || '(logged, no top sets)'}`;
-            });
-            parts.push(`RECENT WORKOUTS:\n${lines.join('\n')}`);
-          }
-        }
-      } catch {}
-
-      // Muscle recovery summary — hours since each muscle was last hit
-      // with a completed non-warmup set. Same computation as the
-      // Statistics > Muscle Recovery body diagram, so Trace and the UI
-      // agree on what's fresh vs. fatigued. Lets Trace's "Generate
-      // today's workout" loop make sensible recovery-aware choices
-      // without having to re-derive that from the raw RECENT WORKOUTS
-      // dump above.
-      try {
-        const [recRes, exRes] = await Promise.all([
-          fetch('/api/workout/recent?limit=21', { credentials: 'include' }),
-          fetch('/api/exercises', { credentials: 'include' }),
-        ]);
-        if (recRes.ok && exRes.ok) {
-          const recent = await recRes.json();
-          const exList = await exRes.json();
-          const { computeMuscleRecovery, freshnessFor } = await import('../../lib/muscle-recovery.js');
-          const rec = computeMuscleRecovery(recent || [], exList || [], 7);
-          const labelHours = h => {
-            if (h == null) return 'no recent work';
-            if (h < 1)  return 'just now';
-            if (h < 24) return `${h}h ago`;
-            const d = Math.round(h / 24);
-            return `${d}d ago`;
-          };
-          const lines = Object.entries(rec)
-            .map(([muscle, info]) => {
-              const state = freshnessFor(info.hoursAgo).label;
-              return `  - ${muscle}: ${state} (${labelHours(info.hoursAgo)}, ${info.sets} sets)`;
-            });
-          if (lines.length) parts.push(`MUSCLE RECOVERY (past 7d):\n${lines.join('\n')}`);
-        }
-      } catch {}
-
-      // Body stats today + trend from last 30 days
-      try {
-        const bsRes = await fetch(`/api/body-stats/${$currentDate}`, { credentials: 'include' });
-        if (bsRes.ok) {
-          const bs = await bsRes.json();
-          const stats = bs.stats ? (typeof bs.stats === 'string' ? JSON.parse(bs.stats) : bs.stats) : {};
-          const entries = Object.entries(stats).filter(([,v]) => v != null && v !== '');
-          if (entries.length) {
-            parts.push(`BODY STATS (${$currentDate}):\n${entries.map(([k,v]) => `  - ${k}: ${v}`).join('\n')}`);
-          }
-        }
-      } catch {}
-      try {
-        const end = $currentDate;
-        const d = new Date(end + 'T12:00:00');
-        d.setDate(d.getDate() - 30);
-        const start = d.toISOString().slice(0, 10);
-        const rangeRes = await fetch(`/api/body-stats/range?start=${start}&end=${end}`, { credentials: 'include' });
-        if (rangeRes.ok) {
-          const rows = await rangeRes.json();
-          const weights = (rows || [])
-            .map(r => ({ date: r.date, w: (typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats)?.weight }))
-            .filter(x => x.w != null && x.w !== '');
-          if (weights.length > 1) {
-            const first = weights[0].w, last = weights[weights.length - 1].w;
-            const delta = (last - first).toFixed(1);
-            parts.push(`BODY WEIGHT TREND (last 30d): ${first}→${last} ${$weightUnit} (${delta >= 0 ? '+' : ''}${delta})`);
-          }
-        }
-      } catch {}
-
-      // Recent PRs
-      try {
-        const prRes = await fetch('/api/stats/records', { credentials: 'include' });
-        if (prRes.ok) {
-          const records = await prRes.json();
-          if (records.length > 0) {
-            const top = records.slice(0, 10).map(r => `  - ${r.exercise_name}: ${r.max_weight}${$weightUnit}`).join('\n');
-            parts.push(`PERSONAL RECORDS (top 10):\n${top}`);
-          }
-        }
-      } catch {}
-
-      // Weekly goal + frequency for last 4 weeks
-      try {
-        parts.push(`WEEKLY GOAL: ${$weeklyWorkoutGoal} workouts/week`);
-        const endDate = new Date($currentDate + 'T12:00:00');
-        const startDate = new Date(endDate);
-        startDate.setDate(startDate.getDate() - 28);
-        const s = startDate.toISOString().slice(0, 10);
-        const e = endDate.toISOString().slice(0, 10);
-        const freqRes = await fetch(`/api/stats/frequency?start=${s}&end=${e}`, { credentials: 'include' });
-        if (freqRes.ok) {
-          const data = await freqRes.json();
-          if (Array.isArray(data) && data.length) {
-            const weeks = data.slice(-4).map(w => `${w.count}`).join(', ');
-            parts.push(`FREQUENCY (last 4 weeks): ${weeks} workouts/week`);
-          }
-        }
-      } catch {}
-
-      // Streaks
-      try {
-        const stRes = await fetch('/api/stats/streaks', { credentials: 'include' });
-        if (stRes.ok) {
-          const s = await stRes.json();
-          parts.push(`STREAKS: current ${s.currentStreak} days, longest ${s.longestStreak} days, total ${s.totalWorkouts} workouts`);
-        }
-      } catch {}
     } catch {}
-    return parts.length ? '\n\n--- USER DATA ---\n' + parts.join('\n\n') : '';
+    return parts.length ? '\n' + parts.join('\n') : '';
   }
 
   async function send() {
@@ -735,37 +591,42 @@
     try {
       const ctx = await buildContext();
       const profile = buildUserProfile();
-      const systemPrompt = `You are ${botName}, a knowledgeable and motivating weightlifting AI coach inside the LiftTrace app.
-You help users with workout programming, exercise form, progressive overload, recovery, and reaching their fitness goals.
-Be concise, practical, and encouraging. Use simple language. If asked about exercise form, be specific about cues.
-Keep responses under 200 words unless more detail is specifically requested.
-The user tracks weights in ${$weightUnit}.
+      // Context trimmed 2026-07-27: Trace now uses tool-use for live data (see aiTools.js).
+      // Only stable + never-would-fetch-on-demand values stay in the prompt.
+      const _today = new Date($currentDate + 'T12:00:00');
+      const _dow = _today.toLocaleDateString(undefined, { weekday: 'long' });
+      const systemPrompt = `You are ${botName}, an AI weightlifting coach inside LiftTrace.
 
-USER PROFILE (always-available context — these are facts about the user, not numbers to hallucinate around. When asked "what's my name / age / gender", answer directly from this block. Don't say you don't know.):
-${profile || '(no profile data set yet — politely tell the user to fill it in via Settings → My Profile if they ask about their name, age, or gender)'}
+Style: concise, practical, encouraging. Simple language. Give specific cues on form questions. Keep replies under 200 words unless the user asks for more detail. The user tracks weight in ${$weightUnit}. Weekly workout goal: ${$weeklyWorkoutGoal}/week.
 
-Data annotations you may see:
-- "225lbs×5 @8" — the @N suffix is RPE (Rate of Perceived Exertion, 6-10). Higher RPE = closer to failure. Rising RPE on the same weight across sessions indicates accumulating fatigue; consider suggesting a deload.
-- "(+ 2 warm-up)" — warm-up sets done in addition to the logged working sets. Warm-ups are already excluded from volume / PR counts.
-- "COACH PRESCRIPTION TODAY" — the user has a trainer who assigned this workout; stay within that plan unless they ask for variations.
+Today is ${_dow}, ${$currentDate}.
 
-Workout generation:
-When the user asks you to generate a workout (today's session, a routine, "what should I do", etc.), pick exercises that fit their recent recovery (avoid hammering muscles trained in the last 24-48h based on the RECENT WORKOUTS context) and align with their ACTIVE PROGRAM if one is set. Prescribe weights at about 70-80% of their recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
+USER PROFILE (facts about the user, not numbers to hallucinate around; when asked "what's my name / age / gender", answer directly from this block; don't say you don't know):
+${profile || '(no profile data set yet; if the user asks about their name, age, or gender, politely tell them to fill it in via Settings, My Profile)'}
+${ctx}
 
-Format the workout as ONE plain text line beginning with the literal token "PLAN:" — no markdown, no code fences, no asterisks. Use comma-separated exercise entries in this shape:
+You have live tools for everything else. Prefer a tool call over guessing:
+- Reads: get_workouts, get_workout, get_exercises, get_exercise, get_programs, get_program, get_active_program, get_prs, get_body_stats, get_stats_overview, get_coach_prescription.
+- Writes: log_workout, add_exercise_to_diary, log_set, log_body_stat, start_workout_from_template, set_active_program, add_coach_prescription (coaches only).
+
+Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
+
+Data annotations you may see in tool results: "225lbs×5 @8" carries an RPE 6-10 suffix (higher = closer to failure); rising RPE on the same load across sessions signals accumulating fatigue and suggests a deload. Warm-up sets are already excluded from volume and PR counts.
+
+Workout format: after any workout you prescribe, add ONE plain text line beginning with the literal token "PLAN:" (no markdown, no code fences, no asterisks) in comma-separated Smart-Add syntax:
   PLAN: <exercise> <sets>x<reps> @ <weight><unit>, <exercise> <sets>x<reps> @ <weight><unit>, ...
 Examples:
   PLAN: bench press 3x5 @ 185lbs, OHP 3x8 @ 95lbs, dips 3x10 @ BW, tricep pushdown 3x12 @ 50lbs
   PLAN: squat 5x5 @ 225lbs, RDL 3x8 @ 185lbs, leg press 3x12 @ 270lbs, calf raise 4x15 @ BW
 
-Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choices. The app surfaces a one-tap "Use This Workout" button under any reply containing a PLAN line, so the line MUST be parseable Smart-Add syntax. If the user is asking general questions (form, recovery, programming theory) DO NOT include a PLAN line — only emit one when they're actually asking for a workout to perform.${ctx}`;
+Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choices. The app surfaces a one-tap "Use This Workout" button under any reply containing a PLAN line, so the line MUST be parseable Smart-Add syntax. For general questions (form, recovery, programming theory) DO NOT include a PLAN line; only emit one when the user is actually asking for a session to perform.`;
 
       const apiMessages = messages
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .slice(-20);
 
       let reply;
-      // OpenAI-compatible endpoints (Ollama etc.) can run keyless — gate on
+      // OpenAI-compatible endpoints (Ollama etc.) can run keyless, gate on
       // either an API key OR an oai-compat config. Otherwise fall through
       // to the server-proxy path (env-locked install).
       const hasClientConfig = $aiApiKey || ($aiProvider === 'oai-compat' && $aiBaseUrl);
@@ -777,9 +638,16 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
           baseUrl: $aiBaseUrl || undefined,
           messages: apiMessages,
           systemPrompt,
+          tools: TOOLS,
+          onToolCall: (name, args) => runTool(name, args),
         });
       } else {
-        reply = await callAIProxy({ messages: apiMessages, systemPrompt });
+        reply = await callAIProxy({
+          messages: apiMessages,
+          systemPrompt,
+          tools: TOOLS,
+          onToolCall: (name, args) => runTool(name, args),
+        });
       }
 
       const aMsg = { role: 'assistant', content: reply, time: new Date().toISOString() };
@@ -924,7 +792,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
                 <TraceFaceMusic size={52} playing={_headphonesOn} />
               </div>
               <div class="lb-welcome-name">{botName}</div>
-              <p class="lb-welcome-desc">Ask me anything — workout programming, exercise form, progressive overload, recovery. You can attach photos for form checks!</p>
+              <p class="lb-welcome-desc">Ask me anything, workout programming, exercise form, progressive overload, recovery. You can attach photos for form checks!</p>
               <div class="lb-chips">
                 {#each QUICK_ASKS as q}
                   <button class="lb-chip" on:click={() => quickAsk(q)}>{q}</button>
@@ -1029,7 +897,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   </div>
 {/if}
 
-<!-- Smart Log modal — opens when a hold-to-record gesture produces parsed items -->
+<!-- Smart Log modal, opens when a hold-to-record gesture produces parsed items -->
 <SmartLogModal
   bind:open={showSmartLog}
   date={$currentDate}
@@ -1117,7 +985,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
     100% { box-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 0 0 0   transparent; }
   }
 
-  /* Frequency visualizer ring — radiates outward from the FAB edge */
+  /* Frequency visualizer ring, radiates outward from the FAB edge */
   .lb-viz-ring {
     position: absolute;
     top: -34px; left: -34px; right: -34px; bottom: -34px;
@@ -1303,7 +1171,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
     padding: 0 4px;
   }
 
-  /* "Use This Workout" — appears under any assistant reply whose text
+  /* "Use This Workout", appears under any assistant reply whose text
      contains a PLAN: line. Tapping pipes the plan through the existing
      Smart Add modal so the user can review + edit before saving. */
   .lb-plan-apply {

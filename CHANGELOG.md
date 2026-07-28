@@ -6,11 +6,36 @@ All notable changes to LiftTrace are documented here.
 
 ## Unreleased
 
-## v1.0.1 — 2026-07-25
+## v1.0.2 — 2026-07-28
 
 ### Added
 
-- **Multi-Week Progression Plans** (#13). Programs can now span a training block of multiple weeks, with a per-week Sets / Reps / Tempo / Rest / Load matrix instead of one flat prescription. Set a program's **Duration (weeks)** and the Workout editor gains a Week tab strip (with a "copy this week → next" shortcut) plus new **Tempo** and **Rest (s)** fields. The Diary resolves which week you're on — by default advancing as you log sessions (calendar mode optional) — and prefills that week's targets when you load the workout; inside a programmed block the plan's prescription wins over last-session auto-fill. A per-exercise **Rest** feeds the rest timer. Repeat or regress a week from the Load Workout sheet, and choose whether the plan holds on the final week or repeats. Existing single-week programs are unchanged.
+- **Trace AI tool use.** Trace now calls 18 typed tools (11 read + 7 write) instead of relying on a pre-stuffed context payload. Assistant can read workouts, exercises, programs, PRs, body stats, coach prescriptions, and take actions like log a workout, add an exercise to today's diary, log a body stat, start a workout from a template, switch active program, or (as a coach) prescribe a workout to a trainee. System prompt trimmed to a small stable core; the model fetches on demand. Provider parity across Claude, OpenAI, Gemini, and any OpenAI-compatible endpoint.
+
+- **Muscle Balance body-map on Statistics.** The Volume metric's "Volume by Muscle Group" horizontal-bar list is replaced with a shaded body-map view: front + back silhouettes with each of 18 muscles coloured 0–4 relative to the hardest-worked muscle in the current range. Below it, a **Not Trained in This Period** chip row spells out exactly which muscles the current window skipped. Counts effective sets (primary muscles = 1.0, secondary = 0.4) not weight lifted, since 100 kg of leg press vs 12 kg of lateral raise says nothing meaningful about which muscle worked harder. SVG geometry is fetched lazily on first render so nothing else in the bundle grows.
+
+- **Public exercise catalogs import in standalone Android** (#18). wger, Free Exercise DB, and ExerciseDB (open-source) all show up as Import cards in Settings → Exercise Catalog when the Android app runs in local-only mode. Tapping Import fetches the source directly via CapacitorHttp (no server needed, no CORS constraint) and writes to the on-device SQLite mirror. That's roughly 3,000 exercises with images and GIFs available offline on day one. Previously the section returned 501 in standalone; anyone who imported public catalogs before switching to a server keeps them locally as a dormant cache, and the server's catalog takes over in server mode. The paid ExerciseDB (RapidAPI) card still points at server mode for now.
+
+### Changed
+
+- **AI proxy rate limit raised to 30 requests / 60 seconds per user** (was lower) to accommodate multi-round tool-use loops.
+- **AI proxy payload caps raised to 60 messages / 8 MB** (was 60 / 200 KB) to fit tool-result echoes.
+
+- **Gemini default bumped to `gemini-2.5-flash`.** Saved selections of retired `gemini-1.5-*` or `gemini-2.0-*` models are quietly remapped at request time so calls don't 404 after Google's retirement dates.
+
+### Fixed
+
+- **OpenAI-compatible endpoints accept vision requests again.** Image content blocks are normalised on both the server proxy and `callAIProxy` client wrapper before forwarding, so a request with an image attached goes through whether the block is a string URL or an object with `image_url.url`.
+
+- **GPT-5.6-era chat parameters supported.** The AI proxy translates the newer `max_completion_tokens` and `reasoning_effort` fields when talking to models that require them, so calls to GPT-5.6 and equivalents don't 400 on the older `max_tokens` field name.
+
+- **Full-backup restore no longer silently drops coach data.** The `coach_feedback` and `coach_activity` tables were included in exports but missing from the restore INSERT column lists, so any coach comments or activity history vanished after a restore-from-backup. Both tables now round-trip cleanly.
+
+## v1.0.1, 2026-07-25
+
+### Added
+
+- **Multi-Week Progression Plans** (#13). Programs can now span a training block of multiple weeks, with a per-week Sets / Reps / Tempo / Rest / Load matrix instead of one flat prescription. Set a program's **Duration (weeks)** and the Workout editor gains a Week tab strip (with a "copy this week → next" shortcut) plus new **Tempo** and **Rest (s)** fields. The Diary resolves which week you're on, by default advancing as you log sessions (calendar mode optional), and prefills that week's targets when you load the workout; inside a programmed block the plan's prescription wins over last-session auto-fill. A per-exercise **Rest** feeds the rest timer. Repeat or regress a week from the Load Workout sheet, and choose whether the plan holds on the final week or repeats. Existing single-week programs are unchanged.
 
 - **SSO-only mode via environment variable** (#16). Set `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN=0` (or `false` / `no`) at boot to disable password login server-wide, so users must sign in via an OIDC provider. Locks the corresponding admin UI toggle with an env-lock note. Mirrors the pattern across the TraceApps family.
 
@@ -34,7 +59,7 @@ All notable changes to LiftTrace are documented here.
 
 - **Sets logged just before backgrounding the phone are no longer lost.** The debounced save timer now flushes pending writes on `pause`, `visibilitychange`, and `pagehide`, so a set entered right before switching apps is guaranteed to hit the server or the local queue instead of dying with the timer.
 
-- **Advance-week button correctly disables in edge cases** — tightened the check so the button doesn't invite you into a state it can't actually enter.
+- **Advance-week button correctly disables in edge cases**, tightened the check so the button doesn't invite you into a state it can't actually enter.
 
 ### Security
 
@@ -42,7 +67,7 @@ All notable changes to LiftTrace are documented here.
 - **brace-expansion bumped to 5.0.8** (GHSA-mh99-v99m-4gvg, high). DoS via unbounded expansion length.
 - **body-parser bumped to 2.3.0** (GHSA-v422-hmwv-36x6, low). DoS when an invalid `limit` value silently disables size enforcement.
 
-## v1.0.0 — 2026-07-18
+## v1.0.0, 2026-07-18
 
 First stable release under the new semver scheme. Delivers Garmin FIT strength imports, per-set template parity between the Program editor and Diary set rows, a real Send Test email flow, multi-tag Docker publishing, and a high-severity `adm-zip` CVE patch in the backup restore path.
 
@@ -76,7 +101,7 @@ Every future release uses strict semver: PATCH for bug fixes, MINOR for new feat
 
 ---
 
-## v1.0.0-rc.8 — 2026-07-08
+## v1.0.0-rc.8, 2026-07-08
 
 ### Added
 
@@ -94,7 +119,7 @@ Every future release uses strict semver: PATCH for bug fixes, MINOR for new feat
 
 ---
 
-## v1.0.0-rc.7 — 2026-07-05
+## v1.0.0-rc.7, 2026-07-05
 
 Maintenance release. No user-facing feature changes since rc.6.
 
@@ -104,7 +129,7 @@ Maintenance release. No user-facing feature changes since rc.6.
 
 ---
 
-## v1.0.0-rc.6 — 2026-07-01
+## v1.0.0-rc.6, 2026-07-01
 
 ### Added
 
@@ -130,7 +155,7 @@ Maintenance release. No user-facing feature changes since rc.6.
 
 ---
 
-## v1.0.0-rc.5 — 2026-06-10
+## v1.0.0-rc.5, 2026-06-10
 
 ### Added
 
@@ -153,11 +178,11 @@ Maintenance release. No user-facing feature changes since rc.6.
 
 ---
 
-## v1.0.0-rc.4 — 2026-05-29
+## v1.0.0-rc.4, 2026-05-29
 
 ### Added
 
-- **NutriTrace Federation** — log each completed workout's estimated calories burned to your NutriTrace diary automatically. Set it up in Settings → Integrations → NutriTrace by entering your NutriTrace URL and an API token (created on NutriTrace under Settings → User Management → API Tokens with the `write:workouts` scope). Workouts show up in NutriTrace's Workout History next to Fitbit / Garmin data, and NutriTrace handles the double-count-vs-wearable decision automatically.
+- **NutriTrace Federation**, log each completed workout's estimated calories burned to your NutriTrace diary automatically. Set it up in Settings → Integrations → NutriTrace by entering your NutriTrace URL and an API token (created on NutriTrace under Settings → User Management → API Tokens with the `write:workouts` scope). Workouts show up in NutriTrace's Workout History next to Fitbit / Garmin data, and NutriTrace handles the double-count-vs-wearable decision automatically.
 - **Editable Workout Duration** on the completion summary. The Duration tile is now a button: tap it to pick from quick presets (30 / 45 / 60 / 75 / 90 / 120 min) or enter a custom value. Useful when you forgot to start the timer, or to fix a value after the fact. The kcal estimate updates live, and if NutriTrace federation is on, the edit re-syncs.
 - **Fallback Calorie Estimate** when no duration is tracked. LiftTrace now estimates burn from your completed set count instead of refusing to show a number. Badged "rough" so you know it's less precise than a timed session.
 - **"You're All Set" Celebration** at the end of the first-run wizard before landing on the diary.
@@ -178,7 +203,7 @@ Maintenance release. No user-facing feature changes since rc.6.
 
 ---
 
-## v1.0.0-rc.3 — 2026-05-25
+## v1.0.0-rc.3, 2026-05-25
 
 ### Fixed
 
@@ -186,7 +211,7 @@ Maintenance release. No user-facing feature changes since rc.6.
 
 ---
 
-## v1.0.0-rc.2 — 2026-05-25
+## v1.0.0-rc.2, 2026-05-25
 
 ### Added
 
@@ -204,7 +229,7 @@ Maintenance release. No user-facing feature changes since rc.6.
 
 ---
 
-## v1.0.0-rc.1 — 2026-05-24 — First public release candidate
+## v1.0.0-rc.1, 2026-05-24, First public release candidate
 
 LiftTrace goes public. The dev tree (`TraceApps/lifttrace-dev`) has
 been syncing to the public mirror at `TraceApps/lifttrace` since this
@@ -213,40 +238,40 @@ GitHub Releases.
 
 What you get out of the box (since the first private build):
 
-- **Diary** — daily workout log with sets, reps, weights, RPE, warm-ups,
+- **Diary**, daily workout log with sets, reps, weights, RPE, warm-ups,
   supersets, rest timer with persistent state across navigation, and
   Smart Add for natural-language entry.
-- **Programs** — build mesocycles, assign templates by day, progress
+- **Programs**, build mesocycles, assign templates by day, progress
   through weeks. Coach prescriptions flow into Diary automatically.
-- **Exercises** — full library (wger / free-exercise-db / exercisedb)
+- **Exercises**, full library (wger / free-exercise-db / exercisedb)
   plus your own custom exercises with images, GIFs, or YouTube.
-- **Statistics** — volume, PRs, frequency, body stats trends.
-- **Trace AI** — multi-provider coach (Claude / OpenAI / Gemini / any
+- **Statistics**, volume, PRs, frequency, body stats trends.
+- **Trace AI**, multi-provider coach (Claude / OpenAI / Gemini / any
   OpenAI-compatible endpoint) with live workout context, hold-to-voice
   log on the FAB, frequency visualizer ring when music plays.
-- **Radio** — built-in player for Subsonic / Jellyfin libraries and
+- **Radio**, built-in player for Subsonic / Jellyfin libraries and
   streaming Icecast / Shoutcast / HLS internet radio with now-playing
   metadata. Plays through ExoPlayer on Android (lockscreen + media
   controls), MSE on web (gapless, locked-screen-safe).
-- **Coaching** — trainer accounts can build templates and prescribe
+- **Coaching**, trainer accounts can build templates and prescribe
   workouts to athletes. Prescriptions show in Diary on the right day.
-- **OIDC SSO** — sign in via Authentik, Keycloak, Pocket ID, Authelia,
+- **OIDC SSO**, sign in via Authentik, Keycloak, Pocket ID, Authelia,
   Auth0, Google, or any OIDC 1.0 provider. Multi-provider supported.
-- **Workout-history import** — bring in your old log from Strong, Hevy,
+- **Workout-history import**, bring in your old log from Strong, Hevy,
   FitNotes, or Jefit (CSV).
-- **Multi-user** — invite by email or link, sessions configurable up to
+- **Multi-user**, invite by email or link, sessions configurable up to
   one year, admin / trainer / user roles, OIDC group → role mapping.
 - **Wearables-style biometric sign-in** on Android (fingerprint / face).
-- **Local + server modes on Android** — run fully offline with on-device
+- **Local + server modes on Android**, run fully offline with on-device
   SQLite, or connect to a self-hosted LiftTrace server for sync.
-- **Smart Log** — paste a workout in plain English ("bench 3x5 @ 225,
+- **Smart Log**, paste a workout in plain English ("bench 3x5 @ 225,
   A1: curls 3x12 @ 30, A2: pushdowns 3x12 @ 40") and it gets parsed,
   matched against the library, and saved.
 
 This is a release candidate, not a final 1.0. Expect bugfixes and
 polish in the `-rc.N` series before the `1.0.0` tag drops.
 
-### Security — Android release builds now reject cleartext HTTP
+### Security, Android release builds now reject cleartext HTTP
 
 The release-signed APK distributed via GitHub Releases enforces a
 strict network security policy: only HTTPS connections to your
@@ -261,14 +286,14 @@ Android":
 1. Real domain + Let's Encrypt (recommended).
 2. Cloudflare Tunnel / Tailscale Funnel / Tailscale mesh.
 3. Self-signed cert + install your CA on Android.
-4. Build the debug APK yourself — `npm run android:debug` produces
+4. Build the debug APK yourself, `npm run android:debug` produces
    a permissive APK that accepts `http://` and self-signed certs.
    Sideload it instead of the release APK.
 
 Server-side, `INSECURE_COOKIES=1` continues to opt out of the
 HTTPS-only auth-cookie flag for non-TLS server deployments.
 
-## v0.10.1-beta.5 — 2026-04-30 — OIDC Single Sign-On
+## v0.10.1-beta.5, 2026-04-30, OIDC Single Sign-On
 
 LiftTrace now supports OpenID Connect SSO. Sign in via Authentik,
 Keycloak, Pocket ID, Authelia, Auth0, Google, or any OIDC 1.0
@@ -276,27 +301,27 @@ provider that supports Authorization Code Flow + PKCE + Discovery.
 
 What you get:
 
-- **Multiple providers** — admins can configure as many IdPs as
+- **Multiple providers**, admins can configure as many IdPs as
   they want from Settings → User management → OIDC providers.
   Each one gets its own button on the Login page.
-- **Provider preset picker** — when adding a provider, pick from
+- **Provider preset picker**, when adding a provider, pick from
   Auth0, Authelia, Authentik, Google, Keycloak, Pocket ID, or
   Custom. Each preset pre-fills sensible defaults (scope, auth
   method, group claim).
-- **Auto-link verified emails** (default ON) — when an IdP says
+- **Auto-link verified emails** (default ON), when an IdP says
   `email_verified=true` and the email matches an existing
   LiftTrace user, the accounts link silently on first SSO sign-in.
-- **Auto-register new users** (default OFF) — opt in for blanket
+- **Auto-register new users** (default OFF), opt in for blanket
   onboarding. Leave off for shared IdPs (Google, work SSO).
-- **Admin role mapping** — pin an "admin" group claim and value;
+- **Admin role mapping**, pin an "admin" group claim and value;
   membership promotes the user to admin on every login.
-- **Profile → Linked accounts** — sign in with your password,
+- **Profile → Linked accounts**, sign in with your password,
   then link an SSO provider from your Profile so next time you
   can use either.
-- **Allow password login toggle** — disable password login
+- **Allow password login toggle**, disable password login
   entirely once SSO is configured. `RECOVERY_TOKEN` still works
   as the lockout escape hatch.
-- **Android support** — SSO works on the native app too, via
+- **Android support**, SSO works on the native app too, via
   Chrome Custom Tabs and a `lifttrace://oidc-callback` deep link.
 
 Client secrets are encrypted at rest. Discovery is cached for an
@@ -304,12 +329,12 @@ hour. PKCE + state + nonce are validated on every callback.
 
 ### UX polish in the same release
 
-- **No more theme flash** — the app no longer reapplies
+- **No more theme flash**, the app no longer reapplies
   accent/dark-mode every 30 seconds when settings poll.
-- **Diary stops re-fetching on every nav** — switching tabs no
+- **Diary stops re-fetching on every nav**, switching tabs no
   longer causes a brief meal-card flash if the data is already
   loaded for today.
-- **Settings text fits** — long labels in OIDC and elsewhere no
+- **Settings text fits**, long labels in OIDC and elsewhere no
   longer push toggles or action icons off-screen.
 
 ### For self-hosters
@@ -321,7 +346,7 @@ override) will require re-entering secrets in Settings.
 
 ---
 
-## v0.10.1-beta.4 — 2026-04-28 — Real FFT visualizer on Android
+## v0.10.1-beta.4, 2026-04-28, Real FFT visualizer on Android
 
 The FAB equalizer ring now mirrors the PWA: real frequency-domain
 data driven directly off the audio that's playing, not procedural
@@ -330,7 +355,7 @@ sine waves.
 The previous Android path used `android.media.audiofx.Visualizer` to
 sniff the ExoPlayer audio session, but on most recent Pixel /
 Samsung ROMs that service returns `INIT_CHECK_FAILED (-3)` for
-media-output sessions regardless of how the session is allocated —
+media-output sessions regardless of how the session is allocated ,
 the OS audio policy blocks it. We had a procedural sine-wave
 fallback so the ring stayed lively, but the bars no longer reacted
 to the actual music.
@@ -348,29 +373,29 @@ permission involved. Drop-in for every device where ExoPlayer plays
 sound.
 
 The legacy `Visualizer` attempt is left in place as a parallel
-source — if a device happens to allow it, both feeds run and the
+source, if a device happens to allow it, both feeds run and the
 visualizer just keeps the most recent frame. The procedural
 fallback in `src/lib/native-player.js` stays too as a last-resort
 safety net (it auto-disables the moment a real FFT frame arrives).
 
 ---
 
-## v0.10.1-beta.3 — 2026-04-28 — i18n parity batch (192 keys)
+## v0.10.1-beta.3, 2026-04-28, i18n parity batch (192 keys)
 
 Continues the parity push toward NutriTrace's 210-key baseline by
-extracting the strings that surface across the most-used UI shells —
+extracting the strings that surface across the most-used UI shells ,
 the dialog primitives, the Trace FAB, and the Diary action toasts /
 date-nav buttons.
 
 Newly wired through `$_()`:
 
-- `Sheet.svelte` — close button label + tooltip via `common.close`.
-- `ActionSheet.svelte` — sheet cancel button via `common.cancel`.
-- `Trace.svelte` — FAB aria-label + tooltip (`trace.fab_label`,
+- `Sheet.svelte`, close button label + tooltip via `common.close`.
+- `ActionSheet.svelte`, sheet cancel button via `common.cancel`.
+- `Trace.svelte`, FAB aria-label + tooltip (`trace.fab_label`,
   `trace.fab_tooltip`), the chat clear button (`trace.clear_conversation`),
   the close icon, the attach-image button, and the input placeholder
   (`trace.ask_placeholder`).
-- `Diary.svelte` — the workout-name placeholder, tap-to-rename tooltip,
+- `Diary.svelte`, the workout-name placeholder, tap-to-rename tooltip,
   the four date-nav buttons (previous / next / jump-to-date / today),
   the six action-button labels (gym tools, body stats, workout actions
   +`_long` aria-label variants), seven action toasts (cleared, timer
@@ -382,7 +407,7 @@ Bridges roughly half the remaining gap to NutriTrace's en.json.
 
 ---
 
-## v0.10.1-beta.2 — 2026-04-29 — i18n thorough wiring (166 keys)
+## v0.10.1-beta.2, 2026-04-29, i18n thorough wiring (166 keys)
 
 beta.1 created the i18n keys but didn't wire most of them into
 components. This beta does the actual extraction so a translator
@@ -427,22 +452,22 @@ Surfaces wired through \$_():
   for the library import, theme picker labels.
 
 en.json holds 166 keys. Server-side strings, Diary primary actions,
-exercise editor / smart-log / per-route deep extraction still pending —
+exercise editor / smart-log / per-route deep extraction still pending ,
 those land as volunteer translators identify which screens they need.
 
 ---
 
-## v0.10.1-beta.1 — 2026-04-28 — i18n, subpath, Docker secrets, shared DatePicker
+## v0.10.1-beta.1, 2026-04-28, i18n, subpath, Docker secrets, shared DatePicker
 
 Ports four patterns from NutriTrace's v1.0.0-rc.6 release. None affect
-existing deployments by default — every feature opts in via env var or
+existing deployments by default, every feature opts in via env var or
 component swap.
 
 ### Added
 
 - **Internationalization (i18n) scaffolding.** `svelte-i18n` wired up with
   one JSON file per locale under `src/i18n/`. Language picker added at the
-  top of Settings → Units & Format. en.json covers 45 keys — nav labels,
+  top of Settings → Units & Format. en.json covers 45 keys, nav labels,
   page titles for the 11 main routes, all 15 settings section headers, and
   common buttons (Save, Cancel, Delete, etc.). New `npm run i18n:check`
   script reports per-locale completeness. Deeper extraction (workout
@@ -459,7 +484,7 @@ component swap.
   asset URLs are relative; PWA manifest `start_url`/`scope` are `'./'`
   for subpath PWA install. `apiFetch.js` interceptor extended to also
   run in PWA mode when basePath is set, prefixing `/api/` and
-  `/uploads/` URLs — single point of interception means no per-call-
+  `/uploads/` URLs, single point of interception means no per-call-
   site changes were needed.
 
 - **Docker / Swarm-style secret file env vars.** New
@@ -492,16 +517,16 @@ component swap.
   server/middleware/), so the CSRF rejection bugs that affected
   NutriTrace's settings.js + login flow during its rc.6 testing don't
   apply here. The fetch interceptor handles apiUrl consistency without
-  any per-call-site changes — much simpler than NutriTrace's pattern.
+  any per-call-site changes, much simpler than NutriTrace's pattern.
 - LiftTrace's wizard is structurally simpler than NutriTrace's (6 steps,
   no dob/gender duplicate, already uses Trace branding). No wizard
   cleanup pass needed.
 
 ---
 
-## v0.10.0-beta.9 — 2026-04-28
+## v0.10.0-beta.9, 2026-04-28
 
-### Fixed — Native auth bearer token never being stored
+### Fixed, Native auth bearer token never being stored
 beta.8 taught the server to read the JWT from `Authorization: Bearer …`,
 but two upstream gaps meant the token was never actually being set in
 localStorage on native, so the header always went out empty:
@@ -512,7 +537,7 @@ localStorage on native, so the header always went out empty:
    `localStorage.removeItem('lt:authToken')`. Same for `/register`,
    `/reset-password`, `/accept-invite`.
 2. **Login.svelte (the regular login screen) didn't call
-   `setAuthToken` at all** — only relied on the cookie. So when a user
+   `setAuthToken` at all**, only relied on the cookie. So when a user
    got bounced from NativeSetup → loadAuthState 401 → Login screen,
    even a successful re-login left no token stored, and every
    subsequent API call landed unauthenticated.
@@ -531,9 +556,9 @@ Login screen actually persists the bearer token across launches.
 
 ---
 
-## v0.10.0-beta.8 — 2026-04-28
+## v0.10.0-beta.8, 2026-04-28
 
-### Fixed — Native Android server-mode authentication
+### Fixed, Native Android server-mode authentication
 The server's `authenticate` middleware was reading the JWT only from the
 `lt_token` cookie. Native Capacitor builds use the patched fetch in
 `src/lib/apiFetch.js`, which sends the JWT as `Authorization: Bearer …`
@@ -545,40 +570,40 @@ silently dropped, sync pulls cached as failures, and `loadAuthState`
 returned a null user even though the token was valid.
 
 Server middleware now accepts the token from EITHER the cookie OR the
-Authorization header — same pattern NutriTrace already uses. Browser
+Authorization header, same pattern NutriTrace already uses. Browser
 PWA builds keep working off the cookie; native Android works off the
 Bearer header.
 
 Server redeploy required (`docker compose pull && up -d` or equivalent).
-The Android APK doesn't need rebuilding — it was already sending the
+The Android APK doesn't need rebuilding, it was already sending the
 header correctly; the server just wasn't reading it.
 
 ---
 
-## v0.10.0-beta.7 — 2026-04-27
+## v0.10.0-beta.7, 2026-04-27
 
-### Added — Standalone → server data migration
+### Added, Standalone → server data migration
 First-launch wizard (and Settings → "Connect to server") now detects local
 SQLite data when transitioning out of standalone mode and presents a
 three-option dialog before silently switching modes:
 
-- **Upload to server** — push every local row through the existing
+- **Upload to server**, push every local row through the existing
   `PUT /api/workout/:date`, `PUT /api/body-stats/:date`, `POST /api/programs`,
   `POST /api/templates`, `POST /api/exercises`, `PUT /api/settings`
   endpoints. Workouts and body-stats use `UNIQUE(user_id, date)` for
   clean dedup; programs and custom exercises accept duplicates.
-- **Replace with server** — destroy the local SQLite (via existing
+- **Replace with server**, destroy the local SQLite (via existing
   `destroyLocalDb`) and let `pullSnapshot` repopulate from the server.
-- **Merge both** — upload local first, then run `runSync()` to refresh
+- **Merge both**, upload local first, then run `runSync()` to refresh
   the local cache so the UI reflects the merged state.
 
 The dialog shows per-table counts up front (`12 workouts, 8 body-stats
 entries, 3 programs (12 templates), 5 custom exercises`) and the
 upload pass shows live progress + a final success/error tally per
-table — both improvements over the silent NutriTrace pattern this
+table, both improvements over the silent NutriTrace pattern this
 mirrors. New helper at `src/lib/migrate.js`.
 
-### Internal — Material Symbols bundled locally (v0.10.0-beta.6 hotfix)
+### Internal, Material Symbols bundled locally (v0.10.0-beta.6 hotfix)
 The icon-name FOUT on Android cold-launch ("menu", "fitness_center",
 etc. flashing as text before the font arrived) is fixed by bundling
 the Material Symbols Rounded variable woff2 into `public/fonts/` and
@@ -587,53 +612,53 @@ Google Fonts since the system-ui fallback is cosmetically fine.
 
 ---
 
-## v0.10.0-beta.6 — 2026-04-27
+## v0.10.0-beta.6, 2026-04-27
 
-### Changed — Unified Android playback on Media3 ExoPlayer
+### Changed, Unified Android playback on Media3 ExoPlayer
 Radio AND library tracks (Subsonic / Jellyfin / local) now both flow
 through the same native ExoPlayer + MediaSession. Replaces the prior
 split where streams went native and library tracks went through the
 JS MSE pipeline + capacitor-music-controls plugin. Wins:
 
-- **One MediaSession** — eliminates the dual-session bug that caused
+- **One MediaSession**, eliminates the dual-session bug that caused
   intermittent dead lockscreen taps and notification flicker.
 - **One notification UX** across radio + library. Lockscreen swaps
   between [Stop] (live radio) and [Prev | Next | Stop] (library) via
   Media3's custom command layout.
-- **Native ExoPlayer for everything** — same decoder that already
+- **Native ExoPlayer for everything**, same decoder that already
   works for HE-AAC/HLS/iHeart now also plays Jellyfin/Subsonic streams
   with HTTP/2 + redirect handling out of the box.
 - **`audiofx.Visualizer` ring on every track** (not just radio).
-- **Drops capacitor-music-controls-plugin** — kills the package we
+- **Drops capacitor-music-controls-plugin**, kills the package we
   had to monkey-patch around (NPE in Java + Capacitor 8 thenable bug).
 
-The Web PWA path is unchanged — `<audio>` + MSE + Web Media Session
+The Web PWA path is unchanged, `<audio>` + MSE + Web Media Session
 API still drive the desktop / mobile-browser experience.
 
-### Added — RDS Italia + HLS-ID3 metadata parsing
+### Added, RDS Italia + HLS-ID3 metadata parsing
 - ID3 `TextInformationFrame` (TIT2 / TPE1) entries from `HlsMediaSource`
-  are now collected and emitted as combined "Artist - Title" — unlocks
+  are now collected and emitted as combined "Artist - Title", unlocks
   metadata for RDS Grandi Successi, RDS Next, and any HLS broadcaster
   that publishes timed ID3 tags.
 - New `Song*<title>*<artist>*<year>*<uuid>` parser added to all three
-  sanitizers (Java, JS, server) — clean output for RDS Relax and other
+  sanitizers (Java, JS, server), clean output for RDS Relax and other
   RDS Italia format streams. `Spot*…` / `Ad*…` payloads are dropped so
   the previous song stays on the lockscreen during ad breaks.
 
-### Fixed — PWA stream RDS now reaches the lockscreen
+### Fixed, PWA stream RDS now reaches the lockscreen
 The now-playing poll updated only the in-app stores; the OS-level
 Media Session metadata stayed frozen on the station name. New
 `_updateStreamMediaSession` pushes the parsed title/artwork onto
 `navigator.mediaSession.metadata` on each poll tick.
 
-### Fixed — PWA rest timer silent when backgrounded
+### Fixed, PWA rest timer silent when backgrounded
 `Notification.requestPermission()` was called from inside `_finish`'s
-setTimeout — not a user gesture, so the prompt silently no-op'd and
+setTimeout, not a user gesture, so the prompt silently no-op'd and
 permission stayed `default` forever. Moved the request to `startRest`
 which fires from a real set-checkbox tap, so the SW notification path
 actually has permission to vibrate / sound when the timer hits 0.
 
-### Fixed — Lockscreen / notification controls on Android
+### Fixed, Lockscreen / notification controls on Android
 - Self-hosted MediaStyle notification posted in `onStartCommand`
   (always shows, beats the 5-second `startForeground` deadline).
 - Stop button via Media3 custom session command + `setCustomLayout`.
@@ -641,7 +666,7 @@ actually has permission to vibrate / sound when the timer hits 0.
   no playlist) but re-added for library tracks.
 - `MediaStyleNotificationHelper.MediaStyle` for proper session binding.
 
-### Internal — `RadioPlayerPlugin` foundation expansion
+### Internal, `RadioPlayerPlugin` foundation expansion
 - `play()` accepts pre-fill metadata (title/artist/album/coverUrl)
   + per-request HTTP headers (Authorization Bearer for Subsonic /
   Jellyfin auth).
@@ -652,15 +677,15 @@ actually has permission to vibrate / sound when the timer hits 0.
 
 ---
 
-## v0.10.0-beta.5 — 2026-04-26
+## v0.10.0-beta.5, 2026-04-26
 
-### Fixed — Rest timer keeps counting after workout finish
+### Fixed, Rest timer keeps counting after workout finish
 The auto-finish path saved `completed: 1` and fired the celebration but
 left any in-flight rest timer running. Now `stopRest(false)` is called as
 part of the finish so the timer pill / lock-screen notification clears the
 moment the workout's done.
 
-### Improved — Background countdown vibrates / notifies
+### Improved, Background countdown vibrates / notifies
 When the page is backgrounded the browser suspends Web Audio, so the
 3-2-1 countdown beeps were silent. `_countdownCue` now falls back to a
 Service Worker notification (silent + vibrate, tagged so successive ticks
@@ -668,7 +693,7 @@ replace the prior) when `document.visibilityState === 'hidden'`. The
 audible "Rest complete" notification at 0s is unchanged. Net: in-pocket
 countdown haptic feedback works without unlocking the phone.
 
-### Added — Editable set number / asymmetric superset support
+### Added, Editable set number / asymmetric superset support
 The "Set N" label on each row is now tappable (Diary) / editable (Workout
 Editor). User picks an explicit round number (1-8) which is persisted as
 `set.number`; auto-default behavior is unchanged for anyone who never
@@ -677,7 +702,7 @@ touches it.
 The round-gate logic in `_shouldStartRest` rewrites to operate on `number`
 instead of completed-set-count: round N is "done" across a superset when
 every exercise that **has** a set numbered N has it completed. Exercises
-without a set at round N are skipped — the addon pattern.
+without a set at round N are skipped, the addon pattern.
 
 Use case (from user): superset where Exercise A has 3 sets, Exercise B is
 an addon on round 2, Exercise C is an addon on round 3. Edit B's set to
@@ -692,9 +717,9 @@ identically to before.
 
 ---
 
-## v0.10.0-beta.4 — 2026-04-26
+## v0.10.0-beta.4, 2026-04-26
 
-### Refactor — "Help Improve LiftTrace" → "Diagnostics" (parity with NutriTrace v0.39.36+)
+### Refactor, "Help Improve LiftTrace" → "Diagnostics" (parity with NutriTrace v0.39.36+)
 Internal section key (`helpImprove`) kept as-is to avoid touching openSections /
 toggleSection wiring; rename is purely UI + file-level.
 
@@ -711,9 +736,9 @@ toggleSection wiring; rename is purely UI + file-level.
 
 ---
 
-## v0.10.0-beta.3 — 2026-04-26
+## v0.10.0-beta.3, 2026-04-26
 
-### Changed — AI Assistant label parity with NutriTrace
+### Changed, AI Assistant label parity with NutriTrace
 Both apps now share the exact same AI Assistant section UX. The brand name
 "Trace" appears only as the default value of the user-customizable assistant-
 name field, so customizing it doesn't leave stale labels around the rest of
@@ -729,13 +754,13 @@ the UI.
 
 ---
 
-## v0.10.0-beta.2 — 2026-04-26
+## v0.10.0-beta.2, 2026-04-26
 
-### Renamed — LiftBot is now Trace
+### Renamed, LiftBot is now Trace
 The AI coach is renamed from "LiftBot" to "Trace" so the same persona ships
 across both LiftTrace and NutriTrace under the TraceApps umbrella brand.
 
-- New friendly face: `src/components/ai/TraceFace.svelte` — port of
+- New friendly face: `src/components/ai/TraceFace.svelte`, port of
   NutriTrace's FitBotFace (rounded head, blinking eyes, pulsing antenna,
   twinkling cheeks, idle smile bob). Replaces the lifting-themed
   `LiftBotFace` (barbell arm + body) so the visual identity is brand-
@@ -755,9 +780,9 @@ across both LiftTrace and NutriTrace under the TraceApps umbrella brand.
 
 ---
 
-## v0.10.0-beta.1 — 2026-04-26
+## v0.10.0-beta.1, 2026-04-26
 
-### Native Android app — initial scaffold (Capacitor 8)
+### Native Android app, initial scaffold (Capacitor 8)
 The big architectural shift: LiftTrace now wraps the same Svelte PWA in a
 Capacitor shell so it can run as a native Android app. Mirrors the
 NutriTrace pattern: standalone-or-server modes, full local SQLite mirror,
@@ -778,7 +803,7 @@ native WorkManager reminders, offline-first writes with retry queue.
   `deleted_at`, and `sync_state` columns the server schema doesn't have so
   the sync engine can detect diffs without server-side schema changes.
 - `LtApiNative` (`src/lib/api-native.js`) implements every server CRUD
-  endpoint against the local database — exercises, programs, templates,
+  endpoint against the local database, exercises, programs, templates,
   workout_log, body_stats, settings, stats, ai chat history.
 - Endpoints that genuinely require a server (image proxy, full-backup ZIP,
   sync-wger, radio-proxy, subsonic, file uploads) throw a friendly 501 the
@@ -795,7 +820,7 @@ native WorkManager reminders, offline-first writes with retry queue.
 #### Differential sync
 - `pullSnapshot()` refreshes the local cache from server list endpoints
   (settings, exercises, programs, last 200 workouts, last 90 days of
-  body stats). Single-shot replace — no diff yet, cheap enough for personal
+  body stats). Single-shot replace, no diff yet, cheap enough for personal
   use.
 - `flushQueue()` replays queued writes; 4xx responses drop the entry,
   5xx / network errors increment `attempts` and retain.
@@ -809,7 +834,7 @@ native WorkManager reminders, offline-first writes with retry queue.
   streak / weekly-summary reminders directly via the OS so they fire even
   when the app is closed. Re-runs on every `wl:setting` change.
 - Push services (Apprise / Gotify / ntfy) called directly from device via
-  `CapacitorHttp` in native mode — bypasses the `/api/notify` server proxy
+  `CapacitorHttp` in native mode, bypasses the `/api/notify` server proxy
   that isn't reachable in standalone.
 
 #### Native WorkManager
@@ -818,7 +843,7 @@ native WorkManager reminders, offline-first writes with retry queue.
   reads the same SQLite database the JS app uses (`lifttraceSQLite.db`),
   posts notifications based on user_settings toggles, de-dupes per-day via
   SharedPreferences.
-- Gated by `_USE_NATIVE_WORKER` setting (default off — JS LocalNotifications
+- Gated by `_USE_NATIVE_WORKER` setting (default off, JS LocalNotifications
   is the v0.10.x default). Toggle in Settings → App Mode → "Background
   reminders".
 - Includes per-day SharedPreferences dedupe so each reminder fires once.
@@ -826,11 +851,11 @@ native WorkManager reminders, offline-first writes with retry queue.
   exercises so they're suppressed if the user already logged something.
 
 #### Offline media + local backup
-- `src/lib/image-cache.js` — downloads exercise GIFs / images / videos via
+- `src/lib/image-cache.js`, downloads exercise GIFs / images / videos via
   `@capacitor/filesystem` to `Directory.Data/lifttrace-images/`. URL-to-file
   mapping persisted in `sync_meta.image_map`; `resolveAssetUrl()` swaps in
   the local URI synchronously when present.
-- `src/lib/local-backup.js` — JSON dump of every cached table to
+- `src/lib/local-backup.js`, JSON dump of every cached table to
   `Directory.Data/lifttrace-backups/`. Built-in Share sheet so the user can
   send the file to Drive / email. `importBackup()` does a destructive
   restore.
@@ -838,13 +863,13 @@ native WorkManager reminders, offline-first writes with retry queue.
 #### Native UX polish
 - StatusBar configured to dark style + `#0F1115` background to match the app
   surface; SplashScreen explicitly hidden after main bootstraps.
-- New `src/lib/haptics.js` shim — `@capacitor/haptics` impacts on native
+- New `src/lib/haptics.js` shim, `@capacitor/haptics` impacts on native
   (Light/Medium/Heavy by total ms), `navigator.vibrate` fallback on web.
   Existing call sites in SetRow + restTimer + LiftBot now route through it.
 - AndroidManifest declares `POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`,
   `USE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `CAMERA`. SW registration
   blocked in `index.html` when running in Capacitor (assets served natively
-  — SW would intercept navigation and route to offline.html).
+ , SW would intercept navigation and route to offline.html).
 
 #### Capacitor plugins installed (12)
 @capacitor/core, @capacitor/android, @capacitor/cli (dev),
@@ -862,9 +887,9 @@ Health Connect + barcode-scanner + speech-recognition deferred to FUTURE.md.
 
 ---
 
-## v0.9.4-beta.22 — 2026-04-22
+## v0.9.4-beta.22, 2026-04-22
 
-### Security — radio-proxy SSRF guard
+### Security, radio-proxy SSRF guard
 Tiered protection against using the radio proxy as an SSRF tool to probe
 internal services or exfiltrate cloud-instance metadata.
 
@@ -898,9 +923,9 @@ Public-internet URLs (the 99% case) see no behavior change.
 
 ---
 
-## v0.9.4-beta.21 — 2026-04-22
+## v0.9.4-beta.21, 2026-04-22
 
-### Security audit — pre-1.0 hardening pass
+### Security audit, pre-1.0 hardening pass
 Backports the critical findings from NutriTrace's recent 4-phase security
 audit. Same architecture, same applicable threats. No new dependencies
 added; everything is in-house.
@@ -918,7 +943,7 @@ added; everything is in-house.
   hash but meaningfully more resistant to GPU offline cracking if
   the DB ever leaks.
 - Login rate-limit now runs **two parallel buckets**: per-IP (10/15min)
-  AND per-username (6/15min). Previously per-IP only — credential-
+  AND per-username (6/15min). Previously per-IP only, credential-
   stuffing across IPs aimed at one account would slip through.
 - Recovery-token comparison switched to `crypto.timingSafeEqual()`.
   String `===` is byte-by-byte and timing-side-channel-vulnerable.
@@ -942,7 +967,7 @@ added; everything is in-house.
 - Magic-byte sniffing on every upload. The actual first bytes of the
   written file are checked against known image / video signatures;
   if they don't match the file is deleted and the request 400s.
-  Closes the "client-sent MIME is trusted" hole — most importantly,
+  Closes the "client-sent MIME is trusted" hole, most importantly,
   SVG is rejected entirely (it can carry inline `<script>`).
 
 **API limits**:
@@ -956,19 +981,19 @@ added; everything is in-house.
 **Already correct** (verified, no change needed):
 - `/api/auth/users` was already auth+admin gated.
 - `/api/proxy` already uses exact-match `ALLOWED.includes(hostname)`,
-  not `endsWith` — so `i.imgur.com.evil.tld` won't bypass.
+  not `endsWith`, so `i.imgur.com.evil.tld` won't bypass.
 
 **Deferred**:
-- Radio-proxy SSRF private-IP guard — moderate priority, separate
+- Radio-proxy SSRF private-IP guard, moderate priority, separate
   follow-up.
-- CSRF middleware — bigger architectural change, not required for the
+- CSRF middleware, bigger architectural change, not required for the
   pre-1.0 cut.
 
 ---
 
-## v0.9.4-beta.20 — 2026-04-22
+## v0.9.4-beta.20, 2026-04-22
 
-### Exercise picker — sticky filters + "stay open" multi-add
+### Exercise picker, sticky filters + "stay open" multi-add
 Two compounding improvements that turn "add 5 exercises" from 15 taps
 into 6.
 
@@ -979,7 +1004,7 @@ into 6.
    or you change dates.
 
 2. **Picker stays open on add** (Apple-Music pattern). Tapping an
-   exercise no longer dismisses the sheet — it:
+   exercise no longer dismisses the sheet, it:
    - Adds the exercise to today's workout
    - Flashes the row with a green "✓ Added" badge for 1.5s
    - Keeps you in the picker so you can immediately tap another
@@ -998,13 +1023,13 @@ Picked pattern A over pattern B (long-press selection mode) because:
 
 ---
 
-## v0.9.4-beta.19 — 2026-04-22
+## v0.9.4-beta.19, 2026-04-22
 
-### Statistics — NutriTrace-inspired polish
+### Statistics, NutriTrace-inspired polish
 Three patterns borrowed from NutriTrace's Statistics page:
 
 1. **Inline sparklines on Overview summary cards.**
-   - *Day Streak* card gets a 14-day dot row — filled dots are workout
+   - *Day Streak* card gets a 14-day dot row, filled dots are workout
      days, outlined dots are rest days. Quick visual read of recent
      consistency without scrolling to the heatmap.
    - *This {range}* card gets an 8-week bar sparkline of workout
@@ -1034,9 +1059,9 @@ Deliberately skipped from NutriTrace patterns:
 
 ---
 
-## v0.9.4-beta.18 — 2026-04-22
+## v0.9.4-beta.18, 2026-04-22
 
-### Statistics — polish pass (4 fixes)
+### Statistics, polish pass (4 fixes)
 
 1. **PR rows are tappable.** Records with a library exercise id now
    open that exercise's detail page on tap. Custom / legacy free-text
@@ -1051,7 +1076,7 @@ Deliberately skipped from NutriTrace patterns:
    `/api/stats/progress/:id` response.
 
 3. **"All" range now means all.** Previously capped at 3650 days
-   (~10 years) — long enough for most users but would silently chop
+   (~10 years), long enough for most users but would silently chop
    older imported data. Now resolves to `MIN(date)` from
    `workout_log` via a new `/api/stats/earliest-workout-date`
    endpoint. Body-weight range query also switched to the resolved
@@ -1064,21 +1089,21 @@ Deliberately skipped from NutriTrace patterns:
 
 ---
 
-## v0.9.4-beta.17 — 2026-04-22
+## v0.9.4-beta.17, 2026-04-22
 
-### Fixed — Weekly summary was counting warm-up volume
+### Fixed, Weekly summary was counting warm-up volume
 `scheduler.js` weekly-summary volume calculation now filters
 `set.warmup` sets out, matching every other stats route. Warm-ups
 were inflating the Sunday "volume lifted" number.
 
-### Improved — LiftBot context awareness
+### Improved, LiftBot context awareness
 Three gaps closed in the chat context injection so the coach actually
 sees everything the app knows about you:
 
 - **Warm-up sets now filtered** from "today's workout" and "recent
   workouts" summaries. Previously warm-ups counted as "work done" in
   the prompt, making LiftBot overestimate volume.
-- **RPE annotations added** to the prompt — set lines now read
+- **RPE annotations added** to the prompt, set lines now read
   `"225lbs×5 @8"` when you've logged RPE. System prompt educates the
   model on what `@N` means and explicitly suggests proposing a deload
   when RPE trends high at constant weight.
@@ -1086,7 +1111,7 @@ sees everything the app knows about you:
   `/api/prescriptions/my/{date}` and injected. LiftBot will stay
   inside the trainer's plan unless asked for variations.
 
-### Verified — Full backup coverage
+### Verified, Full backup coverage
 Audited the backup route against every recent addition. Confirmed
 the backup ZIP includes: custom exercises + their media
 (`/uploads/exercises/`), radio stations (incl. groups / homepages /
@@ -1094,7 +1119,7 @@ rest-tone preset), warm-up flags + RPE values (live in the
 `workout_log.exercises` JSON), imported workout history, all
 settings (including auto-collapse, auto-generate-warmups, track-RPE
 toggles). Device-local state (collapse positions, FAB positions,
-active rest timer) is intentionally excluded — that's local browser
+active rest timer) is intentionally excluded, that's local browser
 state. No backup changes needed.
 
 ### Docs
@@ -1104,9 +1129,9 @@ state. No backup changes needed.
 
 ---
 
-## v0.9.4-beta.16 — 2026-04-22
+## v0.9.4-beta.16, 2026-04-22
 
-### Radio — polish pass
+### Radio, polish pass
 Five small-but-real UX improvements surfaced by a review of the Radio
 page.
 
@@ -1118,7 +1143,7 @@ page.
 - **Artists empty state.** If the server returns no artists (new
   install / wrong credentials), the tab now shows a friendly
   "No artists found. Check your Subsonic server connection in
-  Settings." prompt instead of a blank page — matching what Albums /
+  Settings." prompt instead of a blank page, matching what Albums /
   Playlists already did.
 - **"Added" chip on Browse results.** Searching Radio-Browser now
   compares each result's URL against your existing `$radioStations`;
@@ -1134,20 +1159,20 @@ page.
 
 Skipped from the review:
 - "Radio" → "Music" page rename (branding call; no change)
-- Mobile volume slider in mini-player (intentional — OS hardware
+- Mobile volume slider in mini-player (intentional, OS hardware
   buttons cover this)
 - "Inconsistent card padding" (invisible to users)
 
 ---
 
-## v0.9.4-beta.15 — 2026-04-22
+## v0.9.4-beta.15, 2026-04-22
 
-### Diary — layout polish pass
+### Diary, layout polish pass
 Four small-but-real improvements to how the Diary page reads at a
 glance mid-workout:
 
 - **Removed the duplicate workout-name bar.** The template name was
-  showing twice — once in a calendar-icon chip and again as the
+  showing twice, once in a calendar-icon chip and again as the
   editable title below the progress strip. Only the editable version
   (the useful one) remains.
 - **"Now doing" pill.** A sticky accent-colored row appears between
@@ -1156,13 +1181,13 @@ glance mid-workout:
   and scrolls to that card when tapped. Supersets report the group
   as "Superset: A / B".
 - **Current-set highlight.** The first incomplete working set in each
-  exercise card gets a subtle accent left-bar + tint — a visual "you
+  exercise card gets a subtle accent left-bar + tint, a visual "you
   are here" cue so you don't have to scan for the next ○.
 - **Summary bar progress fill.** Soft accent-gradient grows behind
   the stat row as sets complete; flips to success green when the
   workout is done.
 
-### Settings — copy polish
+### Settings, copy polish
 - Section name "Import from other apps" → "Import from Other Apps"
   (matches the title-case convention of every other section).
 - Card label "Offline media" → "Offline exercise library" (clearer
@@ -1170,17 +1195,17 @@ glance mid-workout:
 
 ---
 
-## v0.9.4-beta.14 — 2026-04-21
+## v0.9.4-beta.14, 2026-04-21
 
-### Added — Selectable rest-timer tones
+### Added, Selectable rest-timer tones
 Five synth-generated tone presets with a per-preset preview button in
 Settings → Workout → Rest Timer.
 
-- **Classic** — 880 Hz countdown, higher chirp at 0 (previous hardcoded default)
-- **Bells** — soft musical chime, C–E–G major-third finale
-- **Beeper** — sharp square-wave beeps, triple-tap finale
-- **Gym** — low thud countdown, rising sawtooth horn at 0
-- **Minimal** — no countdown beeps, single soft click on the 0 mark only
+- **Classic**, 880 Hz countdown, higher chirp at 0 (previous hardcoded default)
+- **Bells**, soft musical chime, C–E–G major-third finale
+- **Beeper**, sharp square-wave beeps, triple-tap finale
+- **Gym**, low thud countdown, rising sawtooth horn at 0
+- **Minimal**, no countdown beeps, single soft click on the 0 mark only
 
 Tap any row to select, tap ▶ to preview without running the real
 timer. All presets respect the existing "Play tone" master toggle.
@@ -1190,9 +1215,9 @@ there's nothing to bundle and offline behaviour is unchanged.
 
 ---
 
-## v0.9.4-beta.13 — 2026-04-21
+## v0.9.4-beta.13, 2026-04-21
 
-### Added — Warm-up set generator
+### Added, Warm-up set generator
 Classic 5-step ramp (bar → 50% → 70% → 85% → working) prepended to
 exercises that have a target weight.
 
@@ -1212,7 +1237,7 @@ exercises that have a target weight.
 - Round-robin superset logic also ignores warm-ups when deciding
   whether a round is "closed".
 
-### Added — RPE / RIR per set
+### Added, RPE / RIR per set
 Optional per-set Rate of Perceived Exertion logging for
 autoregulated programs (5/3/1, nSuns, RTS, GZCL-style).
 
@@ -1223,16 +1248,16 @@ autoregulated programs (5/3/1, nSuns, RTS, GZCL-style).
   opens a compact picker with 6, 7, 7.5, 8, 8.5, 9, 9.5, 10 + Clear.
 - Stored as `set.rpe: number | null` on the workout log.
 - Bonus: the Strong/Hevy import already reads RPE into the notes
-  field as `"RPE 8"` — a future migration can promote those into
+  field as `"RPE 8"`, a future migration can promote those into
   the proper field now that it exists.
 
-### Added — Similar exercises
+### Added, Similar exercises
 New "Similar exercises" section on the ExerciseDetail page. Shows up
 to 8 alternatives ranked by how many primary muscles they share with
 the current exercise.
 
 - Scoring: `primary_overlap * 3 + secondary_overlap - (different_equipment ? 1 : 0)`.
-- Small equipment penalty (not a hard filter — the whole point is
+- Small equipment penalty (not a hard filter, the whole point is
   finding alternatives when your preferred equipment is taken).
 - Each card shows name + equipment tags + GIF/image thumbnail;
   tapping opens that exercise's detail page.
@@ -1241,11 +1266,11 @@ the current exercise.
 
 ---
 
-## v0.9.4-beta.12 — 2026-04-21
+## v0.9.4-beta.12, 2026-04-21
 
-### Improved — Radio station "now playing" metadata
+### Improved, Radio station "now playing" metadata
 Non-breaking improvements to how we extract and clean the current-song
-info from streaming radio stations. UI output shape unchanged — just
+info from streaming radio stations. UI output shape unchanged, just
 fewer garbled or missing titles.
 
 - **UTF-8 / Latin-1 fallback**: when we detect mojibake (`\uFFFD`
@@ -1266,23 +1291,23 @@ fewer garbled or missing titles.
   (Shoutcast v2). Results go into the same cache. Debounced to one
   attempt per 30 seconds per URL so we never hammer the upstream.
 
-All changes are additive — the client-side data shape
+All changes are additive, the client-side data shape
 (`{ title, updatedAt }`) is unchanged. Stations that were already
 showing metadata cleanly continue to do so.
 
 ---
 
-## v0.9.4-beta.11 — 2026-04-21
+## v0.9.4-beta.11, 2026-04-21
 
-### Added — FitNotes + Jefit import adapters
+### Added, FitNotes + Jefit import adapters
 Rounds out the experimental Import-from-other-apps feature. Same
 preview → commit flow as Strong + Hevy.
 
-- **FitNotes** (Android) — reads the CSV export, detects weight unit
+- **FitNotes** (Android), reads the CSV export, detects weight unit
   from the column header (`Weight (kgs)` vs `Weight (lbs)`). FitNotes
   has no workout-name field, so imported workouts are auto-named by
   the trained muscle categories (e.g. "Chest / Back").
-- **Jefit** — reads the Workout Log CSV export. Permissive column
+- **Jefit**, reads the Workout Log CSV export. Permissive column
   lookup by name (not position) handles both the modern `Log Date,
   Routine, Exercise, Set, Weight, Weight Unit, Reps, Notes` header and
   older `Date, Exercise Name, Weight, Unit, Reps, Notes`. Dates
@@ -1293,9 +1318,9 @@ options in a responsive grid (2 cols mobile, 4 cols desktop).
 
 ---
 
-## v0.9.4-beta.10 — 2026-04-21
+## v0.9.4-beta.10, 2026-04-21
 
-### Added — Workout-history import from Strong / Hevy (experimental)
+### Added, Workout-history import from Strong / Hevy (experimental)
 New Settings → "Import from other apps" section (DATA group, labelled
 EXPERIMENTAL) that accepts a CSV export from Strong or Hevy and
 rebuilds your workout history inside LiftTrace.
@@ -1306,13 +1331,13 @@ rebuilds your workout history inside LiftTrace.
 - Exercise name fuzzy-matching against your library (same priority
   tiers as Smart Log: exact → starts-with → substring → token-overlap)
 - Unmatched exercise names land as free-text on their workout rows,
-  never dropping data — the existing "not-linked → Replace" flow lets
+  never dropping data, the existing "not-linked → Replace" flow lets
   you link them to library exercises later
 - Preserves supersets (Hevy's `superset_id` remaps to our integer ids)
 - Converts weight units to your current setting (Strong has per-row
   unit; Hevy is always kg)
 
-### Changed — User management consolidated (NutriTrace parity)
+### Changed, User management consolidated (NutriTrace parity)
 - Removed the account / sign-out header card from the top of Settings
   (sign-out now lives solely in the sidebar footer, as it already did)
 - "User Management" section now visible to all logged-in users with a
@@ -1325,9 +1350,9 @@ rebuilds your workout history inside LiftTrace.
 
 ---
 
-## v0.9.4-beta.9 — 2026-04-21
+## v0.9.4-beta.9, 2026-04-21
 
-### Fixed — Drag auto-scroll on mobile was crawling
+### Fixed, Drag auto-scroll on mobile was crawling
 Two compounding bugs made edge-scroll on mobile nearly useless after
 beta.8:
 
@@ -1352,25 +1377,25 @@ Also bumped MAX_SPEED 14 → 26 px/frame (~1560 px/s) and EDGE_ZONE
 
 ---
 
-## v0.9.4-beta.8 — 2026-04-21
+## v0.9.4-beta.8, 2026-04-21
 
-### Rest timer — persistent, countdown beeps, repositioned
+### Rest timer, persistent, countdown beeps, repositioned
 Rebuilt on top of a persistent module-level store driven by an absolute
 `endTime` timestamp, so a running timer now survives page navigation,
 backgrounded tabs, and locked screens. If you're resting for 2 minutes
 and lock your phone, the alert still fires accurately.
 
-- **Countdown cues** — short beeps at the 3s / 2s / 1s marks (rising
+- **Countdown cues**, short beeps at the 3s / 2s / 1s marks (rising
   pitch) plus a final higher-pitch double alert at 0. Each step
   vibrates (if enabled); the 0-mark fires a double vibrate.
-- **Background alerts** — when the PWA is backgrounded the OS handles
+- **Background alerts**, when the PWA is backgrounded the OS handles
   the alert via a Service Worker notification with a vibrate pattern,
   so you're still notified if you've switched to another app.
-- **Position flipped** — the red rest bar now sits directly above the
+- **Position flipped**, the red rest bar now sits directly above the
   mini-player. The workout-mode pill smoothly slides up above the rest
   bar when rest activates, then back down when rest ends, via a new
   `--rest-h` CSS variable (no jank).
-- **Survives navigation** — open LiftBot or flip to Stats mid-rest; the
+- **Survives navigation**, open LiftBot or flip to Stats mid-rest; the
   timer is still counting when you return to Diary.
 
 ### Diary polish
@@ -1379,7 +1404,7 @@ and lock your phone, the alert still fires accurately.
   collapses the card so you can see your next move at a glance.
   Still controllable via Settings → Workout → Auto-collapse.
 - **Collapse state persists** across page navigation (per date, per
-  card). Leaves for Stats, comes back — the same cards are still
+  card). Leaves for Stats, comes back, the same cards are still
   collapsed.
 - **Reorder arrow icons changed** to `keyboard_double_arrow_up/down`
   everywhere (ExerciseCard, SupersetCard child cards, Radio stations,
@@ -1393,18 +1418,18 @@ and lock your phone, the alert still fires accurately.
 
 ---
 
-## v0.9.4-beta.7 — 2026-04-21
+## v0.9.4-beta.7, 2026-04-21
 
-### Added — Custom exercises (in-app create/edit/delete)
+### Added, Custom exercises (in-app create/edit/delete)
 A first-class feature for building your own exercises without leaving
 the app. No more Excel imports for one-off additions.
 
 - **Create** from the Exercises page "+" button (header, top-right) or
   from the workout picker's "Create 'X'" shortcut when a search finds
-  nothing — pre-fills the name and auto-selects the new exercise after
+  nothing, pre-fills the name and auto-selects the new exercise after
   save so you can add it to the current workout in one flow.
 - **Edit / Delete** from the exercise detail page (pencil + trash
-  icons next to the title, only on your custom exercises — seeded
+  icons next to the title, only on your custom exercises, seeded
   catalog exercises stay read-only).
 - **Manage all** in Settings → Exercise Catalog → "My Exercises":
   list with thumbnail / name / category, per-row edit + delete, and a
@@ -1412,14 +1437,14 @@ the app. No more Excel imports for one-off additions.
 - **Custom chip** on library rows so you can tell your own exercises
   apart at a glance.
 - **Editor form** covers name, category, primary/secondary muscles
-  (mutually exclusive — selecting a muscle as primary removes it from
+  (mutually exclusive, selecting a muscle as primary removes it from
   secondary), equipment chips, instructions, tips.
 - **Media picker** handles everything in one control: upload from
   device (image / GIF / video, up to 100 MB), paste any image URL, or
   paste a YouTube link (auto-detected and rendered as an embedded
-  iframe). Only one media per exercise — replacing it clears the
+  iframe). Only one media per exercise, replacing it clears the
   others.
-- Workout history stays intact when you delete a custom exercise —
+- Workout history stays intact when you delete a custom exercise ,
   `workout_log` already denormalizes exercise names, and the existing
   "not-linked → Replace" recovery flow handles relinking.
 - All covered by the existing full-backup (SQLite + /uploads folder).
@@ -1429,79 +1454,79 @@ the app. No more Excel imports for one-off additions.
   video/* up to 100 MB.
 - New `DELETE /api/exercises/custom/all` route for the bulk clear
   action. Scoped to `source='custom' AND is_global=0 AND
-  created_by=<userId>` — can never delete seeded or other users' rows.
+  created_by=<userId>`, can never delete seeded or other users' rows.
 
 ---
 
-## v0.9.4-beta.6 — 2026-04-20
+## v0.9.4-beta.6, 2026-04-20
 
-### Added — Radio stations: discovery, now-playing, drag-drop, auto-fill
-- **Browse sub-tab** — new sub-tab inside the Stations tab that searches
+### Added, Radio stations: discovery, now-playing, drag-drop, auto-fill
+- **Browse sub-tab**, new sub-tab inside the Stations tab that searches
   the Radio-Browser.info community directory (~40,000 stations). Type a
   name, genre, or country; tap a result to add it. Populates name, URL,
   genre, and icon automatically.
-- **Now playing** (ICY metadata) — stations that embed `StreamTitle` in
+- **Now playing** (ICY metadata), stations that embed `StreamTitle` in
   the stream (most Icecast/Shoutcast servers) now show the currently
   playing track in the mini-player, full player, and the station list
   entry itself. The server parses the interleaved metadata blocks and
   strips them before forwarding clean audio. A polling endpoint
   (`/api/radio-proxy/now-playing`) returns the latest title. Polling
-  runs globally in `player.js` — works while the user is on any page.
-- **Drag-and-drop reorder** — drag a station row on desktop to reorder.
+  runs globally in `player.js`, works while the user is on any page.
+- **Drag-and-drop reorder**, drag a station row on desktop to reorder.
   Cross-group drops update the station's `group` field automatically;
   drop onto a group header to move it to the end of that group. Mobile
   keeps the up/down arrow buttons.
-- **Auto-fill station info** — "Auto-fill" button on the Stream URL
+- **Auto-fill station info**, "Auto-fill" button on the Stream URL
   field fetches the stream's `icy-name` and `icy-genre` headers via a
   new `/api/radio-proxy/info` endpoint and prefills the form.
-- **Icon auto-fetch button** — opt-in "Auto" button next to the Icon
+- **Icon auto-fetch button**, opt-in "Auto" button next to the Icon
   URL field uses Google's favicon service against the stream URL's
   domain. Works well for stations hosted on their own domain.
-- **Playlist file resolution** — if you paste a `.pls` or `.m3u` URL
+- **Playlist file resolution**, if you paste a `.pls` or `.m3u` URL
   (e.g. SomaFM), the proxy fetches the playlist and uses the first
   stream URL automatically. No more manually opening playlists.
 
 ---
 
-## v0.9.4-beta.5 — 2026-04-20
+## v0.9.4-beta.5, 2026-04-20
 
-### Added — Radio stations: HLS streams, groups, reordering, group rename
-- **HLS support** — TuneIn-style `.m3u8` streams (e.g. Radio Deejay) now
+### Added, Radio stations: HLS streams, groups, reordering, group rename
+- **HLS support**, TuneIn-style `.m3u8` streams (e.g. Radio Deejay) now
   play in Chrome/Firefox via lazy-loaded `hls.js`. Safari uses native
   HLS. The hls.js chunk only loads when an `.m3u8` URL is actually
   played (zero cost for users who never add HLS stations).
-- **Groups** — new optional Group field per station (free-text, with
+- **Groups**, new optional Group field per station (free-text, with
   datalist auto-suggestions from existing groups). Stations tab
   renders a section header per group; "Ungrouped" appears last.
-- **Rename group** — pencil icon next to each group header bulk-renames
+- **Rename group**, pencil icon next to each group header bulk-renames
   every station in that group in one dialog. Clearing the name moves
   all stations in the group to "Ungrouped".
-- **In-group reorder** — up/down arrow buttons on each station move it
+- **In-group reorder**, up/down arrow buttons on each station move it
   within its current group (cross-group moves go through the Edit
   dialog's Group field).
-- **Radio station backup** — stations are stored in `user_settings` and
+- **Radio station backup**, stations are stored in `user_settings` and
   have always been included in full backup + restore. Groups/ordering
   carry through automatically (`group` is just another field on the
   array items).
 
-### Fixed — Cross-origin radio streams silenced by Web Audio
+### Fixed, Cross-origin radio streams silenced by Web Audio
 Icecast/Shoutcast MP3 streams (e.g. `Radio105.mp3`) were being silenced
 by the new LiftBot visualizer because `createMediaElementSource` requires
 same-origin audio. A new `/api/radio-proxy?url=...` server route pipes
 direct streams through our server, making them same-origin. HLS bypasses
 the proxy (hls.js does its own XHR). The visualizer keeps working on
-every track — library, direct stream, or HLS.
+every track, library, direct stream, or HLS.
 
 ---
 
-## v0.9.4-beta.4 — 2026-04-19
+## v0.9.4-beta.4, 2026-04-19
 
-### Added — LiftBot FAB frequency visualizer
+### Added, LiftBot FAB frequency visualizer
 When music is playing, 32 SVG bars radiate outward from the LiftBot FAB
 edge, each bar driven by a real-time Web Audio `AnalyserNode` reading
 frequency data from the player's audio element.
 
-- Bars react to the actual music — bass hits pulse the lower-frequency
+- Bars react to the actual music, bass hits pulse the lower-frequency
   bars harder, treble shows activity at the top
 - SVG `feGaussianBlur` bloom filter gives bright bars a soft glow
 - Bars disappear completely in silence; only appear on sound activity
@@ -1511,22 +1536,22 @@ frequency data from the player's audio element.
 - Falls back silently if Web Audio API is unavailable or blocked by
   CORS (e.g. external streaming stations)
 
-### Fixed — Program workout list scroll restore
+### Fixed, Program workout list scroll restore
 When tapping into a workout template from a long program list (e.g.
 Monumental Valley with 57 workouts) and pressing back, the list now
 returns to the exact scroll position rather than jumping to the top.
 Position is saved per-program in `sessionStorage`.
 
-### Fixed — ProgramDetail header overlap
+### Fixed, ProgramDetail header overlap
 Removed the "Duplicate" text label from the header action buttons.
 The label was appearing at wider viewports and overlapping with long
 program names. Icon + tooltip is sufficient.
 
 ---
 
-## v0.9.4-beta.2 — 2026-04-18
+## v0.9.4-beta.2, 2026-04-18
 
-### Added — Hold-to-voice-log on LiftBot FAB
+### Added, Hold-to-voice-log on LiftBot FAB
 Same pattern as NutriTrace's AIFitBot. Press and hold the floating
 LiftBot button:
 
@@ -1535,7 +1560,7 @@ LiftBot button:
   and Web Speech API begins capturing.
 - **Release on the FAB** → end-beep, transcript is parsed by LiftBot,
   matched against the exercise library, and opened in the Smart Add
-  review screen (pre-parsed mode — skips the input phase).
+  review screen (pre-parsed mode, skips the input phase).
 - **Slide > 100px from FAB center** while holding → cancel-preview
   (FAB greys out, hint changes to "Release to cancel"). Release
   there = abort, lower end-beep.
@@ -1551,22 +1576,22 @@ did the parse/match work.
 - Updated `README.md` with Smart Add, hold-to-record, share card,
   streaming stations, superset-aware rest timer, auto-collapse, and
   right-click parity.
-- `FUTURE.md` — moved Share workout card, Streaming stations, LiftBot
+- `FUTURE.md`, moved Share workout card, Streaming stations, LiftBot
   data access, and Smart Add into "Recently Shipped". Added Selectable
   tones and Sticky rest bar as new planned items.
 
 ---
 
-## v0.9.4-beta.1 — 2026-04-18
+## v0.9.4-beta.1, 2026-04-18
 
-### Added — Smart Add (workout edition)
+### Added, Smart Add (workout edition)
 Natural-language / voice workout logging, borrowed from NutriTrace's
 Smart Log pattern and adapted for lifting.
 
 - New **Smart Add** button on Diary (both empty state and FAB group)
 - Modal accepts typed or spoken input via Web Speech API (PWA only
   for now; text input works everywhere)
-- LiftBot parses the prose into structured exercises/sets — handles:
+- LiftBot parses the prose into structured exercises/sets, handles:
   - Uniform sets: `"bench 3x5 @ 225"`
   - Per-set variation: `"squat 225x5, 245x5, 265x5"`
   - Bodyweight: `"pullups BW x 8"`, `"BW+25"` for weighted
@@ -1582,19 +1607,19 @@ Smart Log pattern and adapted for lifting.
 - New module: [src/lib/smartLogWorkout.js](src/lib/smartLogWorkout.js)
 - New component: [src/components/diary/SmartLogModal.svelte](src/components/diary/SmartLogModal.svelte)
 
-### Added — Right-click parity with long-press
+### Added, Right-click parity with long-press
 Right-click on a Diary exercise card now opens the same menu that
 long-press / ⋮ opens. Other long-press actions in the app (Radio
 track rows, WorkoutEditor exercise rows) already had contextmenu
-handlers — this closes the gap.
+handlers, this closes the gap.
 
 ---
 
-## v0.9.3-beta.3 — 2026-04-18
+## v0.9.3-beta.3, 2026-04-18
 
-**Settings polish pass** — pure UX cleanup, no feature changes.
+**Settings polish pass**, pure UX cleanup, no feature changes.
 
-### Changed — Settings page IA
+### Changed, Settings page IA
 - Every section now sits under a group label. Orphaned sections
   (Notifications, Email, User Management) were visually adrift;
   they now belong to groups:
@@ -1607,7 +1632,7 @@ handlers — this closes the gap.
     for non-admins)
   - About sits alone at the bottom (no label).
 
-### Changed — Workout section internal structure
+### Changed, Workout section internal structure
 The Workout section had 9+ toggles in an undifferentiated block.
 Now split with sub-labels matching the Notifications/Backup
 pattern:
@@ -1617,7 +1642,7 @@ pattern:
   - Rest Timer (all timer settings)
   - Body Measurements (the 9 stat toggles)
 
-### Changed — copy & hints
+### Changed, copy & hints
 - Added hints to dropdowns that previously had none (Weekly goal,
   Rest duration, Reorder method).
 - Shortened the 4-line "Highest quality playback" hint to one line.
@@ -1630,7 +1655,7 @@ pattern:
 
 ---
 
-## v0.9.3-beta.2 — 2026-04-18
+## v0.9.3-beta.2, 2026-04-18
 
 ### Added
 - **Share workout card**. The Workout Complete summary sheet now has
@@ -1645,15 +1670,15 @@ pattern:
 
 ---
 
-## v0.9.3-beta.1 — 2026-04-18
+## v0.9.3-beta.1, 2026-04-18
 
-**Versioning scheme change** — switching to `MAJOR.MINOR.PATCH-beta.BUILD`
+**Versioning scheme change**, switching to `MAJOR.MINOR.PATCH-beta.BUILD`
 under a stable base. Small ships increment the `-beta.N` counter;
 patch/minor bumps reserved for coherent, user-facing releases. `1.0.0`
 locked until release-ready.
 
 ### Fixed
-- **Program template prefill** — loading a workout from a program
+- **Program template prefill**, loading a workout from a program
   template was dropping the template's `target_weight` / `target_reps`
   when per-set `set_specs` weren't used. Diary would fall back to
   zeros or last-session weights. Now: per-set specs > last-session
@@ -1665,18 +1690,18 @@ locked until release-ready.
 - **Rest timer alert split into vibrate + tone sub-toggles**. The
   master "Alert when done" toggle now gates two independent
   sub-options (both default ON): Vibrate, Play tone. Turn off
-  either independently — useful for silent gyms (vibrate only) or
+  either independently, useful for silent gyms (vibrate only) or
   phones without a haptic motor (tone only). Selectable tone
   sounds flagged as a future option.
 - **Streaming stations toggle**. Stations tab is now opt-in via
   a new "Streaming stations" toggle in Settings → Radio (default
   OFF). When off, the Stations tab is hidden from the Radio page
-  entirely — cleaner for users who only want their personal
+  entirely, cleaner for users who only want their personal
   library. Toggle on to manage Icecast/SomaFM/etc. URLs.
 
 ---
 
-## v0.9.3-beta — 2026-04-18
+## v0.9.3-beta, 2026-04-18
 
 ### Fixed
 - **SupersetCard action order** now matches ExerciseCard
@@ -1685,13 +1710,13 @@ locked until release-ready.
 
 ---
 
-## v0.9.2-beta — 2026-04-18
+## v0.9.2-beta, 2026-04-18
 
 Five workout + player fixes from in-the-wild use.
 
 ### Fixed
 - **Rest timer now respects supersets**. Previously the timer fired
-  after every set even inside a superset round — so rest would start
+  after every set even inside a superset round, so rest would start
   after A1 even when A2 was still coming. Now the timer only fires
   when the round is complete (every exercise in the group has the
   same number of completed sets). Standalone exercises unchanged.
@@ -1709,7 +1734,7 @@ Five workout + player fixes from in-the-wild use.
 
 ### Added
 - **Superset auto-collapse**. The existing `autoCollapseCompleted`
-  setting now applies to supersets too — collapses the whole
+  setting now applies to supersets too, collapses the whole
   superset card when every set in every exercise of the group is
   done. Tap the header to re-expand. No new setting needed.
 - **Reorder exercises within a superset**. Each exercise inside a
@@ -1719,7 +1744,7 @@ Five workout + player fixes from in-the-wild use.
 
 ---
 
-## v0.9.1-beta — 2026-04-18
+## v0.9.1-beta, 2026-04-18
 
 Bundle of four user-facing changes that came out of an in-the-wild
 review pass: Radio scroll glitch, diary delete safeguards, LiftBot
@@ -1727,7 +1752,7 @@ data access, and streaming internet radio.
 
 ### Fixed
 - **Radio page auto-scrolled** down on load. Root cause was browser
-  scroll anchoring — the loading spinner got replaced by a much
+  scroll anchoring, the loading spinner got replaced by a much
   taller content block, and the anchor algorithm scrolled down to
   keep "something" visually stable. Added `overflow-anchor: none` on
   the Radio `.page` container.
@@ -1760,7 +1785,7 @@ data access, and streaming internet radio.
 
 ### Backup audit
 Confirmed all 13 DB tables + the `uploads/` tree are covered by
-full-backup. No gaps from recent work — imported XLSX catalogs,
+full-backup. No gaps from recent work, imported XLSX catalogs,
 radio config, AI keys, notification push tokens, coach prescriptions,
 trainer assignments all flow through backed-up tables.
 
@@ -1772,27 +1797,27 @@ scale should stay patch-level.
 
 ---
 
-## v0.9.0-beta — 2026-04-18
+## v0.9.0-beta, 2026-04-18
 
 Finishes the Settings sub-component split that was kicked off in
 v0.8.9. Settings.svelte drops from ~2,700 lines to ~890 as an
-orchestrator only — every section now lives in its own component
+orchestrator only, every section now lives in its own component
 under `components/settings/`.
 
 ### Refactor
 - **Settings sub-component split completed**. New components (all
   under `src/components/settings/`):
-  - `SettingsAppearance.svelte` — theme, accent picker, nav, banners
-  - `SettingsUnits.svelte` — weight unit, date/time format
-  - `SettingsWorkout.svelte` — goals, rest timer, body measurements
-  - `SettingsStatistics.svelte` — chart preferences
-  - `SettingsLiftBot.svelte` — AI provider/model/API key
-  - `SettingsRadio.svelte` — Subsonic/Jellyfin/Plex/Emby config
-  - `SettingsCatalog.svelte` — exercise sources + custom XLSX import
-  - `SettingsBackup.svelte` — full backup, restore, danger zone
-  - `SettingsNotifications.svelte` — local + push services
-  - `SettingsEmail.svelte` — SMTP config (admin only)
-  - `SettingsUserManagement.svelte` — user list, invites, enable flow
+  - `SettingsAppearance.svelte`, theme, accent picker, nav, banners
+  - `SettingsUnits.svelte`, weight unit, date/time format
+  - `SettingsWorkout.svelte`, goals, rest timer, body measurements
+  - `SettingsStatistics.svelte`, chart preferences
+  - `SettingsLiftBot.svelte`, AI provider/model/API key
+  - `SettingsRadio.svelte`, Subsonic/Jellyfin/Plex/Emby config
+  - `SettingsCatalog.svelte`, exercise sources + custom XLSX import
+  - `SettingsBackup.svelte`, full backup, restore, danger zone
+  - `SettingsNotifications.svelte`, local + push services
+  - `SettingsEmail.svelte`, SMTP config (admin only)
+  - `SettingsUserManagement.svelte`, user list, invites, enable flow
 - Each component imports the Svelte stores it needs directly and
   exposes only `visible`, `expanded`, `onToggle` props so the parent
   stays a thin orchestrator.
@@ -1805,13 +1830,13 @@ under `components/settings/`.
   SettingsWorkout.
 
 ### Notes
-- No user-visible feature changes — pure restructure.
+- No user-visible feature changes, pure restructure.
 - All sections still render, search/collapse still works, admin-only
   gating still works.
 
 ---
 
-## v0.8.9-beta — 2026-04-19
+## v0.8.9-beta, 2026-04-19
 
 Picks up three of the four refactors that were deferred in v0.8.8
 (Emby split stays deferred \u2014 still works via Jellyfin fork compat).
@@ -1840,7 +1865,7 @@ Picks up three of the four refactors that were deferred in v0.8.8
 
 ---
 
-## v0.8.8-beta — 2026-04-19
+## v0.8.8-beta, 2026-04-19
 
 Full-app audit pass. Four bundled commits covering: must-fix bugs,
 quick-win polish, medium-scope refinements, and player hygiene.
@@ -1904,13 +1929,13 @@ flagged and skipped.
 
 ---
 
-## v0.8.7-beta — 2026-04-19
+## v0.8.7-beta, 2026-04-19
 
 Equipment filter polish, offline-media caching, and licensing hygiene
 ahead of the paid Android app.
 
 ### Added
-- **Equipment filter consolidation** — raw equipment strings from every
+- **Equipment filter consolidation**, raw equipment strings from every
   source (wger / free-db / exercisedb / exercisedb-oss / custom XLSX)
   now collapse into six canonical buckets: **Barbell · Bodyweight ·
   Dumbbell · Cable · Machine · Other**. Shared helper
@@ -1925,7 +1950,7 @@ ahead of the paid Android app.
   URLs rotate every Monday per AscendAPI's caching guide.
 - **"Pre-cache media for offline"** button in Settings → Exercise
   Catalog with a live progress bar. Seeds the SW cache with every
-  gif/img/video URL in the library — ideal pre-gym on home WiFi.
+  gif/img/video URL in the library, ideal pre-gym on home WiFi.
 - **Bigger, clearer "Clear" button** on each source row. Sweep-broom
   icon, label, danger-tinted. Confirm dialog spelled out so it's
   obvious the source row itself isn't going away.
@@ -1943,7 +1968,7 @@ ahead of the paid Android app.
   short-circuits when library has content).
 
 ### Fixed
-- **exercisedb-oss pagination** — was using `?cursor=` when the API wants
+- **exercisedb-oss pagination**, was using `?cursor=` when the API wants
   `?after=`. Silent failure that made every request return page 1, so
   imports capped at 25 exercises. Now walks all ~1,500.
 - **Dedup by exerciseId** in the OSS seeder as defense-in-depth against
@@ -1951,7 +1976,7 @@ ahead of the paid Android app.
 
 ---
 
-## v0.8.6-beta — 2026-04-18
+## v0.8.6-beta, 2026-04-18
 
 Second Diary polish pass. Tier 1 + 2 + 3 from the deep dive.
 
@@ -1974,31 +1999,31 @@ Second Diary polish pass. Tier 1 + 2 + 3 from the deep dive.
 
 ---
 
-## v0.8.5-beta — 2026-04-18
+## v0.8.5-beta, 2026-04-18
 
 Diary deep-dive pass. Three focused packs:
 
-### Pack A — Themed confirms (also fixes a latent ActionSheet bug)
+### Pack A, Themed confirms (also fixes a latent ActionSheet bug)
 - New `ConfirmDialog` store + mount: `await confirmDialog({ title, message, confirmText, dangerous })` from anywhere returns a Promise. Renders through the existing themed `Dialog` component.
-- Replaced every `confirm()` call across the app (10 sites: Diary, Programs, ProgramDetail, Settings, Coaching) — no more browser-chrome dialog against the dark UI.
+- Replaced every `confirm()` call across the app (10 sites: Diary, Programs, ProgramDetail, Settings, Coaching), no more browser-chrome dialog against the dark UI.
 - Fixed the Replace-workout silent-noop bug: ActionSheet callsites were using `open={X}` (one-way) so the child's self-close after select never synced back. Switched the four sites to `bind:open={X}`.
 
-### Pack B — Daily-value UX (the wins you see every workout)
-- **"Last time" ghost row under each exercise card** — pulls the most recent completed session via `getWorkoutHistory` and renders `Last (3d ago) · 135×10 · 135×10 · 135×8`. Removes the scroll-through-history dance that every competing app already solves.
-- **Session progress strip** at the top of the exercise list — sets done, elapsed time, total volume moved. Gradient-fill progress bar ramps to green on full completion.
-- **Explicit Finish Workout button** at the end of the list (visible once ≥ 1 set is completed). Pauses the timer, records duration, flips `completed = 1`, celebrates, opens the summary — gives proper closure even for partial workouts. Button turns into "View workout summary" after completion. Auto-fire on full completion still works and shares the same code path.
+### Pack B, Daily-value UX (the wins you see every workout)
+- **"Last time" ghost row under each exercise card**, pulls the most recent completed session via `getWorkoutHistory` and renders `Last (3d ago) · 135×10 · 135×10 · 135×8`. Removes the scroll-through-history dance that every competing app already solves.
+- **Session progress strip** at the top of the exercise list, sets done, elapsed time, total volume moved. Gradient-fill progress bar ramps to green on full completion.
+- **Explicit Finish Workout button** at the end of the list (visible once ≥ 1 set is completed). Pauses the timer, records duration, flips `completed = 1`, celebrates, opens the summary, gives proper closure even for partial workouts. Button turns into "View workout summary" after completion. Auto-fire on full completion still works and shares the same code path.
 
-### Pack C — Logging ergonomics
-- **Tap-to-select on weight/reps inputs** — single tap puts the cursor on a pre-selected value so typing overwrites. No more tap-then-backspace.
-- **Haptic feedback on set completion** — subtle 12ms vibrate (harmless no-op where unsupported).
-- **Drag-to-reorder exercises on desktop** — HTML5 drag with a gradient drop-indicator. Supersets move as a unit. Mobile keeps the up/down arrow buttons (native drag is unreliable on iOS).
+### Pack C, Logging ergonomics
+- **Tap-to-select on weight/reps inputs**, single tap puts the cursor on a pre-selected value so typing overwrites. No more tap-then-backspace.
+- **Haptic feedback on set completion**, subtle 12ms vibrate (harmless no-op where unsupported).
+- **Drag-to-reorder exercises on desktop**, HTML5 drag with a gradient drop-indicator. Supersets move as a unit. Mobile keeps the up/down arrow buttons (native drag is unreliable on iOS).
 
 ---
 
-## v0.8.4-beta — 2026-04-18
+## v0.8.4-beta, 2026-04-18
 
 ### Added
-- **Coaching** (trainer-member mode) — the dormant `trainer` / `member` roles
+- **Coaching** (trainer-member mode), the dormant `trainer` / `member` roles
   are now first-class features:
   - Admin pairs each member with a trainer via a new dropdown in Settings →
     User Management.
@@ -2008,7 +2033,7 @@ Diary deep-dive pass. Three focused packs:
   - "Assign to member" button on any program the trainer owns.
   - Member's Programs list shows a **Coach X** badge on programs assigned by
     their trainer.
-- **Prescribed workouts** — trainers can prescribe a specific workout to a
+- **Prescribed workouts**, trainers can prescribe a specific workout to a
   member, optionally for a specific date.
   - New `coach_prescriptions` table (template reference or inline ad-hoc
     exercises; optional date; trainer note).
@@ -2031,23 +2056,23 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.8.3-beta — 2026-04-18
+## v0.8.3-beta, 2026-04-18
 
 ### Added
-- **Exercise info sheet for imported/orphaned data** — the info (ℹ️) button
+- **Exercise info sheet for imported/orphaned data**, the info (ℹ️) button
   now handles exercises that lack an `exercise_id` (typical of Excel-imported
   workouts). Falls back to library search by name:
   - If a library match is found, shows details normally.
   - If no match (e.g. user removed the exercise from the library), shows
     a "not linked" state with a **Replace with library exercise** button
-    that opens the picker in replace mode — preserves sets, reps, weight
+    that opens the picker in replace mode, preserves sets, reps, weight
     and notes while swapping identity, repairing the data in one tap.
   - Applies in both Diary and WorkoutEditor.
-- **Shuffle-aware radio prefetch** — prefetch now commits to a single
+- **Shuffle-aware radio prefetch**, prefetch now commits to a single
   "next up" index in shuffle mode instead of fetching random tracks that
   rarely matched what actually played. Prefetched bytes are now the bytes
   that play next, cutting wasted bandwidth and silence gaps.
-- **Fallback-path prefetch** — browsers/formats that fall through to the
+- **Fallback-path prefetch**, browsers/formats that fall through to the
   non-MSE `audio.src` path now warm the HTTP cache via a hidden
   `preload='auto'` audio element (fires at track start and again 15s
   before end). Previously only the MSE pipeline prefetched.
@@ -2059,30 +2084,30 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.8.2-beta — 2026-04-18
+## v0.8.2-beta, 2026-04-18
 
 ### Added
 - **Statistics page redesigned** around a NutriTrace-style metric pill selector.
-  Pick what to analyze — same range controls, summary card, chart, and history
+  Pick what to analyze, same range controls, summary card, chart, and history
   layout apply to every view. Scales to new metrics without reorganizing.
-  - **Overview** (default) — streaks + workouts-this-range + avg/week cards,
+  - **Overview** (default), streaks + workouts-this-range + avg/week cards,
     90-day activity heatmap, compact weekly volume + frequency charts
-  - **Exercise Progress** — pick an exercise via searchable picker; shows
+  - **Exercise Progress**, pick an exercise via searchable picker; shows
     top-set line chart over time, min/max/avg summary, and full session history.
     The headline "lifting app" feature that was previously missing.
-  - **Records** — "Recent PRs" feed at top + PRs grouped by muscle category
+  - **Records**, "Recent PRs" feed at top + PRs grouped by muscle category
     (Chest, Back, Shoulders, Arms, Legs, Core) instead of a single
     sort-by-absolute-weight list that compared curls to squats
-  - **Volume** — weekly volume bar chart + muscle-group breakdown showing
+  - **Volume**, weekly volume bar chart + muscle-group breakdown showing
     total volume per muscle; surfaces training imbalances at a glance
-  - **Frequency** — workouts-per-week + weekday distribution (which day you
+  - **Frequency**, workouts-per-week + weekday distribution (which day you
     train most)
-  - **Body Weight** — trend line + current/min/max/change summary + history
+  - **Body Weight**, trend line + current/min/max/change summary + history
     list, using the same pattern as every other metric
 - **New server endpoints**:
-  - `GET /api/stats/muscle-group-volume` — aggregates sets and volume by
+  - `GET /api/stats/muscle-group-volume`, aggregates sets and volume by
     primary muscle, normalizing variants (pecs→chest, quads→legs, etc.)
-  - `GET /api/stats/weekday-distribution` — workout counts per day of week
+  - `GET /api/stats/weekday-distribution`, workout counts per day of week
 
 ### Changed
 - Statistics layout uses a single scrolling view but shows one focused metric
@@ -2094,50 +2119,50 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.8.1-beta — 2026-04-16
+## v0.8.1-beta, 2026-04-16
 
 ### Fixed
-- **Loading spinner lingered after track started playing** — `_mseAppendAhead` (background prefetch of next 2 tracks) was flipping `isBuffering`, keeping the spinner on for 30+ seconds during cellular downloads. Background prefetch is now silent; `isBuffering` only reflects the current track's load.
-- **Prev wrapping to last track** — `prev()` on track 0 (or double-tap via Android lock screen) wrapped `idx -1` to `q.length - 1`. Now restarts track 0, matching Spotify/Apple Music default behavior.
-- **Next/prev jumping to wrong track after MSE auto-advance** — `onTrackAdvance` was updating `currentTrack` but leaving `queueIndex` stale. After auto-advancing from track 0 → track 3 via the buffer, hitting next sent you to track 1 (not 4). Now syncs `queueIndex` on every advance.
-- **Lock-screen skip jumping multiple tracks** — some Android devices fire the Media Session `nexttrack`/`previoustrack` handler twice per tap. Added 300ms debounce so double-fires are ignored while intentional rapid skipping still works.
-- **Queue click in full player played nothing** — handler was `playTrack(...) || queueIndex.set(i)` but `playTrack` now returns a Promise (always truthy), so `set(i)` never ran. Rewrote as proper click handler that updates `queueIndex` then plays.
-- **Queue click started at the wrong time** — MSE's `_mse.reset()` cleared the buffer but didn't reset `audio.currentTime`. If you were 9s into a track and clicked another, the new track started at 9s. Now explicitly seeks to 0 after reset+append.
-- **Lock-screen scrubber stopped playback** — OS sends `seekTime` as per-track time (0 to track duration) but we were setting `audio.currentTime = seekTime` directly. In MSE mode `audio.currentTime` is cumulative across the buffer, so this put you in the wrong buffer region. Now translates to absolute position: `entry.startTime + clamp(seekTime, 0, entry.duration)`.
+- **Loading spinner lingered after track started playing**, `_mseAppendAhead` (background prefetch of next 2 tracks) was flipping `isBuffering`, keeping the spinner on for 30+ seconds during cellular downloads. Background prefetch is now silent; `isBuffering` only reflects the current track's load.
+- **Prev wrapping to last track**, `prev()` on track 0 (or double-tap via Android lock screen) wrapped `idx -1` to `q.length - 1`. Now restarts track 0, matching Spotify/Apple Music default behavior.
+- **Next/prev jumping to wrong track after MSE auto-advance**, `onTrackAdvance` was updating `currentTrack` but leaving `queueIndex` stale. After auto-advancing from track 0 → track 3 via the buffer, hitting next sent you to track 1 (not 4). Now syncs `queueIndex` on every advance.
+- **Lock-screen skip jumping multiple tracks**, some Android devices fire the Media Session `nexttrack`/`previoustrack` handler twice per tap. Added 300ms debounce so double-fires are ignored while intentional rapid skipping still works.
+- **Queue click in full player played nothing**, handler was `playTrack(...) || queueIndex.set(i)` but `playTrack` now returns a Promise (always truthy), so `set(i)` never ran. Rewrote as proper click handler that updates `queueIndex` then plays.
+- **Queue click started at the wrong time**, MSE's `_mse.reset()` cleared the buffer but didn't reset `audio.currentTime`. If you were 9s into a track and clicked another, the new track started at 9s. Now explicitly seeks to 0 after reset+append.
+- **Lock-screen scrubber stopped playback**, OS sends `seekTime` as per-track time (0 to track duration) but we were setting `audio.currentTime = seekTime` directly. In MSE mode `audio.currentTime` is cumulative across the buffer, so this put you in the wrong buffer region. Now translates to absolute position: `entry.startTime + clamp(seekTime, 0, entry.duration)`.
 - **±10s skip back/forward** in MSE mode now clamped to the current track's segment so it can't land in an adjacent track's buffered data.
-- **Silence gap when clicking a song in the queue** — `playTrack` always did `_mse.reset()` + re-fetched, throwing away pre-fetched tracks. Now seeks into the existing buffer if the track is already there (instant), appends additively if not (spinner during download but existing buffered tracks preserved), and only does a full reset when a new queue is being loaded.
+- **Silence gap when clicking a song in the queue**, `playTrack` always did `_mse.reset()` + re-fetched, throwing away pre-fetched tracks. Now seeks into the existing buffer if the track is already there (instant), appends additively if not (spinner during download but existing buffered tracks preserved), and only does a full reset when a new queue is being loaded.
 
 ---
 
-## v0.8.0-beta — 2026-04-16
+## v0.8.0-beta, 2026-04-16
 
 ### Added
 - **MSE (MediaSource Extensions) audio pipeline** for gapless background playback.
-  Single `<audio>` element fed by a continuous `SourceBuffer` — tracks are appended
+  Single `<audio>` element fed by a continuous `SourceBuffer`, tracks are appended
   sequentially with matching `timestampOffset` so audio never pauses between tracks.
   Solves the Chrome background-tab-freeze issue that caused auto-advance to stall
   on locked screens. Falls back to direct `audio.src` for non-Jellyfin providers
   or unsupported browsers.
-- **"Keep original format" radio setting** — plays raw files (bit-perfect FLAC,
+- **"Keep original format" radio setting**, plays raw files (bit-perfect FLAC,
   native MP3, etc.) when the queue uses a single consistent codec the browser can
   decode. Mixed-codec queues automatically fall back to 320 kbps MP3 transcoding
   so playback always works.
 - **Loading indicator** on mini-player and full player when tracks are being
   fetched into the MSE buffer.
 - **Pre-fetch 2 tracks ahead** so rapid double-skip doesn't stall on downloads.
-- **Timer pause/resume/reset** split — pill persists while paused (preserves
+- **Timer pause/resume/reset** split, pill persists while paused (preserves
   elapsed time), reset button on pill + "Reset timer" in ⋮ menu dismiss entirely.
 - **Glassmorphism workout mode pill** matching the mini-player/bottom-nav style.
 - **Reset (X) button** directly on the floating pill.
 - **Auto-stop + save timer duration** when all workout sets are completed.
 - **Lock-screen prev/next/seek handlers** fully registered at module load so they
   respond immediately.
-- **Auto-skip on track format errors** — unsupported codec in one file doesn't
+- **Auto-skip on track format errors**, unsupported codec in one file doesn't
   stall the whole queue.
 
 ### Changed
 - **Rewrote `player.js`** to match Google's canonical Media Session sample
-  structurally — module-level handler registration, native `play`/`pause` events
+  structurally, module-level handler registration, native `play`/`pause` events
   driving `mediaSession.playbackState`, metadata updated in `play().then(...)`,
   DOM-attached audio element per real-world PWA reports.
 - **Workout mode pill** is now more translucent (0.45 background + 28px blur +
@@ -2148,12 +2173,12 @@ Diary deep-dive pass. Three focused packs:
   decide codec for the "Keep original format" path.
 
 ### Fixed
-- **Background music auto-advance** on locked screen (via MSE — the core fix).
+- **Background music auto-advance** on locked screen (via MSE, the core fix).
 - **Skip buttons during playback** no longer show a "pause flash" caused by native
   `pause` event firing on src change.
 - **X button in mini-player** no longer skips to next track (was triggering the
   auto-skip-on-error path via `audio.src=''`).
-- **Audio element stuck state** after returning from a backgrounded tab — now
+- **Audio element stuck state** after returning from a backgrounded tab, now
   re-issues play() on `visibilitychange` and forces `audio.load()` when the
   element's network state indicates a suspended buffer.
 - **NaN duration display** for Jellyfin transcodes with Infinity duration.
@@ -2163,21 +2188,21 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.7.2-beta — 2026-04-15
+## v0.7.2-beta, 2026-04-15
 
 ### Added
 - **Program template per-set targets**: optional "Different weight or reps per set…" link in the WorkoutEditor expands into per-set rows for pyramid/drop/ramp programming. Stored as `set_specs: [{weight, reps}]` on the exercise. Uniform targets remain the default. When loaded into Diary, each set pre-fills with its specific target.
 - **Program deactivation**: Active badge in ProgramDetail is now clickable (tap to deactivate). New `POST /api/programs/deactivate` endpoint.
 - **Future-date planning** in Diary: "Plan ahead" empty state + blue "Planning ahead" badge on future workouts with exercises. PR/workout-complete celebrations suppressed when editing future dates.
-- **Pause button on WorkoutModeBar** pill — pause the timer from any page.
+- **Pause button on WorkoutModeBar** pill, pause the timer from any page.
 - **Rest day reminder** (🧘 Rest Day) added to scheduler.
 
 ### Changed
 - **Media Session** improvements for lock-screen playback: setPositionState periodically, playbackState signaling, global action handlers, seekto handler.
-- **Next track preloading**: when current track has ≤6s remaining, pre-buffer next track in a warm audio element. On 'ended', swap to it instead of cold-fetching a new src — prevents auto-advance stalls on locked screens.
+- **Next track preloading**: when current track has ≤6s remaining, pre-buffer next track in a warm audio element. On 'ended', swap to it instead of cold-fetching a new src, prevents auto-advance stalls on locked screens.
 - **Audio element setup**: removed `crossOrigin='use-credentials'` (streams are same-origin), added `playsinline` attribute for mobile PWA background behavior.
 - **Service worker**: explicit NetworkOnly route for `/api/subsonic/*` so media fetches bypass SW entirely (SW can be suspended on screen lock).
-- **Workout completion** auto-stops the timer and persists duration before opening the summary (was showing `—`).
+- **Workout completion** auto-stops the timer and persists duration before opening the summary (was showing `,`).
 
 ### Fixed
 - **Date nav UTC/local drift**: prev/next day buttons in Diary skipped days or did nothing in negative UTC offsets. Now parse date with local noon (`T12:00:00`) so arithmetic stays within target day.
@@ -2185,7 +2210,7 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.7.1-beta — 2026-04-13
+## v0.7.1-beta, 2026-04-13
 
 ### Added
 - **Superset creation in Diary**: ⋮ more-options menu on each exercise card with "Add to existing superset", "Start new superset…", and "Remove from superset" actions. Uses same `superset_id` / `superset_size` / `superset_position` schema as WorkoutEditor so data stays compatible. Auto-dissolves supersets that drop below 2 members.
@@ -2194,26 +2219,26 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.7.0-beta — 2026-04-13
+## v0.7.0-beta, 2026-04-13
 
 ### Added
 - **Floating WorkoutModeBar**: bottom-center pill that shows running timer (with centisecond precision, `MM:SS.cs`) and wake-lock status on every page. Tap timer to jump back to Diary; tap wake-lock to toggle from anywhere. Auto-positions above the music mini-player.
 - **Statistics settings section**: chart type, lock Y-axis to zero, show average line, show trend line (exposes existing store settings).
-- **Danger Zone** in Backup & Restore: Clear all settings, Clear all data, Delete my account — matches NutriTrace.
+- **Danger Zone** in Backup & Restore: Clear all settings, Clear all data, Delete my account, matches NutriTrace.
 - **Self-delete account endpoint** (`DELETE /api/auth/me`) with full data cleanup cascade.
 - **Clear all workout data endpoint** (`DELETE /api/settings/clear-data`).
 - **Loop banner animations toggle** under Appearance (when banners are on).
-- **Custom color picker Sheet** with HSL sliders, RGB inputs, hex input, live preview — replaces native color input.
+- **Custom color picker Sheet** with HSL sliders, RGB inputs, hex input, live preview, replaces native color input.
 - **Rest day reminder** notification: fires at 10 AM the day after a logged workout if no workout is logged yet. 🧘 Rest Day.
 - **Remove-set button** (X) on each set row in Diary.
 - **Add-exercise-to-superset** button inside the superset card with picker wiring.
-- **Debounced workout save** (350ms) — fixes phantom delete when typing weights/reps.
+- **Debounced workout save** (350ms), fixes phantom delete when typing weights/reps.
 - **Persistent workout timer**: state saved to localStorage, survives navigation/tab switch/PWA close, ticks via RAF for smooth centisecond display.
 - **Global wake lock store**: separates user intent from lock state, re-acquires on visibility change, persists across routes.
 
 ### Changed
-- **Settings reorganized**: Units & Format consolidated into one section (weight unit + date + time); sections regrouped — Display (Appearance, Units & Format), Workout (Workout, Statistics), Integrations, Data.
-- **Page header** now `min-height: 40px` (was fixed 40px) with `line-height: 1.2` — long titles wrap without being clipped on mobile.
+- **Settings reorganized**: Units & Format consolidated into one section (weight unit + date + time); sections regrouped, Display (Appearance, Units & Format), Workout (Workout, Statistics), Integrations, Data.
+- **Page header** now `min-height: 40px` (was fixed 40px) with `line-height: 1.2`, long titles wrap without being clipped on mobile.
 - **Exercise picker in Diary** now uses `height="full"` Sheet mode; removed `max-height: 80dvh` that blocked scrolling.
 - **Exercises page filter bar** (search + category + equipment chips) is now sticky while scrolling; `overflow-x: hidden` on `.page` prevents horizontal shift from chip overflow.
 - **Bottom nav** shown on all pages except wizard (was hiding on exercise detail, workout editor, profile).
@@ -2237,7 +2262,7 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.6.0-beta — 2026-04-12
+## v0.6.0-beta, 2026-04-12
 
 ### Added
 - **Progressive overload auto-fill**: when adding an exercise or loading a template, weight/reps are pre-filled from your last completed session. Toggle in Settings → Workout → "Auto-fill last weights" (default ON).
@@ -2250,18 +2275,18 @@ Diary deep-dive pass. Three focused packs:
 - **Favorite exercises**: star icon on each exercise in the Exercises page. Favorites sort to the top of each category. Stored per-user.
 - **Body weight chart**: SVG trend line on the Statistics page showing body weight over time from body stats entries.
 - **Calendar heatmap**: 91-day grid on Statistics showing workout days (accent) vs rest days. Today is outlined.
-- **Starter program templates**: 3 generic programs seeded on first boot for new users — Push/Pull/Legs, Upper/Lower, Full Body 3x. Each with complete exercise lists and target sets/reps.
+- **Starter program templates**: 3 generic programs seeded on first boot for new users, Push/Pull/Legs, Upper/Lower, Full Body 3x. Each with complete exercise lists and target sets/reps.
 
 ### Changed
 - **Notifications**: restructured into sub-sections (Delivery, Scheduled Reminders, Alerts & Celebrations, Summaries) matching NutriTrace. Push services in alphabetical order. Gotify test now reads stored config directly.
 - **Email (SMTP)**: redesigned to NutriTrace-style card layout with form-group fields, show/hide password toggle, Save + Test buttons inline with status.
-- **Notification messages**: emojis added (🏋️ Workout, 🔥 Streak, 💪 Complete, 🏆 PR, 📊 Summary) + "LiftTrace —" prefix on push notifications.
+- **Notification messages**: emojis added (🏋️ Workout, 🔥 Streak, 💪 Complete, 🏆 PR, 📊 Summary) + "LiftTrace ," prefix on push notifications.
 - **Email templates**: use actual app logo instead of 💪 emoji. Auto-captured public URL for weekly summary emails.
 - **Buttons**: all buttons now have `.btn` base class for proper border-radius (12px). Fixed 8 squared buttons across 4 pages.
 - **Offline page**: redesigned to match NutriTrace (card layout, tagline, branded colors).
 - **Login recovery**: token field uses type="password" with separate instruction text.
 - **buttons.css**: replaced hardcoded mint green with var(--accent-dim). File header corrected.
-- **LiftBot FAB**: clamped to viewport on load and resize — can't be dragged off-screen.
+- **LiftBot FAB**: clamped to viewport on load and resize, can't be dragged off-screen.
 
 ### Fixed
 - LiftBot FAB disappearing due to async env-locks timing. Now checks on mount, shows while loading.
@@ -2273,7 +2298,7 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.5.0-beta — 2026-04-12
+## v0.5.0-beta, 2026-04-12
 
 ### Added
 - **Radio / Music Player**: integrated music streaming via Subsonic-compatible servers.
@@ -2314,9 +2339,9 @@ Diary deep-dive pass. Three focused packs:
 - **LiftBot API Key**: save button + show/hide toggle + provider-specific "get your key" links
 
 ### Changed
-- **Page headers**: matched NutriTrace layout exactly — hamburger-row/offset variables, line-height: 1.1, proper padding calculations
+- **Page headers**: matched NutriTrace layout exactly, hamburger-row/offset variables, line-height: 1.1, proper padding calculations
 - **Banner height**: all pages now uniform (h1 40px fixed, padding-bottom 72px with banner), all local .page-header overrides removed
-- **Program auto-seed**: disabled — Monumental Valley/Shredville no longer seed for new users
+- **Program auto-seed**: disabled, Monumental Valley/Shredville no longer seed for new users
 - **Single song play**: clicking a track plays only that song; Play All/Shuffle explicitly queue the full list
 - **Exercise categories**: Free-Exercise-DB now maps by primary muscle → body part; cardio check runs before muscle check
 - **Backup**: exercises table added to full backup dump + restore (was missing)
@@ -2329,7 +2354,7 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.4.0-beta — 2026-04-12
+## v0.4.0-beta, 2026-04-12
 
 ### Added
 - **Mandatory auth for PWA**: fresh installs force admin account creation in the wizard before any data is accessible. Server returns `setup_required: true` when no users exist. Prevents accidental open-access deployments.
@@ -2362,7 +2387,7 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.3.0-beta — 2026-04-12
+## v0.3.0-beta, 2026-04-12
 
 ### Added
 - **Notification system**: device notifications (Web Notification API) + push services (Gotify, ntfy, Apprise). Server-side 15-min scheduler for workout reminders, streak alerts, and weekly summaries. PR and workout completion celebrations in the diary.
@@ -2372,7 +2397,7 @@ Diary deep-dive pass. Three focused packs:
 - **Sponsor links** in About section (GitHub Sponsors, Ko-fi).
 
 ### Changed
-- **Settings layout**: consolidated multiple cards per section into single cards with `setting-divider` lines between logical groups — matches NutriTrace's unified flow.
+- **Settings layout**: consolidated multiple cards per section into single cards with `setting-divider` lines between logical groups, matches NutriTrace's unified flow.
 - **Password requirements**: 8+ chars, uppercase, lowercase, number, special character (was 4 chars).
 - **Recovery endpoint**: now requires `RECOVERY_TOKEN` env var (was accepting any request).
 - **Email templates**: added personalized greeting, fallback URL below CTA, safety text, weekly summary template.
@@ -2382,17 +2407,17 @@ Diary deep-dive pass. Three focused packs:
 
 ---
 
-## v0.2.0-beta — 2026-04-11
+## v0.2.0-beta, 2026-04-11
 
 ### Added
 - **Rest timer**: configurable countdown between sets with auto-start on set completion, vibrate + tone alerts, +30s extend, skip button. Settings: toggle, duration (30s–5min), auto-start, alert.
-- **Exercise catalog sources**: multi-source exercise library — wger (~600), Free Exercise DB (~870 with images), ExerciseDB via RapidAPI (~1,300 with animated GIFs). Import/remove per source in Settings.
+- **Exercise catalog sources**: multi-source exercise library, wger (~600), Free Exercise DB (~870 with images), ExerciseDB via RapidAPI (~1,300 with animated GIFs). Import/remove per source in Settings.
 - **Exercise media**: ExerciseDetail renders video, animated GIFs, or start/end image swap depending on what the source provides. Source badge on each media card.
 - **Animated page banners**: five SVG banners (Diary, Exercises, Programs, Statistics, Settings) using `var(--accent)` at low opacity. Toggleable in Settings. Respects `prefers-reduced-motion`.
-- **LiftBot AI chat**: full NutriTrace-style chat panel — mobile bottom sheet (88vh) / desktop floating card (420x640px), fly transition, animated typing dots, quick-ask chips, image attachments (camera/gallery), gradient user bubbles, message timestamps, unread badge.
+- **LiftBot AI chat**: full NutriTrace-style chat panel, mobile bottom sheet (88vh) / desktop floating card (420x640px), fly transition, animated typing dots, quick-ask chips, image attachments (camera/gallery), gradient user bubbles, message timestamps, unread badge.
 - **LiftBot FAB**: glassmorphism floating button with gradient animation, ring pulse, draggable with localStorage persistence, custom flexing robot SVG icon with arm sway + eye blink animations.
 - **Settings overhaul**: collapsible sections with icons, sticky search bar (keyword matching), profile hero card with gradient avatar, hint subtitles, conditional sidebar toggle, reset to defaults.
-- **Backup & restore**: NutriTrace-style UI — backup list table with download/restore/delete per entry, upload & restore with XHR progress tracking, confirmation dialogs, progress bar.
+- **Backup & restore**: NutriTrace-style UI, backup list table with download/restore/delete per entry, upload & restore with XHR progress tracking, confirmation dialogs, progress bar.
 - **App icons**: full icon pack (192, 512, 180 apple-touch, 1024 master) in PWA manifest + index.html.
 - **4 missing accent palettes**: pink, rose, cyan, lime (dark + light theme rules).
 - **Centralized version**: `src/lib/version.js` used by Settings and Sidebar.
@@ -2405,14 +2430,14 @@ Diary deep-dive pass. Three focused packs:
 - **Docker image**: moved from `ghcr.io/traceapps/lifttrace` to `ghcr.io/traceapps/lifttrace`.
 
 ### Fixed
-- Accent colors pink/rose/cyan/lime had no CSS rules — fell through to default orange.
+- Accent colors pink/rose/cyan/lime had no CSS rules, fell through to default orange.
 - Backup routes failed with "Not authenticated" in single-user mode (no users registered).
-- Settings section toggles didn't expand — Svelte reactivity gap with function-based dependency tracking.
-- Calendar overflow on desktop — was inside a Sheet with no max-width constraint.
+- Settings section toggles didn't expand, Svelte reactivity gap with function-based dependency tracking.
+- Calendar overflow on desktop, was inside a Sheet with no max-width constraint.
 
 ---
 
-## v0.1.0-alpha — 2026-03-30
+## v0.1.0-alpha, 2026-03-30
 
 ### Added
 - Initial release

@@ -1,28 +1,46 @@
 /**
- * AI Chat — multi-provider API layer
+ * AI Chat — multi-provider API layer with tool use (function calling).
+ *
  * Supports: Anthropic Claude, OpenAI, Google Gemini, OpenAI Compatible
  *   (Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq,
  *    Together AI, Mistral La Plateforme — anything that exposes a
  *    /v1/chat/completions endpoint).
- * All calls made client-side using the user's own API key (or no key for
- * unauthenticated local endpoints).
+ *
+ * All direct calls are client-side using the user's own API key (or no
+ * key for unauthenticated local endpoints). Env-locked installs go
+ * through callAIProxy which runs the same multi-round loop server-side-
+ * assisted (server holds the API key, client still executes tools).
+ *
+ * Tool use flow:
+ *   1. Send messages + tool definitions to the model
+ *   2. If the model responds with tool_use, execute via `onToolCall`
+ *      and feed results back
+ *   3. Repeat up to MAX_ROUNDS, then return final text
+ *
+ * `onToolCall` is the executor — an async fn `(name, args) => result`.
+ * `onToolResult` is an optional notification `(name, args, result)`.
+ * When `tools` is omitted the loop still runs but exits on the first
+ * response (no tool schemas ever sent), keeping behaviour identical
+ * for legacy callers.
  */
+import { getOpenAIChatParams } from './openai-chat-params.js';
 
-export async function callAI({ provider, apiKey, model, messages, systemPrompt, baseUrl }) {
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolResult, baseUrl }) {
   // The 'oai-compat' provider points at any /v1/chat/completions endpoint.
   // Local endpoints (Ollama default) don't need an API key; cloud ones do.
   // Other providers still require a key.
   if (!apiKey && provider !== 'oai-compat') {
     throw new Error('No API key configured. Add one in Settings → AI Assistant.');
   }
+  const cb = { onToolCall, onToolResult };
   switch (provider) {
-    case 'claude':     return _callClaude(apiKey, model, messages, systemPrompt);
-    case 'openai':     return _callOpenAI(apiKey, model, messages, systemPrompt, 'https://api.openai.com');
-    case 'gemini':     return _callGemini(apiKey, model, messages, systemPrompt);
+    case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, cb);
+    case 'openai':     return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, cb, 'https://api.openai.com');
+    case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, cb);
     case 'oai-compat': {
       if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
       if (!model)   throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
-      return _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, baseUrl.replace(/\/+$/, ''));
+      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, cb, baseUrl.replace(/\/+$/, ''));
     }
     default: throw new Error(`Unknown AI provider: ${provider}`);
   }
@@ -30,31 +48,80 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
 
 /**
  * Server-side proxy call — used when AI config is env-locked.
- * The API key stays on the server; only messages + systemPrompt are sent.
  *
- * Auth: PWA uses cookies; native server mode uses a Bearer token (cookies
- * don't survive Android WebView reloads). Without the Bearer header,
- * env-locked AI calls from the Android app return 401.
+ * The API key stays on the server; only messages + systemPrompt + tool
+ * schemas are sent. Wire format is OpenAI-shape (the server adapts to
+ * Claude / Gemini at the proxy boundary), so messages going in must use
+ * `image_url` for images and `tool_calls` / `role:'tool'` for tool use.
+ *
+ * Tool execution stays client-side — tools touch local UI/state the
+ * server doesn't have. This function runs the multi-round loop: send
+ * messages → if proxy returns toolCalls, execute them locally, append
+ * the assistant message + tool result messages, loop. Up to 5 rounds,
+ * matching the direct-call cap.
+ *
+ * Auth: PWA uses cookies; native server mode uses a Bearer token
+ * (cookies don't survive Android WebView reloads). Without the Bearer
+ * header, env-locked AI calls from Android return 401.
  */
-export async function callAIProxy({ messages, systemPrompt }) {
+export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, onToolResult }) {
   const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
-  const headers = { 'Content-Type': 'application/json' };
-  if (isNative && getServerUrl()) {
-    const token = getAuthToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  // Server proxy expects OpenAI wire shape regardless of the env-locked
+  // provider (the server maps to Claude / Gemini at the boundary). Our
+  // internal shape stores images as `{type:'image', dataUrl}`; forwarding
+  // that verbatim would blow up on oai-compat endpoints (LiteLLM et al.)
+  // that strictly validate the OpenAI schema. Normalise here once, then
+  // append normalised assistant / tool messages verbatim inside the loop.
+  let currentMessages = messages.map(m => (
+    typeof m.content === 'string' ? m : { role: m.role, content: _toOpenAIContent(m.content) }
+  ));
+
+  const MAX_ROUNDS = 5;
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (isNative && getServerUrl()) {
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(apiUrl('/api/ai/chat'), {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({ messages: currentMessages, systemPrompt, tools }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401) throw new Error('Not signed in. Sign in again to use AI features.');
+      throw new Error(data.error || `AI proxy error ${res.status}`);
+    }
+
+    // No tools fired — final reply, return it.
+    if (!data.toolCalls || data.toolCalls.length === 0) {
+      return data.text || '';
+    }
+
+    // Tools fired: append assistant message verbatim, execute each tool
+    // locally, append tool result messages, loop for next round.
+    currentMessages.push(data.assistantMessage);
+    for (const tc of data.toolCalls) {
+      const args = tc.args || {};
+      const result = onToolCall
+        ? await _safeExec(onToolCall, tc.name, args)
+        : { error: 'Tool handler not registered' };
+      if (onToolResult) { try { onToolResult(tc.name, args, result); } catch {} }
+      currentMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        // Gemini's adapter needs the original tool name to construct a
+        // functionResponse part; OpenAI + Claude ignore the name field.
+        name: tc.name,
+        content: JSON.stringify(result),
+      });
+    }
   }
-  const res = await fetch(apiUrl('/api/ai/chat'), {
-    method: 'POST',
-    credentials: 'include',
-    headers,
-    body: JSON.stringify({ messages, systemPrompt }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    if (res.status === 401) throw new Error('Not signed in — sign in again to use AI features.');
-    throw new Error(data.error || `AI proxy error ${res.status}`);
-  }
-  return data.text;
+
+  throw new Error('Too many tool call rounds');
 }
 
 // ── Default models per provider ───────────────────────────────────────────────
@@ -127,57 +194,129 @@ function _toGeminiParts(content) {
   });
 }
 
-// ── Anthropic Claude ──────────────────────────────────────────────────────────
-async function _callClaude(apiKey, model, messages, systemPrompt) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
+// ── Anthropic Claude (with tool use) ─────────────────────────────────────────
+async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, cb) {
+  const { onToolCall, onToolResult } = cb || {};
+  const claudeTools = (tools || []).map(t => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters,
+  }));
+
+  // Translate the internal message shape (string | [{type:text|image}])
+  // into Claude's message shape once, then append raw Claude blocks in
+  // the tool-use loop below.
+  let currentMessages = messages.map(m => ({ role: m.role, content: _toClaudeContent(m.content) }));
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const body = {
       model: model || AI_DEFAULT_MODELS.claude,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: systemPrompt,
-      messages: messages.map(m => ({ role: m.role, content: _toClaudeContent(m.content) })),
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || `Claude API error ${res.status}`);
-  return data.content[0].text;
+      messages: currentMessages,
+    };
+    if (claudeTools.length) body.tools = claudeTools;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `Claude API error ${res.status}`);
+
+    const toolUses   = (data.content || []).filter(b => b.type === 'tool_use');
+    const textBlocks = (data.content || []).filter(b => b.type === 'text');
+    if (toolUses.length === 0 || data.stop_reason !== 'tool_use') {
+      return textBlocks.map(b => b.text).join('\n') || '';
+    }
+
+    currentMessages.push({ role: 'assistant', content: data.content });
+    const toolResults = [];
+    for (const tu of toolUses) {
+      const args = tu.input || {};
+      const result = onToolCall
+        ? await _safeExec(onToolCall, tu.name, args)
+        : { error: 'Tool handler not registered' };
+      if (onToolResult) { try { onToolResult(tu.name, args, result); } catch {} }
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) });
+    }
+    currentMessages.push({ role: 'user', content: toolResults });
+  }
+
+  throw new Error('Too many tool call rounds');
 }
 
-// ── OpenAI / OpenAI-compatible ────────────────────────────────────────────────
+// ── OpenAI / OpenAI-compatible (with function calling) ──────────────────────
 // `baseUrl` defaults to api.openai.com but can be any /v1/chat/completions
 // endpoint (Ollama, LM Studio, DeepSeek, Groq, etc.) — see callAI's
 // 'oai-compat' branch.
-async function _callOpenAI(apiKey, model, messages, systemPrompt, baseUrl = 'https://api.openai.com') {
-  // Some self-hosted endpoints (Ollama in particular) reject the Authorization
-  // header when it carries a placeholder key. Only send it when we have a
-  // real one.
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
+async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, cb, baseUrl = 'https://api.openai.com') {
+  const { onToolCall, onToolResult } = cb || {};
+  const openaiTools = (tools || []).map(t => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
 
-  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: model || AI_DEFAULT_MODELS.openai,
-      max_tokens: 1024,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages.map(m => ({ role: m.role, content: _toOpenAIContent(m.content) })),
-      ],
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || `AI API error ${res.status}`);
-  return data.choices[0].message.content;
+  let currentMessages = [
+    { role: 'system', content: systemPrompt },
+    ...messages.map(m => ({ role: m.role, content: _toOpenAIContent(m.content) })),
+  ];
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const selectedModel = model || AI_DEFAULT_MODELS.openai;
+    const body = {
+      model: selectedModel,
+      messages: currentMessages,
+      ...getOpenAIChatParams({
+        baseUrl,
+        model: selectedModel,
+        hasTools: openaiTools.length > 0,
+      }),
+    };
+    if (openaiTools.length) body.tools = openaiTools;
+
+    // Some self-hosted endpoints (Ollama in particular) reject the
+    // Authorization header when it carries a placeholder key. Only send
+    // it when we have a real one.
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `AI API error ${res.status}`);
+
+    const msg = data.choices?.[0]?.message || {};
+    if (!msg.tool_calls || msg.tool_calls.length === 0) {
+      return msg.content || '';
+    }
+
+    currentMessages.push(msg);
+    for (const tc of msg.tool_calls) {
+      const args = _safeJsonParse(tc.function?.arguments, {});
+      const result = onToolCall
+        ? await _safeExec(onToolCall, tc.function?.name, args)
+        : { error: 'Tool handler not registered' };
+      if (onToolResult) { try { onToolResult(tc.function?.name, args, result); } catch {} }
+      currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+    }
+  }
+
+  throw new Error('Too many tool call rounds');
 }
 
-// ── Google Gemini ─────────────────────────────────────────────────────────────
+// ── Google Gemini (with function calling) ────────────────────────────────────
 // Models Google has shut down or scheduled for shutdown. Saved selections
 // pointing at any of these are quietly remapped to the current default so
 // users who never opened Settings after a bump don't suddenly hit 404s.
@@ -186,24 +325,78 @@ const GEMINI_RETIRED = new Set([
   'gemini-2.0-flash', 'gemini-2.0-flash-lite',
 ]);
 
-async function _callGemini(apiKey, model, messages, systemPrompt) {
+async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, cb) {
+  const { onToolCall, onToolResult } = cb || {};
   let m = model || AI_DEFAULT_MODELS.gemini;
   if (GEMINI_RETIRED.has(m)) m = AI_DEFAULT_MODELS.gemini;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
-  // Gemini uses "model" instead of "assistant" for AI turns
-  const contents = messages.map(msg => ({
+
+  const geminiTools = (tools || []).length ? [{
+    functionDeclarations: tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    })),
+  }] : undefined;
+
+  // Gemini uses "model" instead of "assistant" for AI turns.
+  let contents = messages.map(msg => ({
     role: msg.role === 'assistant' ? 'model' : 'user',
     parts: _toGeminiParts(msg.content),
   }));
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+
+  const MAX_ROUNDS = 5;
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const body = {
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || `Gemini API error ${res.status}`);
-  return data.candidates[0].content.parts[0].text;
+    };
+    if (geminiTools) body.tools = geminiTools;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `Gemini API error ${res.status}`);
+
+    const candidate = data.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    const functionCalls = parts.filter(p => p.functionCall);
+    const textParts     = parts.filter(p => p.text);
+
+    if (functionCalls.length === 0) {
+      return textParts.map(p => p.text).join('\n') || '';
+    }
+
+    contents.push({ role: 'model', parts });
+    const responseParts = [];
+    for (const fc of functionCalls) {
+      const args = fc.functionCall.args || {};
+      const result = onToolCall
+        ? await _safeExec(onToolCall, fc.functionCall.name, args)
+        : { error: 'Tool handler not registered' };
+      if (onToolResult) { try { onToolResult(fc.functionCall.name, args, result); } catch {} }
+      responseParts.push({ functionResponse: { name: fc.functionCall.name, response: result } });
+    }
+    contents.push({ role: 'user', parts: responseParts });
+  }
+
+  throw new Error('Too many tool call rounds');
+}
+
+// ── Small helpers ────────────────────────────────────────────────────────────
+async function _safeExec(fn, name, args) {
+  try {
+    const r = await fn(name, args);
+    return r === undefined ? { ok: true } : r;
+  } catch (e) {
+    return { error: e?.message || 'Tool execution failed' };
+  }
+}
+
+function _safeJsonParse(s, fallback) {
+  if (typeof s !== 'string') return fallback;
+  try { return JSON.parse(s); } catch { return fallback; }
 }

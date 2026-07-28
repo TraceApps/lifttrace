@@ -1,6 +1,6 @@
 {
   "name": "lifttrace",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Track every rep, set, and PR — your complete weightlifting companion",
   "repository": {
     "type": "git",
@@ -18,7 +18,8 @@
     "android:run": "npm run build:rest-tones && vite build && cap sync android && cap run android",
     "android:debug": "npm run build:rest-tones && vite build && cap sync android && cd android && ./gradlew assembleDebug && cd .. && echo 'APK at android/app/build/outputs/apk/debug/app-debug.apk'",
     "build:rest-tones": "node scripts/build-rest-tones.mjs",
-    "i18n:check": "node scripts/i18n-check.cjs"
+    "i18n:check": "node scripts/i18n-check.cjs",
+    "test": "node --test scripts/*.test.js"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
