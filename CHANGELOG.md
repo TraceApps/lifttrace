@@ -25,6 +25,10 @@ All notable changes to LiftTrace are documented here.
 
 - **OpenAI-compatible endpoints accept vision requests again.** Image content blocks are normalised on both the server proxy and `callAIProxy` client wrapper before forwarding, so a request with an image attached goes through whether the block is a string URL or an object with `image_url.url`.
 
+- **GPT-5.6-era chat parameters supported.** The AI proxy translates the newer `max_completion_tokens` and `reasoning_effort` fields when talking to models that require them, so calls to GPT-5.6 and equivalents don't 400 on the older `max_tokens` field name.
+
+- **Full-backup restore no longer silently drops coach data.** The `coach_feedback` and `coach_activity` tables were included in exports but missing from the restore INSERT column lists, so any coach comments or activity history vanished after a restore-from-backup. Both tables now round-trip cleanly.
+
 ## v1.0.1, 2026-07-25
 
 ### Added
