@@ -6,6 +6,8 @@ All notable changes to LiftTrace are documented here.
 
 ## Unreleased
 
+## v1.0.2 — 2026-07-28
+
 ### Added
 
 - **Trace AI tool use.** Trace now calls 18 typed tools (11 read + 7 write) instead of relying on a pre-stuffed context payload. Assistant can read workouts, exercises, programs, PRs, body stats, coach prescriptions, and take actions like log a workout, add an exercise to today's diary, log a body stat, start a workout from a template, switch active program, or (as a coach) prescribe a workout to a trainee. System prompt trimmed to a small stable core; the model fetches on demand. Provider parity across Claude, OpenAI, Gemini, and any OpenAI-compatible endpoint.
