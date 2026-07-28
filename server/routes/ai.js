@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { getAiConfig, isAiEnvLocked } from '../ai.js';
+import { getOpenAIChatParams } from '../lib/openai-chat-params.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -244,10 +245,15 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
     function: { name: t.name, description: t.description, parameters: t.parameters },
   }));
 
+  const selectedModel = model || AI_DEFAULT_MODELS.openai;
   const body = {
-    model: model || AI_DEFAULT_MODELS.openai,
-    max_tokens: 4096,
+    model: selectedModel,
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    ...getOpenAIChatParams({
+      baseUrl,
+      model: selectedModel,
+      hasTools: openaiTools.length > 0,
+    }),
   };
   if (openaiTools.length) body.tools = openaiTools;
 

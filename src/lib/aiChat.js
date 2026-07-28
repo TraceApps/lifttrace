@@ -23,6 +23,7 @@
  * response (no tool schemas ever sent), keeping behaviour identical
  * for legacy callers.
  */
+import { getOpenAIChatParams } from './openai-chat-params.js';
 
 export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolResult, baseUrl }) {
   // The 'oai-compat' provider points at any /v1/chat/completions endpoint.
@@ -270,10 +271,15 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
   const MAX_ROUNDS = 5;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
+    const selectedModel = model || AI_DEFAULT_MODELS.openai;
     const body = {
-      model: model || AI_DEFAULT_MODELS.openai,
-      max_tokens: 4096,
+      model: selectedModel,
       messages: currentMessages,
+      ...getOpenAIChatParams({
+        baseUrl,
+        model: selectedModel,
+        hasTools: openaiTools.length > 0,
+      }),
     };
     if (openaiTools.length) body.tools = openaiTools;
 
