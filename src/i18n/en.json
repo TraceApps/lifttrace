@@ -403,6 +403,50 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "settings_main": {
+    "toast": {
+      "synced":                 "Synced",
+      "sync_failed":            "Sync failed",
+      "sync_failed_prefix":     "Sync failed: {error}",
+      "unknown_error":          "Unknown error",
+      "server_url_required":    "Enter a server URL",
+      "credentials_required":   "Enter credentials",
+      "connected":              "Connected to server",
+      "disconnected":           "Disconnected, using local storage"
+    },
+    "search_ph":                "Search settings…",
+    "clear_search":             "Clear",
+    "profile_hero_sub":         "Tap to add your name and photo",
+    "group_display":            "Display",
+    "group_integrations":       "Integrations",
+    "group_admin":              "Admin",
+    "server": {
+      "connected":              "Connected",
+      "last_synced":            "Last Synced",
+      "local_mode":             "Local Mode",
+      "local_mode_desc":        "All data stored on this device only",
+      "server_url":             "Server URL",
+      "username":               "Username",
+      "username_ph":            "Your username",
+      "password":               "Password",
+      "password_ph":            "Your password"
+    },
+    "merge": {
+      "title":                  "Sync Options",
+      "upload":                 "Upload Phone to Server",
+      "download":               "Download Server to Phone",
+      "merge":                  "Merge Both",
+      "cancel":                 "Cancel",
+      "continue":               "Continue"
+    },
+    "color": {
+      "title":                  "Custom Color",
+      "saturation":             "Saturation",
+      "lightness":              "Lightness",
+      "hex_code":               "Hex Code",
+      "apply":                  "Apply Color"
+    }
+  },
   "settings_backup": {
     "toast": {
       "save_failed":            "Save failed",

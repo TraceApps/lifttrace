@@ -72,9 +72,9 @@
       const { runSync } = await import('../lib/sync.js');
       await runSync();
       await refreshSyncStatus();
-      showSuccess('Synced');
+      showSuccess($_('settings_main.toast.synced'));
     } catch (e) {
-      showError(e.message || 'Sync failed');
+      showError(e.message || $_('settings_main.toast.sync_failed'));
     } finally {
       _syncing = false;
     }
@@ -105,8 +105,8 @@
   let migrationSummary = null;
 
   async function connectServer() {
-    if (!serverUrlInput.trim()) { showError('Enter a server URL'); return; }
-    if (!serverUsername.trim() || !serverPassword.trim()) { showError('Enter credentials'); return; }
+    if (!serverUrlInput.trim()) { showError($_('settings_main.toast.server_url_required')); return; }
+    if (!serverUsername.trim() || !serverPassword.trim()) { showError($_('settings_main.toast.credentials_required')); return; }
     const url = serverUrlInput.trim().replace(/\/$/, '');
     serverConnecting = true;
     try {
@@ -199,7 +199,7 @@
       }
     } catch (e) {
       mergeStep = null;
-      showError('Sync failed: ' + (e.message || 'Unknown error'));
+      showError($_('settings_main.toast.sync_failed_prefix', { values: { error: e.message || $_('settings_main.toast.unknown_error') } }));
     }
   }
 
@@ -208,7 +208,7 @@
     setNativeMode('server');
     serverMode = 'server';
     mergeStep = null;
-    showSuccess('Connected to server');
+    showSuccess($_('settings_main.toast.connected'));
     setTimeout(() => window.location.reload(), 600);
   }
 
@@ -234,7 +234,7 @@
     serverUsername = '';
     serverPassword = '';
 
-    showSuccess('Disconnected — using local storage');
+    showSuccess($_('settings_main.toast.disconnected'));
     setTimeout(() => window.location.reload(), 600);
   }
 
@@ -453,11 +453,11 @@
     <input
       class="settings-search-input"
       type="search"
-      placeholder="Search settings…"
+      placeholder={$_('settings_main.search_ph')}
       bind:value={settingsSearch}
     />
     {#if settingsSearch}
-      <button class="settings-search-clear" on:click={() => settingsSearch = ''} title="Clear">
+      <button class="settings-search-clear" on:click={() => settingsSearch = ''} title={$_('settings_main.clear_search')}>
         <span class="material-symbols-rounded" style="font-size:18px">close</span>
       </button>
     {/if}
@@ -492,7 +492,7 @@
         {#if _hasName && _u.role === 'admin' && $userMgmtActive}
           <span class="profile-hero-role">admin</span>
         {:else if !_hasName}
-          <span class="profile-hero-sub">Tap to add your name and photo</span>
+          <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
         {/if}
       </div>
       <span class="material-symbols-rounded profile-hero-chev">chevron_right</span>
@@ -500,7 +500,7 @@
     {/if}
 
     <!-- ═══ DISPLAY ═══════════════════════════════════════════════════════ -->
-    <p class="group-label">Display</p>
+    <p class="group-label">{$_('settings_main.group_display')}</p>
 
     <SettingsAppearance
       visible={sectionVisible(settingsQuery, 'appearance')}
@@ -531,7 +531,7 @@
     />
 
     <!-- ═══ INTEGRATIONS ══════════════════════════════════════════════════ -->
-    <p class="group-label">Integrations</p>
+    <p class="group-label">{$_('settings_main.group_integrations')}</p>
 
     {#if !localOnly}
       <SettingsCatalog
@@ -579,7 +579,7 @@
           {#if serverMode === 'server' && getServerUrl()}
             <div class="setting-row">
               <div>
-                <span class="setting-label">Connected</span>
+                <span class="setting-label">{$_('settings_main.server.connected')}</span>
                 <div class="setting-desc">{getServerUrl()}</div>
               </div>
               <span class="material-symbols-rounded" style="color:var(--success, #22c55e);font-size:22px">cloud_done</span>
@@ -587,7 +587,7 @@
             <div class="setting-divider"></div>
             <div class="setting-row">
               <div>
-                <span class="setting-label">Last Synced</span>
+                <span class="setting-label">{$_('settings_main.server.last_synced')}</span>
                 <div class="setting-desc">
                   {#key _nowTick}{_fmtTimeAgo(lastSyncAt)}{/key}
                 </div>
@@ -611,28 +611,28 @@
           {:else}
             <div class="setting-row">
               <div>
-                <span class="setting-label">Local Mode</span>
-                <div class="setting-desc">All data stored on this device only</div>
+                <span class="setting-label">{$_('settings_main.server.local_mode')}</span>
+                <div class="setting-desc">{$_('settings_main.server.local_mode_desc')}</div>
               </div>
               <span class="material-symbols-rounded" style="color:var(--text-3);font-size:22px">smartphone</span>
             </div>
             <div class="setting-divider"></div>
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
               <div class="form-group" style="margin:0">
-                <label class="form-label">Server URL</label>
+                <label class="form-label">{$_('settings_main.server.server_url')}</label>
                 <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} />
               </div>
               <div class="form-group" style="margin:0">
-                <label class="form-label">Username</label>
-                <input class="form-input" type="text" placeholder="Your username" bind:value={serverUsername} autocapitalize="off" />
+                <label class="form-label">{$_('settings_main.server.username')}</label>
+                <input class="form-input" type="text" placeholder={$_('settings_main.server.username_ph')} bind:value={serverUsername} autocapitalize="off" />
               </div>
               <div class="form-group" style="margin:0">
-                <label class="form-label">Password</label>
+                <label class="form-label">{$_('settings_main.server.password')}</label>
                 <div style="position:relative">
                   {#if serverShowPw}
-                    <input class="form-input" type="text" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
+                    <input class="form-input" type="text" placeholder={$_('settings_main.server.password_ph')} bind:value={serverPassword} style="padding-right:40px" />
                   {:else}
-                    <input class="form-input" type="password" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
+                    <input class="form-input" type="password" placeholder={$_('settings_main.server.password_ph')} bind:value={serverPassword} style="padding-right:40px" />
                   {/if}
                   <button type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-3);padding:4px" on:click={() => serverShowPw = !serverShowPw}>
                     <span class="material-symbols-rounded" style="font-size:20px">{serverShowPw ? 'visibility_off' : 'visibility'}</span>
@@ -690,7 +690,7 @@
          purely admin-facing. Hidden on native standalone (no server),
          and hidden for non-admin members on multi-user instances. -->
     {#if !localOnly && (!$userMgmtActive || $currentUser?.role === 'admin')}
-      <p class="group-label">Admin</p>
+      <p class="group-label">{$_('settings_main.group_admin')}</p>
 
       <SettingsUserManagement
         visible={sectionVisible(settingsQuery, 'users')}
@@ -732,7 +732,7 @@
 {#if mergeStep === 'ask-settings'}
   <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }}>
     <div class="merge-dialog">
-      <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">Sync Options</h3>
+      <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">{$_('settings_main.merge.title')}</h3>
       <p style="font-size:13px;color:var(--text-3);margin:0 0 12px;line-height:1.5">
         You have data on this phone. How should it be handled when connecting?
       </p>
@@ -753,25 +753,25 @@
         <button class="merge-option" on:click={() => _mergeAndConnect('upload')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_upload</span>
           <div>
-            <div class="merge-option-title">Upload phone to server</div>
+            <div class="merge-option-title">{$_('settings_main.merge.upload')}</div>
             <div class="merge-option-desc">Send this phone's workouts, programs, and settings to the server. Existing server data stays.</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('download')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_download</span>
           <div>
-            <div class="merge-option-title">Download server to phone</div>
+            <div class="merge-option-title">{$_('settings_main.merge.download')}</div>
             <div class="merge-option-desc">Replace this phone's data with everything from the server. Local data is discarded.</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('merge')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">sync</span>
           <div>
-            <div class="merge-option-title">Merge both</div>
+            <div class="merge-option-title">{$_('settings_main.merge.merge')}</div>
             <div class="merge-option-desc">Upload phone data to the server AND download server data. Nothing is lost, but duplicates are possible.</div>
           </div>
         </button>
-        <button class="btn btn-ghost" style="color:var(--text-3);margin-top:4px;width:100%;justify-content:center;height:40px" on:click={cancelMerge}>Cancel</button>
+        <button class="btn btn-ghost" style="color:var(--text-3);margin-top:4px;width:100%;justify-content:center;height:40px" on:click={cancelMerge}>{$_('settings_main.merge.cancel')}</button>
       </div>
     </div>
   </div>
@@ -821,13 +821,13 @@
           </ul>
         </div>
       {/if}
-      <button class="btn btn-primary" style="width:100%;justify-content:center;height:42px" on:click={_finalizeConnect}>Continue</button>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;height:42px" on:click={_finalizeConnect}>{$_('settings_main.merge.continue')}</button>
     </div>
   </div>
 {/if}
 
 <!-- Custom color picker sheet -->
-<Sheet bind:open={showColorSheet} title="Custom Color">
+<Sheet bind:open={showColorSheet} title={$_('settings_main.color.title')}>
   <div class="cp-body">
     <div class="cp-preview" style="background:{customColorHex}">
       <span class="cp-preview-hex">{customHexInput}</span>
@@ -840,7 +840,7 @@
       </div>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Saturation</label>
+      <label class="form-label">{$_('settings_main.color.saturation')}</label>
       <div class="cp-slider-wrap">
         <input type="range" class="cp-slider cp-sat" min="0" max="100"
           bind:value={cpSat} on:input={cpUpdateFromSliders}
@@ -848,7 +848,7 @@
       </div>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Lightness</label>
+      <label class="form-label">{$_('settings_main.color.lightness')}</label>
       <div class="cp-slider-wrap">
         <input type="range" class="cp-slider cp-lgt" min="0" max="100"
           bind:value={cpLgt} on:input={cpUpdateFromSliders}
@@ -873,7 +873,7 @@
       </div>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Hex code</label>
+      <label class="form-label">{$_('settings_main.color.hex_code')}</label>
       <div class="cp-hex-row">
         <span class="cp-hex-dot" style="background:{/^#[0-9a-fA-F]{6}$/.test(customHexInput) ? customHexInput : '#ccc'}"></span>
         <input class="form-input" type="text" placeholder="#rrggbb" maxlength="7"
@@ -883,7 +883,7 @@
           on:keydown={e => e.key === 'Enter' && applyCustomColor()} />
       </div>
     </div>
-    <button class="btn btn-primary" style="height:44px;width:100%;margin-top:4px;justify-content:center" on:click={applyCustomColor}>Apply Color</button>
+    <button class="btn btn-primary" style="height:44px;width:100%;margin-top:4px;justify-content:center" on:click={applyCustomColor}>{$_('settings_main.color.apply')}</button>
   </div>
 </Sheet>
 
