@@ -14,26 +14,26 @@
   /** Called when the Custom swatch is tapped \u2014 parent opens the HSL/RGB sheet. */
   export let onOpenColorSheet = () => {};
 
-  const ACCENTS = [
-    { id: 'orange', label: 'Iron',    color: '#FF7433' },
-    { id: 'mint',   label: 'Mint',    color: '#4FFFB0' },
-    { id: 'blue',   label: 'Blue',    color: '#4FC3F7' },
-    { id: 'red',    label: 'Red',     color: '#FF7070' },
-    { id: 'purple', label: 'Purple',  color: '#CE93D8' },
-    { id: 'teal',   label: 'Teal',    color: '#4DD0E1' },
-    { id: 'yellow', label: 'Gold',    color: '#FFF176' },
-    { id: 'indigo', label: 'Indigo',  color: '#9FA8DA' },
-    { id: 'pink',   label: 'Pink',    color: '#F48FB1' },
-    { id: 'rose',   label: 'Rose',    color: '#FF80AB' },
-    { id: 'cyan',   label: 'Cyan',    color: '#80DEEA' },
-    { id: 'lime',   label: 'Lime',    color: '#C5E1A5' },
+  $: ACCENTS = [
+    { id: 'orange', label: $_('settings_appearance.accents.orange'), color: '#FF7433' },
+    { id: 'mint',   label: $_('settings_appearance.accents.mint'),   color: '#4FFFB0' },
+    { id: 'blue',   label: $_('settings_appearance.accents.blue'),   color: '#4FC3F7' },
+    { id: 'red',    label: $_('settings_appearance.accents.red'),    color: '#FF7070' },
+    { id: 'purple', label: $_('settings_appearance.accents.purple'), color: '#CE93D8' },
+    { id: 'teal',   label: $_('settings_appearance.accents.teal'),   color: '#4DD0E1' },
+    { id: 'yellow', label: $_('settings_appearance.accents.yellow'), color: '#FFF176' },
+    { id: 'indigo', label: $_('settings_appearance.accents.indigo'), color: '#9FA8DA' },
+    { id: 'pink',   label: $_('settings_appearance.accents.pink'),   color: '#F48FB1' },
+    { id: 'rose',   label: $_('settings_appearance.accents.rose'),   color: '#FF80AB' },
+    { id: 'cyan',   label: $_('settings_appearance.accents.cyan'),   color: '#80DEEA' },
+    { id: 'lime',   label: $_('settings_appearance.accents.lime'),   color: '#C5E1A5' },
   ];
-  const START_PAGES = [
-    { value: '/',           label: 'Diary'      },
-    { value: '/exercises',  label: 'Exercises'  },
-    { value: '/programs',   label: 'Programs'   },
-    { value: '/statistics', label: 'Statistics' },
-    { value: '/settings',   label: 'Settings'   },
+  $: START_PAGES = [
+    { value: '/',           label: $_('settings_appearance.start_diary')      },
+    { value: '/exercises',  label: $_('settings_appearance.start_exercises')  },
+    { value: '/programs',   label: $_('settings_appearance.start_programs')   },
+    { value: '/statistics', label: $_('settings_appearance.start_statistics') },
+    { value: '/settings',   label: $_('settings_appearance.start_settings')   },
   ];
 
   $: isCustomHex = /^#[0-9a-fA-F]{6}$/.test($accentColor);
@@ -62,16 +62,16 @@
              for cross-app consistency. Labels follow the title-case rule
              (Chicago — every word capitalized except small connectors). -->
         <div class="setting-row">
-          <span class="setting-label">Theme</span>
+          <span class="setting-label">{$_('settings_appearance.theme')}</span>
           <select class="form-select-sm" value={$appearance} on:change={e => applyAppearance(e.target.value)}>
-            <option value="system">System Default</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
+            <option value="system">{$_('settings_appearance.theme_system')}</option>
+            <option value="dark">{$_('settings_appearance.theme_dark')}</option>
+            <option value="light">{$_('settings_appearance.theme_light')}</option>
           </select>
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row accent-row">
-          <span class="setting-label">Accent Color</span>
+          <span class="setting-label">{$_('settings_appearance.accent_color')}</span>
           <div class="accent-grid">
             {#each ACCENTS as a}
               <button class="accent-swatch" class:active={$accentColor === a.id}
@@ -85,7 +85,7 @@
             <button
               class="accent-swatch accent-swatch-custom"
               class:active={isCustomHex}
-              title="Custom Color"
+              title={$_('settings_appearance.custom_color')}
               style={isCustomHex ? `background: ${$accentColor}` : ''}
               on:click={onOpenColorSheet}>
               {#if isCustomHex}
@@ -98,26 +98,26 @@
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">
-          <span class="setting-label">Navigation Style</span>
+          <span class="setting-label">{$_('settings_appearance.nav_style')}</span>
           <select class="form-select-sm" bind:value={$navStyle}>
-            <option value="bottom">Bottom Bar</option>
-            <option value="sidebar">Sidebar</option>
-            <option value="both">Both</option>
+            <option value="bottom">{$_('settings_appearance.nav_bottom')}</option>
+            <option value="sidebar">{$_('settings_appearance.nav_sidebar')}</option>
+            <option value="both">{$_('settings_appearance.nav_both')}</option>
           </select>
         </div>
         {#if $navStyle !== 'bottom' && _persistentAllowed}
           <div class="setting-divider"></div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Persistent Sidebar</span>
-              <span class="setting-hint">Sidebar stays open and shifts page content instead of overlaying it. Available on tablets, foldables, and desktop.</span>
+              <span class="setting-label">{$_('settings_appearance.persistent_sidebar')}</span>
+              <span class="setting-hint">{$_('settings_appearance.persistent_sidebar_desc')}</span>
             </div>
             <Toggle bind:checked={$sidebarPersistent} />
           </div>
         {/if}
         <div class="setting-divider"></div>
         <div class="setting-row">
-          <span class="setting-label">Start Page</span>
+          <span class="setting-label">{$_('settings_appearance.start_page')}</span>
           <select class="form-select-sm" bind:value={$startPage}>
             {#each START_PAGES as sp}
               <option value={sp.value}>{sp.label}</option>
@@ -126,40 +126,40 @@
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">
-          <span class="setting-label">Reduce Motion</span>
+          <span class="setting-label">{$_('settings_appearance.reduce_motion')}</span>
           <Toggle bind:checked={$disableAnimations} />
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Goal Celebrations</span>
-            <span class="setting-hint">Confetti when you hit a milestone</span>
+            <span class="setting-label">{$_('settings_appearance.goal_celebrations')}</span>
+            <span class="setting-hint">{$_('settings_appearance.goal_celebrations_desc')}</span>
           </div>
           <Toggle bind:checked={$goalCelebrations} />
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Page Banners</span>
-            <span class="setting-hint">Header style at the top of every page. Animated is a compact accent-gradient bar with a chosen motion style; Gradient is the same bar, static; Off is a plain glass header.</span>
+            <span class="setting-label">{$_('settings_appearance.page_banners')}</span>
+            <span class="setting-hint">{$_('settings_appearance.page_banners_desc')}</span>
           </div>
           <select class="form-select-sm" value={$bannerStyle} on:change={e => bannerStyle.set(e.target.value)}>
-            <option value="animated">Animated</option>
-            <option value="gradient">Gradient</option>
-            <option value="off">Off</option>
+            <option value="animated">{$_('settings_appearance.banner_animated')}</option>
+            <option value="gradient">{$_('settings_appearance.banner_gradient')}</option>
+            <option value="off">{$_('settings_appearance.banner_off')}</option>
           </select>
         </div>
         {#if $bannerStyle === 'animated'}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Animation Style</span>
-              <span class="setting-hint">Shimmer is a soft white sweep, Drift is a slow hue rotation, Pulse is a gentle breathing, Aurora is a soft accent-tinted cloud-of-light. All honour Reduce Motion.</span>
+              <span class="setting-label">{$_('settings_appearance.anim_style')}</span>
+              <span class="setting-hint">{$_('settings_appearance.anim_style_desc')}</span>
             </div>
             <select class="form-select-sm" value={$bannerAnimation} on:change={e => bannerAnimation.set(e.target.value)}>
-              <option value="shimmer">Shimmer</option>
-              <option value="drift">Drift</option>
-              <option value="pulse">Pulse</option>
-              <option value="aurora">Aurora</option>
+              <option value="shimmer">{$_('settings_appearance.anim_shimmer')}</option>
+              <option value="drift">{$_('settings_appearance.anim_drift')}</option>
+              <option value="pulse">{$_('settings_appearance.anim_pulse')}</option>
+              <option value="aurora">{$_('settings_appearance.anim_aurora')}</option>
             </select>
           </div>
         {/if}
