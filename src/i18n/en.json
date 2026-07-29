@@ -403,6 +403,35 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "native_setup": {
+    "toast": {
+      "server_url_required":   "Enter your server URL",
+      "cant_reach":            "Could not reach server",
+      "credentials_required":  "Enter your credentials",
+      "connected":             "Connected to server",
+      "cant_connect":          "Could not connect to server",
+      "cant_open_oidc":        "Could not open sign-in browser",
+      "migration_failed":      "Migration failed",
+      "local_cleared":         "Local data cleared",
+      "cant_clear_local":      "Could not clear local data"
+    },
+    "title":                   "LiftTrace",
+    "subtitle":                "Track Every Rep",
+    "use_locally":             "Use Locally",
+    "connect_server":          "Connect to Server",
+    "server_url":              "Server URL",
+    "back":                    "Back",
+    "username":                "Username",
+    "username_ph":             "Your username",
+    "password":                "Password",
+    "password_ph":             "Your password",
+    "migrate_title":           "You have local data on this device",
+    "upload_to_server":        "Upload to server",
+    "replace_with_server":     "Replace with server",
+    "merge_both":              "Merge both",
+    "migration_complete":      "Migration complete",
+    "continue":                "Continue"
+  },
   "radio": {
     "toast": {
       "name_url_required":     "Name and URL are required",

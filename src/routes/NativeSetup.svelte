@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl } from '../lib/platform.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { countLocalData, uploadLocalToServer } from '../lib/migrate.js';
@@ -56,7 +57,7 @@
   // Step 1 → step 2: validate server reachability + discover which auth
   // methods the server supports. Uses CapacitorHttp to bypass WebView CORS.
   async function validateAndNext() {
-    if (!serverUrl.trim()) { showError('Enter your server URL'); return; }
+    if (!serverUrl.trim()) { showError($_('native_setup.toast.server_url_required')); return; }
     const url = serverUrl.trim().replace(/\/$/, '');
     connecting = true;
     try {
@@ -84,7 +85,7 @@
       passwordLoginEnabled = discoveredPasswordEnabled;
       step = 'server-auth';
     } catch (e) {
-      showError(e.message || 'Could not reach server');
+      showError(e.message || $_('native_setup.toast.cant_reach'));
     } finally {
       connecting = false;
     }
@@ -94,7 +95,7 @@
   // the existing LT flow including the local-data migration prompt that fires
   // after successful login.
   async function loginWithPassword() {
-    if (!username.trim() || !password.trim()) { showError('Enter your credentials'); return; }
+    if (!username.trim() || !password.trim()) { showError($_('native_setup.toast.credentials_required')); return; }
     connecting = true;
     try {
       const { CapacitorHttp } = await import('@capacitor/core');
@@ -123,14 +124,14 @@
         localCounts = null;
       }
       if (localCounts && localCounts.total > 0) {
-        showSuccess('Connected to server');
+        showSuccess($_('native_setup.toast.connected'));
         step = 'migrate-choice';
       } else {
-        showSuccess('Connected to server');
+        showSuccess($_('native_setup.toast.connected'));
         window.location.reload();
       }
     } catch (e) {
-      showError(e.message || 'Could not connect to server');
+      showError(e.message || $_('native_setup.toast.cant_connect'));
     } finally {
       connecting = false;
     }
@@ -161,7 +162,7 @@
       // App.svelte's appUrlOpen listener — it sets the token, calls
       // loadAuthState, redirects to '#/', and the main app renders.
     } catch (e) {
-      showError('Could not open sign-in browser');
+      showError($_('native_setup.toast.cant_open_oidc'));
     }
   }
 
@@ -187,7 +188,7 @@
       }
       step = 'migration-done';
     } catch (e) {
-      showError(e.message || 'Migration failed');
+      showError(e.message || $_('native_setup.toast.migration_failed'));
       step = 'migrate-choice';
     } finally {
       migrateBusy = false;
@@ -198,9 +199,9 @@
     migrateBusy = true;
     try {
       await destroyLocalDb();
-      showSuccess('Local data cleared');
+      showSuccess($_('native_setup.toast.local_cleared'));
     } catch (e) {
-      showError(e.message || 'Could not clear local data');
+      showError(e.message || $_('native_setup.toast.cant_clear_local'));
     } finally {
       migrateBusy = false;
     }
@@ -247,15 +248,15 @@
   <div class="setup-inner">
     <div class="setup-brand">
       <img src={resolveAssetUrl('/icons/icon-192.png')} alt="LiftTrace" class="setup-logo" />
-      <h1 class="setup-title">LiftTrace</h1>
-      <p class="setup-subtitle">Track Every Rep</p>
+      <h1 class="setup-title">{$_('native_setup.title')}</h1>
+      <p class="setup-subtitle">{$_('native_setup.subtitle')}</p>
     </div>
 
     {#if step === 'choose'}
       <div class="setup-cards">
         <button class="setup-card" on:click={chooseLocal}>
           <span class="material-symbols-rounded setup-card-icon">smartphone</span>
-          <div class="setup-card-title">Use Locally</div>
+          <div class="setup-card-title">{$_('native_setup.use_locally')}</div>
           <p class="setup-card-desc">
             All data stays on this device. Works fully offline, no server needed.
             You can connect to a server later in Settings.
@@ -264,7 +265,7 @@
 
         <button class="setup-card" on:click={chooseServer}>
           <span class="material-symbols-rounded setup-card-icon">cloud_sync</span>
-          <div class="setup-card-title">Connect to Server</div>
+          <div class="setup-card-title">{$_('native_setup.connect_server')}</div>
           <p class="setup-card-desc">
             Sync with your LiftTrace server. Your workouts are available on
             every device and the web app.
@@ -275,7 +276,7 @@
     {:else if step === 'server-url'}
       <div class="setup-form">
         <div class="form-group">
-          <label class="form-label">Server URL</label>
+          <label class="form-label">{$_('native_setup.server_url')}</label>
           <input
             class="input"
             type="url"
@@ -291,7 +292,7 @@
         </div>
 
         <div class="setup-form-actions">
-          <button class="btn btn-ghost" on:click={backToChoose} disabled={connecting}>Back</button>
+          <button class="btn btn-ghost" on:click={backToChoose} disabled={connecting}>{$_('native_setup.back')}</button>
           <button class="btn btn-primary" on:click={validateAndNext} disabled={connecting}>
             {connecting ? 'Checking…' : 'Next'}
           </button>
@@ -325,23 +326,23 @@
         {/if}
         {#if passwordLoginEnabled}
           <div class="form-group">
-            <label class="form-label">Username</label>
+            <label class="form-label">{$_('native_setup.username')}</label>
             <input
               class="input"
               type="text"
-              placeholder="Your username"
+              placeholder={$_('native_setup.username_ph')}
               bind:value={username}
               autocapitalize="off"
               autocorrect="off"
             />
           </div>
           <div class="form-group">
-            <label class="form-label">Password</label>
+            <label class="form-label">{$_('native_setup.password')}</label>
             <div style="position:relative">
               {#if showPw}
-                <input class="input" type="text" placeholder="Your password" bind:value={password} style="padding-right:40px" />
+                <input class="input" type="text" placeholder={$_('native_setup.password_ph')} bind:value={password} style="padding-right:40px" />
               {:else}
-                <input class="input" type="password" placeholder="Your password" bind:value={password} style="padding-right:40px" />
+                <input class="input" type="password" placeholder={$_('native_setup.password_ph')} bind:value={password} style="padding-right:40px" />
               {/if}
               <button type="button" class="pw-toggle" on:click={() => showPw = !showPw}>
                 <span class="material-symbols-rounded" style="font-size:20px">{showPw ? 'visibility_off' : 'visibility'}</span>
@@ -361,7 +362,7 @@
         {/if}
 
         <div class="setup-form-actions">
-          <button class="btn btn-ghost" on:click={backToServerUrl} disabled={connecting}>Back</button>
+          <button class="btn btn-ghost" on:click={backToServerUrl} disabled={connecting}>{$_('native_setup.back')}</button>
           {#if passwordLoginEnabled}
             <button class="btn btn-primary" on:click={loginWithPassword} disabled={connecting}>
               {connecting ? 'Signing in…' : 'Sign In'}
@@ -375,7 +376,7 @@
            shows per-table counts up front so the user knows what's about
            to move. Only reached via password login (see header comment). -->
       <div class="migrate-summary">
-        <div class="migrate-title">You have local data on this device</div>
+        <div class="migrate-title">{$_('native_setup.migrate_title')}</div>
         <p class="migrate-sub">Choose how to combine it with your server account.</p>
         <ul class="count-list">
           {#if localCounts.workouts}<li>{localCounts.workouts} workout{localCounts.workouts === 1 ? '' : 's'}</li>{/if}
@@ -389,19 +390,19 @@
       <div class="setup-cards">
         <button class="setup-card" on:click={() => migrateUpload(false)} disabled={migrateBusy}>
           <span class="material-symbols-rounded setup-card-icon">cloud_upload</span>
-          <div class="setup-card-title">Upload to server</div>
+          <div class="setup-card-title">{$_('native_setup.upload_to_server')}</div>
           <p class="setup-card-desc">Push everything on this device to your server. Re-uploaded dates overwrite cleanly.</p>
         </button>
 
         <button class="setup-card" on:click={migrateDownload} disabled={migrateBusy}>
           <span class="material-symbols-rounded setup-card-icon">cloud_download</span>
-          <div class="setup-card-title">Replace with server</div>
+          <div class="setup-card-title">{$_('native_setup.replace_with_server')}</div>
           <p class="setup-card-desc">Discard local data and load everything fresh from the server. <strong>Local entries are deleted.</strong></p>
         </button>
 
         <button class="setup-card" on:click={() => migrateUpload(true)} disabled={migrateBusy}>
           <span class="material-symbols-rounded setup-card-icon">merge</span>
-          <div class="setup-card-title">Merge both</div>
+          <div class="setup-card-title">{$_('native_setup.merge_both')}</div>
           <p class="setup-card-desc">Upload local data, then pull the merged result back. Workouts dedupe by date; programs and exercises may duplicate.</p>
         </button>
 
@@ -426,7 +427,7 @@
     {:else if step === 'migration-done' && migrateSummary}
       <div class="migrate-summary">
         <span class="material-symbols-rounded migrate-done-icon">check_circle</span>
-        <div class="migrate-title">Migration complete</div>
+        <div class="migrate-title">{$_('native_setup.migration_complete')}</div>
         <ul class="count-list">
           {#if migrateSummary.success.workouts}<li>{migrateSummary.success.workouts} workout{migrateSummary.success.workouts === 1 ? '' : 's'} uploaded</li>{/if}
           {#if migrateSummary.success.bodyStats}<li>{migrateSummary.success.bodyStats} body-stats {migrateSummary.success.bodyStats === 1 ? 'entry' : 'entries'} uploaded</li>{/if}
@@ -446,7 +447,7 @@
             </ul>
           </div>
         {/if}
-        <button class="btn btn-primary" on:click={finishMigration}>Continue</button>
+        <button class="btn btn-primary" on:click={finishMigration}>{$_('native_setup.continue')}</button>
       </div>
     {/if}
   </div>
