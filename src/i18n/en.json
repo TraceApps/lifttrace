@@ -403,6 +403,56 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "profile": {
+    "biometric_cancelled":   "Biometric verification was canceled or failed.",
+    "server_unreachable":    "Could not reach server",
+    "gender_male":           "Male",
+    "gender_female":         "Female",
+    "gender_other":          "Other",
+    "current_password_ph":   "Enter current password",
+    "confirm_password_ph":   "Re-enter new password",
+    "biometric_signin":      "Sign In with Biometric"
+  },
+  "settings_catalog": {
+    "deleted":               "Deleted",
+    "rapidapi_key_ph":       "RapidAPI key",
+    "offline_library":       "Offline Exercise Library",
+    "my_exercises":          "My Exercises",
+    "custom_catalog":        "Custom Catalog",
+    "catalog_name":          "Catalog Name",
+    "json":                  "JSON",
+    "json_ph":               "Paste JSON here, or pick a .json file below",
+    "imported_catalogs":     "Imported Catalogs"
+  },
+  "settings_radio": {
+    "streaming_stations":    "Streaming Stations",
+    "provider":              "Provider",
+    "emby":                  "Emby",
+    "jellyfin":              "Jellyfin",
+    "plex":                  "Plex",
+    "server_url":            "Server URL",
+    "crossfade":             "Crossfade",
+    "crossfade_hint":        "Blend tracks together during transitions",
+    "off":                   "Off",
+    "highest_quality":       "Highest Quality Playback"
+  },
+  "settings_email": {
+    "smtp_host_required":    "SMTP test failed: host required",
+    "invalid_email":         "Enter a valid email address",
+    "hint":                  "Used for password resets and user invites",
+    "smtp_host":             "SMTP Host",
+    "port":                  "Port",
+    "tls":                   "TLS",
+    "username":              "Username",
+    "username_ph":           "SMTP username or email",
+    "password":              "Password",
+    "password_ph":           "SMTP password or app password",
+    "from_address":          "From Address",
+    "from_address_ph":       "LiftTrace <noreply@example.com>",
+    "send_test_email":       "Send Test Email",
+    "cancel":                "Cancel",
+    "send":                  "Send"
+  },
   "program_detail": {
     "toast": {
       "settings_saved":      "Program settings saved",
