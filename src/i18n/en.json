@@ -403,6 +403,26 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "exercise_editor": {
+    "toast": {
+      "updated":              "Exercise updated",
+      "added":                "Added \"{name}\""
+    },
+    "name":                   "Name",
+    "required":               "*",
+    "category":               "Category",
+    "media":                  "Media",
+    "equipment":              "Equipment",
+    "primary_muscles":        "Primary Muscles",
+    "primary_hint":           "(tap to toggle)",
+    "secondary_muscles":      "Secondary Muscles",
+    "instructions":           "Instructions",
+    "instructions_ph":        "Step-by-step form cues, setup, execution…",
+    "tips":                   "Tips",
+    "tips_optional":          "(optional)",
+    "tips_ph":                "Common mistakes, breathing, progression notes…",
+    "cancel":                 "Cancel"
+  },
   "diary_extra": {
     "toast": {
       "reply_failed":          "Reply failed",
