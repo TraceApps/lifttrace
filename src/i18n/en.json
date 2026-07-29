@@ -403,6 +403,29 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "program_detail": {
+    "toast": {
+      "settings_saved":      "Program settings saved",
+      "assigned_to":         "Assigned to {name}",
+      "set_active":          "Program set as active",
+      "deactivated":         "Program deactivated",
+      "workout_added":       "Workout added",
+      "workout_deleted":     "Workout deleted",
+      "program_deleted":     "Program deleted",
+      "duplicated":          "Program duplicated",
+      "member_fallback":     "member"
+    },
+    "workouts":              "Workouts",
+    "add_workout":           "Add Workout",
+    "assign_hint":           "Pick a member to assign {name} to:",
+    "advance_week_by":       "Advance the Week By",
+    "option_sessions":       "Sessions Completed",
+    "past_final_week":       "Past the Final Week",
+    "option_hold":           "Hold on the Final Week",
+    "cancel":                "Cancel",
+    "new_workout":           "New Workout",
+    "name":                  "Name"
+  },
   "exercise_editor": {
     "toast": {
       "updated":              "Exercise updated",
