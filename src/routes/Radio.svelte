@@ -1224,27 +1224,27 @@
   cancelText="Cancel"
   on:confirm={saveStation}>
   <div class="station-form">
-    <label class="form-label">Name</label>
-    <input class="form-input" type="text" bind:value={stationName} placeholder="SomaFM Groove Salad" />
+    <label class="form-label">{$_('radio.name')}</label>
+    <input class="form-input" type="text" bind:value={stationName} placeholder={$_('radio.name_ph')} />
     <div class="field-header">
-      <label class="form-label">Stream URL</label>
+      <label class="form-label">{$_('radio.stream_url')}</label>
       <button type="button" class="auto-btn" on:click={autoFillFromUrl} disabled={detectingInfo || !stationUrl.trim()} title="Detect station info">
         <span class="material-symbols-rounded">auto_awesome</span>
         {detectingInfo ? 'Detecting…' : 'Auto-fill'}
       </button>
     </div>
     <input class="form-input" type="url" bind:value={stationUrl} placeholder="https://ice1.somafm.com/groovesalad-128-mp3" />
-    <label class="form-label">Genre <span class="optional">(optional)</span></label>
+    <label class="form-label">{$_('radio.genre')} <span class="optional">{$_('radio.optional')}</span></label>
     <input class="form-input" type="text" bind:value={stationGenre} placeholder="Ambient / Downtempo" />
-    <label class="form-label">Homepage <span class="optional">(used for icon lookup)</span></label>
+    <label class="form-label">{$_('radio.homepage')} <span class="optional">{$_('radio.for_icon_lookup')}</span></label>
     <input class="form-input" type="url" bind:value={stationHomepage} placeholder="https://www.deejay.it" />
-    <label class="form-label">Group <span class="optional">(optional)</span></label>
+    <label class="form-label">{$_('radio.group')} <span class="optional">{$_('radio.optional')}</span></label>
     <input class="form-input" type="text" bind:value={stationGroup} list="station-groups" placeholder="Italian, Workout, Chill…" />
     <datalist id="station-groups">
       {#each existingGroups as g}<option value={g}></option>{/each}
     </datalist>
     <div class="field-header">
-      <label class="form-label">Icon URL <span class="optional">(optional)</span></label>
+      <label class="form-label">{$_('radio.icon_url')} <span class="optional">{$_('radio.optional')}</span></label>
       <button type="button" class="auto-btn" on:click={autoFetchIcon} disabled={!stationUrl.trim()} title="Use favicon from stream URL's domain">
         <span class="material-symbols-rounded">image_search</span> Auto
       </button>
@@ -1260,7 +1260,7 @@
   cancelText="Cancel"
   on:confirm={saveRenameGroup}>
   <div class="station-form">
-    <label class="form-label">New name <span class="optional">(leave empty to ungroup)</span></label>
+    <label class="form-label">{$_('radio.new_name')} <span class="optional">{$_('radio.leave_empty_ungroup')}</span></label>
     <input class="form-input" type="text" bind:value={renameGroupNew} placeholder="e.g. Italian, Workout" autofocus />
   </div>
 </Dialog>

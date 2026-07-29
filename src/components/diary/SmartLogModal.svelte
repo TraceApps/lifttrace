@@ -59,7 +59,7 @@
       };
       webRecognition.onerror = (e) => {
         listening = false;
-        showError('Voice input failed: ' + (e.error || 'unknown'));
+        showError($_('smart_log.voice_failed', { values: { reason: e.error || $_('smart_log.voice_unknown') } }));
       };
       webRecognition.onend = () => { listening = false; };
       voiceAvailable = true;
@@ -157,7 +157,7 @@
 
       <div class="sl-header">
         <span class="material-symbols-rounded sl-header-icon">auto_awesome</span>
-        <h3 class="sl-title">Smart Add</h3>
+        <h3 class="sl-title">{$_('smart_log.title')}</h3>
         <button class="sl-close" on:click={closeAndReset} title="Close">
           <span class="material-symbols-rounded">close</span>
         </button>
@@ -186,7 +186,7 @@
             <p class="sl-error">{errorMsg}</p>
           {/if}
           <div class="sl-actions">
-            <button class="btn btn-secondary" on:click={closeAndReset}>Cancel</button>
+            <button class="btn btn-secondary" on:click={closeAndReset}>{$_('smart_log.cancel')}</button>
             <button class="btn btn-primary" on:click={runParse} disabled={!inputText.trim()}>
               <span class="material-symbols-rounded" style="font-size:18px">arrow_forward</span>
               Parse
@@ -245,7 +245,7 @@
                       class="sl-set-input" type="number" min="0"
                       bind:value={set.reps} placeholder="0" />
                     <span class="sl-set-unit">reps</span>
-                    {#if set.amrap}<span class="sl-tag">AMRAP</span>{/if}
+                    {#if set.amrap}<span class="sl-tag">{$_('smart_log.amrap')}</span>{/if}
                     {#if set.bodyweight}<span class="sl-tag">BW</span>{/if}
                     {#if set.rpe != null}<span class="sl-tag">RPE {set.rpe}</span>{/if}
                     {#if item.sets.length > 1}
@@ -269,7 +269,7 @@
             <p class="sl-error">{errorMsg}</p>
           {/if}
           <div class="sl-actions">
-            <button class="btn btn-secondary" on:click={() => phase = 'input'}>Back</button>
+            <button class="btn btn-secondary" on:click={() => phase = 'input'}>{$_('smart_log.back')}</button>
             <button class="btn btn-primary" on:click={runSave} disabled={matched.length === 0}>
               <span class="material-symbols-rounded" style="font-size:18px">check</span>
               Add to workout

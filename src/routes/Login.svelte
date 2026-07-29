@@ -51,7 +51,7 @@
         const ok  = q.get('oidc');
         if (err) showError(decodeURIComponent(err));
         else if (ok === 'ok')     { await loadAuthState(); push('/'); }
-        else if (ok === 'linked') { await loadAuthState(); showSuccess('Linked'); }
+        else if (ok === 'linked') { await loadAuthState(); showSuccess($_('login.linked')); }
       }
     } catch {}
 
@@ -71,7 +71,7 @@
       const ok = await bio.authenticate('Sign in to LiftTrace');
       if (!ok) return;
       const saved = await bio.readSavedToken();
-      if (!saved) { showError('No saved sign-in. Please use your password once first.'); return; }
+      if (!saved) { showError($_('login.no_saved')); return; }
       setAuthToken(saved);
       // /me brings the auth state up + refreshes CSRF.
       await loadAuthState();
@@ -84,7 +84,7 @@
       // 9d33afb) confirmed via logcat when an NT JWT hit the 30-day
       // expiry boundary.
       if (!get(currentUser)) {
-        showError('Your saved sign-in expired. Use your password to sign in.');
+        showError($_('login.saved_expired'));
         await bio.clearSavedToken();
         return;
       }
@@ -92,7 +92,7 @@
       push('/');
     } catch (e) {
       console.warn('[login] biometric flow failed:', e);
-      showError('Biometric sign-in failed. Use your password instead.');
+      showError($_('login.biometric_failed'));
     }
   }
 
@@ -188,7 +188,7 @@
   <div class="login-card card">
     <div class="login-logo">
       <img src={resolveAssetUrl('/icons/logo.png')} alt="LiftTrace" class="logo-img" />
-      <h1 class="login-title">LiftTrace</h1>
+      <h1 class="login-title">{$_('login.app_name')}</h1>
       <p class="text-3 text-sm">{$_('login.subtitle')}</p>
     </div>
 
@@ -216,7 +216,7 @@
         <button class="btn btn-secondary w-full" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px"
           on:click={biometricLogin} disabled={loading}>
           <span class="material-symbols-rounded" style="font-size:20px">fingerprint</span>
-          <span>Sign In with Biometric</span>
+          <span>{$_('login.biometric_signin')}</span>
         </button>
       {/if}
       {/if}

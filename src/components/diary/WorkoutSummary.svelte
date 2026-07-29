@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { weightUnit, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
@@ -187,20 +188,20 @@
         </div>
         <div class="ws-stat">
           <span class="ws-stat-val">{stats.sets}</span>
-          <span class="ws-stat-label">Sets</span>
+          <span class="ws-stat-label">{$_('workout_summary.sets')}</span>
         </div>
         <div class="ws-stat">
           <span class="ws-stat-val">{stats.exercises}</span>
-          <span class="ws-stat-label">Exercises</span>
+          <span class="ws-stat-label">{$_('workout_summary.exercises')}</span>
         </div>
         <button class="ws-stat ws-stat-edit" on:click={openDurationEditor}
                 title="Tap to edit duration" type="button">
           {#if effectiveDurationMin > 0}
             <span class="ws-stat-val">{fmtDuration(effectiveDurationMin)}</span>
-            <span class="ws-stat-label">Duration</span>
+            <span class="ws-stat-label">{$_('workout_summary.duration')}</span>
           {:else}
             <span class="ws-stat-val ws-stat-placeholder">Add</span>
-            <span class="ws-stat-label">Duration</span>
+            <span class="ws-stat-label">{$_('workout_summary.duration')}</span>
           {/if}
           <span class="material-symbols-rounded ws-stat-edit-icon">edit</span>
         </button>
@@ -218,7 +219,7 @@
           </div>
           <div class="ws-duration-custom">
             <input class="ws-duration-input" type="number" inputmode="numeric"
-                   min="1" max="1440" step="1" placeholder="Custom"
+                   min="1" max="1440" step="1" placeholder={$_('workout_summary.custom')}
                    bind:value={durationCustomMin}
                    on:keydown={(e) => { if (e.key === 'Enter') submitCustomDuration(); }} />
             <span class="ws-duration-unit">min</span>
@@ -282,7 +283,7 @@
           <span class="material-symbols-rounded" style="font-size:18px">share</span>
           {sharing ? 'Preparing…' : 'Share'}
         </button>
-        <button class="btn btn-primary ws-done-btn" on:click={() => open = false}>Done</button>
+        <button class="btn btn-primary ws-done-btn" on:click={() => open = false}>{$_('workout_summary.done')}</button>
       </div>
     </div>
   </div>

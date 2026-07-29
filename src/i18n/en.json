@@ -403,6 +403,67 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "muscle_recovery": {
+    "title":                 "Muscle Recovery",
+    "fatigued":              "Fatigued",
+    "recovering":            "Recovering",
+    "ready":                 "Ready",
+    "fresh":                 "Fresh",
+    "front":                 "Front",
+    "back":                  "Back"
+  },
+  "login": {
+    "linked":                "Linked",
+    "no_saved":              "No saved sign-in. Please use your password once first.",
+    "saved_expired":         "Your saved sign-in expired. Use your password to sign in.",
+    "biometric_failed":      "Biometric sign-in failed. Use your password instead.",
+    "app_name":              "LiftTrace",
+    "biometric_signin":      "Sign In with Biometric"
+  },
+  "exercise_info": {
+    "primary_muscles":       "Primary Muscles",
+    "secondary_muscles":     "Secondary Muscles",
+    "how_to_perform":        "How to Perform",
+    "tips":                  "Tips",
+    "personal_record":       "Personal Record",
+    "recent_history":        "Recent History"
+  },
+  "workout_summary": {
+    "sets":                  "Sets",
+    "exercises":             "Exercises",
+    "duration":              "Duration",
+    "custom":                "Custom",
+    "done":                  "Done"
+  },
+  "exercise_detail": {
+    "deleted":               "Exercise deleted",
+    "top_set_over_time":     "Top Set Over Time",
+    "similar_exercises":     "Similar Exercises",
+    "try_again":             "Try Again",
+    "back_to_exercises":     "Back to Exercises"
+  },
+  "settings_federation": {
+    "url_token_required":    "Enter a URL and access token first",
+    "enable_federation":     "Enable Federation",
+    "instance_url":          "Instance URL",
+    "access_token":          "Access Token",
+    "wearable_priority":     "Wearable Priority"
+  },
+  "settings_diagnostics": {
+    "copy_failed":           "Copy failed, select the text manually",
+    "logs_cleared":          "Logs cleared",
+    "verbose_logging":       "Verbose Diagnostic Logging",
+    "view_logs":             "View Diagnostic Logs",
+    "github_issue":          "GitHub issue"
+  },
+  "smart_log": {
+    "voice_failed":          "Voice input failed: {reason}",
+    "voice_unknown":         "unknown",
+    "title":                 "Smart Add",
+    "cancel":                "Cancel",
+    "back":                  "Back",
+    "amrap":                 "AMRAP"
+  },
   "programs": {
     "delete_title":          "Delete program?",
     "delete_message":        "Deletes the program and all of its workouts. This cannot be undone.",
@@ -615,7 +676,18 @@
     "rename_group":            "Rename Group",
     "drag_reorder":            "Drag to Reorder",
     "move_up":                 "Move Up",
-    "move_down":               "Move Down"
+    "move_down":               "Move Down",
+    "name":                    "Name",
+    "name_ph":                 "SomaFM Groove Salad",
+    "stream_url":              "Stream URL",
+    "genre":                   "Genre",
+    "optional":                "(optional)",
+    "homepage":                "Homepage",
+    "for_icon_lookup":         "(used for icon lookup)",
+    "group":                   "Group",
+    "icon_url":                "Icon URL",
+    "new_name":                "New Name",
+    "leave_empty_ungroup":     "(leave empty to ungroup)"
   },
   "workout_editor": {
     "toast": {
