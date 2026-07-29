@@ -370,6 +370,74 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "settings_workout": {
+    "sections": {
+      "goals":            "Goals & Progress",
+      "logging":          "Logging Behavior",
+      "rest_timer":       "Rest Timer",
+      "body_measurements": "Body Measurements"
+    },
+    "goals": {
+      "weekly":           "Weekly Goal",
+      "weekly_desc":      "Target number of training days per week",
+      "weekly_option":    "{n} workouts/week",
+      "keep_awake":       "Screen Keep-Awake",
+      "keep_awake_desc":  "Keep the screen on during workouts",
+      "calorie_est":      "Show Calorie Estimate",
+      "calorie_est_desc": "Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height, weight, date of birth, and sex set in Profile. Resistance-training estimates are loose by ±25%, treated as an \"~est\" badge in the UI, not a hard number."
+    },
+    "logging": {
+      "autofill":              "Auto-Fill Last Weights",
+      "autofill_desc":         "Pre-fill weight and reps from your last session",
+      "summary":               "Completion Summary",
+      "summary_desc":          "Show stats recap when all sets are done",
+      "auto_collapse":         "Auto-Collapse Completed Exercises",
+      "auto_collapse_desc":    "Collapse a card once every set is ticked, tap to re-expand",
+      "auto_name":             "Auto-Name Workouts",
+      "auto_name_desc":        "Name empty workouts from exercise categories (Push Day, Pull Day, etc.)",
+      "reorder":               "Reorder Method",
+      "reorder_desc":          "How to reorder exercises in the diary",
+      "reorder_both":          "Drag + Buttons",
+      "reorder_drag":          "Drag Only",
+      "reorder_buttons":       "Buttons Only",
+      "confirm_remove":        "Confirm Before Removing",
+      "confirm_remove_desc":   "Ask before removing an exercise or superset from the diary",
+      "warmups":               "Auto-Generate Warm-Up Sets",
+      "warmups_desc":          "When a template loads with target weights, prepend bar / 50% / 70% / 85% warm-ups. You can always add or remove them per-exercise.",
+      "rpe":                   "Track RPE per Set",
+      "rpe_desc":              "Log Rate of Perceived Exertion (6–10 scale) on each completed set. Useful for autoregulated programs."
+    },
+    "rest": {
+      "enabled":           "Rest Timer",
+      "enabled_desc":      "Countdown between sets",
+      "duration":          "Rest Duration",
+      "duration_desc":     "Default, remembered per-exercise after first use",
+      "duration_seconds":  "{s}s",
+      "auto_start":        "Auto-Start on Set",
+      "auto_start_desc":   "Start rest timer when you check off a set",
+      "alert":             "Alert When Done",
+      "alert_desc":        "Get notified when the timer finishes",
+      "vibrate":           "Vibrate",
+      "vibrate_desc":      "Short vibration pattern on finish",
+      "tone":              "Play Tone",
+      "tone_desc":         "Brief chime when the timer hits zero",
+      "tone_style":        "Tone Style",
+      "tone_style_desc":   "Tap a row to select, tap ▶ to preview",
+      "preview":           "Preview"
+    },
+    "body_stats": {
+      "toggle_desc":       "Toggle which stats appear in the diary body stats sheet",
+      "weight":            "Weight",
+      "body_fat":          "Body Fat %",
+      "neck":              "Neck",
+      "chest":             "Chest",
+      "waist":             "Waist",
+      "hips":              "Hips",
+      "biceps":            "Biceps",
+      "thighs":            "Thighs",
+      "calves":            "Calves"
+    }
+  },
   "settings_notifications": {
     "sections": {
       "delivery":            "Delivery",
