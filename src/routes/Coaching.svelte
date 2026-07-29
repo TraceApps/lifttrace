@@ -143,7 +143,7 @@
     })) return;
     try {
       await LtApi.removeCoachee(memberId);
-      showSuccess(`${name} released from your roster`);
+      showSuccess($_('coaching.toast.released', { values: { name } }));
       push('/coaching');
     } catch(e) { showError(e.message); }
   }
@@ -155,7 +155,7 @@
       // deactivates the member's other assignments and activates this one.
       // Idempotent if the row already exists (ON CONFLICT DO UPDATE).
       await LtApi.assignProgram(programId, { user_id: memberId, make_active: true });
-      showSuccess(`${programName} is now ${memberLabel(overview?.user)}'s active program`);
+      showSuccess($_('coaching.toast.program_active', { values: { program: programName, name: memberLabel(overview?.user) } }));
       await loadOverview(memberId);
     } catch(e) { showError(e.message); }
   }
@@ -227,7 +227,7 @@
         exercise_idx: null,
         note: workoutNote,
       });
-      showSuccess(workoutNote?.trim() ? 'Feedback saved' : 'Feedback removed');
+      showSuccess(workoutNote?.trim() ? $_('coaching.toast.feedback_saved') : $_('coaching.toast.feedback_removed'));
       flashSaved('workout');
       const res = await fetch(`/api/trainer/members/${memberId}/workout/${workoutDetail.date}`, { credentials: 'include' });
       if (res.ok) workoutDetail = await res.json();
@@ -256,7 +256,7 @@
         exercise_idx: idx,
         note: exerciseNotes[idx] || '',
       });
-      showSuccess((exerciseNotes[idx] || '').trim() ? 'Note saved' : 'Note removed');
+      showSuccess((exerciseNotes[idx] || '').trim() ? $_('coaching.toast.note_saved') : $_('coaching.toast.note_removed'));
       flashSaved(idx);
       editingExerciseIdx = null;
       const res = await fetch(`/api/trainer/members/${memberId}/workout/${workoutDetail.date}`, { credentials: 'include' });
@@ -294,7 +294,7 @@
     })) return;
     try {
       await LtApi.unassignProgram(programId, memberId);
-      showSuccess('Program removed');
+      showSuccess($_('coaching.toast.program_removed'));
       await loadOverview(memberId);
     } catch(e) { showError(e.message); }
   }
@@ -331,7 +331,7 @@
   }
 
   async function savePrescription() {
-    if (!pxTemplateId) { showError('Pick a workout template'); return; }
+    if (!pxTemplateId) { showError($_('coaching.toast.pick_template')); return; }
     pxSaving = true;
     try {
       await LtApi.createPrescription(memberId, {
@@ -339,7 +339,7 @@
         date: pxDate || null,
         notes: pxNotes || null,
       });
-      showSuccess('Workout prescribed');
+      showSuccess($_('coaching.toast.workout_prescribed'));
       showPrescribe = false;
       prescriptions = await LtApi.getMemberPrescriptions(memberId);
     } catch(e) { showError(e.message); }
@@ -357,7 +357,7 @@
   }
 
   async function confirmAssignProgram() {
-    if (!assignProgramId || !memberId) { showError('Pick a program'); return; }
+    if (!assignProgramId || !memberId) { showError($_('coaching.toast.pick_program')); return; }
     assigning = true;
     try {
       await LtApi.assignProgram(assignProgramId, {
@@ -389,7 +389,7 @@
     try {
       await LtApi.claimCoachee(uId);
       const m = unassignedMembers.find(x => x.id === uId);
-      showSuccess(`${memberLabel(m)} added to your roster`);
+      showSuccess($_('coaching.toast.member_added', { values: { name: memberLabel(m) } }));
       showAddCoachee = false;
       await Promise.all([loadMembers(), loadActivity()]);
     } catch(e) { showError(e.message); }
@@ -411,7 +411,7 @@
         date: editPxDate || null,
         notes: editPxNotes || null,
       });
-      showSuccess('Prescription updated');
+      showSuccess($_('coaching.toast.prescription_updated'));
       showEditPrescription = false;
       prescriptions = await LtApi.getMemberPrescriptions(memberId);
     } catch(e) { showError(e.message); }
@@ -423,7 +423,7 @@
     try {
       await LtApi.deletePrescription(id);
       prescriptions = prescriptions.filter(p => p.id !== id);
-      showSuccess('Prescription removed');
+      showSuccess($_('coaching.toast.prescription_removed'));
     } catch(e) { showError(e.message); }
   }
 
@@ -477,7 +477,7 @@
     <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
       <h1>{$_('routes.coaching.title')}</h1>
       <div class="header-actions">
-        <button class="btn-primary-sm" on:click={openAddCoachee} title="Add a Coachee">
+        <button class="btn-primary-sm" on:click={openAddCoachee} title={$_('coaching.add_coachee')}>
           <span class="material-symbols-rounded">person_add</span>
           Add
         </button>
@@ -497,7 +497,7 @@
               {/if}
             </h3>
             {#if unseenActivityIds.length > 0}
-              <button class="btn-link" on:click={markAllActivitySeen}>Mark All Seen</button>
+              <button class="btn-link" on:click={markAllActivitySeen}>{$_('coaching.mark_all_seen')}</button>
             {/if}
           </div>
           {#each activity.slice(0, 6) as a (a.id)}
@@ -533,7 +533,7 @@
       {:else if members.length === 0}
         <div class="empty">
           <span class="material-symbols-rounded empty-icon">groups</span>
-          <p class="empty-title">No members yet</p>
+          <p class="empty-title">{$_('coaching.no_members')}</p>
           <p class="empty-hint">An admin can assign members to you from Settings → User Management.</p>
         </div>
       {:else}
@@ -592,15 +592,15 @@
           <div class="summary-row">
             <div class="stat">
               <span class="stat-val">{overview.streak}</span>
-              <span class="stat-label">Day streak</span>
+              <span class="stat-label">{$_('coaching.stat_streak')}</span>
             </div>
             <div class="stat">
               <span class="stat-val">{overview.recent_workouts.filter(w => w.completed).length}</span>
-              <span class="stat-label">Recent workouts</span>
+              <span class="stat-label">{$_('coaching.stat_recent')}</span>
             </div>
             <div class="stat">
               <span class="stat-val">{overview.active_program?.name ?? '—'}</span>
-              <span class="stat-label">Active program</span>
+              <span class="stat-label">{$_('coaching.stat_active')}</span>
             </div>
           </div>
         </div>
@@ -608,7 +608,7 @@
         <!-- Programs -->
         <section class="block">
           <div class="block-head">
-            <h3 class="block-title">Programs</h3>
+            <h3 class="block-title">{$_('coaching.programs')}</h3>
             <button class="btn btn-primary sm" on:click={openAssignProgram}>
               <span class="material-symbols-rounded" style="font-size:14px">add</span>
               Assign program
@@ -625,7 +625,7 @@
                   <span class="row-sub">{p.goal || 'general'}</span>
                 </div>
                 {#if p.active}
-                  <span class="badge active-badge">Active</span>
+                  <span class="badge active-badge">{$_('coaching.active')}</span>
                 {:else}
                   <button class="btn-icon-sm" on:click={() => setActiveProgramForMember(p.id, p.name)} title="Make active" aria-label="Make active">
                     <span class="material-symbols-rounded">play_arrow</span>
@@ -642,7 +642,7 @@
         <!-- Prescribed workouts -->
         <section class="block">
           <div class="block-head">
-            <h3 class="block-title">Prescribed workouts</h3>
+            <h3 class="block-title">{$_('coaching.prescribed')}</h3>
             <button class="btn btn-primary sm" on:click={openPrescribe}>
               <span class="material-symbols-rounded" style="font-size:14px">add</span>
               Prescribe
@@ -664,8 +664,8 @@
                   </span>
                   <span class="row-sub">
                     {fmtDate(p.date)}
-                    {#if p.completed === 1} · <span style="color:var(--success)">Completed</span>{/if}
-                    {#if p.completed === 0 && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">Missed</span>{/if}
+                    {#if p.completed === 1} · <span style="color:var(--success)">{$_('coaching.completed')}</span>{/if}
+                    {#if p.completed === 0 && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
                     {#if p.notes} · {p.notes}{/if}
                   </span>
                 </div>
@@ -683,7 +683,7 @@
         <!-- Recent workouts -->
         <section class="block">
           <div class="block-head">
-            <h3 class="block-title">Recent workouts</h3>
+            <h3 class="block-title">{$_('coaching.recent_workouts')}</h3>
           </div>
           {#if overview.recent_workouts.length === 0}
             <div class="empty-inline">No completed workouts yet.</div>
@@ -731,10 +731,10 @@
      assignment lands on the right user without a separate member-picker step. -->
 <Sheet open={showAssignProgram} on:close={() => showAssignProgram = false} title="Assign a Program">
   <div class="prescribe-sheet">
-    <p class="hint">Pick one of your programs to assign to <strong>{memberLabel(overview?.user)}</strong>.</p>
+    <p class="hint">{@html $_('coaching.assign_hint', { values: { name: `<strong>${memberLabel(overview?.user)}</strong>` } })}</p>
 
     <div class="field">
-      <label>Program</label>
+      <label>{$_('coaching.program_label')}</label>
       {#if assignablePrograms.length === 0}
         <p class="empty-inline">Create a program first to assign one.</p>
       {:else}
@@ -755,13 +755,13 @@
     <label class="checkbox-row">
       <input type="checkbox" bind:checked={assignMakeActive} />
       <span>
-        <span class="cb-label">Make this their active program</span>
+        <span class="cb-label">{$_('coaching.make_active')}</span>
         <span class="cb-hint">Off = added to their library; they can switch to it themselves later</span>
       </span>
     </label>
 
     <div class="form-actions">
-      <button class="btn btn-secondary" on:click={() => showAssignProgram = false}>Cancel</button>
+      <button class="btn btn-secondary" on:click={() => showAssignProgram = false}>{$_('coaching.cancel')}</button>
       <button class="btn btn-primary" on:click={confirmAssignProgram} disabled={assigning || !assignProgramId}>
         {assigning ? 'Assigning…' : 'Assign'}
       </button>
@@ -820,8 +820,8 @@
         }, 0);
       }, 0)}
       <div class="wd-summary">
-        <div class="wd-stat"><span class="wd-stat-val">{new Date(workoutDetail.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span><span class="wd-stat-label">Date</span></div>
-        <div class="wd-stat"><span class="wd-stat-val">{workoutDetail.duration_min ? Math.round(workoutDetail.duration_min) + 'm' : '—'}</span><span class="wd-stat-label">Duration</span></div>
+        <div class="wd-stat"><span class="wd-stat-val">{new Date(workoutDetail.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span><span class="wd-stat-label">{$_('coaching.date')}</span></div>
+        <div class="wd-stat"><span class="wd-stat-val">{workoutDetail.duration_min ? Math.round(workoutDetail.duration_min) + 'm' : '—'}</span><span class="wd-stat-label">{$_('coaching.duration')}</span></div>
         <div class="wd-stat">
           <span class="wd-stat-val">{Math.round(totalVolume).toLocaleString()}</span>
           <span class="wd-stat-label">Volume ({unit})</span>
@@ -852,7 +852,7 @@
           <textarea class="wd-feedback-input" rows="2"
             use:autofocus
             bind:value={workoutNote}
-            placeholder="Form, intensity, what to push next…"></textarea>
+            placeholder={$_('coaching.feedback_ph')}></textarea>
           <div class="wd-feedback-actions">
             {#if workoutLevelFeedback().some(f => f.trainer_id === $currentUser?.id)}
               <button class="btn btn-secondary wd-feedback-save danger"
@@ -1008,12 +1008,12 @@
     <p class="hint">Update the date or add notes. Leave the date empty for an anytime prescription that the member can do on their own schedule.</p>
 
     <div class="field">
-      <label>Date</label>
+      <label>{$_('coaching.date')}</label>
       <DateInput bind:value={editPxDate} />
     </div>
 
     <div class="field">
-      <label>Notes</label>
+      <label>{$_('coaching.notes')}</label>
       <textarea class="form-input" rows="3" bind:value={editPxNotes} placeholder="e.g. Focus on slow negatives"></textarea>
     </div>
 
@@ -1037,7 +1037,7 @@
     </div>
 
     <div class="field">
-      <label>Workout template</label>
+      <label>{$_('coaching.template')}</label>
       {#if pxPrograms.length === 0}
         <p class="empty-inline">Create a program with workouts first to prescribe.</p>
       {:else}
