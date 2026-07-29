@@ -403,6 +403,33 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "diary_extra": {
+    "toast": {
+      "reply_failed":          "Reply failed",
+      "cant_load_template":    "Could not load template",
+      "no_exercises":          "This prescription has no exercises",
+      "loaded_named":          "Loaded \"{name}\"",
+      "loaded_workout":        "Loaded \"{name}\"",
+      "workout_fallback":      "workout",
+      "replaced_with":         "Replaced with {name}",
+      "nt_sync_failed":        "NutriTrace sync failed ({status})",
+      "cant_reach_nt":         "Couldn't reach NutriTrace: {error}",
+      "network_error":         "network error"
+    },
+    "sets":                    "Sets",
+    "exercises":               "Exercises",
+    "reply_ph":                "Reply to your coach…",
+    "delete":                  "Delete",
+    "cancel":                  "Cancel",
+    "active_program":          "Active Program",
+    "tap_pick_workout":        "Tap to pick a workout",
+    "coach_pick":              "Coach Pick",
+    "last_workout":            "Last Workout",
+    "notes_ph":                "Workout notes...",
+    "load_workout":            "Load Workout",
+    "auto":                    "Auto",
+    "mark_all_seen":           "Mark All Seen"
+  },
   "native_setup": {
     "toast": {
       "server_url_required":   "Enter your server URL",

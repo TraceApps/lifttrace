@@ -382,7 +382,7 @@
         if (replySavedFlash === fbId) replySavedFlash = null;
         if (replyOpenId === fbId) replyOpenId = null;
       }, 600);
-    } catch(e) { showError(e.message || 'Reply failed'); }
+    } catch(e) { showError(e.message || $_('diary_extra.toast.reply_failed')); }
     replySaving = null;
   }
 
@@ -467,11 +467,11 @@
       try {
         const tpl = await LtApi.getTemplate(px.template_id);
         exs = tpl.exercises || [];
-      } catch { showError('Could not load template'); return; }
+      } catch { showError($_('diary_extra.toast.cant_load_template')); return; }
     } else if (Array.isArray(px.exercises)) {
       exs = px.exercises;
     } else {
-      showError('This prescription has no exercises'); return;
+      showError($_('diary_extra.toast.no_exercises')); return;
     }
     if ($todayLog?.exercises?.length > 0) {
       if (!await confirmDialog({ title: 'Replace workout?', message: 'Loading the suggested workout will overwrite your current workout for today.', confirmText: 'Replace', dangerous: true })) return;
@@ -890,7 +890,7 @@
       exercises: withWarmups,
     });
     notes = '';
-    showSuccess(`Loaded "${template.name}"`);
+    showSuccess($_('diary_extra.toast.loaded_named', { values: { name: template.name } }));
   }
 
   // ── Load from prescription ─────────────────────────────────────────
@@ -903,7 +903,7 @@
     } else if (Array.isArray(px.exercises)) {
       exs = px.exercises;
     } else {
-      showError('This prescription has no exercises'); return;
+      showError($_('diary_extra.toast.no_exercises')); return;
     }
     if ($todayLog?.exercises?.length > 0) {
       if (!await confirmDialog({ title: 'Replace workout?', message: 'Loading the prescribed workout will overwrite your current workout for today.', confirmText: 'Replace', dangerous: true })) return;
@@ -957,7 +957,7 @@
       program_id: recent.program_id || null,
       exercises: filled,
     });
-    showSuccess(`Loaded "${recent.name || 'workout'}"`);
+    showSuccess($_('diary_extra.toast.loaded_workout', { values: { name: recent.name || $_('diary_extra.toast.workout_fallback') } }));
   }
 
   // ── Exercise management ────────────────────────────────────────────
@@ -1014,7 +1014,7 @@
         exercise_name: ex.name,
       };
       await saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
-      showSuccess(`Replaced with ${ex.name}`);
+      showSuccess($_('diary_extra.toast.replaced_with', { values: { name: ex.name } }));
       return;
     }
 
@@ -1293,10 +1293,10 @@
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        showError(body?.error || `NutriTrace sync failed (${res.status})`);
+        showError(body?.error || $_('diary_extra.toast.nt_sync_failed', { values: { status: res.status } }));
       }
     } catch (e) {
-      showError(`Couldn't reach NutriTrace: ${e?.message || 'network error'}`);
+      showError($_('diary_extra.toast.cant_reach_nt', { values: { error: e?.message || $_('diary_extra.toast.network_error') } }));
     }
   }
 
@@ -1786,12 +1786,12 @@
       <div class="stat">
         <span class="material-symbols-rounded stat-icon">check_circle</span>
         <span class="stat-val">{stats.completed}/{stats.total}</span>
-        <span class="stat-label">Sets</span>
+        <span class="stat-label">{$_('diary_extra.sets')}</span>
       </div>
       <div class="stat">
         <span class="material-symbols-rounded stat-icon">fitness_center</span>
         <span class="stat-val">{exercises.length}</span>
-        <span class="stat-label">Exercises</span>
+        <span class="stat-label">{$_('diary_extra.exercises')}</span>
       </div>
       {#if totalVolume > 0}
         <div class="stat">
@@ -1863,12 +1863,12 @@
               <textarea class="reply-input" rows="2"
                 use:autofocus
                 bind:value={replyDrafts[f.id]}
-                placeholder="Reply to your coach…"></textarea>
+                placeholder={$_('diary_extra.reply_ph')}></textarea>
               <div class="reply-actions">
                 {#if f.member_reply}
-                  <button class="reply-link danger" on:click={() => deleteReply(f.id)}>Delete</button>
+                  <button class="reply-link danger" on:click={() => deleteReply(f.id)}>{$_('diary_extra.delete')}</button>
                 {/if}
-                <button class="reply-link" on:click={() => replyOpenId = null}>Cancel</button>
+                <button class="reply-link" on:click={() => replyOpenId = null}>{$_('diary_extra.cancel')}</button>
                 <button class="reply-save" class:flashed={replySavedFlash === f.id}
                         on:click={() => saveReply(f.id)}
                         disabled={replySaving === f.id || !(replyDrafts[f.id] || '').trim()}>
@@ -1983,14 +1983,14 @@
         <div class="quick-starts">
           {#if $activeProgram}
             <button class="quick-card" on:click={openLoadWorkout}>
-              <span class="qc-tag">Active program</span>
+              <span class="qc-tag">{$_('diary_extra.active_program')}</span>
               <span class="qc-title">{$activeProgram.name}</span>
-              <span class="qc-meta">Tap to pick a workout</span>
+              <span class="qc-meta">{$_('diary_extra.tap_pick_workout')}</span>
             </button>
           {/if}
           {#each suggestedPrescriptions.slice(0, 1) as px (px.id)}
             <button class="quick-card coach" on:click={() => startSuggestedPrescription(px)}>
-              <span class="qc-tag">Coach pick</span>
+              <span class="qc-tag">{$_('diary_extra.coach_pick')}</span>
               <span class="qc-title">{px.template_name || px.name || 'Coach workout'}</span>
               <span class="qc-meta">From {px.trainer_name || 'your coach'}</span>
             </button>
@@ -1998,7 +1998,7 @@
           {#each recentWorkouts.slice(0, 1) as rw (rw.id)}
             {@const exs = JSON.parse(rw.exercises || '[]')}
             <button class="quick-card" on:click={() => quickLoad(rw)}>
-              <span class="qc-tag">Last workout</span>
+              <span class="qc-tag">{$_('diary_extra.last_workout')}</span>
               <span class="qc-title">{rw.name || 'Workout'}</span>
               <span class="qc-meta">{exs.length} {exs.length === 1 ? 'exercise' : 'exercises'}</span>
             </button>
@@ -2102,12 +2102,12 @@
                       <div class="reply-edit">
                         <textarea class="reply-input" rows="2"
                           bind:value={replyDrafts[f.id]}
-                          placeholder="Reply to your coach…"></textarea>
+                          placeholder={$_('diary_extra.reply_ph')}></textarea>
                         <div class="reply-actions">
                           {#if f.member_reply}
-                            <button class="reply-link danger" on:click={() => deleteReply(f.id)}>Delete</button>
+                            <button class="reply-link danger" on:click={() => deleteReply(f.id)}>{$_('diary_extra.delete')}</button>
                           {/if}
-                          <button class="reply-link" on:click={() => replyOpenId = null}>Cancel</button>
+                          <button class="reply-link" on:click={() => replyOpenId = null}>{$_('diary_extra.cancel')}</button>
                           <button class="reply-save"
                                   on:click={() => saveReply(f.id)}
                                   disabled={replySaving === f.id || !(replyDrafts[f.id] || '').trim()}>
@@ -2140,7 +2140,7 @@
         <div class="notes-card">
           <textarea
             class="notes-input"
-            placeholder="Workout notes..."
+            placeholder={$_('diary_extra.notes_ph')}
             bind:value={notes}
             on:blur={saveNotes}
             rows="2"
@@ -2202,7 +2202,7 @@
   <!-- Load Workout sheet -->
   <Sheet open={showLoadWorkout} on:close={() => { showLoadWorkout = false; selectedProgram = null; }}>
     <div class="load-workout">
-      <h3 class="lw-title">Load Workout</h3>
+      <h3 class="lw-title">{$_('diary_extra.load_workout')}</h3>
 
       {#if loadingPrograms}
         <div class="lw-loading">Loading programs...</div>
@@ -2241,7 +2241,7 @@
               <span class="material-symbols-rounded">chevron_right</span>
             </button>
             <button class="lw-week-auto" title="Resume automatic week tracking"
-              on:click={() => setPlanWeek(null)}>Auto</button>
+              on:click={() => setPlanWeek(null)}>{$_('diary_extra.auto')}</button>
           </div>
         {/if}
 
@@ -2461,7 +2461,7 @@
   <div class="inbox-sheet">
     {#if !inboxLoading && inboxRows.some(r => !r.seen_by_member_at)}
       <div class="inbox-toolbar">
-        <button class="btn-link" on:click={markAllInboxSeen}>Mark All Seen</button>
+        <button class="btn-link" on:click={markAllInboxSeen}>{$_('diary_extra.mark_all_seen')}</button>
       </div>
     {/if}
     {#if inboxLoading}
