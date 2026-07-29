@@ -429,7 +429,7 @@
     "clear":                 "Clear"
   },
   "exercise_card": {
-    "load_type":             "Load type",
+    "load_type":             "Load Type",
     "remember_for_exercise": "Remember for this exercise",
     "weight":                "Weight",
     "reps":                  "Reps"
