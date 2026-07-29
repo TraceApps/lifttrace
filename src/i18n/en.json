@@ -403,6 +403,37 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "programs": {
+    "delete_title":          "Delete program?",
+    "delete_message":        "Deletes the program and all of its workouts. This cannot be undone.",
+    "delete_confirm":        "Delete",
+    "toast_deleted":         "Program deleted",
+    "empty_title":           "No programs yet",
+    "create_program":        "Create Program",
+    "active":                "Active",
+    "new_program":           "New Program",
+    "name":                  "Name",
+    "goal":                  "Goal",
+    "cancel":                "Cancel"
+  },
+  "settings_workout_import": {
+    "experimental":          "Experimental",
+    "how_to_export":         "How to Export",
+    "import_another_file":   "Import Another File",
+    "ready_to_import":       "Ready to Import",
+    "cancel":                "Cancel"
+  },
+  "settings_statistics": {
+    "default_chart_type":    "Default Chart Type",
+    "type_bar":              "Bar",
+    "type_line":             "Line",
+    "lock_y_zero":           "Lock Y-Axis to Zero",
+    "lock_y_zero_hint":      "Always start the Y-axis at 0",
+    "show_average":          "Show Average Line",
+    "show_average_hint":     "Horizontal line at the average value",
+    "show_trend":            "Show Trend Line",
+    "show_trend_hint":       "Smoothed trend overlay on charts"
+  },
   "profile": {
     "biometric_cancelled":   "Biometric verification was canceled or failed.",
     "server_unreachable":    "Could not reach server",

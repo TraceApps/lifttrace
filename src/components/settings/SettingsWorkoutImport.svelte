@@ -120,7 +120,7 @@
   <button class="section-toggle" on:click={onToggle}>
     <span class="si"><span class="material-symbols-rounded">download</span></span>
     <span class="section-name">{$_('settings.workout_import.section')}</span>
-    <span class="exp-badge">Experimental</span>
+    <span class="exp-badge">{$_('settings_workout_import.experimental')}</span>
     <span class="material-symbols-rounded chevron" class:rotated={expanded}>expand_more</span>
   </button>
   {#if expanded}
@@ -145,7 +145,7 @@
             </button>
             <input bind:this={importFileInput} type="file" accept={sourceAccept} style="display:none" on:change={onPickFile} />
 
-            <p class="help-title">How to export</p>
+            <p class="help-title">{$_('settings_workout_import.how_to_export')}</p>
             <ol class="help-list">
               {#each INSTRUCTIONS[importSource] as step}
                 <li>{step}</li>
@@ -162,11 +162,11 @@
                 </div>
               </div>
             </div>
-            <button class="btn btn-secondary" on:click={resetImport}>Import Another File</button>
+            <button class="btn btn-secondary" on:click={resetImport}>{$_('settings_workout_import.import_another_file')}</button>
           {:else if importPreview}
             <div class="preview">
               <div class="preview-head">
-                <div class="preview-title">Ready to import</div>
+                <div class="preview-title">{$_('settings_workout_import.ready_to_import')}</div>
                 <button class="preview-reset" on:click={resetImport} title="Start over">
                   <span class="material-symbols-rounded">close</span>
                 </button>
@@ -195,7 +195,7 @@
                 </details>
               {/if}
               <div class="preview-actions">
-                <button class="btn btn-secondary" on:click={resetImport} disabled={importBusy}>Cancel</button>
+                <button class="btn btn-secondary" on:click={resetImport} disabled={importBusy}>{$_('settings_workout_import.cancel')}</button>
                 <button class="btn btn-primary" on:click={runCommit} disabled={importBusy}>
                   {importBusy ? 'Importing…' : `Import ${importPreview.workouts} workouts`}
                 </button>

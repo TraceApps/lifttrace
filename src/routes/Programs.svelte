@@ -57,10 +57,10 @@
 
   async function deleteProgram(e, id) {
     e.stopPropagation();
-    if (!await confirmDialog({ title: 'Delete program?', message: 'Deletes the program and all of its workouts. This cannot be undone.', confirmText: 'Delete', dangerous: true })) return;
+    if (!await confirmDialog({ title: $_('programs.delete_title'), message: $_('programs.delete_message'), confirmText: $_('programs.delete_confirm'), dangerous: true })) return;
     try {
       await LtApi.deleteProgram(id);
-      showSuccess('Program deleted');
+      showSuccess($_('programs.toast_deleted'));
       await load();
     } catch(err) { showError(err.message); }
   }
@@ -86,9 +86,9 @@
     {:else if programs.length === 0}
       <div class="empty">
         <span class="material-symbols-rounded">calendar_month</span>
-        <h3>No programs yet</h3>
+        <h3>{$_('programs.empty_title')}</h3>
         <p>Create a training program to organize your workout templates.</p>
-        <button class="btn btn-primary" on:click={() => showCreate = true}>Create Program</button>
+        <button class="btn btn-primary" on:click={() => showCreate = true}>{$_('programs.create_program')}</button>
       </div>
     {:else}
       <div class="program-list">
@@ -98,7 +98,7 @@
             <div class="card-top">
               <span class="program-name">{p.name}</span>
               {#if p.is_active}
-                <span class="active-badge">Active</span>
+                <span class="active-badge">{$_('programs.active')}</span>
               {/if}
             </div>
             <div class="card-meta">
@@ -141,14 +141,14 @@
 <!-- New Program Sheet -->
 <Sheet open={showCreate} on:close={() => showCreate = false}>
   <div class="form-sheet">
-    <h3 class="form-title">New Program</h3>
+    <h3 class="form-title">{$_('programs.new_program')}</h3>
     <div class="form-group">
-      <label class="form-label">Name</label>
+      <label class="form-label">{$_('programs.name')}</label>
       <input class="form-input" type="text" bind:value={newName} placeholder="e.g. Cutting 2026" autofocus
         on:keydown={e => e.key === 'Enter' && createProgram()} />
     </div>
     <div class="form-group">
-      <label class="form-label">Goal</label>
+      <label class="form-label">{$_('programs.goal')}</label>
       <select class="form-select" bind:value={newGoal}>
         {#each GOALS as g}<option value={g.id}>{g.label}</option>{/each}
       </select>
@@ -160,7 +160,7 @@
       <p class="form-hint">Weeks in this training block. More than 1 enables per-week progression (different sets/reps/tempo/rest each week).</p>
     </div>
     <div class="form-actions">
-      <button class="btn btn-secondary" on:click={() => showCreate = false}>Cancel</button>
+      <button class="btn btn-secondary" on:click={() => showCreate = false}>{$_('programs.cancel')}</button>
       <button class="btn btn-primary" on:click={createProgram} disabled={creating || !newName.trim()}>
         {creating ? 'Creating...' : 'Create'}
       </button>
