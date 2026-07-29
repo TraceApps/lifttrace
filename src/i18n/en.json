@@ -403,6 +403,40 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "radio": {
+    "toast": {
+      "name_url_required":     "Name and URL are required",
+      "station_added":         "Station added",
+      "station_updated":       "Station updated",
+      "renamed_to":            "Renamed to \"{name}\"",
+      "moved_ungrouped":       "Stations moved to Ungrouped",
+      "no_metadata":           "No station metadata found",
+      "cant_probe":            "Could not probe station",
+      "no_icon":               "No icon found, try pasting homepage URL above",
+      "rb_search_failed":      "Radio-Browser search failed",
+      "added_named":           "Added \"{name}\"",
+      "no_artists":            "No artists found, check your media server library",
+      "cant_update_fav":       "Could not update favorite",
+      "add_station_first":     "Add a station first",
+      "added_to_queue":        "Added to queue",
+      "playing_next":          "Playing next"
+    },
+    "search_library":          "Search Library",
+    "search":                  "Search",
+    "play_random_station":     "Play a random station from your list",
+    "play_random_mix":         "Play a random mix of 50 songs from your library",
+    "search_ph":               "Search artists, albums, songs…",
+    "songs":                   "Songs",
+    "albums":                  "Albums",
+    "artists":                 "Artists",
+    "unstar":                  "Unstar",
+    "my_stations":             "My Stations",
+    "browse":                  "Browse",
+    "rename_group":            "Rename Group",
+    "drag_reorder":            "Drag to Reorder",
+    "move_up":                 "Move Up",
+    "move_down":               "Move Down"
+  },
   "workout_editor": {
     "toast": {
       "removed_from_ss":   "Removed from superset",
