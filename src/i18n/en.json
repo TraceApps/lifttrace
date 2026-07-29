@@ -370,6 +370,88 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "settings_auth": {
+    "section":                        "Authentication",
+    "toast": {
+      "issuer_client_required":       "Issuer URL and Client ID are required",
+      "redirect_required":            "At least one redirect URI is required",
+      "provider_updated":             "Provider updated",
+      "provider_created":             "Provider created",
+      "provider_deleted":             "Provider deleted",
+      "need_active_provider":         "Add at least one active OIDC provider before disabling password login.",
+      "password_login_enabled":       "Password login enabled",
+      "password_login_disabled":      "Password login disabled"
+    },
+    "empty": {
+      "user_mgmt_required":           "User Management Is Required",
+      "user_mgmt_required_desc":      "Single Sign-On is scoped to user accounts, so User Management has to be enabled first. Set it up in Settings → User Management, then come back here.",
+      "admin_only":                   "Admin Only",
+      "admin_only_desc":              "Only admins can configure identity providers. If you need this access, ask the admin of this LiftTrace instance to promote your account."
+    },
+    "providers": {
+      "section_title":                "OIDC Providers (Single Sign-On)",
+      "section_desc":                 "Authentik, Keycloak, Pocket ID, Authelia, Auth0, Google, etc. Users sign in with their existing identity provider.",
+      "add_provider":                 "+ Add Provider",
+      "env_lock_title":               "Configured via environment variables, edit your .env / docker-compose to change",
+      "env_lock_pill":                "env",
+      "test_title":                   "Test Discovery",
+      "readonly_title":               "Configured via environment, read-only",
+      "edit_title":                   "Edit",
+      "delete_title":                 "Delete",
+      "link_on":                      "on",
+      "link_off":                     "off",
+      "disabled_suffix":              " · disabled",
+      "row_summary":                  "{issuer} · link {link} · register {register}{disabled}",
+      "empty":                        "No providers configured yet. Click + Add Provider to set one up, or define them in your .env using the OIDC_* variables (see README).",
+      "discovery_ok":                 "Discovery OK",
+      "discovery_failed":             "Discovery Failed"
+    },
+    "form": {
+      "provider_type":                "Provider Type",
+      "display_name":                 "Display Name",
+      "display_name_default_ph":      "Authentik / Pocket ID / Google",
+      "issuer_url":                   "Issuer URL *",
+      "client_id":                    "Client ID *",
+      "client_secret_new":            "Client Secret *",
+      "client_secret_edit":           "Client Secret (Leave Blank to Keep Existing)",
+      "redirect_uris":                "Redirect URIs *",
+      "add_redirect":                 "+ Add Redirect URI",
+      "redirect_note":                "Must match exactly what your IdP has configured. The path is /api/auth/oidc/callback/<provider-id> under your LiftTrace base URL.",
+      "remove_title":                 "Remove",
+      "scope":                        "Scope",
+      "token_auth":                   "Token Endpoint Auth Method",
+      "token_auth_post":              "client_secret_post (default)",
+      "token_auth_basic":             "client_secret_basic",
+      "token_auth_none":              "none (PKCE-only public client)",
+      "auto_link":                    "Auto-Link Existing Users (Verified Email)",
+      "auto_link_desc":               "When the IdP says email_verified=true and the email matches an existing LiftTrace user, link them silently on first SSO sign-in. Recommended ON for any IdP you trust to verify emails.",
+      "auto_register":                "Auto-Register New Users",
+      "auto_register_desc":           "Allow anyone with an account at this IdP to create a brand-new LiftTrace account on first sign-in. OFF = admin must invite first. Leave OFF for shared IdPs (Google, work SSO) unless you actually want blanket onboarding.",
+      "provider_active":              "Provider Active",
+      "provider_active_desc":         "Inactive providers won't show on the Login page.",
+      "admin_group_claim":            "Admin Group Claim (Optional)",
+      "admin_group_claim_ph":         "groups",
+      "admin_group_claim_desc":       "Name of the claim that lists user groups. Common: groups.",
+      "admin_group_value":            "Admin Group Value (Optional)",
+      "admin_group_value_ph":         "LiftTraceAdmins",
+      "admin_group_value_desc":       "If a user's groups claim contains this value, they're set to admin on each login.",
+      "logo_url":                     "Logo URL (Optional)",
+      "logo_url_ph":                  "https://…/authentik.png",
+      "cancel":                       "Cancel",
+      "saving":                       "Saving…",
+      "save_changes":                 "Save Changes",
+      "create_provider":              "Create Provider"
+    },
+    "password_login": {
+      "label":                        "Allow Password Login",
+      "desc":                         "When off, users sign in only via OIDC. Recovery still works via the RECOVERY_TOKEN env var.",
+      "env_locked":                   "Locked by OIDC_ENABLE_EMAIL_PASSWORD_LOGIN environment variable."
+    },
+    "confirm": {
+      "delete_provider":              "Delete provider \"{name}\"? Linked users will lose this sign-in option.",
+      "disable_password":             "Disable password login? Users without an OIDC link will not be able to sign in until you re-enable it. RECOVERY_TOKEN will still work."
+    }
+  },
   "settings_appearance": {
     "theme":               "Theme",
     "theme_system":        "System Default",
