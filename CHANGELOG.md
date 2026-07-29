@@ -6,6 +6,10 @@ All notable changes to LiftTrace are documented here.
 
 ## Unreleased
 
+### Changed
+
+- **Full i18n retrofit across the app.** Every hardcoded UI string has been extracted into `src/i18n/en.json` and reads via `svelte-i18n`. Covers Settings (Notifications, Workout, Appearance, Authentication, User Management, Trace, Backup, Email, Radio, Catalog, Statistics, Units, Federation, Diagnostics, About), Diary + WorkoutEditor + WorkoutSummary + SupersetCard + ExerciseCard + SmartLog, Coaching + Programs + ProgramDetail + TemplateSpecRow, Exercises + ExerciseDetail + ExerciseEditor + ExerciseInfo, Statistics charts + MuscleRecovery, Radio (station library + dialogs), Profile, Login, NativeSetup, Trace AI, and shared UI (TimePicker). ~500 new keys added, Weblate-ready. Chicago-style title case for labels/buttons/headings, sentence case for body prose / errors / placeholders / toasts.
+
 ## v1.0.2 — 2026-07-28
 
 ### Added
