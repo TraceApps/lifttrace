@@ -403,6 +403,33 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "workout_editor": {
+    "toast": {
+      "removed_from_ss":   "Removed from superset",
+      "added_to_ss":       "Added to superset",
+      "ss_created":        "Superset created",
+      "ss_dissolved":      "Superset dissolved",
+      "replaced_with":     "Replaced with {name}",
+      "ss_merged":         "Supersets merged",
+      "saved":             "Workout saved"
+    },
+    "name_ph":             "Workout name",
+    "empty_hint":          "Add exercises to this workout template",
+    "superset":            "Superset",
+    "ss_options":          "Superset Options",
+    "move_up":             "Move Up",
+    "move_down":           "Move Down",
+    "load_type":           "Load Type",
+    "view_details":        "View Exercise Details",
+    "options":             "Options",
+    "remember_ex":         "Remember for this exercise",
+    "use_uniform":         "Use uniform targets",
+    "sets":                "Sets",
+    "reps":                "Reps",
+    "weight":              "Weight",
+    "tempo":               "Tempo",
+    "notes_ph":            "Notes..."
+  },
   "statistics": {
     "day_streak":        "Day Streak",
     "streak_hint":       "Last 14 days, filled dots are workout days",
