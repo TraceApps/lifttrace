@@ -369,5 +369,90 @@
     "workout_import":  { "section": "Import Workouts" },
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
+  },
+  "settings_notifications": {
+    "sections": {
+      "delivery":            "Delivery",
+      "scheduled_reminders": "Scheduled Reminders",
+      "alerts":              "Alerts & Celebrations",
+      "coaching":            "Coaching",
+      "summaries":           "Summaries"
+    },
+    "toast": {
+      "test_sent":     "Test sent, check your device",
+      "test_failed":   "Test failed"
+    },
+    "push": {
+      "configured":         "Configured",
+      "send_test":          "Send Test",
+      "test_failed_hint":   "{provider} test failed, check the URL and credentials below",
+      "device":             "Device Notifications",
+      "device_desc_native": "System notifications shown by Android in the status bar and on the lock screen",
+      "device_desc_web":    "Browser notification alerts",
+      "grant":              "Grant",
+      "perm_hint_native":   "Android needs permission to show notifications.",
+      "perm_hint_web":      "The browser needs permission to show notifications.",
+      "push_service":       "Push Service",
+      "push_service_desc":  "External push delivery (Gotify, ntfy, or Apprise)",
+      "option_none":        "None",
+      "option_apprise":     "Apprise",
+      "option_gotify":      "Gotify",
+      "option_ntfy":        "ntfy",
+      "gotify_url":         "Gotify Server URL",
+      "gotify_url_ph":      "https://gotify.example.com",
+      "gotify_token":       "App Token",
+      "gotify_token_ph":    "Gotify app token",
+      "ntfy_url":           "ntfy Server URL",
+      "ntfy_url_ph":        "https://ntfy.sh",
+      "ntfy_topic":         "Topic",
+      "ntfy_topic_ph":      "lifttrace",
+      "ntfy_token":         "Access Token (Optional)",
+      "ntfy_token_ph":      "Bearer token",
+      "apprise_url":        "Apprise Server URL",
+      "apprise_url_ph":     "http://apprise:8000",
+      "apprise_tag":        "Tag (Optional)",
+      "apprise_tag_ph":     "lifttrace",
+      "hide":               "Hide",
+      "show":               "Show"
+    },
+    "reminders": {
+      "workout":            "Workout Reminder",
+      "workout_desc":       "Daily reminder to train",
+      "time":               "Time",
+      "rest_day":           "Rest Day Reminder",
+      "rest_day_desc":      "Reminds you to recover after training days",
+      "streak":             "Streak Alert",
+      "streak_desc":        "Warns when your streak is at risk",
+      "alert_time":         "Alert Time"
+    },
+    "alerts": {
+      "complete":           "Workout Complete",
+      "complete_desc":      "Celebrate when all sets are done",
+      "prs":                "Personal Records",
+      "prs_desc":           "Celebrate when you hit a new PR",
+      "coach_feedback":     "Coach Feedback",
+      "coach_feedback_desc": "Ping when your coach leaves a note on a workout"
+    },
+    "coach": {
+      "member_completes":       "Member Completes Prescribed Workout",
+      "member_completes_desc":  "Push when a member finishes a workout you prescribed for that day",
+      "member_missed":          "Member Missed a Prescription",
+      "member_missed_desc":     "Push the morning after a dated prescription's day passes without a completed workout",
+      "member_reply":           "Member Replied to Feedback",
+      "member_reply_desc":      "Push when a coachee replies to one of your notes"
+    },
+    "summaries": {
+      "weekly":            "Weekly Summary",
+      "weekly_desc":       "Push + email digest of your training week",
+      "delivery_day":      "Delivery Day",
+      "delivery_time":     "Delivery Time",
+      "day_sun":           "Sunday",
+      "day_mon":           "Monday",
+      "day_tue":           "Tuesday",
+      "day_wed":           "Wednesday",
+      "day_thu":           "Thursday",
+      "day_fri":           "Friday",
+      "day_sat":           "Saturday"
+    }
   }
 }
