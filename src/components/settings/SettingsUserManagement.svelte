@@ -78,25 +78,25 @@
 
   async function revokeInvite(token) {
     if (!await confirmDialog({
-      title: 'Revoke invite?',
-      message: "The link will stop working immediately. The recipient won't be able to use it after this.",
-      confirmText: 'Revoke',
+      title: $_('settings.users.revoke_invite_title'),
+      message: $_('settings.users.revoke_invite_message', { default: "The link will stop working immediately. The recipient won't be able to use it after this." }),
+      confirmText: $_('settings.users.revoke_confirm'),
       dangerous: true,
     })) return;
     try {
       const res = await fetch(`/api/auth/invites/${token}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        showError(data.error || 'Could not revoke invite');
+        showError(data.error || $_('settings.users.err_could_not_revoke'));
         return;
       }
       await loadPendingInvites();
-      showSuccess('Invite revoked');
-    } catch (e) { showError(e.message || 'Could not revoke invite'); }
+      showSuccess($_('settings.users.invite_revoked'));
+    } catch (e) { showError(e.message || $_('settings.users.err_could_not_revoke')); }
   }
 
   async function deleteUser(id) {
-    if (!await confirmDialog({ title: 'Delete user?', message: 'All of this user\u2019s data will be removed. This cannot be undone.', confirmText: 'Delete', dangerous: true })) return;
+    if (!await confirmDialog({ title: $_('settings.users.delete_user_title'), message: $_('settings.users.delete_user_message'), confirmText: $_('settings.users.delete'), dangerous: true })) return;
     await fetch(`/api/auth/users/${id}`, { method: 'DELETE', credentials: 'include' });
     await loadUsers();
   }
@@ -135,14 +135,14 @@
     if (val === (u.trainer_id ?? null)) return;
     try {
       await LtApi.setUserTrainer(u.id, val);
-      showSuccess(val ? 'Trainer assigned' : 'Trainer removed');
+      showSuccess(val ? $_('settings.users.trainer_assigned') : $_('settings.users.trainer_removed'));
       await loadUsers();
     } catch(e) { showError(e.message); }
   }
 
   async function inviteUser() {
     if (!_inviteEmailValid) {
-      showError('Enter a valid email or leave blank to generate a shareable link');
+      showError($_('settings.users.err_invite_email'));
       return;
     }
     inviting = true; inviteResult = null;
@@ -153,15 +153,13 @@
         body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { showError(data.error || 'Failed to create invite'); return; }
+      if (!res.ok) { showError(data.error || $_('settings.users.err_failed_create_invite')); return; }
       inviteResult = data;
-      // Server reports sent: true only after nodemailer's SMTP handoff
-      // resolves — strongest delivery confirmation possible without webhooks.
-      if (data.sent) showSuccess(`Invite emailed to ${_inviteEmailTrimmed}`);
+      if (data.sent) showSuccess($_('settings.users.invite_sent_to', { values: { email: _inviteEmailTrimmed } }));
       inviteEmail = '';
       await loadPendingInvites();
     } catch(e) {
-      showError(e.message || 'Could not create invite');
+      showError(e.message || $_('settings.users.err_could_not_create_invite'));
     } finally {
       // Always release the loading state — was leaking on early-returns
       // (validation fails / non-OK response) so the button stayed stuck on
@@ -179,7 +177,7 @@
         body: JSON.stringify({ username: addUsername, password: addPassword, full_name: addFullName, role: addRole }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
-      showSuccess('User created');
+      showSuccess($_('settings.users.user_created'));
       addUsername = ''; addPassword = ''; addFullName = ''; addRole = 'member';
       showAddUser = false;
       await loadUsers();
@@ -214,9 +212,9 @@
         // config key'). Roll back the optimistic UI flip and surface
         // the reason so the failure isn't silent.
         const data = await res.json().catch(() => ({}));
-        const msg = data.error || `Save failed (${res.status})`;
+        const msg = data.error || $_('settings.users.save_failed_status', { values: { status: res.status } });
         console.warn('[password-policy] save rejected:', msg);
-        showError(`Could not save password policy: ${msg}. Server may need to redeploy.`);
+        showError($_('settings.users.err_password_policy_prefix', { values: { msg } }));
         passwordPolicy = prev;
         return;
       }
@@ -228,13 +226,13 @@
       setTimeout(() => passwordPolicySaved = false, 2000);
     } catch (e) {
       console.warn('[password-policy] save threw:', e);
-      showError(`Could not save password policy: ${e?.message || 'network error'}`);
+      showError($_('settings.users.err_password_policy', { values: { msg: e?.message || $_('settings.users.network_error') } }));
       passwordPolicy = prev;
     }
   }
 
   async function disableUserMgmt() {
-    if (!await confirmDialog({ title: 'Disable user management?', message: 'This will DELETE all user accounts. Anyone on your network will be able to access the app without signing in.', confirmText: 'Disable', dangerous: true })) return;
+    if (!await confirmDialog({ title: $_('settings.users.disable_um_title'), message: $_('settings.users.disable_um_message'), confirmText: $_('settings.users.disable_um_confirm'), dangerous: true })) return;
     // Snapshot the current admin's profile + per-user settings BEFORE the
     // server wipes the users table — once disabled, we drop back to the
     // anonymous `wl_<key>` prefix and the synthetic LOCAL_USER. Without
@@ -302,7 +300,7 @@
       showEnableUm = false;
       enableAdminUser = ''; enableAdminPass = ''; enableAdminConf = ''; enableAdminName = '';
       await loadUsers();
-      showSuccess('User management enabled');
+      showSuccess($_('settings.users.toast_um_enabled'));
     } catch(e) {
       enableUmError = e.message;
     }
@@ -311,7 +309,7 @@
 
   function copyInviteUrl() {
     if (inviteResult?.inviteUrl) {
-      navigator.clipboard.writeText(inviteResult.inviteUrl).then(() => showSuccess('Link copied'));
+      navigator.clipboard.writeText(inviteResult.inviteUrl).then(() => showSuccess($_('settings.users.toast_link_copied')));
     }
   }
 </script>
@@ -350,7 +348,7 @@
                that user. The list earns its keep with ≥2 users. -->
           {#if userList.length > 1}
             <div class="setting-row">
-              <span class="setting-label" style="font-weight:700">Users</span>
+              <span class="setting-label" style="font-weight:700">{$_('settings.users.users_heading')}</span>
             </div>
             {#each userList as u (u.id)}
               <div class="user-row-mgmt">
@@ -365,14 +363,14 @@
                       <span class="user-role-badge">{u.role} (you)</span>
                     {:else}
                       <select class="form-select-xs" value={u.role} on:change={e => changeUserRole(u, e.target.value)} title="Role">
-                        <option value="member">Member</option>
-                        <option value="trainer">Trainer</option>
-                        <option value="admin">Admin</option>
+                        <option value="member">{$_('settings.users.role_member_opt')}</option>
+                        <option value="trainer">{$_('settings.users.role_trainer_opt')}</option>
+                        <option value="admin">{$_('settings.users.role_admin_opt')}</option>
                       </select>
                     {/if}
                     {#if u.role === 'member' && u.id !== $currentUser.id}
                       <select class="form-select-xs" value={u.trainer_id || ''} on:change={e => changeUserTrainer(u, e.target.value)} title="Assigned trainer">
-                        <option value="">No trainer</option>
+                        <option value="">{$_('settings.users.no_trainer')}</option>
                         {#each trainers as t (t.id)}
                           <option value={t.id}>Coach {t.full_name || t.username}</option>
                         {/each}
@@ -420,7 +418,7 @@
             </button>
             {#if pendingInvites.length > 0}
               <div class="pending-invites" transition:slide={{ duration: 160 }}>
-                <div class="pending-invites-label">Pending Invites</div>
+                <div class="pending-invites-label">{$_('settings.users.pending_invites')}</div>
                 {#each pendingInvites as inv (inv.token)}
                   <div class="pending-invite-row">
                     <div class="pending-invite-info">
@@ -495,7 +493,7 @@
           <div class="setting-divider"></div>
           <div class="setting-row">
             <div>
-              <span class="setting-label">Require Strong Passwords</span>
+              <span class="setting-label">{$_('settings.users.strong_passwords')}</span>
               <div class="setting-desc">Reject weak passwords (zxcvbn score below 3) on top of the standard 8-char + mixed-case + number + symbol rules. Affects new sign-ups, invites, and password changes. Existing passwords aren't re-checked.</div>
             </div>
             <Toggle checked={passwordPolicy === 'strong'} on:change={e => savePasswordPolicy(e.detail ? 'strong' : 'standard')} />
@@ -506,19 +504,19 @@
 
           <div class="setting-divider"></div>
           <div class="setting-row">
-            <span class="setting-label">Session Duration</span>
+            <span class="setting-label">{$_('settings.users.session_duration')}</span>
             <div style="display:flex;gap:8px;align-items:center">
               <select class="form-select-sm" bind:value={sessionHours}>
-                <option value="0">Never expires</option>
-                <option value="8">8 hours</option>
-                <option value="24">1 day</option>
-                <option value="168">7 days</option>
-                <option value="720">30 days</option>
-                <option value="2160">90 days</option>
-                <option value="8760">1 year</option>
+                <option value="0">{$_('settings.users.session_never')}</option>
+                <option value="8">{$_('settings.users.session_8h')}</option>
+                <option value="24">{$_('settings.users.session_1d')}</option>
+                <option value="168">{$_('settings.users.session_7d')}</option>
+                <option value="720">{$_('settings.users.session_30d')}</option>
+                <option value="2160">{$_('settings.users.session_90d')}</option>
+                <option value="8760">{$_('settings.users.session_1y')}</option>
               </select>
               <button class="btn btn-secondary" style="height:32px;font-size:12px;min-width:54px" on:click={saveSessionHours}>
-                {#if sessionSaved}<span class="material-symbols-rounded" style="font-size:14px">check</span>{:else}Save{/if}
+                {#if sessionSaved}<span class="material-symbols-rounded" style="font-size:14px">check</span>{:else}{$_('settings.users.save')}{/if}
               </button>
             </div>
           </div>
@@ -527,8 +525,8 @@
           <div class="setting-divider"></div>
           <button class="row-btn danger-row" on:click={disableUserMgmt}>
             <div class="setting-label-group">
-              <span class="setting-label">Disable User Management</span>
-              <span class="setting-hint">Deletes all accounts — app becomes open access</span>
+              <span class="setting-label">{$_('settings.users.disable_um')}</span>
+              <span class="setting-hint">{$_('settings.users.disable_um_hint')}</span>
             </div>
             <span class="material-symbols-rounded">dangerous</span>
           </button>
@@ -538,8 +536,8 @@
         <div class="card">
           {#if showEnableUm}
             <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">
-              <span class="setting-label" style="font-weight:700">Create Admin Account</span>
-              <span class="setting-desc" style="margin:0">This will enable user management. The first account is always admin. All existing workout data will be assigned to this account.</span>
+              <span class="setting-label" style="font-weight:700">{$_('settings.users.create_admin_account')}</span>
+              <span class="setting-desc" style="margin:0">{$_('settings.users.create_admin_explainer')}</span>
               <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminUser} placeholder={$_('settings.users.username_required')} />
               <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminName} placeholder={$_('settings.users.full_name')} />
               <div style="display:flex;gap:6px;align-items:center">
@@ -548,33 +546,33 @@
                 {:else}
                   <input class="form-input-sm" style="flex:1" type="password" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
                 {/if}
-                <button class="btn-icon" type="button" on:click={() => enableShowPass = !enableShowPass} title={enableShowPass ? 'Hide' : 'Show'} style="flex-shrink:0">
+                <button class="btn-icon" type="button" on:click={() => enableShowPass = !enableShowPass} title={enableShowPass ? $_('settings.users.hide') : $_('settings.users.show')} style="flex-shrink:0">
                   <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>
                 </button>
               </div>
               {#if enableShowPass}
-                <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminConf} placeholder="Confirm password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
+                <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_password_ph')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
               {:else}
-                <input class="form-input-sm" style="width:100%" type="password" bind:value={enableAdminConf} placeholder="Confirm password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
+                <input class="form-input-sm" style="width:100%" type="password" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_password_ph')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
               {/if}
               {#if enableUmError}
                 <span class="form-error" style="font-size:12px;color:var(--danger)">{enableUmError}</span>
               {/if}
               <div style="display:flex;gap:8px">
                 <button class="btn btn-primary" style="flex:1;height:36px;font-size:13px" on:click={enableUserMgmt} disabled={enableUmLoading}>
-                  {enableUmLoading ? 'Creating…' : 'Enable & Create Admin'}
+                  {enableUmLoading ? $_('settings.users.enabling') : $_('settings.users.enable_create')}
                 </button>
-                <button class="btn btn-secondary" style="height:36px;font-size:13px" on:click={() => showEnableUm = false}>Cancel</button>
+                <button class="btn btn-secondary" style="height:36px;font-size:13px" on:click={() => showEnableUm = false}>{$_('settings.users.cancel')}</button>
               </div>
             </div>
           {:else}
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Enable User Management</span>
-                <span class="setting-hint">Add multiple user accounts with separate data & settings</span>
+                <span class="setting-label">{$_('settings.users.enable_um')}</span>
+                <span class="setting-hint">{$_('settings.users.enable_um_subtitle')}</span>
               </div>
               <button class="btn btn-primary" style="height:36px;font-size:13px" on:click={() => showEnableUm = true}>
-                Set Up
+                {$_('settings.users.enable_um_setup')}
               </button>
             </div>
           {/if}
