@@ -945,7 +945,7 @@
                       Delete
                     </button>
                   {/if}
-                  <button class="btn btn-secondary" on:click={() => editingExerciseIdx = null}>Cancel</button>
+                  <button class="btn btn-secondary" on:click={() => editingExerciseIdx = null}>{$_('coaching_dialogs.cancel')}</button>
                   <button class="btn btn-primary" class:flashed={savedFlash === idx}
                           on:click={() => saveExerciseFeedback(idx)}
                           disabled={savingFeedback === idx || !(exerciseNotes[idx] || '').trim()}>
@@ -1018,7 +1018,7 @@
     </div>
 
     <div class="form-actions">
-      <button class="btn btn-secondary" on:click={() => showEditPrescription = false}>Cancel</button>
+      <button class="btn btn-secondary" on:click={() => showEditPrescription = false}>{$_('coaching_dialogs.cancel')}</button>
       <button class="btn btn-primary" on:click={saveEditPrescription} disabled={editPxSaving}>
         {editPxSaving ? 'Saving…' : 'Save'}
       </button>
@@ -1060,7 +1060,7 @@
     </div>
 
     <div class="form-actions">
-      <button class="btn btn-secondary" on:click={() => showPrescribe = false}>Cancel</button>
+      <button class="btn btn-secondary" on:click={() => showPrescribe = false}>{$_('coaching_dialogs.cancel')}</button>
       <button class="btn btn-primary" on:click={savePrescription} disabled={pxSaving || !pxTemplateId}>
         {pxSaving ? 'Saving…' : 'Prescribe'}
       </button>

@@ -37,6 +37,8 @@
   export let onUpdateNumber = (_rawInputStr) => {};
   export let onRemove = () => {};
 
+  import { _ } from 'svelte-i18n';
+
   $: displayNum = spec?.number != null ? spec.number : setIdx + 1;
   $: isSplit = loadType === 'unilateral'
             && (spec?.reps_l != null || spec?.reps_r != null);
@@ -134,7 +136,7 @@
           <button class="num-opt" class:active={displayNum === n} on:click|stopPropagation={() => pickNum(n)}>{n}</button>
         {/each}
         {#if spec?.number != null}
-          <button class="num-opt clear" on:click|stopPropagation={clearNum}>Auto</button>
+          <button class="num-opt clear" on:click|stopPropagation={clearNum}>{$_('template_spec.auto')}</button>
         {/if}
       </div>
     {/if}
@@ -147,7 +149,7 @@
   <input class="ps-input" type="text"
     value={spec?.weight ?? ''}
     on:input={e => onUpdate('weight', e.target.value)}
-    placeholder="Weight" />
+    placeholder={$_('template_spec.weight')} />
 
   <span class="ps-x">×</span>
 
@@ -168,7 +170,7 @@
     <input class="ps-input" type="text"
       value={spec?.reps ?? ''}
       on:input={e => onUpdate('reps', e.target.value)}
-      placeholder="Reps" />
+      placeholder={$_('template_spec.reps')} />
   {/if}
 
   {#if loadType === 'unilateral'}
@@ -196,7 +198,7 @@
           <button class="rpe-opt" class:active={spec?.rpe === v} on:click|stopPropagation={() => pickRpe(v)}>@{v}</button>
         {/each}
         {#if spec?.rpe != null}
-          <button class="rpe-opt clear" on:click|stopPropagation={clearRpe}>Clear</button>
+          <button class="rpe-opt clear" on:click|stopPropagation={clearRpe}>{$_('template_spec.clear')}</button>
         {/if}
       </div>
     {/if}

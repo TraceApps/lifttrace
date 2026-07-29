@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import SetRow from './SetRow.svelte';
   import { LtApi } from '../../lib/api.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
@@ -267,7 +268,7 @@
     <div use:portal class="load-menu-backdrop" on:click={() => loadMenuOpen = false}></div>
     <div use:portal class="load-menu" role="menu" on:click|stopPropagation
          style="top:{loadMenuPos.top}px; left:{loadMenuPos.left}px; width:{loadMenuPos.width}px">
-      <div class="load-menu-head">Load type</div>
+      <div class="load-menu-head">{$_('exercise_card.load_type')}</div>
       {#each [['bilateral','Bilateral','single load: barbell, machine, both arms move one thing'],
               ['paired','Per side','both arms work together with separate equal loads: dumbbells, paired cables'],
               ['unilateral','Alternating','one side at a time: single-arm cable row, single-arm DB row']] as [val, label, hint]}
@@ -284,7 +285,7 @@
       {/each}
       <label class="load-menu-remember">
         <input type="checkbox" bind:checked={rememberLoad} />
-        <span>Remember for this exercise</span>
+        <span>{$_('exercise_card.remember_for_exercise')}</span>
       </label>
     </div>
   {/if}
@@ -349,8 +350,8 @@
     <div class="sets-wrap">
       <div class="sets-header">
         <span class="sh-set">Set</span>
-        <span class="sh-weight">Weight</span>
-        <span class="sh-reps">Reps</span>
+        <span class="sh-weight">{$_('exercise_card.weight')}</span>
+        <span class="sh-reps">{$_('exercise_card.reps')}</span>
         <span class="sh-done"></span>
         <!-- placeholder over the remove-set column so the right edge of the
              header lines up with the right edge of every SetRow -->

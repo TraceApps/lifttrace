@@ -382,7 +382,7 @@
         <div class="equipment-chips"
           on:wheel={(e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.currentTarget.scrollLeft += e.deltaY; e.preventDefault(); } }}
         >
-          <button class="eq-chip" class:active={selectedEquipment.length === 0} on:click={clearEq}>All Equipment</button>
+          <button class="eq-chip" class:active={selectedEquipment.length === 0} on:click={clearEq}>{$_('exercises_page.all_equipment')}</button>
           {#each availableEquipment as eq}
             <button class="eq-chip" class:custom={eq.custom} class:active={selectedEquipment.includes(eq.name)} on:click={() => toggleEq(eq.name)}>
               {eq.name} <span class="eq-count">{eq.count}</span>
@@ -403,7 +403,7 @@
         <span class="material-symbols-rounded">search_off</span>
         {#if exercises.length === 0}
           <p>Your library is empty. Import a source from Settings to get started.</p>
-          <button class="btn btn-primary" on:click={() => push('/settings')}>Go to Settings</button>
+          <button class="btn btn-primary" on:click={() => push('/settings')}>{$_('exercises_page.go_to_settings')}</button>
         {:else}
           <p>No exercises match the current filters.</p>
           <button class="btn btn-secondary" on:click={() => { search = ''; selectedCategory = ''; clearEq(); }}>
@@ -438,7 +438,7 @@
                     <div class="ex-name-row">
                       <span class="ex-name">{ex.name}</span>
                       {#if ex.source === 'custom' && !ex.is_global}
-                        <span class="custom-chip" title="Custom exercise you created">Custom</span>
+                        <span class="custom-chip" title="Custom exercise you created">{$_('exercises_page.custom')}</span>
                       {/if}
                     </div>
                     <span class="ex-meta">

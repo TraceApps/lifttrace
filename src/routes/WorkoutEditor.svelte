@@ -1024,7 +1024,7 @@
 <Sheet open={ssPickerOpen} on:close={() => ssPickerOpen = false}>
   <div class="ss-picker">
     {#if ssPickerMode === 'join'}
-      <h3 class="picker-title">Add to Superset</h3>
+      <h3 class="picker-title">{$_('workout_editor_ss.add_to_superset')}</h3>
       <p class="picker-hint">Choose which superset to join:</p>
       {#each existingSupersets as ss}
         <button class="ss-option" on:click={() => handleJoinSuperset(ss.id)}>
@@ -1038,8 +1038,8 @@
         </button>
       {/each}
     {:else if ssPickerMode === 'new'}
-      <h3 class="picker-title">Create Superset</h3>
-      <p class="picker-hint">Select exercises to group with <strong>{exercises[asTargetIdx]?.exercise_name}</strong>:</p>
+      <h3 class="picker-title">{$_('workout_editor_ss.create_superset')}</h3>
+      <p class="picker-hint">{@html $_('workout_editor_ss.create_hint', { values: { name: `<strong>${exercises[asTargetIdx]?.exercise_name ?? ''}</strong>` } })}</p>
       <div class="pick-list">
         {#each exercises as ex, i}
           {#if i !== asTargetIdx && !(ex.superset_id != null && ex.superset_size > 1)}
@@ -1060,7 +1060,7 @@
 <!-- Merge superset picker -->
 <Sheet open={ssMergePickerOpen} on:close={() => ssMergePickerOpen = false}>
   <div class="ss-picker">
-    <h3 class="picker-title">Merge Into Superset</h3>
+    <h3 class="picker-title">{$_('workout_editor_ss.merge_into_superset')}</h3>
     <p class="picker-hint">All exercises from both supersets will be combined:</p>
     {#each existingSupersets.filter(s => String(s.id) !== String(ssAsTargetId)) as ss}
       <button class="ss-option" on:click={() => handleMerge(ss.id)}>

@@ -307,13 +307,13 @@
         else showError("Didn't catch that, try again");
       };
       rec.onerror = (e) => {
-        if (_commitNextTranscript) showError('Voice error: ' + (e.error || 'unknown'));
+        if (_commitNextTranscript) showError($_('trace_ai.voice_error', { values: { reason: e.error || $_('trace_ai.voice_unknown') } }));
       };
       window.__traceHoldRec = rec;
       rec.start();
     } catch (e) {
       recordingMode = false;
-      showError('Could not start mic: ' + e.message);
+      showError($_('trace_ai.mic_error', { values: { reason: e.message } }));
     }
   }
 
@@ -342,7 +342,7 @@
       smartLogPreParsed = await matchExercises(parsed);
       showSmartLog = true;
     } catch (e) {
-      showError('Smart Log parse failed: ' + (e.message || 'unknown error'));
+      showError($_('trace_ai.smart_log_failed', { values: { reason: e.message || $_('trace_ai.smart_log_unknown') } }));
     }
   }
 
@@ -772,7 +772,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
             </div>
             <div>
               <div class="lb-header-name">{botName}</div>
-              <div class="lb-header-sub">AI Lifting Coach</div>
+              <div class="lb-header-sub">{$_('trace_ai.ai_coach')}</div>
             </div>
           </div>
           <div class="lb-header-actions">

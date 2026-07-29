@@ -403,6 +403,71 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "workout_editor_ss": {
+    "add_to_superset":       "Add to Superset",
+    "create_superset":       "Create Superset",
+    "create_hint":           "Select exercises to group with {name}:",
+    "merge_into_superset":   "Merge Into Superset"
+  },
+  "time_picker": {
+    "hour":                  "Hour",
+    "minute":                "Minute",
+    "cancel":                "Cancel",
+    "set_time":              "Set Time"
+  },
+  "settings_about": {
+    "app_name":              "LiftTrace",
+    "open_source":           "Open source",
+    "sister_app_prefix":     "Sister app: ",
+    "sister_app_suffix":     ", nutrition tracker",
+    "support_development":   "Support development"
+  },
+  "template_spec": {
+    "auto":                  "Auto",
+    "weight":                "Weight",
+    "reps":                  "Reps",
+    "clear":                 "Clear"
+  },
+  "exercise_card": {
+    "load_type":             "Load type",
+    "remember_for_exercise": "Remember for this exercise",
+    "weight":                "Weight",
+    "reps":                  "Reps"
+  },
+  "trace_ai": {
+    "voice_error":           "Voice error: {reason}",
+    "voice_unknown":         "unknown",
+    "mic_error":             "Could not start mic: {reason}",
+    "smart_log_failed":      "Smart Log parse failed: {reason}",
+    "smart_log_unknown":     "unknown error",
+    "ai_coach":              "AI Lifting Coach"
+  },
+  "exercises_page": {
+    "all_equipment":         "All Equipment",
+    "go_to_settings":        "Go to Settings",
+    "custom":                "Custom"
+  },
+  "coaching_dialogs": {
+    "cancel":                "Cancel"
+  },
+  "workout_frequency_chart": {
+    "title":                 "Workouts per Week",
+    "this_week":             "This week"
+  },
+  "weekly_volume_chart": {
+    "title":                 "Weekly Volume",
+    "this_week":             "This week"
+  },
+  "settings_units": {
+    "weight_unit":           "Weight Unit",
+    "date_format":           "Date Format",
+    "time_format":           "Time Format"
+  },
+  "superset_card": {
+    "superset":              "Superset",
+    "delete":                "Delete",
+    "cancel":                "Cancel"
+  },
   "muscle_recovery": {
     "title":                 "Muscle Recovery",
     "fatigued":              "Fatigued",
