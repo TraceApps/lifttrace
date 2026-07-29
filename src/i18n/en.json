@@ -403,6 +403,47 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "settings_trace": {
+    "toast": {
+      "connected":         "Trace AI connected, assistant is ready",
+      "empty_response":    "Empty response from AI",
+      "test_failed":       "Test failed",
+      "fill_required":     "Fill in provider, API key, and model first"
+    },
+    "provider_env_locked": "Environment-locked",
+    "provider_claude":     "Anthropic Claude",
+    "provider_openai":     "OpenAI",
+    "provider_gemini":     "Google Gemini",
+    "provider_oai_compat": "OpenAI Compatible",
+    "labels": {
+      "enable":            "Enable AI Assistant",
+      "enable_desc":       "Adds a floating chat button to all pages",
+      "provider":          "Provider",
+      "base_url":          "Base URL",
+      "base_url_desc":     "Any OpenAI Compatible /v1/chat/completions endpoint, Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. Don't include the path, just the origin.",
+      "base_url_ph":       "http://localhost:11434  or  https://api.deepseek.com",
+      "testing":           "Testing…",
+      "save":              "Save",
+      "model":             "Model",
+      "model_ph":          "llama3.1:8b",
+      "reliability_title": "Tool calls / vision reliability varies by model.",
+      "reliability_body":  "Llama 3.1+, Mistral, Qwen 2.5+ handle reasoning well. Smaller or older models may struggle with Smart Log parsing. If you're unsure, start with a known-good model and verify chat works before relying on it.",
+      "custom_model_id":   "Custom Model ID",
+      "custom_hint":       "Enter the exact model ID from the vendor. Use this if the preset dropdown doesn't have the model you want.",
+      "api_key":           "API Key",
+      "api_key_optional":  " (Optional)",
+      "key_hint_claude":   "Get one at",
+      "key_hint_openai":   "Get one at",
+      "key_hint_gemini":   "Get one at",
+      "key_hint_oai":      "Local endpoints (Ollama, LM Studio, etc.) typically don't need a key. Cloud providers like DeepSeek or Groq do, get one from their dashboard.",
+      "key_ph_local":      "Leave blank for local endpoints",
+      "key_ph_cloud":      "Paste your API key here",
+      "hide":              "Hide",
+      "show":              "Show",
+      "assistant_name":    "Assistant Name",
+      "assistant_name_ph": "Trace"
+    }
+  },
   "settings_auth": {
     "section":                        "Authentication",
     "toast": {
