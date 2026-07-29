@@ -403,6 +403,76 @@
     "diagnostics":     { "section": "Diagnostics" },
     "about":           { "section": "About" }
   },
+  "settings_backup": {
+    "toast": {
+      "save_failed":            "Save failed",
+      "cant_load_backups":      "Couldn't load backups ({status})",
+      "cant_reach_load":        "Couldn't reach the server to load backups",
+      "backup_created":         "Backup created",
+      "settings_reset":         "Settings reset to defaults",
+      "data_cleared":           "All workout data cleared"
+    },
+    "sections": {
+      "auto_backup":            "Auto Backup",
+      "full_backup":            "Full Backup",
+      "danger_zone":            "Danger Zone"
+    },
+    "auto": {
+      "schedule":               "Schedule",
+      "env_lock_title":         "Locked by BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION env var",
+      "env_lock_pill":          "Locked by env",
+      "schedule_off":           "Off",
+      "schedule_daily":         "Daily",
+      "schedule_weekly":        "Weekly",
+      "schedule_monthly":       "Monthly",
+      "time":                   "Time",
+      "keep_last":              "Keep Last",
+      "last_failed":            "Last auto-backup failed: {error}",
+      "last_success":           "Last auto-backup: {when}",
+      "next":                   "Next: {when}",
+      "next_when_open":         "Next: {when} (fires when app is open)",
+      "retention_note":         "Keeps the {n} newest backup, older archives prune automatically after each run.",
+      "retention_note_plural":  "Keeps the {n} newest backups, older archives prune automatically after each run.",
+      "retention_note_local":         "Keeps the {n} newest auto-backup, manual exports are never pruned.",
+      "retention_note_local_plural":  "Keeps the {n} newest auto-backups, manual exports are never pruned."
+    },
+    "full": {
+      "desc":                   "A complete snapshot of everything: all workout data, programs, exercises, settings, and uploaded images. Saved on the server and available to download or restore at any time.",
+      "working":                "Working…",
+      "create":                 "Create Backup",
+      "upload_restore":         "Upload & Restore",
+      "col_name":               "Name",
+      "col_created":            "Created",
+      "col_size":               "Size",
+      "download":               "Download",
+      "restore":                "Restore",
+      "delete_title":           "Delete Backup",
+      "empty":                  "No backups yet, tap Create Backup to get started."
+    },
+    "danger": {
+      "clear_settings":         "Clear All Settings",
+      "clear_settings_desc":    "Resets preferences to defaults. Workout data is kept.",
+      "clear_data":             "Clear All Data",
+      "clear_data_desc":        "Deletes all workouts, programs, body stats, and chat history. Cannot be undone."
+    },
+    "dialogs": {
+      "restore_title":          "Restore Backup?",
+      "restore_msg":            "This will replace all current data with the contents of this backup. This cannot be undone.",
+      "restore_confirm":        "Restore",
+      "upload_restore_title":   "Restore from Uploaded File?",
+      "upload_restore_msg":     "This will replace all current data with the contents of the uploaded backup. This cannot be undone.",
+      "delete_backup_title":    "Delete Backup?",
+      "delete_backup_msg":      "This backup file will be permanently removed from the server.",
+      "delete_backup_confirm":  "Delete",
+      "clear_data_title":       "Clear All Data?",
+      "clear_data_msg":         "This will permanently delete all your workouts, programs, body stats, personal records, and chat history. Settings and exercises will be kept. This cannot be undone.",
+      "clear_data_confirm":     "Clear All Data",
+      "clear_settings_title":   "Clear All Settings?",
+      "clear_settings_msg":     "This will reset all preferences (appearance, units, notifications, integrations) back to their defaults. Your workout data will not be touched.",
+      "clear_settings_confirm": "Clear All Settings",
+      "cancel":                 "Cancel"
+    }
+  },
   "settings_trace": {
     "toast": {
       "connected":         "Trace AI connected, assistant is ready",
