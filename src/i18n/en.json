@@ -309,7 +309,7 @@
     "users":           {
       "section":              "Users",
       "users_heading":        "Users",
-      "add_user":             "Add user directly",
+      "add_user":             "Add User Directly",
       "username":             "Username",
       "username_required":    "Username",
       "full_name":            "Full name (optional)",
@@ -325,7 +325,7 @@
       "delete_user_title":    "Delete user?",
       "delete_user_message":  "All of this user’s data will be removed. This cannot be undone.",
       "delete":               "Delete",
-      "reset_password":       "Reset password",
+      "reset_password":       "Reset Password",
       "reset_password_prompt": "Set new password for {name}\n\n(Must be 8+ chars with upper, lower, number, and special character.)",
       "invite_user":          "Invite User",
       "invite_user_explainer": "Send a sign-up link so the user picks their own password. Recommended.",
@@ -337,18 +337,18 @@
       "user_fallback":        "user",
       "share_link_intro":     "Share this link:",
       "copy":                 "Copy",
-      "add_user_show":        "Add user manually",
-      "add_user_hide":        "Hide manual add",
+      "add_user_show":        "Add User Manually",
+      "add_user_hide":        "Hide Manual Add",
       "add_user_explainer":   "You set the username and password yourself, then share them with the user. Useful when SMTP isn’t configured or for offline setups.",
-      "create_directly":      "Create user",
-      "session_duration":     "Session duration",
+      "create_directly":      "Create User",
+      "session_duration":     "Session Duration",
       "save":                 "Save",
-      "disable_um":           "Disable user management",
+      "disable_um":           "Disable User Management",
       "disable_um_subtitle":  "Deletes all accounts — app becomes open access",
       "disable_um_title":     "Disable user management?",
       "disable_um_message":   "This will DELETE all user accounts. Anyone on your network will be able to access the app without signing in.",
       "disable_um_confirm":   "Disable",
-      "enable_um":            "Enable user management",
+      "enable_um":            "Enable User Management",
       "enable_um_subtitle":   "Add multiple user accounts with separate data & settings",
       "enable_um_setup":      "Set Up",
       "create_admin_account": "Create Admin Account",
@@ -420,7 +420,7 @@
     "open_source":           "Open source",
     "sister_app_prefix":     "Sister app: ",
     "sister_app_suffix":     ", nutrition tracker",
-    "support_development":   "Support development"
+    "support_development":   "Support Development"
   },
   "template_spec": {
     "auto":                  "Auto",
@@ -452,11 +452,11 @@
   },
   "workout_frequency_chart": {
     "title":                 "Workouts per Week",
-    "this_week":             "This week"
+    "this_week":             "This Week"
   },
   "weekly_volume_chart": {
     "title":                 "Weekly Volume",
-    "this_week":             "This week"
+    "this_week":             "This Week"
   },
   "settings_units": {
     "weight_unit":           "Weight Unit",
@@ -703,9 +703,9 @@
     "password":                "Password",
     "password_ph":             "Your password",
     "migrate_title":           "You have local data on this device",
-    "upload_to_server":        "Upload to server",
-    "replace_with_server":     "Replace with server",
-    "merge_both":              "Merge both",
+    "upload_to_server":        "Upload to Server",
+    "replace_with_server":     "Replace with Server",
+    "merge_both":              "Merge Both",
     "migration_complete":      "Migration complete",
     "continue":                "Continue"
   },
@@ -840,7 +840,7 @@
     "recent_workouts":         "Recent Workouts",
     "assign_hint":             "Pick one of your programs to assign to {name}.",
     "program_label":           "Program",
-    "make_active":             "Make this their active program",
+    "make_active":             "Make This Their Active Program",
     "cancel":                  "Cancel",
     "date":                    "Date",
     "duration":                "Duration",
