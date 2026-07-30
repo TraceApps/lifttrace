@@ -78,6 +78,7 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- WorkManager periodic reboots: keep schedules across device reboots -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Camera capture (exercise media + avatar) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Microphone — Trace FAB hold-to-record Smart Log voice input.

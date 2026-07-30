@@ -2,4 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- APK updates: Capacitor Filesystem writes to Directory.Data = context.filesDir. The in-app updater downloads new APKs under `updates/` and hands the file to the system installer via a content:// URI from this FileProvider. -->
+    <files-path name="updates" path="updates/" />
 </paths>

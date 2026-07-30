@@ -7,6 +7,7 @@
   import { accentColor, applyAccentColor, pageBanners, bannerStyle } from '../stores/settings.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
+  import SettingsUpdates from '../components/settings/SettingsUpdates.svelte';
   import SettingsAppearance from '../components/settings/SettingsAppearance.svelte';
   import SettingsUnits from '../components/settings/SettingsUnits.svelte';
   import SettingsWorkout from '../components/settings/SettingsWorkout.svelte';
@@ -374,6 +375,7 @@
     users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
+    updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
     about:          ['about','version','lifttrace','license','sister','nutritrace'],
   };
@@ -410,6 +412,7 @@
     email: false,
     users: false,
     authentication: false,
+    updates: false,
     helpImprove: false,
     about: false,
   };
@@ -683,6 +686,22 @@
       expanded={expanded.helpImprove}
       onToggle={() => toggleSection('helpImprove')}
     />
+
+    <!-- Updates — inline section since SettingsUpdates is a shared
+         component across TraceApps and doesn't take the LT-specific
+         visible/expanded/onToggle prop shape. -->
+    {#if sectionVisible(settingsQuery, 'updates')}
+      <button class="section-toggle" on:click={() => toggleSection('updates')}>
+        <span class="material-symbols-rounded si">system_update</span>
+        <span>{$_('settings.updates.section')}</span>
+        <span class="material-symbols-rounded chevron" class:rotated={openSections.updates}>expand_more</span>
+      </button>
+      {#if expanded.updates}
+        <div class="section-body" transition:slide={{ duration: 180 }}>
+          <SettingsUpdates />
+        </div>
+      {/if}
+    {/if}
 
     <!-- ═══ ADMIN (Users + Authentication + Email — admin only).
          Mirrors NutriTrace: the profile-hero card at the top of Settings

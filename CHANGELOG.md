@@ -8,6 +8,7 @@ All notable changes to LiftTrace are documented here.
 
 ### Added
 
+- **In-app updates.** New Settings → Updates panel checks GitHub Releases for a newer version and, on Android, downloads the signed APK and hands off to the system installer via FileProvider. One primary button drives the whole flow (Check Now → Download & Install → Downloading X%). Skip This Version link when an update's available. Collapsible "What's new" panel below the button renders the release notes inline (markdown) with a "View on GitHub" link. Silent shade notification when the OS notification permission is granted; top-of-app banner as fallback when permission's denied. Opt-in Stable or Dev channels. Same shared TraceApps signing key means Android upgrades in place with no reinstall.
 - **Accent-tinted browser chrome.** The browser tab bar / address strip now picks up your current accent color via `<meta name="theme-color">`. Running LiftTrace alongside NutriTrace / CookTrace? Pick a distinct accent per install and the tabs read as visually different at a glance. Favicon stays the branded LiftTrace mark.
 
 ### Changed

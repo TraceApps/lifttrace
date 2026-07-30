@@ -1,6 +1,6 @@
 {
   "name": "lifttrace",
-  "version": "1.1.0-dev03",
+  "version": "1.1.0-dev04",
   "description": "Track every rep, set, and PR — your complete weightlifting companion",
   "repository": {
     "type": "git",
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
+    "@capacitor-community/file-opener": "^8.0.1",
     "@capacitor-community/sqlite": "^8.1.0",
     "@capacitor/android": "^8.3.1",
     "@capacitor/app": "^8.1.0",

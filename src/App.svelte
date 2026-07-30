@@ -4,6 +4,7 @@
   import Router, { location } from 'svelte-spa-router';
 
   import BottomNav from './components/layout/BottomNav.svelte';
+  import UpdateBanner from './components/UpdateBanner.svelte';
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
@@ -369,6 +370,22 @@
       // NutriTrace #34.
       window.location.hash = '#/wizard';
     }
+
+    if (isNative) {
+      // Update-notification tap listener: registered at boot so a
+      // shade-notification tap that cold-starts the app still routes
+      // to Settings for the install action.
+      import('./lib/notifications.js').then(({ registerUpdateTapListener }) => {
+        registerUpdateTapListener(() => {
+          import('svelte-spa-router').then(({ push }) => push('/settings'));
+        });
+      }).catch(() => { /* ignore */ });
+
+      // Clean stale APKs from Directory.Data/updates/ on boot.
+      import('./lib/updates.js').then(({ cleanUpdateCache }) => {
+        cleanUpdateCache();
+      }).catch(() => { /* ignore */ });
+    }
   });
 
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
@@ -400,6 +417,11 @@
     </button>
   </header>
 {/if}
+
+<!-- In-app update banner (native only). Renders only if the OS-level
+     notification permission is denied — grants suppress the banner and
+     route through a shade notification instead. -->
+{#if !needsLogin}<UpdateBanner />{/if}
 
 {#key $location}
   <div

@@ -241,3 +241,104 @@ function _dailyAt(id, title, body, hhmm) {
     },
   };
 }
+
+// ── App-update notification ───────────────────────────────────────────────
+
+// Fixed ID for the "update available" notification so re-posts replace
+// the previous one instead of stacking. Any bumped version overwrites.
+export const UPDATE_NOTIFICATION_ID = 9999;
+
+let _updateChannelCreated = false;
+let _updateTapListener = null;
+
+// Silent "App updates" channel — low importance so it lands in the shade
+// without sound or heads-up, matching how F-Droid / Play post update
+// notices. Separate channel means users can mute updates independently
+// from other LiftTrace notifications in Android's per-channel settings.
+async function _ensureUpdateChannel() {
+  if (_updateChannelCreated || !isNative) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: 'lifttrace-updates',
+      name: 'App updates',
+      description: 'Notifies you when a new app version is available.',
+      importance: 2, // LOW: no sound, no vibration, no heads-up
+      visibility: 1, // PUBLIC
+    });
+    _updateChannelCreated = true;
+  } catch (e) {
+    console.warn('[notifications] update channel creation failed:', e.message);
+  }
+}
+
+/** True when the OS-level notification permission is currently granted. */
+export async function isUpdateNotificationPermissionGranted() {
+  if (!isNative) return false;
+  try {
+    const perm = await LocalNotifications.checkPermissions();
+    return perm.display === 'granted';
+  } catch { return false; }
+}
+
+/**
+ * Post a silent "update available" notification. Uses the low-importance
+ * `lifttrace-updates` channel so it lands in the shade without sound or
+ * heads-up popup. Tapping the notification is handled by
+ * `registerUpdateTapListener` — decoupled so the tap handler can navigate
+ * the app without this module needing to know about routing.
+ *
+ * Returns true if the notification was posted, false otherwise (native
+ * missing, permission denied, etc.). Silent-on-failure — the in-app
+ * banner is the fallback.
+ */
+export async function showUpdateNotification(latest) {
+  if (!isNative || !latest?.version) return false;
+  const perm = await LocalNotifications.checkPermissions();
+  if (perm.display !== 'granted') return false;
+  await _ensureUpdateChannel();
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: UPDATE_NOTIFICATION_ID,
+        channelId: 'lifttrace-updates',
+        title: 'LiftTrace update available',
+        body: `${latest.version} is ready. Tap to install.`,
+        extra: { version: latest.version, notesUrl: latest.notesUrl || '' },
+      }],
+    });
+    _dlog(`[notifications] update notification posted for ${latest.version}`);
+    return true;
+  } catch (e) {
+    console.warn('[notifications] update notification failed:', e?.message || e);
+    return false;
+  }
+}
+
+/** Clear a previously-posted update notification (e.g. after user installs). */
+export async function cancelUpdateNotification() {
+  if (!isNative) return;
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: UPDATE_NOTIFICATION_ID }] });
+  } catch { /* silent */ }
+}
+
+/**
+ * Register a one-time listener for taps on the update notification.
+ * `handler` receives { version, notesUrl } and is expected to route into
+ * the install flow. Safe to call multiple times — subsequent calls no-op
+ * so App.svelte can defensively register on every mount.
+ */
+export async function registerUpdateTapListener(handler) {
+  if (!isNative || _updateTapListener) return;
+  try {
+    _updateTapListener = await LocalNotifications.addListener('localNotificationActionPerformed', ev => {
+      if (ev?.notification?.id !== UPDATE_NOTIFICATION_ID) return;
+      const extra = ev.notification.extra || {};
+      try { handler({ version: extra.version || '', notesUrl: extra.notesUrl || '' }); }
+      catch (e) { console.warn('[notifications] update tap handler threw:', e); }
+    });
+    _dlog('[notifications] update tap listener registered');
+  } catch (e) {
+    console.warn('[notifications] failed to register update tap listener:', e?.message || e);
+  }
+}

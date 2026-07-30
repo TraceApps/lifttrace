@@ -401,6 +401,7 @@
     "server":          { "section": "Server Connection" },
     "workout_import":  { "section": "Import Workouts" },
     "diagnostics":     { "section": "Diagnostics" },
+    "updates":         { "section": "Updates" },
     "about":           { "section": "About" }
   },
   "workout_editor_ss": {
@@ -1284,6 +1285,54 @@
       "day_thu":           "Thursday",
       "day_fri":           "Friday",
       "day_sat":           "Saturday"
+    }
+  },
+  "updates": {
+    "current_version":       "Current Version",
+    "channel": {
+      "label":  "Update Channel",
+      "stable": "Stable",
+      "dev":    "Dev",
+      "help":   "Stable tracks tagged releases. Dev is the rolling development build; expect bugs."
+    },
+    "auto_check":            "Automatically Check for Updates",
+    "auto_check_desc":       "Once per day when you open the app.",
+    "last_checked":          "Last Checked",
+    "last_checked_never":    "Never",
+    "check_now":             "Check Now",
+    "checking":              "Checking…",
+    "check_failed":          "Update check failed. Try again in a moment.",
+    "up_to_date":            "You're on the Latest Version",
+    "available_headline":    "{version} Is Available",
+    "released":              "Released {when}",
+    "release_notes_heading": "What's New",
+    "no_release_notes":      "No release notes were published for this build.",
+    "view_on_github":        "View on GitHub",
+    "download_install":      "Download & Install",
+    "downloading":           "Downloading… {percent}%",
+    "install_starting":      "Opening installer…",
+    "install_failed":        "Install failed. Try again.",
+    "skip_this_version":     "Skip This Version",
+    "no_apk_asset":          "This release has no APK asset attached.",
+    "banner_cta":            "Tap to view what's new and install.",
+    "banner_view":           "View",
+    "storage": {
+      "heading":     "Cached Update APKs",
+      "empty":       "No cached APKs. Cleanup passes ran successfully.",
+      "clear_now":   "Clear Now",
+      "clearing":    "Clearing…",
+      "cleared":     "Cache cleared."
+    },
+    "server": {
+      "heading":          "Server Update",
+      "versions":         "Server is on {current}. Latest release: {latest}.",
+      "available_chip":   "Update Available",
+      "instructions":     "To update the server, run on the host machine:",
+      "copy_command":     "Copy Command",
+      "copied":           "Copied to clipboard.",
+      "copy_failed":      "Copy failed. Copy the command manually.",
+      "view_notes":       "View Release Notes",
+      "channel_note":     "To switch server channels, change your docker-compose.yml image tag (:latest, :1.0, :1, :dev) and re-run docker-compose pull && docker-compose up -d."
     }
   }
 }
