@@ -7,7 +7,7 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { APP_VERSION } from '../../lib/version.js';
-  import { resolveAssetUrl, isNative } from '../../lib/platform.js';
+  import { resolveAssetUrl, iconUrl, isNative } from '../../lib/platform.js';
 
   export let expanded = false;
   export let visible = true;
@@ -24,7 +24,7 @@
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <div class="card">
         <div class="about-hero">
-          <img src={resolveAssetUrl('/icons/icon-192.png')} alt="LiftTrace" class="about-icon" />
+          <img src={iconUrl('/icons/icon-192.png')} alt="LiftTrace" class="about-icon" />
           <div>
             <div class="about-name">{$_('settings_about.app_name')}</div>
             <div class="about-version">

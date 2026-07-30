@@ -7,7 +7,7 @@
   import { push } from 'svelte-spa-router';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
-  import { setAuthToken, resolveAssetUrl, isNative, apiUrl, getServerUrl } from '../lib/platform.js';
+  import { setAuthToken, resolveAssetUrl, iconUrl, isNative, apiUrl, getServerUrl } from '../lib/platform.js';
 
   let username = '';
   let password = '';
@@ -187,7 +187,7 @@
 <div class="login-page">
   <div class="login-card card">
     <div class="login-logo">
-      <img src={resolveAssetUrl('/icons/logo.png')} alt="LiftTrace" class="logo-img" />
+      <img src={iconUrl('/icons/logo.png')} alt="LiftTrace" class="logo-img" />
       <h1 class="login-title">{$_('login.app_name')}</h1>
       <p class="text-3 text-sm">{$_('login.subtitle')}</p>
     </div>

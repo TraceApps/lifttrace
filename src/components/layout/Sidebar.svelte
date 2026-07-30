@@ -6,7 +6,7 @@
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive, logout } from '../../stores/auth.js';
   import { APP_VERSION } from '../../lib/version.js';
-  import { resolveAssetUrl } from '../../lib/platform.js';
+  import { resolveAssetUrl, iconUrl } from '../../lib/platform.js';
   import { radioEnabled, radioUrl, radioStationsEnabled } from '../../stores/settings.js';
 
   export let open = false;
@@ -66,7 +66,7 @@
     aria-label="Navigation menu"
   >
     <div class="sidebar-brand">
-      <img class="brand-icon" src={resolveAssetUrl('/icons/icon-192.png')} alt="LiftTrace" />
+      <img class="brand-icon" src={iconUrl('/icons/icon-192.png')} alt="LiftTrace" />
       <div class="brand-text">
         <span class="brand-name">LiftTrace</span>
         <span class="brand-tagline">Track Every Rep — Personal Weightlifting Tracker</span>

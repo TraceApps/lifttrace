@@ -1,6 +1,6 @@
 <script>
   import { _ } from 'svelte-i18n';
-  import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl } from '../lib/platform.js';
+  import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl, iconUrl } from '../lib/platform.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { countLocalData, uploadLocalToServer } from '../lib/migrate.js';
   import { destroyLocalDb } from '../lib/db-native.js';
@@ -247,7 +247,7 @@
 <div class="setup-wrap">
   <div class="setup-inner">
     <div class="setup-brand">
-      <img src={resolveAssetUrl('/icons/icon-192.png')} alt="LiftTrace" class="setup-logo" />
+      <img src={iconUrl('/icons/icon-192.png')} alt="LiftTrace" class="setup-logo" />
       <h1 class="setup-title">{$_('native_setup.title')}</h1>
       <p class="setup-subtitle">{$_('native_setup.subtitle')}</p>
     </div>
