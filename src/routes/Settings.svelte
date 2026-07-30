@@ -681,15 +681,10 @@
       onToggle={() => toggleSection('workoutImport')}
     />
 
-    <SettingsDiagnostics
-      visible={sectionVisible(settingsQuery, 'helpImprove')}
-      expanded={expanded.helpImprove}
-      onToggle={() => toggleSection('helpImprove')}
-    />
-
     <!-- Updates — inline section since SettingsUpdates is a shared
          component across TraceApps and doesn't take the LT-specific
-         visible/expanded/onToggle prop shape. -->
+         visible/expanded/onToggle prop shape. Canonical position across
+         NT/CT/LT: right before Diagnostics in the App group. -->
     {#if sectionVisible(settingsQuery, 'updates')}
       <button class="section-toggle" on:click={() => toggleSection('updates')}>
         <span class="material-symbols-rounded si">system_update</span>
@@ -702,6 +697,12 @@
         </div>
       {/if}
     {/if}
+
+    <SettingsDiagnostics
+      visible={sectionVisible(settingsQuery, 'helpImprove')}
+      expanded={expanded.helpImprove}
+      onToggle={() => toggleSection('helpImprove')}
+    />
 
     <!-- ═══ ADMIN (Users + Authentication + Email — admin only).
          Mirrors NutriTrace: the profile-hero card at the top of Settings
