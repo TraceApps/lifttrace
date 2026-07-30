@@ -6,9 +6,20 @@ All notable changes to LiftTrace are documented here.
 
 ## Unreleased
 
+### Added
+
+- **Accent-tinted browser chrome.** The browser tab bar / address strip now picks up your current accent color via `<meta name="theme-color">`. Running LiftTrace alongside NutriTrace / CookTrace? Pick a distinct accent per install and the tabs read as visually different at a glance. Favicon stays the branded LiftTrace mark.
+
 ### Changed
 
+- **SMTP "Username" field relabeled to "Email or Username".** Most SMTP providers want the full email as the username; label change removes the guesswork.
+
 - **Full i18n retrofit across the app.** Every hardcoded UI string has been extracted into `src/i18n/en.json` and reads via `svelte-i18n`. Covers Settings (Notifications, Workout, Appearance, Authentication, User Management, Trace, Backup, Email, Radio, Catalog, Statistics, Units, Federation, Diagnostics, About), Diary + WorkoutEditor + WorkoutSummary + SupersetCard + ExerciseCard + SmartLog, Coaching + Programs + ProgramDetail + TemplateSpecRow, Exercises + ExerciseDetail + ExerciseEditor + ExerciseInfo, Statistics charts + MuscleRecovery, Radio (station library + dialogs), Profile, Login, NativeSetup, Trace AI, and shared UI (TimePicker). ~500 new keys added, Weblate-ready. Chicago-style title case for labels/buttons/headings, sentence case for body prose / errors / placeholders / toasts.
+
+### Fixed
+
+- **App icon no longer shows a white halo.** The bundled icon PNGs had ~15px of solid white padding baked into their corners. On tinted browser chrome the halo was visible around the tab favicon; in-app the icon looked framed. Corners now clear cleanly. Icon URLs also cache-busted with the app version so shipped icon fixes actually take effect without users needing to clear their browser cache.
+- **Create Admin form layout aligned with NT/CT** (parity with NT #122). Two-column layout — Username / Full Name on top, Password / Confirm below with matching eye toggles that share show/hide state — replaces the prior stacked single-column layout.
 
 ## v1.0.2 — 2026-07-28
 
