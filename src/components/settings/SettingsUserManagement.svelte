@@ -538,23 +538,35 @@
             <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">
               <span class="setting-label" style="font-weight:700">{$_('settings.users.create_admin_account')}</span>
               <span class="setting-desc" style="margin:0">{$_('settings.users.create_admin_explainer')}</span>
-              <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminUser} placeholder={$_('settings.users.username_required')} />
-              <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminName} placeholder={$_('settings.users.full_name')} />
-              <div style="display:flex;gap:6px;align-items:center">
-                {#if enableShowPass}
-                  <input class="form-input-sm" style="flex:1" type="text" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
-                {:else}
-                  <input class="form-input-sm" style="flex:1" type="password" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
-                {/if}
-                <button class="btn-icon" type="button" on:click={() => enableShowPass = !enableShowPass} title={enableShowPass ? $_('settings.users.hide') : $_('settings.users.show')} style="flex-shrink:0">
-                  <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>
-                </button>
+              <!-- Two-column layout matching NutriTrace + CookTrace: Username /
+                   Full Name on top, Password / Confirm below, each password
+                   field with its own eye toggle sharing one show/hide state. -->
+              <div style="display:flex;gap:8px">
+                <input class="form-input-sm" style="flex:1;min-width:0" type="text" bind:value={enableAdminUser} placeholder={$_('settings.users.username_required')} autocomplete="username" />
+                <input class="form-input-sm" style="flex:1;min-width:0" type="text" bind:value={enableAdminName} placeholder={$_('settings.users.full_name')} />
               </div>
-              {#if enableShowPass}
-                <input class="form-input-sm" style="width:100%" type="text" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_password_ph')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
-              {:else}
-                <input class="form-input-sm" style="width:100%" type="password" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_password_ph')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
-              {/if}
+              <div style="display:flex;gap:8px">
+                <div style="display:flex;gap:4px;align-items:center;flex:1;min-width:0">
+                  {#if enableShowPass}
+                    <input class="form-input-sm" style="flex:1;min-width:0" type="text" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
+                  {:else}
+                    <input class="form-input-sm" style="flex:1;min-width:0" type="password" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
+                  {/if}
+                  <button class="btn-icon" type="button" on:click={() => enableShowPass = !enableShowPass} title={enableShowPass ? $_('settings.users.hide') : $_('settings.users.show')} style="flex-shrink:0">
+                    <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+                <div style="display:flex;gap:4px;align-items:center;flex:1;min-width:0">
+                  {#if enableShowPass}
+                    <input class="form-input-sm" style="flex:1;min-width:0" type="text" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_password_ph')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
+                  {:else}
+                    <input class="form-input-sm" style="flex:1;min-width:0" type="password" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_password_ph')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
+                  {/if}
+                  <button class="btn-icon" type="button" on:click={() => enableShowPass = !enableShowPass} title={enableShowPass ? $_('settings.users.hide') : $_('settings.users.show')} style="flex-shrink:0">
+                    <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+              </div>
               {#if enableUmError}
                 <span class="form-error" style="font-size:12px;color:var(--danger)">{enableUmError}</span>
               {/if}
