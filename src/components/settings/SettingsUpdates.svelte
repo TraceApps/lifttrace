@@ -251,6 +251,31 @@
       </div>
     </div>
 
+    <!-- Server status — PWA admin only. Inlined into the same card so
+         there's a single "Updates" surface instead of two competing cards.
+         Row mirrors the Current Version row: label + version chip on the
+         right, plus a tiny status dot to make behind-vs-current scannable
+         at a glance. Instructions collapse into a details block only when
+         the server is actually behind. -->
+    {#if showServerPanel && serverInfo}
+      <div class="divider"></div>
+      <div class="row">
+        <div class="row-label label-stack">
+          <div class="label-main">{$_('updates.server.heading')}</div>
+          <div class="label-desc">
+            {#if serverInfo.available}
+              <span class="status-dot dot-warn"></span>
+              {$_('updates.server.behind_desc', { values: { latest: serverInfo.latest } })}
+            {:else}
+              <span class="status-dot dot-ok"></span>
+              {$_('updates.server.current_desc')}
+            {/if}
+          </div>
+        </div>
+        <div class="row-value version-chip" class:chip-warn={serverInfo.available}>{serverInfo.current}</div>
+      </div>
+    {/if}
+
     <!-- Single primary action. Label + colour swap with state
          (check-now / checking / download-and-install / downloading %)
          so the panel never shows two competing controls. -->
@@ -373,63 +398,55 @@
   {/if}
 </div>
 
-<!-- ── Server update card (PWA admin only) ─────────────────────────── -->
-{#if showServerPanel && serverInfo}
-  <div class="card settings-card server-card">
-    <div class="body">
-      <div class="row">
-        <div class="row-label">
-          <span class="material-symbols-rounded row-icon" aria-hidden="true">dns</span>
-          <div class="label-main">{$_('updates.server.heading')}</div>
-        </div>
-        <div class="row-value">
-          {#if serverInfo.available}
-            <span class="badge badge-warn">{$_('updates.server.available_chip')}</span>
-          {:else}
-            <span class="badge badge-ok">
-              <span class="material-symbols-rounded" style="font-size:14px">check_circle</span>
-              {$_('updates.up_to_date')}
-            </span>
-          {/if}
-        </div>
-      </div>
-      <div class="server-versions">
-        {$_('updates.server.versions', { values: { current: serverInfo.current, latest: serverInfo.latest } })}
-      </div>
-
-      {#if serverInfo.available}
-        <div class="divider"></div>
-        <div class="server-instructions">
+<!-- Server "how to update" expanders: only appear when a server update
+     is actually available. Same card as the rest (attached via CSS —
+     no visual break), so the panel stays a single surface even when
+     it needs to show the docker-compose flow. -->
+{#if showServerPanel && serverInfo?.available}
+  <div class="card settings-card server-instructions-card">
+    <div class="body server-instructions">
+      <div class="server-headline">
+        <span class="material-symbols-rounded" aria-hidden="true">system_update_alt</span>
+        <div class="server-headline-text">
+          <div class="label-main">
+            {$_('updates.server.headline', { values: { latest: serverInfo.latest } })}
+          </div>
           {#if serverInfo.published_at}
-            <div class="server-when">
+            <div class="label-desc">
               {$_('updates.released', { values: { when: formatAgo(serverInfo.published_at) } })}
             </div>
           {/if}
-          {#if serverInfo.notes}
-            <details class="update-notes" open>
-              <summary>{$_('updates.release_notes_heading')}</summary>
-              <pre>{serverInfo.notes}</pre>
-            </details>
-          {/if}
-          {#if serverInfo.notes_url}
-            <a class="update-link" href={serverInfo.notes_url} target="_blank" rel="noopener">
-              <span class="material-symbols-rounded" style="font-size:14px">open_in_new</span>
-              {$_('updates.view_on_github')}
-            </a>
-          {/if}
-
-          <div class="label-desc" style="margin-top:8px">{$_('updates.server.instructions')}</div>
-          <pre class="server-cmd">docker-compose pull && docker-compose up -d</pre>
-          <button class="btn btn-secondary" style="align-self:flex-start" on:click={copyDockerCommand}>
-            <span class="material-symbols-rounded" style="font-size:16px">content_copy</span>
-            {$_('updates.server.copy_command')}
-          </button>
-          <div class="channel-note">
-            <span class="material-symbols-rounded" style="font-size:14px">info</span>
-            {$_('updates.server.channel_note')}
-          </div>
         </div>
+      </div>
+
+      {#if serverInfo.notes}
+        <details class="whats-new" open>
+          <summary>
+            <span class="material-symbols-rounded whats-new-chev">chevron_right</span>
+            <span class="whats-new-title">{$_('updates.release_notes_heading')}</span>
+          </summary>
+          <div class="whats-new-body">
+            <div class="whats-new-md">{@html _renderNotes(serverInfo.notes)}</div>
+            {#if serverInfo.notes_url}
+              <a class="update-link" href={serverInfo.notes_url} target="_blank" rel="noopener">
+                {$_('updates.view_on_github')}
+                <span class="material-symbols-rounded" style="font-size:14px">open_in_new</span>
+              </a>
+            {/if}
+          </div>
+        </details>
       {/if}
+
+      <div class="label-desc">{$_('updates.server.instructions')}</div>
+      <pre class="server-cmd">docker-compose pull && docker-compose up -d</pre>
+      <button class="btn btn-secondary" style="align-self:flex-start" on:click={copyDockerCommand}>
+        <span class="material-symbols-rounded" style="font-size:16px">content_copy</span>
+        {$_('updates.server.copy_command')}
+      </button>
+      <div class="channel-note">
+        <span class="material-symbols-rounded" style="font-size:14px">info</span>
+        {$_('updates.server.channel_note')}
+      </div>
     </div>
   </div>
 {/if}
@@ -469,6 +486,22 @@
     color: var(--accent);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
+  .version-chip.chip-warn {
+    background: color-mix(in srgb, var(--warning, #f57c00) 15%, transparent);
+    color: var(--warning, #f57c00);
+  }
+  /* Small status dot used in the server row's description line to
+     make current-vs-behind scannable without color-blind users needing
+     to parse the version numbers. */
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .status-dot.dot-ok   { background: var(--success, #2e7d32); }
+  .status-dot.dot-warn { background: var(--warning, #f57c00); }
 
   .channel-block {
     display: flex; flex-direction: column; gap: 10px;
@@ -499,20 +532,23 @@
   .channel-opt:hover:not(.selected) { color: var(--text-1); }
 
   /* Single primary action button — same visual slot across every state
-     (check / checking / install / downloading). Colour flips to accent
-     when an update is queued so it reads as the recommended action;
-     progress fill grows across the background during download so the
-     UI never shifts layout. */
+     (check / checking / install / downloading). Accent-coloured by
+     default so it reads as the panel's primary action; install state
+     gets a stronger fill; progress bar grows across the background
+     during download so the UI never shifts layout. */
   .btn-primary-action {
     position: relative;
     width: 100%;
     display: inline-flex; align-items: center; justify-content: center;
     padding: 14px 16px; margin-top: 12px;
     border-radius: 10px; border: none; cursor: pointer;
-    background: var(--surface-2); color: var(--text-1);
+    background: var(--accent); color: white;
     font-size: 14px; font-weight: 600;
     overflow: hidden;
     transition: background 160ms ease, opacity 120ms ease, transform 120ms ease;
+  }
+  .btn-primary-action.is-busy {
+    background: var(--surface-2); color: var(--text-1);
   }
   .btn-primary-action.is-install {
     background: var(--accent); color: white;
@@ -720,12 +756,24 @@
     width: fit-content;
   }
 
-  .server-card { margin-top: 12px; }
-  .server-versions {
-    padding: 0 0 10px 30px;
-    font-size: 12px; color: var(--text-2);
+  /* Server instructions card — a lightweight continuation of the main
+     Updates card, only shown when the server actually needs updating.
+     Nudged flush against the card above via negative margin + tinted
+     border so it reads as "the actionable follow-up" rather than a
+     second island. */
+  .server-instructions-card {
+    margin-top: -8px;
+    border: 1px solid color-mix(in srgb, var(--warning, #f57c00) 25%, transparent);
+    background: color-mix(in srgb, var(--warning, #f57c00) 6%, var(--surface-1));
   }
-  .server-instructions { padding: 12px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+  .server-instructions { display: flex; flex-direction: column; gap: 12px; }
+  .server-headline {
+    display: flex; align-items: flex-start; gap: 12px;
+    color: var(--warning, #f57c00);
+  }
+  .server-headline .material-symbols-rounded { font-size: 22px; margin-top: 2px; }
+  .server-headline-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .server-headline-text .label-main { color: var(--text-1); }
   .server-when { font-size: 12px; color: var(--text-2); font-weight: 500; }
   .server-cmd {
     background: var(--surface-2); padding: 12px 14px; border-radius: 8px;

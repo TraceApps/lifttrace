@@ -1324,7 +1324,10 @@
       "cleared":     "Cache cleared."
     },
     "server": {
-      "heading":          "Server Update",
+      "heading":          "Server",
+      "headline":         "Server update {latest} available",
+      "behind_desc":      "Update available: {latest}",
+      "current_desc":     "You're on the latest release",
       "versions":         "Server is on {current}. Latest release: {latest}.",
       "available_chip":   "Update Available",
       "instructions":     "To update the server, run on the host machine:",
