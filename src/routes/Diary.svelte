@@ -3125,11 +3125,12 @@
   .recent-meta { font-size: 12px; color: var(--text-3); }
 
   /* Cardio slot lives outside the workout container so it renders on
-     rest days too. Same horizontal padding as the workout region so
-     the card aligns with everything above it. */
+     rest days too. Narrower max-width than the workout region so it
+     visually matches the empty-state action buttons above it (Load
+     Workout / Add Exercise) rather than dwarfing them. */
   .cardio-slot {
     padding: 16px 12px 0;
-    max-width: 720px;
+    max-width: 480px;
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;

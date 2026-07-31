@@ -144,7 +144,7 @@
       </div>
       <div class="row">
         <input class="input" type="number" step="0.1" placeholder="Distance ({distanceUnit}, optional)" bind:value={f_distance} />
-        <input class="input input-narrow" type="number" min="30" max="230" placeholder="HR (bpm)" bind:value={f_hr} />
+        <input class="input input-narrow" type="number" min="30" max="230" placeholder="bpm" bind:value={f_hr} />
       </div>
       <input class="input" placeholder="Notes (optional)" bind:value={f_notes} />
       <div class="row row-actions">
