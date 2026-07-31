@@ -809,8 +809,8 @@
     to   { transform: rotate(360deg); }
   }
 
-  @media (max-width: 520px) {
-    .row { flex-wrap: wrap; }
-    .row-value { width: 100%; }
-  }
+  /* No narrow-screen wrap. Version chips and toggles are small enough
+     to stay right-aligned even at 320px width; wrapping punts controls
+     onto their own line under their own label/description, which reads
+     as broken layout. */
 </style>
