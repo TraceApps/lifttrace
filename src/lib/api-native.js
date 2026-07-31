@@ -798,6 +798,77 @@ const BodyStats = {
   },
 };
 
+// Standalone-mode Cardio session logging. Mirrors server/routes/cardio.js
+// so the Diary CardioCard + Statistics Cardio metric work offline.
+const Cardio = {
+  async list(start, end) {
+    const rows = (start && end)
+      ? await dbQuery(`SELECT * FROM cardio_log WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date DESC, id DESC`, [ME, start, end])
+      : await dbQuery(`SELECT * FROM cardio_log WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 500`, [ME]);
+    return rows;
+  },
+  async byDate(date) {
+    return dbQuery(`SELECT * FROM cardio_log WHERE user_id = ? AND date = ? ORDER BY id ASC`, [ME, date]);
+  },
+  async create(body) {
+    if (!body?.date) throw new Error('date required');
+    const activity = String(body.activity || '').trim();
+    if (!activity) throw new Error('activity required');
+    const dm = Math.floor(Number(body.duration_min));
+    if (!Number.isFinite(dm) || dm <= 0) throw new Error('duration_min must be a positive integer');
+    const dist = body.distance == null || body.distance === '' ? null : Number(body.distance);
+    const hr = body.avg_hr == null || body.avg_hr === '' ? null : Math.floor(Number(body.avg_hr));
+    const unit = (body.distance_unit === 'mi' || body.distance_unit === 'km') ? body.distance_unit : 'km';
+    const notes = body.notes ? String(body.notes).trim() : null;
+    const r = await dbRun(
+      `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [ME, body.date, activity, dm, Number.isFinite(dist) ? dist : null, unit, Number.isFinite(hr) ? hr : null, notes, _now(), _now()]
+    );
+    const rows = await dbQuery(`SELECT * FROM cardio_log WHERE id = ?`, [r.lastId]);
+    return rows[0];
+  },
+  async update(id, body) {
+    const existing = (await dbQuery(`SELECT * FROM cardio_log WHERE id = ? AND user_id = ?`, [id, ME]))[0];
+    if (!existing) throw new Error('not found');
+    const activity = body.activity != null ? String(body.activity).trim() : existing.activity;
+    if (!activity) throw new Error('activity required');
+    const dm = body.duration_min != null ? Math.floor(Number(body.duration_min)) : existing.duration_min;
+    if (!Number.isFinite(dm) || dm <= 0) throw new Error('duration_min must be a positive integer');
+    const dist = body.distance === '' ? null : (body.distance != null ? Number(body.distance) : existing.distance);
+    const hr = body.avg_hr === '' ? null : (body.avg_hr != null ? Math.floor(Number(body.avg_hr)) : existing.avg_hr);
+    const unit = (body.distance_unit === 'mi' || body.distance_unit === 'km') ? body.distance_unit : existing.distance_unit;
+    const notes = body.notes === '' ? null : (body.notes != null ? String(body.notes).trim() : existing.notes);
+    await dbRun(
+      `UPDATE cardio_log SET date = ?, activity = ?, duration_min = ?, distance = ?, distance_unit = ?, avg_hr = ?, notes = ?, updated_at = ?
+       WHERE id = ?`,
+      [body.date != null ? body.date : existing.date, activity, dm, dist, unit, hr, notes, _now(), id]
+    );
+    const rows = await dbQuery(`SELECT * FROM cardio_log WHERE id = ?`, [id]);
+    return rows[0];
+  },
+  async del(id) {
+    await dbRun(`DELETE FROM cardio_log WHERE id = ? AND user_id = ?`, [id, ME]);
+    return { ok: true };
+  },
+  async weekly(start, end) {
+    if (!start || !end) throw new Error('start and end required');
+    const rows = await dbQuery(
+      `SELECT date, duration_min FROM cardio_log WHERE user_id = ? AND date BETWEEN ? AND ?`,
+      [ME, start, end]
+    );
+    const byWeek = {};
+    for (const row of rows) {
+      const d = new Date(row.date);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+      byWeek[weekStart] = (byWeek[weekStart] || 0) + row.duration_min;
+    }
+    return Object.entries(byWeek).map(([week, minutes]) => ({ week, minutes })).sort((a, b) => a.week.localeCompare(b.week));
+  },
+};
+
 const Stats = {
   async _allWorkouts() {
     const rows = await dbQuery(
@@ -1306,6 +1377,17 @@ async function handle(method, path, body, query) {
     if (id === 'range' && m === 'GET') return BodyStats.range(query?.from, query?.to);
     if (id              && m === 'GET') return { stats: await BodyStats.get(id) };
     if (id              && m === 'PUT') return { stats: await BodyStats.put(id, body || {}) };
+  }
+
+  // ── /api/cardio/* ─────────────────────────────────────────────────────
+  if (r === 'cardio') {
+    if (!id                                  && m === 'GET')    return Cardio.list(query?.start, query?.end);
+    if (!id                                  && m === 'POST')   return Cardio.create(body || {});
+    if (id === 'stats' && sub === 'weekly'   && m === 'GET')    return Cardio.weekly(query?.start, query?.end);
+    // Bare /:date fetches sessions for a single day.
+    if (id && /^\d{4}-\d{2}-\d{2}$/.test(id) && m === 'GET')    return Cardio.byDate(id);
+    if (id && /^\d+$/.test(id)               && m === 'PUT')    return Cardio.update(Number(id), body || {});
+    if (id && /^\d+$/.test(id)               && m === 'DELETE') return Cardio.del(Number(id));
   }
 
   // ── /api/stats/* ──────────────────────────────────────────────────────

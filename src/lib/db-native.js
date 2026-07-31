@@ -242,6 +242,24 @@ async function _createSchema(db) {
       UNIQUE(user_id, date)
     );
 
+    -- ── Cardio Log ─────────────────────────────────────────────────────
+    -- Standalone mirror of the server cardio_log table. Manual entry
+    -- only per feedback_lifttrace_cardio_scope.md — no device sync.
+    CREATE TABLE IF NOT EXISTS cardio_log (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id       INTEGER,
+      date          TEXT NOT NULL,
+      activity      TEXT NOT NULL,
+      duration_min  INTEGER NOT NULL,
+      distance      REAL,
+      distance_unit TEXT DEFAULT 'km',
+      avg_hr        INTEGER,
+      notes         TEXT,
+      created_at    TEXT DEFAULT (datetime('now')),
+      updated_at    TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_cardio_log_user_date ON cardio_log(user_id, date);
+
     -- ── Trainer prescriptions ──────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS coach_prescriptions (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

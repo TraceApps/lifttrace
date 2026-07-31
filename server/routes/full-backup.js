@@ -285,6 +285,13 @@ function restoreFromZip(zip) {
     const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats) VALUES (@id,@user_id,@date,@stats)`);
     for (const b of data.body_stats_log || []) insBody.run(b);
 
+    // Cardio sessions. Legacy backups (pre-v1.1.0) have no cardio_log key
+    // so `data.cardio_log || []` handles the gap silently. Wipe first so
+    // restore is authoritative rather than merge-append.
+    db.prepare('DELETE FROM cardio_log').run();
+    const insCardio = db.prepare(`INSERT OR IGNORE INTO cardio_log (id,user_id,date,activity,duration_min,distance,distance_unit,avg_hr,notes,created_at,updated_at) VALUES (@id,@user_id,@date,@activity,@duration_min,@distance,@distance_unit,@avg_hr,@notes,@created_at,@updated_at)`);
+    for (const c of data.cardio_log || []) insCardio.run(c);
+
     const insSettings = db.prepare(`INSERT OR IGNORE INTO user_settings (user_id,key,value) VALUES (@user_id,@key,@value)`);
     for (const s of data.user_settings || []) insSettings.run(s);
 
@@ -359,6 +366,7 @@ function dumpDatabase() {
     coach_activity:      safe('SELECT * FROM coach_activity'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
+    cardio_log:          safe('SELECT * FROM cardio_log'),
     user_settings:       db.prepare('SELECT * FROM user_settings').all(),
     app_config:          db.prepare('SELECT * FROM app_config').all(),
     ai_chat_history:     db.prepare('SELECT * FROM ai_chat_history').all(),
