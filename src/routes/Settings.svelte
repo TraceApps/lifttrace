@@ -427,7 +427,16 @@
       .some(kw => kw.includes(query));
   };
 
-  function backToIndex() { push('/settings'); }
+  // Reverse the peel-in animation on tap: swap the back button + title
+  // into their -out classes so the reversed CSS keyframe plays, then
+  // navigate after the animation completes.
+  let _leaving = false;
+  async function backToIndex() {
+    if (_leaving) return;
+    _leaving = true;
+    await new Promise(r => setTimeout(r, 240));
+    push('/settings');
+  }
 
   // Deep-link ?q= scroll: on sub-page mount, scan DOM for the search
   // query and scroll+highlight the first matching setting.
@@ -526,12 +535,15 @@
              title via a CSS keyframe (Svelte transitions don't fire
              here because svelte-spa-router unmounts + remounts the
              whole component between /settings and /settings/:section). -->
-        <button class="settings-back back-peel-in"
+        <button class="settings-back"
+                class:back-peel-in={!_leaving}
+                class:back-peel-out={_leaving}
                 on:click={backToIndex}
                 aria-label={$_('common.back')}>
           <span class="material-symbols-rounded">arrow_back</span>
         </button>
-        <h1 class="title-slide-in">
+        <h1 class:title-slide-in={!_leaving}
+            class:title-slide-out={_leaving}>
           {SECTION_META[currentSection]?.titleKey ? $_(SECTION_META[currentSection].titleKey) : currentSection}
         </h1>
       {:else}
@@ -778,7 +790,7 @@
     {#if sectionVisible(settingsQuery, 'updates')}
       <button class="section-toggle" on:click={() => toggleSection('updates')}>
         <span class="material-symbols-rounded si">system_update</span>
-        <span>{$_('settings.updates.section')}</span>
+        <span class="section-name">{$_('settings.updates.section')}</span>
         <span class="material-symbols-rounded chevron" class:rotated={openSections.updates}>expand_more</span>
       </button>
       {#if expanded.updates}
@@ -1137,12 +1149,28 @@
     from { width: 0;    margin-right: 0;  opacity: 0; transform: scale(0.4); }
     to   { width: 40px; margin-right: 8px; opacity: 1; transform: scale(1);   }
   }
+  .back-peel-out {
+    overflow: hidden;
+    transform-origin: left center;
+    animation: back-peel-reverse 240ms cubic-bezier(0.4, 0, 0.6, 1) both;
+  }
+  @keyframes back-peel-reverse {
+    from { width: 40px; margin-right: 8px; opacity: 1; transform: scale(1);   }
+    to   { width: 0;    margin-right: 0;  opacity: 0; transform: scale(0.4); }
+  }
   .title-slide-in {
     animation: title-slide 320ms cubic-bezier(0.34, 1.4, 0.64, 1) 80ms both;
   }
   @keyframes title-slide {
     from { opacity: 0; transform: translateX(-16px); }
     to   { opacity: 1; transform: translateX(0);      }
+  }
+  .title-slide-out {
+    animation: title-slide-back 240ms cubic-bezier(0.4, 0, 0.6, 1) both;
+  }
+  @keyframes title-slide-back {
+    from { opacity: 1; transform: translateX(0);      }
+    to   { opacity: 0; transform: translateX(-16px); }
   }
 
   /* Deep-link highlight — brief pulse on the target row after a
