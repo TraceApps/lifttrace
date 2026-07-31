@@ -59,6 +59,7 @@
   let muscleLoad = {};   // { [slug]: effectiveSets } for the body map
   let weekdayDist = [];
   let cardioWeekly = []; // [{ week, minutes }] for the Cardio metric
+  let cardioSessions = []; // individual sessions in range, newest first, for the session list under the chart
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
   let exercises = [];
@@ -148,7 +149,7 @@
   async function loadData() {
     loading = true;
     try {
-      const [v, f, r, s, mg, mes, wd, cw] = await Promise.all([
+      const [v, f, r, s, mg, mes, wd, cw, cs] = await Promise.all([
         LtApi.getVolume(startDate, endDate),
         LtApi.getFrequency(startDate, endDate),
         LtApi.getRecords(),
@@ -157,10 +158,12 @@
         LtApi.getMuscleEffectiveSets(startDate, endDate),
         LtApi.getWeekdayDistribution(startDate, endDate),
         LtApi.getCardioWeekly(startDate, endDate).catch(() => []),
+        LtApi.listCardio(startDate, endDate).catch(() => []),
       ]);
       volume = v; frequency = f; records = r; streaks = s;
       muscleGroups = mg; muscleLoad = mes || {}; weekdayDist = wd;
       cardioWeekly = Array.isArray(cw) ? cw : [];
+      cardioSessions = Array.isArray(cs) ? cs : [];
 
       // Heatmap dates + cached full records (the calorie estimator needs
       // exercises + duration_min, both already in this payload).
@@ -964,6 +967,30 @@
               <p class="chart-sub" style="text-align:center">Set a weekly target in Settings → Workout to compare against.</p>
             {/if}
           </div>
+
+          {#if cardioSessions.length > 0}
+            <div class="chart-card">
+              <h3 class="chart-title">Sessions</h3>
+              <ul class="cs-list">
+                {#each cardioSessions.slice(0, 100) as s (s.id)}
+                  <li class="cs-row">
+                    <div class="cs-main">
+                      <span class="cs-activity">{s.activity}</span>
+                      <span class="cs-meta">
+                        {s.duration_min} min
+                        {#if s.distance != null}· {s.distance} {s.distance_unit || 'km'}{/if}
+                        {#if s.avg_hr != null}· {s.avg_hr} bpm{/if}
+                      </span>
+                    </div>
+                    <span class="cs-date">{s.date}</span>
+                  </li>
+                {/each}
+              </ul>
+              {#if cardioSessions.length > 100}
+                <p class="chart-sub" style="text-align:center">Showing the 100 most recent sessions in this range.</p>
+              {/if}
+            </div>
+          {/if}
         {/if}
       {/if}
     </div>
@@ -1383,4 +1410,20 @@
   .cw-fill.hit { background: linear-gradient(180deg, var(--success, #2FD66F), color-mix(in srgb, var(--success, #2FD66F) 60%, transparent)); }
   .cw-label { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
   .sc-sub { font-size: 13px; color: var(--text-3); font-weight: 600; }
+
+  /* Cardio session list under the weekly chart. Compact rows, newest
+     first, date on the right. Read-only here — editing happens on the
+     Diary CardioCard because that's where the date context lives. */
+  .cs-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .cs-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .cs-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .cs-activity { font-size: 13px; font-weight: 700; color: var(--text-1); }
+  .cs-meta { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .cs-date { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 </style>

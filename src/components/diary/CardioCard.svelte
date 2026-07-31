@@ -18,6 +18,10 @@
   let sessions = [];
   let loading = false;
   let showForm = false;
+  // Non-null when editing an existing session. The form is a single UI
+  // that serves both create and update flows; editingId flips which
+  // API call save() dispatches.
+  let editingId = null;
 
   // Form state
   let f_activity = '';
@@ -45,13 +49,23 @@
 
   function openForm() {
     showForm = true;
+    editingId = null;
     f_activity = '';
     f_duration = '';
     f_distance = '';
     f_hr = '';
     f_notes = '';
   }
-  function cancelForm() { showForm = false; }
+  function openEdit(session) {
+    showForm = true;
+    editingId = session.id;
+    f_activity = session.activity || '';
+    f_duration = String(session.duration_min ?? '');
+    f_distance = session.distance != null ? String(session.distance) : '';
+    f_hr = session.avg_hr != null ? String(session.avg_hr) : '';
+    f_notes = session.notes || '';
+  }
+  function cancelForm() { showForm = false; editingId = null; }
 
   async function save() {
     const activity = f_activity.trim();
@@ -69,10 +83,17 @@
         avg_hr: f_hr.trim() ? parseInt(f_hr, 10) : null,
         notes: f_notes.trim() || null,
       };
-      const created = await LtApi.createCardio(payload);
-      sessions = [created, ...sessions];
-      showSuccess('Cardio logged');
+      if (editingId != null) {
+        const updated = await LtApi.updateCardio(editingId, payload);
+        sessions = sessions.map(s => s.id === editingId ? updated : s);
+        showSuccess('Cardio updated');
+      } else {
+        const created = await LtApi.createCardio(payload);
+        sessions = [created, ...sessions];
+        showSuccess('Cardio logged');
+      }
       showForm = false;
+      editingId = null;
     } catch (e) {
       showError(e?.message || 'Save failed');
     }
@@ -128,7 +149,7 @@
       <input class="input" placeholder="Notes (optional)" bind:value={f_notes} />
       <div class="row row-actions">
         <button class="btn btn-secondary btn-sm" on:click={cancelForm} disabled={saving}>Cancel</button>
-        <button class="btn btn-primary btn-sm" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Log'}</button>
+        <button class="btn btn-primary btn-sm" on:click={save} disabled={saving}>{saving ? 'Saving…' : (editingId != null ? 'Save' : 'Log')}</button>
       </div>
     </div>
   {/if}
@@ -137,7 +158,7 @@
     <ul class="cardio-list">
       {#each sessions as s (s.id)}
         <li class="cardio-row">
-          <div class="cardio-row-main">
+          <button class="cardio-row-main" on:click={() => openEdit(s)} title="Edit session">
             <span class="cardio-activity">{s.activity}</span>
             <span class="cardio-meta">
               {s.duration_min} min
@@ -147,7 +168,7 @@
             {#if s.notes}
               <span class="cardio-notes">{s.notes}</span>
             {/if}
-          </div>
+          </button>
           <button class="cardio-del" on:click={() => remove(s)} aria-label="Delete cardio session">
             <span class="material-symbols-rounded">close</span>
           </button>
@@ -212,7 +233,16 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
-  .cardio-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  /* Row body is a button so the whole thing is one big tap target
+     that opens the edit form. Reset default button chrome so it looks
+     the same as the old plain <div>. */
+  .cardio-row-main {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 2px;
+    background: none; border: none; padding: 0;
+    text-align: left; color: inherit; font: inherit; cursor: pointer;
+  }
+  .cardio-row-main:hover .cardio-activity { color: var(--accent); }
   .cardio-activity { font-size: 13px; font-weight: 700; color: var(--text-1); }
   .cardio-meta { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
   .cardio-notes { font-size: 11px; color: var(--text-3); font-style: italic; }
