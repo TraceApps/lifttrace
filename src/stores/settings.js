@@ -255,6 +255,11 @@ export const timeFormat  = createSettingStore('timeFormat',  '12h');
 
 // Goals
 export const weeklyWorkoutGoal = createSettingStore('weeklyWorkoutGoal', 4);
+// Cardio is opt-in — off by default because most LT users are pure
+// lifters. Toggling on adds a Cardio card to the Diary + a Cardio
+// metric pill to Statistics. Matches NT's Activity card pattern for
+// family consistency.
+export const cardioEnabled = createSettingStore('cardioEnabled', false);
 // Cardio weekly-minutes target. 0 disables the target line on the
 // Statistics Cardio chart; anything > 0 draws a horizontal reference
 // line at that value, same visual language as weeklyWorkoutGoal on

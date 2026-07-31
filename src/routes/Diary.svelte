@@ -4,7 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled } from '../stores/settings.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
@@ -2099,11 +2099,6 @@
         </div>
       {/each}
 
-      <!-- Cardio sessions for the current date. Deliberately mounts
-           below workout notes so it doesn't distract the primary
-           set-based flow. Component owns its own data + state. -->
-      <CardioCard />
-
       <!-- Notes (collapsed unless user expands or notes exist) -->
       {#if notesExpanded || notes?.trim()}
         <div class="notes-card">
@@ -2139,6 +2134,16 @@
       {/if}
     {/if}
   </div>
+
+  <!-- Cardio sessions for the current date. Opt-in per user (see
+       settings.cardioEnabled — off by default for pure lifters).
+       Sits OUTSIDE the exercises-length guard so cardio can be logged
+       on rest days without needing to add a lifting exercise first. -->
+  {#if $cardioEnabled}
+    <div class="cardio-slot">
+      <CardioCard />
+    </div>
+  {/if}
 
   <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
        Loading from a program mid-workout lives in the ⋮ menu as "Replace workout". -->
@@ -3118,6 +3123,17 @@
   .recent-info { display: flex; flex-direction: column; gap: 2px; }
   .recent-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
   .recent-meta { font-size: 12px; color: var(--text-3); }
+
+  /* Cardio slot lives outside the workout container so it renders on
+     rest days too. Same horizontal padding as the workout region so
+     the card aligns with everything above it. */
+  .cardio-slot {
+    padding: 16px 12px 0;
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
 
   .notes-card {
     background: var(--surface-1); border: 1px solid var(--border);

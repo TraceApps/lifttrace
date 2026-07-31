@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import {
-    weeklyWorkoutGoal, weeklyCardioMinutesGoal, screenKeepAwake, autoFillLastWeights,
+    weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, screenKeepAwake, autoFillLastWeights,
     showCompletionSummary, autoCollapseCompleted, autoNameWorkouts,
     exerciseReorderMethod, confirmExerciseRemoval, restTimerEnabled,
     restDuration, restAutoStart, restAlert, restAlertVibrate, restAlertTone,
@@ -53,12 +53,21 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Weekly Cardio Minutes</span>
-            <span class="setting-hint">Target line on the Statistics Cardio chart. Set to 0 to hide the target.</span>
+            <span class="setting-label">Track Cardio</span>
+            <span class="setting-hint">Log cardio sessions (bike, run, row, etc.) from the Diary and see weekly minutes on Statistics. Off by default so pure lifters aren't cluttered. Manual entry only; device sync stays in NutriTrace.</span>
           </div>
-          <input class="form-input-sm" type="number" min="0" step="15" style="width:90px"
-            bind:value={$weeklyCardioMinutesGoal} />
+          <Toggle bind:checked={$cardioEnabled} />
         </div>
+        {#if $cardioEnabled}
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <span class="setting-label">Weekly Cardio Minutes</span>
+              <span class="setting-hint">Target line on the Statistics Cardio chart. Set to 0 to hide the target.</span>
+            </div>
+            <input class="form-input-sm" type="number" min="0" step="15" style="width:90px"
+              bind:value={$weeklyCardioMinutesGoal} />
+          </div>
+        {/if}
         <div class="setting-row">
           <div class="setting-label-group">
             <span class="setting-label">{$_('settings_workout.goals.keep_awake')}</span>

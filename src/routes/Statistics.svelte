@@ -11,7 +11,7 @@
   import MuscleRecovery from '../components/statistics/MuscleRecovery.svelte';
   import BodyMap from '../components/statistics/BodyMap.svelte';
   import { MUSCLES, MUSCLE_NAME, rankOf } from '../lib/muscles.js';
-  import { weeklyWorkoutGoal, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
+  import { weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
   import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
@@ -20,15 +20,18 @@
   import { showError } from '../stores/toast.js';
 
   // ── Metric + range state ─────────────────────────────────────────────
-  const METRICS = [
+  // Base metric pills — cardio conditionally appended when the user
+  // has opted-in via Settings → Workout → Track Cardio.
+  const BASE_METRICS = [
     { id: 'overview', label: 'Overview',         icon: 'dashboard' },
     { id: 'progress', label: 'Exercise Progress', icon: 'trending_up' },
     { id: 'records',  label: 'Records',           icon: 'emoji_events' },
     { id: 'volume',   label: 'Volume',            icon: 'fitness_center' },
     { id: 'freq',     label: 'Frequency',         icon: 'calendar_month' },
     { id: 'weight',   label: 'Body Weight',       icon: 'monitor_weight' },
-    { id: 'cardio',   label: 'Cardio',             icon: 'directions_run' },
   ];
+  const CARDIO_METRIC = { id: 'cardio', label: 'Cardio', icon: 'directions_run' };
+  $: METRICS = $cardioEnabled ? [...BASE_METRICS, CARDIO_METRIC] : BASE_METRICS;
 
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
 
@@ -105,7 +108,10 @@
   // positioned indicator can slide between variably-sized, horizontally
   // scrolling pills. Updates on metric change + window resize.
   let metricBarEl;
-  const pillRefs = new Array(6);
+  const pillRefs = new Array(7);
+  // If the user disables cardio while sitting on the Cardio metric, snap
+  // back to Overview so we don't render a metric whose pill is gone.
+  $: if (!$cardioEnabled && metric === 'cardio') metric = 'overview';
   let indicatorPos = { left: 0, width: 0 };
   function _measureIndicator() {
     const activeIdx = METRICS.findIndex(m => m.id === metric);

@@ -8,7 +8,7 @@ All notable changes to LiftTrace are documented here.
 
 ### Added
 
-- **Cardio session logging** (#23). New Cardio card on the Diary lets you log a session with activity, duration, optional distance / avg HR / notes. Statistics gains a **Cardio** metric with weekly minutes total and an optional weekly target line, configurable under Settings → Workout. All cardio is excluded from volume, PRs, and rest-timer firing so it never corrupts the lifting side. Manual entry only by design; device sync (Fitbit, Garmin, Health Connect, etc.) lives in NutriTrace via federation and is not planned for LiftTrace.
+- **Cardio session logging** (#23). Opt-in via Settings → Workout → **Track Cardio** (off by default so pure lifters aren't cluttered). When enabled, a Cardio card appears on the Diary for logging a session with activity, duration, optional distance / avg HR / notes; a Cardio metric appears on Statistics with weekly minutes total and an optional weekly target line. All cardio is excluded from volume, PRs, and rest-timer firing so it never corrupts the lifting side. Manual entry only by design; device sync (Fitbit, Garmin, Health Connect, etc.) lives in NutriTrace via federation and is not planned for LiftTrace.
 
 - **Pull-to-refresh sync (Android).** In native server mode, swipe down from the top of any page to trigger a manual sync. Matches NutriTrace's behavior for family consistency.
 - **Smart connection banner.** When sync fails, the banner explains what actually went wrong (no network vs cellular-only vs server unreachable vs HTTP error) with a Retry button, instead of a generic "sync error". Structured classification via `describeConnectionIssue` mirrors NT.
