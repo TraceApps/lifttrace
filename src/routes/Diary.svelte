@@ -2140,7 +2140,7 @@
        Sits OUTSIDE the exercises-length guard so cardio can be logged
        on rest days without needing to add a lifting exercise first. -->
   {#if $cardioEnabled}
-    <div class="cardio-slot">
+    <div class="cardio-slot" class:wide={exercises.length > 0}>
       <CardioCard />
     </div>
   {/if}
@@ -3125,15 +3125,21 @@
   .recent-meta { font-size: 12px; color: var(--text-3); }
 
   /* Cardio slot lives outside the workout container so it renders on
-     rest days too. Narrower max-width than the workout region so it
-     visually matches the empty-state action buttons above it (Load
-     Workout / Add Exercise) rather than dwarfing them. */
+     rest days too. Width is contextual:
+     - Empty diary: narrow (480px) so it visually matches the empty-
+       state action buttons above it (Load Workout / Add Exercise).
+     - Populated diary (`.wide`): matches the workout region's
+       horizontal padding so it lines up with exercise cards. */
   .cardio-slot {
     padding: 16px 12px 0;
     max-width: 480px;
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;
+  }
+  .cardio-slot.wide {
+    max-width: none;
+    padding: 16px var(--page-px) 0;
   }
 
   .notes-card {
