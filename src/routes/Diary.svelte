@@ -546,50 +546,28 @@
   // gesture standard on every fitness app — Capacitor's WebView doesn't
   // ship one, so this is a minimal implementation that gets out of the
   // way when not in use. Disabled in landscape / when not at top of page.
-  let ptrStartY = 0;
-  let ptrDelta = 0;
-  let ptrActive = false;
-  let ptrRefreshing = false;
-  const PTR_THRESHOLD = 70;
-  function onPtrTouchStart(e) {
-    if (window.scrollY > 0) return;
-    ptrStartY = e.touches[0].clientY;
-    ptrActive = true;
-  }
-  function onPtrTouchMove(e) {
-    if (!ptrActive || ptrRefreshing) return;
-    const dy = e.touches[0].clientY - ptrStartY;
-    if (dy <= 0) { ptrDelta = 0; return; }
-    if (window.scrollY > 0) { ptrActive = false; ptrDelta = 0; return; }
-    // Resistance curve so the pull feels rubbery, not 1:1.
-    ptrDelta = Math.min(dy * 0.55, 140);
-  }
-  async function onPtrTouchEnd() {
-    if (!ptrActive) return;
-    ptrActive = false;
-    if (ptrDelta >= PTR_THRESHOLD && !ptrRefreshing) {
-      ptrRefreshing = true;
-      try {
-        await Promise.all([
-          loadWorkout($currentDate),
-          loadCoachFeedback($currentDate),
-          loadUnreadFeedback(),
-          loadWorkoutDates(),
-          loadPrevBests(),
-          loadSuggestedPrescriptions(),
-        ]);
-      } catch {}
-      notes = $todayLog?.notes || '';
-      ptrRefreshing = false;
-    }
-    ptrDelta = 0;
-  }
+  // Pull-to-refresh removed from this route — App.svelte now owns the
+  // gesture globally (native server mode). Diary reloads its data via
+  // the lt:sync-complete listener above so pull-to-refresh on this page
+  // still gets today's workout + feedback + unread tally + historical
+  // dates + PRs + suggestions refreshed, without the two-spinner overlap
+  // that used to happen when both handlers fired.
 
   function _onSyncComplete() {
+    // Rely on the App-level pull-to-refresh (App.svelte) to fire the sync
+    // itself; this listener refreshes everything the Diary route reads
+    // locally so a user who pulled while staying on Diary sees the new
+    // state without navigating away and back. Previously Diary owned its
+    // own route-scoped PTR — removed for family parity, since NT + CT
+    // put PTR in App.svelte and having it in both places rendered two
+    // spinners on top of each other.
     if ($currentDate) {
       loadWorkout($currentDate).then(() => loadCoachFeedback($currentDate));
     }
     loadUnreadFeedback();
+    loadWorkoutDates();
+    loadPrevBests();
+    loadSuggestedPrescriptions();
   }
 
   onDestroy(() => {
@@ -1687,22 +1665,7 @@
   }
 </script>
 
-<div class="page"
-  on:touchstart={onPtrTouchStart}
-  on:touchmove={onPtrTouchMove}
-  on:touchend={onPtrTouchEnd}
-  on:touchcancel={onPtrTouchEnd}>
-  {#if ptrDelta > 0 || ptrRefreshing}
-    <div class="ptr-indicator"
-         class:refreshing={ptrRefreshing}
-         style:transform={`translate3d(-50%, ${ptrRefreshing ? 60 : ptrDelta}px, 0)`}
-         style:opacity={ptrRefreshing ? 1 : Math.min(ptrDelta / 70, 1)}>
-      <span class="material-symbols-rounded" class:spin={ptrRefreshing}
-            style:transform={ptrRefreshing ? '' : `rotate(${ptrDelta * 4}deg)`}>
-        {ptrRefreshing ? 'autorenew' : 'arrow_downward'}
-      </span>
-    </div>
-  {/if}
+<div class="page">
   <!-- Action icons — fixed at top-right, same level as hamburger (NutriTrace pattern) -->
   <div use:portal class="diary-topbar-actions">
     <button class="btn-icon accent" on:click={() => showGymTools = true} aria-label={$_('diary.actions.gym_tools')} title={$_('diary.actions.gym_tools_long')}>

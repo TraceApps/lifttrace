@@ -557,13 +557,17 @@
   </div>
 {/if}
 
-{#if _pullDistance > 0 || _pullRefreshing}
-  <div class="pull-sync-indicator"
-    class:ready-to-sync={_pullDistance >= PULL_SYNC_THRESHOLD && !_pullRefreshing}
-    class:refreshing={_pullRefreshing}
-    style="transform: translate3d(-50%, {_pullRefreshing ? 32 : _pullDistance}px, 0)"
-    use:portal>
-    <span class="material-symbols-rounded">{_pullRefreshing ? 'autorenew' : 'arrow_downward'}</span>
+{#if _syncModeActive && !sidebarOpen && (_pullDistance > 0 || _pullRefreshing)}
+  <div
+    class="pull-sync-indicator"
+    class:ready-to-sync={_pullDistance >= PULL_SYNC_THRESHOLD}
+    use:portal
+    style:transform={`translate(-50%, ${Math.round(_pullDistance * 0.45)}px)`}
+    aria-hidden="true"
+  >
+    <span class="material-symbols-rounded" class:pull-sync-spin={_pullRefreshing}>
+      {_pullRefreshing ? 'autorenew' : 'arrow_downward'}
+    </span>
   </div>
 {/if}
 
@@ -688,37 +692,39 @@
   }
   .sync-banner-dismiss .material-symbols-rounded { font-size: 18px; }
 
-  /* Pull-to-refresh spinner (mirrors NT + CT). Portalled, transform-
-     position driven from JS. Rotates the arrow at threshold; spins the
-     refresh icon while the sync round is in flight. */
+  /* Pull-to-refresh spinner — mirrors NT App.svelte exactly. Fixed
+     top with safe-area offset so it clears the status bar; left
+     accounts for a persistent sidebar so it centers over the CONTENT
+     area, not the whole viewport. */
   .pull-sync-indicator {
     position: fixed;
-    top: 0;
-    left: 50%;
-    z-index: 205;
+    top: calc(var(--safe-top, 0px) + 8px);
+    left: calc(var(--sidebar-w, 0px) + (100vw - var(--sidebar-w, 0px)) / 2);
+    z-index: 251;
     width: 36px; height: 36px;
-    border-radius: 50%;
-    background: var(--surface-1);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     display: flex; align-items: center; justify-content: center;
-    color: var(--accent);
+    color: var(--text-2);
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    box-shadow: var(--shadow-lg);
     pointer-events: none;
-    transition: transform 120ms cubic-bezier(.2,.8,.2,1);
+    transition: color 120ms, border-color 120ms;
+  }
+  .pull-sync-indicator.ready-to-sync {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
   .pull-sync-indicator .material-symbols-rounded {
-    font-size: 22px;
-    transition: transform 200ms cubic-bezier(.2,.8,.2,1);
+    font-size: 20px;
+    transition: transform 120ms;
   }
   .pull-sync-indicator.ready-to-sync .material-symbols-rounded {
     transform: rotate(180deg);
   }
-  .pull-sync-indicator.refreshing .material-symbols-rounded {
-    animation: pull-sync-spin 900ms linear infinite;
-  }
-  @keyframes pull-sync-spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
+  @keyframes pull-sync-spin { to { transform: rotate(360deg); } }
+  .pull-sync-indicator .pull-sync-spin {
+    animation: pull-sync-spin 0.8s linear infinite;
   }
 
   :global(.page-transition) {
