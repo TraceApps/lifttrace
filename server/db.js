@@ -151,6 +151,30 @@ db.exec(`
   );
 `);
 
+// ── Cardio Log ───────────────────────────────────────────────────────────
+// Manual cardio session entry. Deliberately separate from workout_log so
+// nothing on the set-based lifting side (volume totals, PRs, rest-timer)
+// has to filter for it — cardio just doesn't appear in those queries.
+// See feedback_lifttrace_cardio_scope.md: device sync (Fitbit / Garmin /
+// Health Connect / Apple Health) is explicitly out of scope for LT; those
+// live in NutriTrace via federation.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cardio_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER,
+    date          TEXT NOT NULL,
+    activity      TEXT NOT NULL,
+    duration_min  INTEGER NOT NULL,
+    distance      REAL,
+    distance_unit TEXT DEFAULT 'km',
+    avg_hr        INTEGER,
+    notes         TEXT,
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_cardio_log_user_date ON cardio_log(user_id, date);
+`);
+
 // ── OAuth/OIDC state + provider tables ───────────────────────────────────
 db.exec(`
   -- OAuth/OIDC PKCE state store — persisted so server restarts during auth flow don't break it

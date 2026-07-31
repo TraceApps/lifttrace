@@ -255,6 +255,11 @@ export const timeFormat  = createSettingStore('timeFormat',  '12h');
 
 // Goals
 export const weeklyWorkoutGoal = createSettingStore('weeklyWorkoutGoal', 4);
+// Cardio weekly-minutes target. 0 disables the target line on the
+// Statistics Cardio chart; anything > 0 draws a horizontal reference
+// line at that value, same visual language as weeklyWorkoutGoal on
+// the Frequency chart.
+export const weeklyCardioMinutesGoal = createSettingStore('weeklyCardioMinutesGoal', 0);
 export const goals             = createSettingStore('goals', {});
 
 // Body profile — used by the calorie-burn estimator (Mifflin-St Jeor BMR + MET).

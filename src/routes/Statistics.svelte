@@ -11,7 +11,7 @@
   import MuscleRecovery from '../components/statistics/MuscleRecovery.svelte';
   import BodyMap from '../components/statistics/BodyMap.svelte';
   import { MUSCLES, MUSCLE_NAME, rankOf } from '../lib/muscles.js';
-  import { weeklyWorkoutGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
+  import { weeklyWorkoutGoal, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
   import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
@@ -27,6 +27,7 @@
     { id: 'volume',   label: 'Volume',            icon: 'fitness_center' },
     { id: 'freq',     label: 'Frequency',         icon: 'calendar_month' },
     { id: 'weight',   label: 'Body Weight',       icon: 'monitor_weight' },
+    { id: 'cardio',   label: 'Cardio',             icon: 'directions_run' },
   ];
 
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
@@ -54,6 +55,7 @@
   let muscleGroups = [];
   let muscleLoad = {};   // { [slug]: effectiveSets } for the body map
   let weekdayDist = [];
+  let cardioWeekly = []; // [{ week, minutes }] for the Cardio metric
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
   let exercises = [];
@@ -140,7 +142,7 @@
   async function loadData() {
     loading = true;
     try {
-      const [v, f, r, s, mg, mes, wd] = await Promise.all([
+      const [v, f, r, s, mg, mes, wd, cw] = await Promise.all([
         LtApi.getVolume(startDate, endDate),
         LtApi.getFrequency(startDate, endDate),
         LtApi.getRecords(),
@@ -148,9 +150,11 @@
         LtApi.getMuscleGroupVolume(startDate, endDate),
         LtApi.getMuscleEffectiveSets(startDate, endDate),
         LtApi.getWeekdayDistribution(startDate, endDate),
+        LtApi.getCardioWeekly(startDate, endDate).catch(() => []),
       ]);
       volume = v; frequency = f; records = r; streaks = s;
       muscleGroups = mg; muscleLoad = mes || {}; weekdayDist = wd;
+      cardioWeekly = Array.isArray(cw) ? cw : [];
 
       // Heatmap dates + cached full records (the calorie estimator needs
       // exercises + duration_min, both already in this payload).
@@ -902,6 +906,60 @@
           </div>
         {/if}
       {/if}
+
+      {#if metric === 'cardio'}
+        {@const cwTotal = cardioWeekly.reduce((s, w) => s + (w.minutes || 0), 0)}
+        {@const cwMax   = cardioWeekly.reduce((s, w) => Math.max(s, w.minutes || 0), 0)}
+        {@const cwAvg   = cardioWeekly.length ? Math.round(cwTotal / cardioWeekly.length) : 0}
+        {@const cwHit   = $weeklyCardioMinutesGoal > 0 ? cardioWeekly.filter(w => w.minutes >= $weeklyCardioMinutesGoal).length : 0}
+        {#if cardioWeekly.length === 0}
+          <div class="empty-state">
+            <span class="material-symbols-rounded">directions_run</span>
+            <p>No cardio logged in this range. Add sessions from the Diary.</p>
+          </div>
+        {:else}
+          <div class="summary-row">
+            <div class="summary-card">
+              <span class="sc-value-sm">{cwTotal}</span>
+              <span class="sc-label">Total min</span>
+            </div>
+            <div class="summary-card">
+              <span class="sc-value-sm">{cwAvg}</span>
+              <span class="sc-label">Avg / week</span>
+            </div>
+            <div class="summary-card">
+              <span class="sc-value-sm">{cwMax}</span>
+              <span class="sc-label">Peak week</span>
+            </div>
+            {#if $weeklyCardioMinutesGoal > 0}
+              <div class="summary-card">
+                <span class="sc-value-sm">{cwHit}<span class="sc-sub">/{cardioWeekly.length}</span></span>
+                <span class="sc-label">On target</span>
+              </div>
+            {/if}
+          </div>
+
+          <div class="chart-card">
+            <h3 class="chart-title">Weekly Minutes</h3>
+            <div class="cw-bars" style="--target-frac: {$weeklyCardioMinutesGoal > 0 && cwMax > 0 ? Math.min(1, $weeklyCardioMinutesGoal / Math.max(cwMax, $weeklyCardioMinutesGoal)) : 0}">
+              {#each cardioWeekly as w}
+                {@const denom = Math.max(cwMax, $weeklyCardioMinutesGoal || 0)}
+                {@const pct = denom > 0 ? Math.round((w.minutes / denom) * 100) : 0}
+                {@const hitGoal = $weeklyCardioMinutesGoal > 0 && w.minutes >= $weeklyCardioMinutesGoal}
+                <div class="cw-col" title="{w.week}: {w.minutes} min">
+                  <div class="cw-fill" class:hit={hitGoal} style="height:{pct}%"></div>
+                  <span class="cw-label">{w.week.slice(5)}</span>
+                </div>
+              {/each}
+            </div>
+            {#if $weeklyCardioMinutesGoal > 0}
+              <p class="chart-sub" style="text-align:center">Target: {$weeklyCardioMinutesGoal} min / week</p>
+            {:else}
+              <p class="chart-sub" style="text-align:center">Set a weekly target in Settings → Workout to compare against.</p>
+            {/if}
+          </div>
+        {/if}
+      {/if}
     </div>
   {/if}
 </div>
@@ -1275,4 +1333,48 @@
   @media (max-width: 400px) {
     .summary-row { grid-template-columns: repeat(2, 1fr); }
   }
+
+  /* Cardio weekly-minutes bars. Same visual language as the frequency
+     chart: accent fill grows with training, target-hit weeks flip to
+     success green. --target-frac is set inline so the horizontal target
+     line renders at the right height. */
+  .cw-bars {
+    position: relative;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    align-items: end;
+    gap: 4px;
+    height: 140px;
+    padding-top: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .cw-bars::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    bottom: calc(var(--target-frac, 0) * 100% * 0.94);
+    height: 1px;
+    background: color-mix(in srgb, var(--accent) 40%, transparent);
+    border-top: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+    background: transparent;
+    display: var(--target-frac, none);
+    pointer-events: none;
+  }
+  .cw-col {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    align-items: center;
+    height: 100%;
+    gap: 4px;
+  }
+  .cw-fill {
+    width: 100%;
+    background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 60%, transparent));
+    border-radius: 3px 3px 0 0;
+    min-height: 2px;
+    transition: height var(--dur-slow, 400ms);
+  }
+  .cw-fill.hit { background: linear-gradient(180deg, var(--success, #2FD66F), color-mix(in srgb, var(--success, #2FD66F) 60%, transparent)); }
+  .cw-label { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .sc-sub { font-size: 13px; color: var(--text-3); font-weight: 600; }
 </style>

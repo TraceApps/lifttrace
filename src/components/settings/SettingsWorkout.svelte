@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import {
-    weeklyWorkoutGoal, screenKeepAwake, autoFillLastWeights,
+    weeklyWorkoutGoal, weeklyCardioMinutesGoal, screenKeepAwake, autoFillLastWeights,
     showCompletionSummary, autoCollapseCompleted, autoNameWorkouts,
     exerciseReorderMethod, confirmExerciseRemoval, restTimerEnabled,
     restDuration, restAutoStart, restAlert, restAlertVibrate, restAlertTone,
@@ -50,6 +50,14 @@
               <option value={n}>{$_('settings_workout.goals.weekly_option', { values: { n } })}</option>
             {/each}
           </select>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <span class="setting-label">Weekly Cardio Minutes</span>
+            <span class="setting-hint">Target line on the Statistics Cardio chart. Set to 0 to hide the target.</span>
+          </div>
+          <input class="form-input-sm" type="number" min="0" step="15" style="width:90px"
+            bind:value={$weeklyCardioMinutesGoal} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">

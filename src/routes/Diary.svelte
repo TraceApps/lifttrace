@@ -25,6 +25,7 @@
   import ExerciseCard from '../components/diary/ExerciseCard.svelte';
   import SupersetCard from '../components/diary/SupersetCard.svelte';
   import WorkoutTimer from '../components/diary/WorkoutTimer.svelte';
+  import CardioCard from '../components/diary/CardioCard.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
   import SmartLogModal from '../components/diary/SmartLogModal.svelte';
@@ -2097,6 +2098,11 @@
           {/if}
         </div>
       {/each}
+
+      <!-- Cardio sessions for the current date. Deliberately mounts
+           below workout notes so it doesn't distract the primary
+           set-based flow. Component owns its own data + state. -->
+      <CardioCard />
 
       <!-- Notes (collapsed unless user expands or notes exist) -->
       {#if notesExpanded || notes?.trim()}
