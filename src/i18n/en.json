@@ -7,6 +7,22 @@
     "radio":      "Radio",
     "settings":   "Settings"
   },
+  "sync": {
+    "retry":            "Retry",
+    "retrying":         "Retrying…",
+    "dismiss_message":  "Dismiss sync message",
+    "error_title":      "Sync failed",
+    "connection": {
+      "server_fallback":  "server",
+      "no_network_title": "No network connection",
+      "cant_reach_title": "Can’t reach {host}",
+      "reconnect":        "Reconnect to the internet.",
+      "server_error":     "The server returned HTTP {status}. Try again shortly.",
+      "mobile_data":      "You’re connected through mobile data. This server may require your home Wi-Fi or VPN.",
+      "check_connection": "Check your Wi-Fi, VPN, or server.",
+      "saved_locally":    "Your changes are saved locally and will sync automatically."
+    }
+  },
   "routes": {
     "diary":           { "title": "Diary" },
     "exercises":       { "title": "Exercises" },

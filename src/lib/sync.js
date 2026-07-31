@@ -36,7 +36,120 @@ export const syncState = writable({
   lastSync: null,         // ISO timestamp of the most recent successful pull
   error:    null,
   online:   true,
+  // Structured classification of the current connection problem
+  // (kind: 'no_network' | 'server_error' | 'server_unreachable'). Feeds
+  // the smart connection banner in App.svelte via
+  // lib/connection-message.js. `showErrorBanner` gates the full banner
+  // vs the compact hamburger cloud badge — automatic probes update the
+  // badge; manual retries / user-initiated syncs opt into the banner.
+  connectionIssue: null,
+  showErrorBanner: false,
 });
+
+// ── Server-reachability probe ────────────────────────────────────────────
+// Mirrors NT sync.js. Distinguishes "no network" (airplane / OS offline)
+// from "server unreachable" (network fine, host doesn't answer) from
+// "server error" (HTTP 4xx/5xx). Feeds the smart connection banner.
+let _lastOfflineAt = 0;
+let _lastOnlineAt = 0;
+let _onlineCheckPromise = null;
+const OFFLINE_RETRY_DELAY_MS = 15000;
+const ONLINE_CHECK_CACHE_MS = 15000;
+
+/** True while the health-check circuit breaker is suppressing redundant requests. */
+export function isServerKnownUnavailable() {
+  return !!_lastOfflineAt && Date.now() - _lastOfflineAt < OFFLINE_RETRY_DELAY_MS;
+}
+
+async function _networkSnapshot() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { connected: false, connectionType: 'none' };
+  }
+  try {
+    const { Network } = await import('@capacitor/network');
+    return await Network.getStatus();
+  } catch {
+    return {
+      connected: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+      connectionType: 'unknown',
+    };
+  }
+}
+
+function _serverHost() {
+  try { return new URL(getServerUrl()).hostname; }
+  catch { return getServerUrl() || 'server'; }
+}
+
+function _connectionIssue({ network, error = null, status = null }) {
+  const noNetwork = !network?.connected || network?.connectionType === 'none';
+  return {
+    kind: noNetwork ? 'no_network' : status ? 'server_error' : 'server_unreachable',
+    host: _serverHost(),
+    connectionType: network?.connectionType || 'unknown',
+    status,
+    detail: error?.message || null,
+    at: new Date().toISOString(),
+  };
+}
+
+function _publishConnectionIssue(issue, showErrorBanner = false) {
+  syncState.update(s => ({
+    ...s,
+    online: false,
+    connectionIssue: issue,
+    ...(showErrorBanner ? { showErrorBanner: true } : {}),
+  }));
+}
+
+async function _probeServer(showErrorBanner = false) {
+  const url = getServerUrl();
+  if (!url) return true;
+  try {
+    const tok = getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+    const res = await fetch(url + '/api/health', { headers, signal: AbortSignal.timeout(3000) });
+    const online = res.ok;
+    if (!online) {
+      _lastOnlineAt = 0;
+      _lastOfflineAt = Date.now();
+      const network = await _networkSnapshot();
+      const issue = _connectionIssue({ network, status: res.status });
+      console.warn(`[sync] server health check failed: host=${issue.host} network=${issue.connectionType} status=${res.status}`);
+      _publishConnectionIssue(issue, showErrorBanner);
+    } else {
+      _lastOfflineAt = 0;
+      _lastOnlineAt = Date.now();
+      syncState.update(s => ({ ...s, online: true, connectionIssue: null, showErrorBanner: false }));
+    }
+    return online;
+  } catch (error) {
+    _lastOnlineAt = 0;
+    _lastOfflineAt = Date.now();
+    const network = await _networkSnapshot();
+    const issue = _connectionIssue({ network, error });
+    console.warn(`[sync] server unreachable: host=${issue.host} network=${issue.connectionType} error=${error?.message || String(error)}`);
+    _publishConnectionIssue(issue, showErrorBanner);
+    return false;
+  }
+}
+
+export async function checkOnline(force = false, showErrorBanner = false) {
+  if (!force && isServerKnownUnavailable()) return false;
+  if (!force && _lastOnlineAt && Date.now() - _lastOnlineAt < ONLINE_CHECK_CACHE_MS) {
+    return true;
+  }
+  if (!force && _onlineCheckPromise) return _onlineCheckPromise;
+  if (force) return _probeServer(showErrorBanner);
+
+  _onlineCheckPromise = _probeServer(showErrorBanner);
+  try {
+    return await _onlineCheckPromise;
+  } finally {
+    _onlineCheckPromise = null;
+  }
+}
 
 // Verbose sync logs are gated on dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -484,11 +597,27 @@ export async function runSync() {
  * doesn't see a constant blinking sync bar). Throws on hard failure so
  * App.svelte can surface a toast if needed.
  */
-export async function fullSync(silent = false) {
+export async function fullSync(silent = false, forceCheck = false, showFailureBanner = false) {
   if (!isNative || !getServerUrl()) return { ok: false, reason: 'not native+server' };
+  // Server-reachability probe before the heavy push/pull. `forceCheck`
+  // bypasses the circuit breaker; `showFailureBanner` opts into the
+  // smart connection banner if the probe fails.
+  const online = await checkOnline(forceCheck, showFailureBanner);
+  if (!online) return { ok: false, reason: 'offline' };
   if (!silent) syncState.update(s => ({ ...s, syncing: true, phase: 'pushing', progress: 'Pushing changes…', error: null }));
   const flush = await flushQueue();
   const pull = await pullSnapshot(silent);
+  // Clear connection state + error on a successful round so a stale
+  // banner from a prior failure doesn't linger once the issue is
+  // resolved.
+  if (pull?.ok !== false) {
+    syncState.update(s => ({
+      ...s, error: null, online: true,
+      connectionIssue: null, showErrorBanner: false,
+    }));
+  } else if (showFailureBanner) {
+    syncState.update(s => ({ ...s, showErrorBanner: true }));
+  }
   return { flush, pull };
 }
 
@@ -501,7 +630,17 @@ export function startBackgroundSync() {
 
   const trigger = () => { runSync().catch(() => {}); };
 
-  window.addEventListener('online', trigger);
+  // Browser online/offline events feed the compact hamburger cloud
+  // badge immediately, even before the next scheduled probe fires.
+  // Without the 'offline' half, syncState.online stays optimistically
+  // true until the next fetch fails, so the badge would lag.
+  window.addEventListener('online', () => {
+    syncState.update(s => ({ ...s, online: true }));
+    trigger();
+  });
+  window.addEventListener('offline', () => {
+    syncState.update(s => ({ ...s, online: false }));
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') trigger();
   });
