@@ -40,7 +40,7 @@ const CACHE_KEYS = {
 };
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const GH_REPO_URL  = 'https://api.github.com/repos/TraceApps/lifttrace';
-const DEV_TAG_RE   = /^v\d+\.\d+\.\d+-dev\.\d+$/;
+const DEV_TAG_RE   = /^v\d+\.\d+\.\d+-dev\.?\d+$/;
 const UA = `TraceApps-LiftTrace-Server/${APP_VERSION}`;
 
 function _getCfg(key) {
