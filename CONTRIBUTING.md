@@ -102,7 +102,7 @@ Do not add translations for locales you don't natively speak, and do not merge m
 
 ### What's translatable today vs not
 
-Only a subset of UI strings is currently extracted — the surface every user touches every session: navigation, page titles, settings section headers, auth flow, wizard, primary actions in Diary / Programs / Exercises, common toasts, action sheets, the AI assistant FAB. The remaining strings (deep Settings sub-section labels, Statistics chart internals, Coaching) are still English and will be extracted in subsequent releases. If you start translating and notice a screen you use heavily that's not yet in `en.json`, open an issue listing the screen — those are the targets to extract first.
+The full client-side string surface is extracted as of v1.1.0 — navigation, all Settings sections, Diary, Programs, Exercises, Coaching, Radio, Statistics, the wizard, auth flow, the AI assistant, action sheets, toasts, dialog copy. Any new user-facing string added to the app is expected to land as a key in `en.json` in the same commit (see instrumenting guidance above); hardcoded English literals get flagged in review. `npm run i18n:check` runs against every locale file to catch missing translations and orphaned keys.
 
 Server-side strings (email subject lines, push notification bodies, AI system prompts) are not currently translatable and stay English.
 
