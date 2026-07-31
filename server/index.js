@@ -80,12 +80,19 @@ const router = express.Router();
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
 
-// CORS — allow same-host + Capacitor origins
+// CORS — allow same-host + Capacitor origins.
+// Capacitor WebView origins:
+//   https://localhost              — legacy (kept for older APKs)
+//   http://localhost               — legacy http scheme
+//   https://app.lifttrace.local    — current app identity (see
+//                                    capacitor.config.ts for why)
 router.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
     const host = req.get('host');
-    const isCapacitor = origin === 'https://localhost' || origin === 'http://localhost';
+    const isCapacitor = origin === 'https://localhost'
+      || origin === 'http://localhost'
+      || origin === 'https://app.lifttrace.local';
     const isSameHost = host && origin.includes(host);
     if (isCapacitor || isSameHost) {
       res.setHeader('Access-Control-Allow-Origin', origin);

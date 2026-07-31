@@ -156,9 +156,16 @@ export function iconUrl(path) {
   return `${resolved}?v=${encodeURIComponent(v)}`;
 }
 
+// WebView's own origin — historically https://localhost, now
+// https://app.lifttrace.local after the hostname flip for password-
+// manager identity. Any absolute URL that begins with this origin is
+// already a bundled asset served from the APK.
+const _webviewOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
 export function resolveAssetUrl(path) {
   if (!path) return path;
-  if (path.startsWith('data:') || path.startsWith('file:') || path.startsWith('https://localhost')) return path;
+  if (path.startsWith('data:') || path.startsWith('file:')) return path;
+  if (_webviewOrigin && path.startsWith(_webviewOrigin)) return path;
   if (isNative) {
     // Always check local image cache first (fastest, works offline + disconnected)
     if (_imageMap[path]) return _imageMap[path];
