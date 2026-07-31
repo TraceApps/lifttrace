@@ -9,6 +9,7 @@
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { validatePassword } from '../../lib/validation.js';
   import { DB } from '../../lib/db.js';
+  import { envLocks } from '../../stores/settings.js';
   import Toggle from './Toggle.svelte';
 
 
@@ -49,6 +50,7 @@
   let enableAdminName = '';
   let enableAdminPass = '';
   let enableAdminConf = '';
+  let enableAdminEmail = '';
   let enableUmError = '';
   let enableUmLoading = false;
 
@@ -269,6 +271,10 @@
           username: enableAdminUser.trim(),
           password: enableAdminPass,
           full_name: enableAdminName.trim() || undefined,
+          // Only sent when SMTP is env-configured (field only rendered
+          // in that case). Server stores it on the user row so password
+          // reset / admin invites can email them later.
+          email: enableAdminEmail.trim().toLowerCase() || undefined,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
@@ -298,7 +304,7 @@
       }
       await loadAuthState();
       showEnableUm = false;
-      enableAdminUser = ''; enableAdminPass = ''; enableAdminConf = ''; enableAdminName = '';
+      enableAdminUser = ''; enableAdminPass = ''; enableAdminConf = ''; enableAdminName = ''; enableAdminEmail = '';
       await loadUsers();
       showSuccess($_('settings.users.toast_um_enabled'));
     } catch(e) {
@@ -545,6 +551,18 @@
                 <input class="form-input-sm" style="flex:1;min-width:0" type="text" bind:value={enableAdminUser} placeholder={$_('settings.users.username_required')} autocomplete="username" />
                 <input class="form-input-sm" style="flex:1;min-width:0" type="text" bind:value={enableAdminName} placeholder={$_('settings.users.full_name')} />
               </div>
+              <!-- Optional admin email — only shown when SMTP is env-locked
+                   (docker-compose configured), so we know at boot the server
+                   can actually send from it. Stored on the user row for
+                   later password-reset / invite emails. -->
+              {#if $envLocks?.smtp}
+                <div style="display:flex;gap:8px">
+                  <input class="form-input-sm" style="flex:1;min-width:0" type="email"
+                    bind:value={enableAdminEmail}
+                    placeholder={$_('settings.users.email_optional')}
+                    autocomplete="email" />
+                </div>
+              {/if}
               <div style="display:flex;gap:8px">
                 <div style="display:flex;gap:4px;align-items:center;flex:1;min-width:0">
                   {#if enableShowPass}
