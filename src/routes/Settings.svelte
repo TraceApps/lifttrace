@@ -1,7 +1,7 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { slide, fade } from 'svelte/transition';
-  import { push } from 'svelte-spa-router';
+  import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
   import { accentColor, applyAccentColor, pageBanners, bannerStyle } from '../stores/settings.js';
@@ -385,13 +385,78 @@
   // inline string of fallback terms ('mode app server'). The inline form is
   // what older call sites pass; we treat each whitespace-separated token as
   // its own alternative keyword so they actually match search.
-  function sectionVisible(query, keyOrInline) {
+  // ── Drill-in navigation ────────────────────────────────────────────────
+  // svelte-spa-router passes route params via a `params` prop. When URL is
+  // /settings/<slug>, currentSection = <slug> and we render only that
+  // section under a back-arrow header ("sub-page view"). On /settings
+  // alone (index view) we render the list of section rows.
+  export let params = {};
+  $: currentSection = params?.section || null;
+
+  const SECTION_META = {
+    appearance:       { titleKey: 'settings.appearance.section',        icon: 'contrast' },
+    units:            { titleKey: 'settings.units.section',             icon: 'straighten' },
+    workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
+    statistics:       { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
+    catalog:          { titleKey: 'settings.catalog.section',           icon: 'library_books' },
+    trace:            { titleKey: 'settings.ai.section',                icon: 'bolt' },
+    radio:            { titleKey: 'settings.radio.section',             icon: 'radio' },
+    federation:       { titleKey: 'settings.federation.section',        icon: 'link' },
+    serverConnection: { titleKey: 'settings.server.section',            icon: 'cloud' },
+    notifications:    { titleKey: 'settings.notifications.section',     icon: 'notifications' },
+    data:             { titleKey: 'settings.data.section',              icon: 'archive' },
+    workoutImport:    { titleKey: 'settings.workout_import.section',    icon: 'upload' },
+    updates:          { titleKey: 'settings.updates.section',           icon: 'system_update' },
+    helpImprove:      { titleKey: 'settings.diagnostics.section',       icon: 'troubleshoot' },
+    users:            { titleKey: 'settings.users.section',             icon: 'group' },
+    authentication:   { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
+    email:            { titleKey: 'settings.email.section',             icon: 'mail' },
+    about:            { titleKey: 'settings.about.section',             icon: 'info' },
+  };
+
+  // Reactive predicates. On sub-page (currentSection truthy) hide every
+  // other section via visible=false, force-open the current one via
+  // expanded=true. On index keep the classic keyword filter.
+  $: sectionVisible = (query, keyOrInline) => {
+    if (currentSection) return keyOrInline === currentSection;
     if (!query) return true;
     if (SECTION_KEYWORDS[keyOrInline]) {
       return SECTION_KEYWORDS[keyOrInline].some(kw => kw.includes(query));
     }
     return String(keyOrInline || '').toLowerCase().split(/\s+/).filter(Boolean)
       .some(kw => kw.includes(query));
+  };
+
+  function backToIndex() { push('/settings'); }
+
+  // Deep-link ?q= scroll: on sub-page mount, scan DOM for the search
+  // query and scroll+highlight the first matching setting.
+  $: _urlQuery = $querystring ? new URLSearchParams($querystring).get('q') : null;
+  let _lastDeepLinkKey = null;
+  $: {
+    const key = `${currentSection || ''}|${_urlQuery || ''}`;
+    if (currentSection && _urlQuery && key !== _lastDeepLinkKey) {
+      _lastDeepLinkKey = key;
+      _scheduleDeepLinkScroll(_urlQuery);
+    }
+  }
+  async function _scheduleDeepLinkScroll(q) {
+    await tick();
+    await new Promise(r => setTimeout(r, 60));
+    const q_norm = q.toLowerCase().trim();
+    if (!q_norm) return;
+    const scope = document.querySelector('.subpage-view');
+    if (!scope) return;
+    const candidates = scope.querySelectorAll('.setting-label, .setting-desc, .sub-label, .setting-row');
+    let hit = null;
+    for (const el of candidates) {
+      if ((el.textContent || '').toLowerCase().includes(q_norm)) { hit = el; break; }
+    }
+    if (!hit) return;
+    const row = hit.closest('.setting-row') || hit;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('deep-link-highlight');
+    setTimeout(() => row.classList.remove('deep-link-highlight'), 2200);
   }
 
   // ── Collapsible sections ─────────────────────────────────────────────────
@@ -416,15 +481,23 @@
     helpImprove: false,
     about: false,
   };
+  // Drill-in navigation replaces the old accordion toggle. On the index
+  // (/settings) tapping a section-toggle button routes to the section's
+  // sub-page. On a sub-page tapping the same section behaves as "back to
+  // index". Forwards active search query as ?q= so the sub-page can
+  // auto-scroll to the matching setting on land.
   function toggleSection(key) {
-    openSections = { ...openSections, [key]: !openSections[key] };
+    if (currentSection === key) push('/settings');
+    else {
+      const q = settingsQuery ? `?q=${encodeURIComponent(settingsQuery)}` : '';
+      push(`/settings/${key}${q}`);
+    }
   }
-  // Reactive expanded map — re-runs when openSections OR the query changes
+  // Reactive expanded map: on sub-page force-open the current section,
+  // on index keep everything collapsed (drill-in replaces accordion,
+  // bodies are one nav-click away).
   $: expanded = Object.fromEntries(
-    Object.keys(openSections).map(k => [
-      k,
-      openSections[k] || (!!settingsQuery && sectionVisible(settingsQuery, k)),
-    ])
+    Object.keys(openSections).map(k => [k, currentSection === k])
   );
 
   // Exercise catalog state moved into SettingsCatalog.svelte
@@ -448,26 +521,35 @@
        top offset (which budged when the header re-laid out under it). -->
   <div class="settings-sticky-top">
     <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
-      <h1>{$_('routes.settings.title')}</h1>
+      {#if currentSection}
+        <button class="settings-back" on:click={backToIndex} aria-label={$_('common.back')}>
+          <span class="material-symbols-rounded">arrow_back</span>
+        </button>
+        <h1>{SECTION_META[currentSection]?.titleKey ? $_(SECTION_META[currentSection].titleKey) : currentSection}</h1>
+      {:else}
+        <h1>{$_('routes.settings.title')}</h1>
+      {/if}
     </header>
 
-    <div class="settings-search-bar">
-    <span class="material-symbols-rounded settings-search-icon">search</span>
-    <input
-      class="settings-search-input"
-      type="search"
-      placeholder={$_('settings_main.search_ph')}
-      bind:value={settingsSearch}
-    />
-    {#if settingsSearch}
-      <button class="settings-search-clear" on:click={() => settingsSearch = ''} title={$_('settings_main.clear_search')}>
-        <span class="material-symbols-rounded" style="font-size:18px">close</span>
-      </button>
+    {#if !currentSection}
+      <div class="settings-search-bar">
+      <span class="material-symbols-rounded settings-search-icon">search</span>
+      <input
+        class="settings-search-input"
+        type="search"
+        placeholder={$_('settings_main.search_ph')}
+        bind:value={settingsSearch}
+      />
+      {#if settingsSearch}
+        <button class="settings-search-clear" on:click={() => settingsSearch = ''} title={$_('settings_main.clear_search')}>
+          <span class="material-symbols-rounded" style="font-size:18px">close</span>
+        </button>
+      {/if}
+      </div>
     {/if}
-    </div>
   </div>
 
-  <div class="content">
+  <div class="content" class:subpage-view={!!currentSection}>
 
     <!-- ── Profile hero — identity card at the top of Settings.
          Avatar + name (nickname → full name → "My Profile" fallback) +
@@ -1005,6 +1087,44 @@
   .settings-search-clear:hover { color: var(--text-1); background: var(--surface-2); }
 
   .content { padding: 16px var(--page-px) 0; }
+  /* Settings-only override: reduce horizontal page padding on phone
+     widths so cards get ~10-12px more breathing room per side. Desktop
+     / tablet widths (>= 768px) keep the default padding. */
+  @media (max-width: 767px) {
+    .content { padding-left: 8px; padding-right: 8px; }
+  }
+
+  /* Sub-page view: hide index-only chrome (group labels, profile hero).
+     Section toggle rows are already hidden because SettingsSection's
+     visible prop is false for anything !== currentSection. */
+  .subpage-view :global(.group-label) { display: none; }
+  .subpage-view :global(.profile-hero) { display: none; }
+
+  /* Back arrow header button — mirrors NT + CT. */
+  .settings-back {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px;
+    margin-right: 8px;
+    border: none; background: transparent; cursor: pointer;
+    color: var(--text-1);
+    border-radius: 50%;
+    transition: background-color 120ms ease;
+  }
+  .settings-back:hover  { background: var(--surface-2); }
+  .settings-back:active { background: var(--surface-3); }
+  .settings-back .material-symbols-rounded { font-size: 24px; }
+
+  /* Deep-link highlight — brief pulse on the target row after a
+     search-driven drill-in scroll. */
+  :global(.setting-row.deep-link-highlight) {
+    animation: deep-link-pulse 2s cubic-bezier(.2, .8, .2, 1) both;
+    border-radius: 8px;
+  }
+  @keyframes deep-link-pulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%,  transparent); background-color: transparent; }
+    12%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent); background-color: color-mix(in srgb, var(--accent) 14%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%,  transparent); background-color: transparent; }
+  }
 
   /* .group-label is :global — see below */
 
@@ -1030,8 +1150,11 @@
     flex-shrink: 0;
   }
   :global(.si .material-symbols-rounded) { font-size: 18px; }
-  :global(.chevron) { color: var(--text-3); transition: transform 0.2s ease; }
-  :global(.chevron.rotated) { transform: rotate(180deg); color: var(--accent); }
+  /* Drill-in indicator: chevron always points right (rotate -90deg turns
+     the down-arrow into a right-arrow). No expanded state on the index
+     anymore since each section drills into its own sub-page. */
+  :global(.chevron) { color: var(--text-3); transform: rotate(-90deg); }
+  :global(.chevron.rotated) { transform: rotate(-90deg); color: var(--text-3); }
 
   :global(.section-body) { padding: 12px var(--page-px); display: flex; flex-direction: column; gap: 10px; }
 

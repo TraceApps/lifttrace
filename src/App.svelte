@@ -77,6 +77,7 @@
     '/statistics':            Statistics,
     '/radio':                 Radio,
     '/settings':              Settings,
+    '/settings/:section':     Settings,
     '/coaching':              Coaching,
     '/coaching/:memberId':    Coaching,
     '/wizard':                Wizard,
