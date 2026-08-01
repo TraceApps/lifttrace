@@ -36,19 +36,34 @@ router.get('/:date', wrap((req, res) => {
   res.json(rows);
 }));
 
-// POST /api/cardio  { date, activity, duration_min, distance?, distance_unit?, avg_hr?, notes? }
+// GET /api/cardio/templates — pinned templates (is_template=1), unique by
+// activity name (most-recently-updated wins on collisions). Ordered by
+// most-recently-updated so frequently-tweaked entries stay near the top.
+// Sits above /:date in the route table because Express matches path
+// segments left-to-right; without this ordering `/templates` would fall
+// through to the /:date handler and 404.
+router.get('/templates', wrap((req, res) => {
+  const userId = uid(req);
+  const rows = userId != null
+    ? db.prepare('SELECT * FROM cardio_log WHERE user_id = ? AND is_template = 1 ORDER BY updated_at DESC, id DESC').all(userId)
+    : db.prepare('SELECT * FROM cardio_log WHERE user_id IS NULL AND is_template = 1 ORDER BY updated_at DESC, id DESC').all();
+  res.json(rows);
+}));
+
+// POST /api/cardio  { date, activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, is_template? }
 router.post('/', wrap((req, res) => {
   const userId = uid(req);
-  const { date, activity, duration_min, distance, distance_unit, avg_hr, notes } = req.body || {};
+  const { date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template } = req.body || {};
   if (!date) return res.status(400).json({ error: 'date required' });
   if (!activity || !String(activity).trim()) return res.status(400).json({ error: 'activity required' });
   const dm = Math.floor(Number(duration_min));
   if (!Number.isFinite(dm) || dm <= 0) return res.status(400).json({ error: 'duration_min must be a positive integer' });
   const dist = distance == null || distance === '' ? null : Number(distance);
   const hr = avg_hr == null || avg_hr === '' ? null : Math.floor(Number(avg_hr));
+  const isTpl = is_template ? 1 : 0;
   const stmt = db.prepare(
-    `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const info = stmt.run(
     userId, date, String(activity).trim(), dm,
@@ -56,6 +71,7 @@ router.post('/', wrap((req, res) => {
     (distance_unit === 'mi' || distance_unit === 'km') ? distance_unit : 'km',
     Number.isFinite(hr) ? hr : null,
     notes ? String(notes).trim() : null,
+    isTpl,
   );
   const row = db.prepare('SELECT * FROM cardio_log WHERE id = ?').get(info.lastInsertRowid);
   res.json(row);
@@ -70,7 +86,7 @@ router.put('/:id', wrap((req, res) => {
     : db.prepare('SELECT * FROM cardio_log WHERE id = ? AND user_id IS NULL').get(id);
   if (!existing) return res.status(404).json({ error: 'not found' });
 
-  const { date, activity, duration_min, distance, distance_unit, avg_hr, notes } = req.body || {};
+  const { date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template } = req.body || {};
   const next = {
     date:         date != null ? date : existing.date,
     activity:     activity != null ? String(activity).trim() : existing.activity,
@@ -79,6 +95,7 @@ router.put('/:id', wrap((req, res) => {
     distance_unit: (distance_unit === 'mi' || distance_unit === 'km') ? distance_unit : existing.distance_unit,
     avg_hr:       avg_hr === '' ? null : (avg_hr != null ? Math.floor(Number(avg_hr)) : existing.avg_hr),
     notes:        notes === '' ? null : (notes != null ? String(notes).trim() : existing.notes),
+    is_template:  is_template === undefined ? existing.is_template : (is_template ? 1 : 0),
   };
   if (!next.activity) return res.status(400).json({ error: 'activity required' });
   if (!Number.isFinite(next.duration_min) || next.duration_min <= 0) {
@@ -87,9 +104,9 @@ router.put('/:id', wrap((req, res) => {
   db.prepare(
     `UPDATE cardio_log SET
        date = ?, activity = ?, duration_min = ?, distance = ?, distance_unit = ?,
-       avg_hr = ?, notes = ?, updated_at = datetime('now')
+       avg_hr = ?, notes = ?, is_template = ?, updated_at = datetime('now')
      WHERE id = ?`
-  ).run(next.date, next.activity, next.duration_min, next.distance, next.distance_unit, next.avg_hr, next.notes, id);
+  ).run(next.date, next.activity, next.duration_min, next.distance, next.distance_unit, next.avg_hr, next.notes, next.is_template, id);
   const row = db.prepare('SELECT * FROM cardio_log WHERE id = ?').get(id);
   res.json(row);
 }));

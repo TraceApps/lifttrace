@@ -16,6 +16,7 @@
   import { confirmDialog } from '../../stores/confirmDialog.js';
 
   let sessions = [];
+  let templates = [];
   let loading = false;
   let showForm = false;
   // Non-null when editing an existing session. The form is a single UI
@@ -45,6 +46,44 @@
       sessions = [];
     }
     loading = false;
+    loadTemplates();
+  }
+  async function loadTemplates() {
+    try {
+      templates = await LtApi.getCardioTemplates();
+    } catch {
+      templates = [];
+    }
+  }
+
+  async function logFromTemplate(t) {
+    try {
+      const created = await LtApi.createCardio({
+        date: $currentDate,
+        activity: t.activity,
+        duration_min: t.duration_min,
+        distance: t.distance,
+        distance_unit: t.distance_unit || distanceUnit,
+        avg_hr: t.avg_hr,
+        notes: t.notes,
+      });
+      sessions = [created, ...sessions];
+      showSuccess('Cardio logged');
+    } catch (e) {
+      showError(e?.message || 'Log failed');
+    }
+  }
+
+  async function toggleTemplate(session) {
+    const next = session.is_template ? 0 : 1;
+    try {
+      const updated = await LtApi.toggleCardioTemplate(session.id, next);
+      sessions = sessions.map(s => s.id === session.id ? updated : s);
+      showSuccess(next ? 'Pinned as quick-log' : 'Unpinned');
+      loadTemplates();
+    } catch (e) {
+      showError(e?.message || 'Update failed');
+    }
   }
 
   function openForm() {
@@ -136,6 +175,18 @@
     {/if}
   </header>
 
+  {#if !showForm && templates.length > 0}
+    <div class="cardio-templates" aria-label="Pinned quick-log templates">
+      {#each templates as t (t.id)}
+        <button class="tpl-chip" on:click={() => logFromTemplate(t)} title="Log now: {t.activity} · {t.duration_min} min">
+          <span class="material-symbols-rounded">bolt</span>
+          <span class="tpl-label">{t.activity}</span>
+          <span class="tpl-meta">{t.duration_min}m</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   {#if showForm}
     <div class="cardio-form">
       <div class="row">
@@ -168,6 +219,15 @@
             {#if s.notes}
               <span class="cardio-notes">{s.notes}</span>
             {/if}
+          </button>
+          <button
+            class="cardio-pin"
+            class:pinned={s.is_template}
+            on:click={() => toggleTemplate(s)}
+            aria-label={s.is_template ? 'Unpin quick-log template' : 'Pin as quick-log template'}
+            title={s.is_template ? 'Unpin quick-log template' : 'Pin as quick-log template'}
+          >
+            <span class="material-symbols-rounded">{s.is_template ? 'keep' : 'keep_off'}</span>
           </button>
           <button class="cardio-del" on:click={() => remove(s)} aria-label="Delete cardio session">
             <span class="material-symbols-rounded">close</span>
@@ -257,4 +317,32 @@
   .cardio-del .material-symbols-rounded { font-size: 14px; }
 
   .cardio-empty { margin: 0; font-size: 12px; color: var(--text-3); }
+
+  .cardio-templates {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .tpl-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-1); font-size: 12px; font-weight: 600;
+    cursor: pointer;
+  }
+  .tpl-chip:hover { background: var(--surface-3); border-color: var(--accent); }
+  .tpl-chip .material-symbols-rounded { font-size: 15px; color: var(--accent); }
+  .tpl-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tpl-meta { color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+  .cardio-pin {
+    width: 26px; height: 26px; padding: 0;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-3); border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .cardio-pin:hover { color: var(--text-1); background: var(--surface-3); }
+  .cardio-pin.pinned { color: var(--accent); }
+  .cardio-pin .material-symbols-rounded { font-size: 15px; }
 </style>

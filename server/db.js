@@ -177,6 +177,12 @@ db.exec(`
     distance_unit TEXT DEFAULT 'km',
     avg_hr        INTEGER,
     notes         TEXT,
+    -- Pinned template flag (mirrors NT activity_log.is_template). Rows
+    -- flagged 1 double as one-tap re-log presets on the Diary CardioCard:
+    -- their activity + duration + distance + hr + notes seed a new
+    -- session for today when the chip is tapped, without erasing the
+    -- original entry from history.
+    is_template   INTEGER DEFAULT 0,
     created_at    TEXT DEFAULT (datetime('now')),
     updated_at    TEXT DEFAULT (datetime('now'))
   );
@@ -333,6 +339,8 @@ addColumnIfMissing('program_assignments', 'week_cursor_pinned_at', 'week_cursor_
 addColumnIfMissing('workout_log', 'program_week', 'program_week INTEGER');
 // Library-level load_type default (issue #24). NULL = unset.
 addColumnIfMissing('exercises', 'load_type', 'load_type TEXT DEFAULT NULL');
+// Pinned cardio templates (NT activity_log parity).
+addColumnIfMissing('cardio_log', 'is_template', 'is_template INTEGER DEFAULT 0');
 
 // Phase 2 — trainer prescribes workouts to members (undated "try this" or
 // dated "do this on YYYY-MM-DD"). Either template_id references a template,

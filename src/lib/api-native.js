@@ -826,6 +826,9 @@ const Cardio = {
   async byDate(date) {
     return dbQuery(`SELECT * FROM cardio_log WHERE user_id = ? AND date = ? ORDER BY id ASC`, [ME, date]);
   },
+  async templates() {
+    return dbQuery(`SELECT * FROM cardio_log WHERE user_id = ? AND is_template = 1 ORDER BY updated_at DESC, id DESC`, [ME]);
+  },
   async create(body) {
     if (!body?.date) throw new Error('date required');
     const activity = String(body.activity || '').trim();
@@ -836,10 +839,11 @@ const Cardio = {
     const hr = body.avg_hr == null || body.avg_hr === '' ? null : Math.floor(Number(body.avg_hr));
     const unit = (body.distance_unit === 'mi' || body.distance_unit === 'km') ? body.distance_unit : 'km';
     const notes = body.notes ? String(body.notes).trim() : null;
+    const isTpl = body.is_template ? 1 : 0;
     const r = await dbRun(
-      `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [ME, body.date, activity, dm, Number.isFinite(dist) ? dist : null, unit, Number.isFinite(hr) ? hr : null, notes, _now(), _now()]
+      `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [ME, body.date, activity, dm, Number.isFinite(dist) ? dist : null, unit, Number.isFinite(hr) ? hr : null, notes, isTpl, _now(), _now()]
     );
     const rows = await dbQuery(`SELECT * FROM cardio_log WHERE id = ?`, [r.lastId]);
     return rows[0];
@@ -855,10 +859,11 @@ const Cardio = {
     const hr = body.avg_hr === '' ? null : (body.avg_hr != null ? Math.floor(Number(body.avg_hr)) : existing.avg_hr);
     const unit = (body.distance_unit === 'mi' || body.distance_unit === 'km') ? body.distance_unit : existing.distance_unit;
     const notes = body.notes === '' ? null : (body.notes != null ? String(body.notes).trim() : existing.notes);
+    const isTpl = body.is_template === undefined ? (existing.is_template || 0) : (body.is_template ? 1 : 0);
     await dbRun(
-      `UPDATE cardio_log SET date = ?, activity = ?, duration_min = ?, distance = ?, distance_unit = ?, avg_hr = ?, notes = ?, updated_at = ?
+      `UPDATE cardio_log SET date = ?, activity = ?, duration_min = ?, distance = ?, distance_unit = ?, avg_hr = ?, notes = ?, is_template = ?, updated_at = ?
        WHERE id = ?`,
-      [body.date != null ? body.date : existing.date, activity, dm, dist, unit, hr, notes, _now(), id]
+      [body.date != null ? body.date : existing.date, activity, dm, dist, unit, hr, notes, isTpl, _now(), id]
     );
     const rows = await dbQuery(`SELECT * FROM cardio_log WHERE id = ?`, [id]);
     return rows[0];
@@ -1400,6 +1405,7 @@ async function handle(method, path, body, query) {
     if (!id                                  && m === 'GET')    return Cardio.list(query?.start, query?.end);
     if (!id                                  && m === 'POST')   return Cardio.create(body || {});
     if (id === 'stats' && sub === 'weekly'   && m === 'GET')    return Cardio.weekly(query?.start, query?.end);
+    if (id === 'templates'                   && m === 'GET')    return Cardio.templates();
     // Bare /:date fetches sessions for a single day.
     if (id && /^\d{4}-\d{2}-\d{2}$/.test(id) && m === 'GET')    return Cardio.byDate(id);
     if (id && /^\d+$/.test(id)               && m === 'PUT')    return Cardio.update(Number(id), body || {});

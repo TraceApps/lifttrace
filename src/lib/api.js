@@ -90,6 +90,8 @@ export const LtApi = {
   updateCardio: (id, data) => fetch(`/api/cardio/${id}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
   deleteCardio: (id) => fetch(`/api/cardio/${id}`, { ...opts, method: 'DELETE' }).then(_json),
   getCardioWeekly: (start, end) => fetch(`/api/cardio/stats/weekly?start=${start}&end=${end}`, opts).then(_json),
+  getCardioTemplates: () => fetch('/api/cardio/templates', opts).then(_json),
+  toggleCardioTemplate: (id, is_template) => fetch(`/api/cardio/${id}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ is_template: is_template ? 1 : 0 }) }).then(_json),
   getWeekdayDistribution: (start, end) => fetch(`/api/stats/weekday-distribution?start=${start}&end=${end}`, opts).then(_json),
 
   // ── Settings ───────────────────────────────────────────────────────────

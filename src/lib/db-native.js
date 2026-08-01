@@ -259,6 +259,7 @@ async function _createSchema(db) {
       distance_unit TEXT DEFAULT 'km',
       avg_hr        INTEGER,
       notes         TEXT,
+      is_template   INTEGER DEFAULT 0,
       created_at    TEXT DEFAULT (datetime('now')),
       updated_at    TEXT DEFAULT (datetime('now'))
     );
@@ -329,6 +330,8 @@ async function _createSchema(db) {
     `ALTER TABLE workout_log         ADD COLUMN program_week INTEGER`,
     // Library-level load_type default (issue #24).
     `ALTER TABLE exercises           ADD COLUMN load_type TEXT DEFAULT NULL`,
+    // Pinned cardio quick-log templates.
+    `ALTER TABLE cardio_log          ADD COLUMN is_template INTEGER DEFAULT 0`,
   ];
   for (const stmt of _alters) {
     try { await db.execute(stmt); } catch { /* duplicate column / table missing — fine */ }

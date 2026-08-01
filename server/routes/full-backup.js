@@ -289,8 +289,8 @@ function restoreFromZip(zip) {
     // so `data.cardio_log || []` handles the gap silently. Wipe first so
     // restore is authoritative rather than merge-append.
     db.prepare('DELETE FROM cardio_log').run();
-    const insCardio = db.prepare(`INSERT OR IGNORE INTO cardio_log (id,user_id,date,activity,duration_min,distance,distance_unit,avg_hr,notes,created_at,updated_at) VALUES (@id,@user_id,@date,@activity,@duration_min,@distance,@distance_unit,@avg_hr,@notes,@created_at,@updated_at)`);
-    for (const c of data.cardio_log || []) insCardio.run(c);
+    const insCardio = db.prepare(`INSERT OR IGNORE INTO cardio_log (id,user_id,date,activity,duration_min,distance,distance_unit,avg_hr,notes,is_template,created_at,updated_at) VALUES (@id,@user_id,@date,@activity,@duration_min,@distance,@distance_unit,@avg_hr,@notes,@is_template,@created_at,@updated_at)`);
+    for (const c of data.cardio_log || []) insCardio.run({ is_template: 0, ...c });
 
     const insSettings = db.prepare(`INSERT OR IGNORE INTO user_settings (user_id,key,value) VALUES (@user_id,@key,@value)`);
     for (const s of data.user_settings || []) insSettings.run(s);
