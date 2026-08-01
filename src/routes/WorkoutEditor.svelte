@@ -5,6 +5,7 @@
   import { LtApi } from '../lib/api.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { exerciseLoadTypes, trackRpe } from '../stores/settings.js';
+  import { resolveLoadType } from '../lib/workout.js';
   import TemplateSpecRow from '../components/programs/TemplateSpecRow.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
@@ -201,10 +202,16 @@
   let loadMenuIdx = null;
   let rememberLoadType = false;
   function exLoadType(ex) {
-    return ex.load_type
-        || ($exerciseLoadTypes && ex.exercise_id != null
-              ? $exerciseLoadTypes[ex.exercise_id] : null)
-        || 'bilateral';
+    // Full four-tier resolution: per-instance → library default →
+    // client-side per-user pref → 'bilateral'. See src/lib/workout.js
+    // resolveLoadType. The library value lands on the exercise object
+    // via the picker's include-library-fields fetch (Diary + editor
+    // both populate `_library_load_type` when available).
+    return resolveLoadType(
+      ex,
+      ex._library_load_type != null ? ex._library_load_type : (ex.exercise_load_type || null),
+      $exerciseLoadTypes,
+    );
   }
   function pickLoadType(idx, next) {
     const ex = exercises[idx];

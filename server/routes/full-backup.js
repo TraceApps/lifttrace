@@ -234,8 +234,8 @@ function restoreFromZip(zip) {
     for (const u of data.users || []) if (u.trainer_id) linkTrainer.run(u.trainer_id, u.id);
 
     // Restore custom exercises (user-created, not global seeds)
-    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at)`);
-    for (const e of data.exercises || []) insExercise.run(e);
+    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type)`);
+    for (const e of data.exercises || []) insExercise.run({ load_type: null, ...e });
 
     const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete)`);
     for (const p of data.programs || []) insProgram.run(_withProgramDefaults(p));

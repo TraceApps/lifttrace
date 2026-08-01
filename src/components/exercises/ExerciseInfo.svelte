@@ -8,6 +8,21 @@
   export let exercise = null;
   export let pr = null;          // { weight, date, unit } or null
   export let history = null;     // [{ date, sets: [...] }] or null
+
+  // Load-type-aware set formatter (issue #24). Alternating exercises
+  // logged with per-side reps show `w × L+R` (e.g. `30 × 5+5`);
+  // paired shows `w × N` unchanged; bilateral is the current
+  // `w × reps` form. Uses the exercise library's `load_type` since
+  // this component receives the library exercise object.
+  function _formatSet(s) {
+    const lt = exercise?.load_type || 'bilateral';
+    if (lt === 'unilateral' && (s.reps_l != null || s.reps_r != null)) {
+      const l = s.reps_l ?? '';
+      const r = s.reps_r ?? '';
+      return `${s.weight}×${l}+${r}`;
+    }
+    return `${s.weight}×${s.reps}`;
+  }
 </script>
 
 {#if exercise}
@@ -102,7 +117,7 @@
           <div class="history-row">
             <span class="hist-date">{h.date}</span>
             <span class="hist-sets">
-              {(h.sets || []).filter(s => s.completed).map(s => `${s.weight}×${s.reps}`).join(' | ')}
+              {(h.sets || []).filter(s => s.completed).map(_formatSet).join(' | ')}
             </span>
           </div>
         {/each}

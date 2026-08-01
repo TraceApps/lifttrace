@@ -22,6 +22,15 @@ import { currentPlanWeek } from './programWeek.js';
 
 const ME = 1; // single-user id in standalone mode
 
+// Load-type whitelist matches server/routes/exercises.js. Unknown values
+// become NULL (unset) at the library level rather than corrupting the
+// column. See src/lib/workout.js resolveLoadType.
+const _KNOWN_LOAD_TYPES = new Set(['bilateral', 'paired', 'unilateral']);
+function _cleanLoadType(v) {
+  if (v == null || v === '') return null;
+  return _KNOWN_LOAD_TYPES.has(v) ? v : null;
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────
 
 const _now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -246,8 +255,8 @@ const Exercises = {
     const r = await dbRun(
       `INSERT INTO exercises
         (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips,
-         img_url, gif_url, video_url, source, is_global, created_by, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         img_url, gif_url, video_url, load_type, source, is_global, created_by, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         body.name,
         body.category || null,
@@ -259,6 +268,7 @@ const Exercises = {
         body.img_url || null,
         body.gif_url || null,
         body.video_url || null,
+        _cleanLoadType(body.load_type),
         body.source || 'custom',
         body.is_global ? 1 : 0,
         ME,
@@ -278,6 +288,12 @@ const Exercises = {
     if (body.primary_muscles !== undefined)   { sets.push(`primary_muscles = ?`);   args.push(_stringify(body.primary_muscles)); }
     if (body.secondary_muscles !== undefined) { sets.push(`secondary_muscles = ?`); args.push(_stringify(body.secondary_muscles)); }
     if (body.equipment !== undefined)         { sets.push(`equipment = ?`);         args.push(_stringify(body.equipment)); }
+    // load_type: undefined means "leave alone"; explicit null clears back
+    // to unset; anything else gets whitelisted through _cleanLoadType.
+    if (body.load_type !== undefined) {
+      sets.push(`load_type = ?`);
+      args.push(body.load_type === null ? null : _cleanLoadType(body.load_type));
+    }
     sets.push(`updated_at = ?`); args.push(_now());
     sets.push(`sync_state = 'pending'`);
     args.push(id);

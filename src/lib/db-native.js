@@ -157,7 +157,11 @@ async function _createSchema(db) {
       created_at        TEXT DEFAULT (datetime('now')),
       updated_at        TEXT DEFAULT (datetime('now')),
       deleted_at        TEXT,
-      sync_state        TEXT DEFAULT 'clean'
+      sync_state        TEXT DEFAULT 'clean',
+      -- Library-level load_type (issue #24). NULL = unset so the
+      -- client-side per-user preference tier of the resolver can
+      -- still take effect. See src/lib/workout.js resolveLoadType.
+      load_type         TEXT DEFAULT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
     CREATE INDEX IF NOT EXISTS idx_exercises_source   ON exercises(source);
@@ -323,6 +327,8 @@ async function _createSchema(db) {
     `ALTER TABLE program_assignments ADD COLUMN week_cursor_session_base INTEGER`,
     `ALTER TABLE program_assignments ADD COLUMN week_cursor_pinned_at TEXT`,
     `ALTER TABLE workout_log         ADD COLUMN program_week INTEGER`,
+    // Library-level load_type default (issue #24).
+    `ALTER TABLE exercises           ADD COLUMN load_type TEXT DEFAULT NULL`,
   ];
   for (const stmt of _alters) {
     try { await db.execute(stmt); } catch { /* duplicate column / table missing — fine */ }

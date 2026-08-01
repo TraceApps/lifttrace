@@ -34,7 +34,17 @@ function _row(values) {
  * @param {'kg'|'lbs'} weightUnit
  * @returns {{ csv: string, filename: string }}
  */
-export function workoutToCsv(workout, weightUnit = 'lbs') {
+/**
+ * Third arg (optional): a Map / plain object of `{ exercise_id → library
+ * load_type }`. When passed, per-exercise load_type resolves through the
+ * full chain (per-instance → library → 'bilateral') and unilateral sets
+ * without an explicit L/R split get emitted as two rows so the CSV
+ * total matches what Statistics reports. When not passed, behavior
+ * falls back to reading only `exercise.load_type` (per-instance override)
+ * — matches pre-issue-#24 semantics for any caller that hasn't been
+ * updated yet.
+ */
+export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
   const header = [
     'date', 'workout', 'exercise', 'exercise_index', 'superset',
     'set_index', 'warmup', 'reps', 'weight', 'weight_unit', 'side',
@@ -48,10 +58,20 @@ export function workoutToCsv(workout, weightUnit = 'lbs') {
   const wNotes = workout?.notes || '';
   const wDur = workout?.duration_min || '';
 
+  const _getLib = (id) => {
+    if (!libraryLoadTypes || id == null) return null;
+    if (typeof libraryLoadTypes.get === 'function') return libraryLoadTypes.get(id) || null;
+    return libraryLoadTypes[id] || null;
+  };
+
   (workout?.exercises || []).forEach((ex, exIdx) => {
     const exName = ex.name || '';
     const exNotes = ex.notes || '';
     const superset = ex.superset_id || '';
+    // Resolve load_type through per-instance → library default →
+    // 'bilateral'. Client-side per-user pref is deliberately excluded
+    // from the export so shared CSVs report the shared truth.
+    const loadType = ex.load_type || _getLib(ex.exercise_id) || 'bilateral';
     (ex.sets || []).forEach((set, setIdx) => {
       const baseCols = [
         date, wName, exName, exIdx + 1, superset, setIdx + 1,
@@ -77,6 +97,13 @@ export function workoutToCsv(workout, weightUnit = 'lbs') {
         if (set.reps_r != null) {
           lines.push(_row([...baseCols, set.reps_r ?? '', set.weight ?? '', ...withSide(tailCols, 'R')]));
         }
+      } else if (loadType === 'unilateral' && set.reps != null) {
+        // Load-type-driven expansion: an alternating set logged as a
+        // single `reps` value represents `reps` per side (5+5, not just
+        // 5 total). Emit two rows so downstream totals reconcile with
+        // Statistics' volume math.
+        lines.push(_row([...baseCols, set.reps ?? '', set.weight ?? '', ...withSide(tailCols, 'L')]));
+        lines.push(_row([...baseCols, set.reps ?? '', set.weight ?? '', ...withSide(tailCols, 'R')]));
       } else {
         lines.push(_row([...baseCols, set.reps ?? '', set.weight ?? '', ...tailCols]));
       }
@@ -100,8 +127,8 @@ function withSide(tail, side) {
  * Share intent on Android (so they can pipe it into Drive / email / a
  * file manager from the system sheet).
  */
-export async function exportWorkoutCsv(workout, weightUnit = 'lbs') {
-  const { csv, filename } = workoutToCsv(workout, weightUnit);
+export async function exportWorkoutCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
+  const { csv, filename } = workoutToCsv(workout, weightUnit, libraryLoadTypes);
 
   if (isNative) {
     const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem');

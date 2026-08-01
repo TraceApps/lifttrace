@@ -6,6 +6,7 @@
   import { DB } from '../../lib/db.js';
   import { shareWorkoutCard } from '../../lib/workoutCard.js';
   import { exportWorkoutCsv } from '../../lib/workoutCsv.js';
+  import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
   import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume } from '../../lib/workout.js';
   import { timerState, timerMs } from '../../stores/workoutTimer.js';
@@ -71,7 +72,22 @@
   async function handleExportCsv() {
     if (!workout || exportingCsv) return;
     exportingCsv = true;
-    try { await exportWorkoutCsv({ ...workout, duration_min: effectiveDurationMin }, $weightUnit); }
+    try {
+      // Look up library-level load_type per exercise so alternating
+      // sets logged as a single `reps` value expand to two CSV rows
+      // (L + R) and the exported total reconciles with Statistics.
+      // See issue #24. Silent fall-through to empty map on failure so
+      // export still works when the library fetch fails.
+      let libLoadTypes = null;
+      try {
+        const libraryExercises = await LtApi.listExercises();
+        libLoadTypes = new Map();
+        for (const e of libraryExercises || []) {
+          if (e?.id != null && e.load_type) libLoadTypes.set(e.id, e.load_type);
+        }
+      } catch {}
+      await exportWorkoutCsv({ ...workout, duration_min: effectiveDurationMin }, $weightUnit, libLoadTypes);
+    }
     catch (e) { showError(e.message || 'Export failed'); }
     exportingCsv = false;
   }

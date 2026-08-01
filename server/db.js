@@ -80,7 +80,15 @@ db.exec(`
     source          TEXT DEFAULT 'custom',
     is_global       INTEGER DEFAULT 0,
     created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    created_at      TEXT DEFAULT (datetime('now'))
+    created_at      TEXT DEFAULT (datetime('now')),
+    -- Library-wide load_type default. NULL = "unset" (the fallthrough is
+    -- unambiguous — user's client-side $exerciseLoadTypes pref wins over
+    -- NULL and only loses to an explicit non-NULL library value the
+    -- exercise owner set). See feedback_traceapps_dev_workflow + issue
+    -- #24: fixes volume math + CSV export + history display for
+    -- imported unilateral/alternating exercises whose load_type never
+    -- made it out of the live Diary session.
+    load_type       TEXT DEFAULT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
   CREATE INDEX IF NOT EXISTS idx_exercises_source   ON exercises(source);
@@ -323,6 +331,8 @@ addColumnIfMissing('program_assignments', 'week_cursor_pinned_at', 'week_cursor_
 // Persisted (not derived) so a past session keeps its week after the athlete
 // advances — a logged Week 2 always reads Week 2.
 addColumnIfMissing('workout_log', 'program_week', 'program_week INTEGER');
+// Library-level load_type default (issue #24). NULL = unset.
+addColumnIfMissing('exercises', 'load_type', 'load_type TEXT DEFAULT NULL');
 
 // Phase 2 — trainer prescribes workouts to members (undated "try this" or
 // dated "do this on YYYY-MM-DD"). Either template_id references a template,

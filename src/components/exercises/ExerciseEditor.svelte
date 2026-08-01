@@ -43,6 +43,11 @@
   let img_url = '';
   let gif_url = '';
   let video_url = '';
+  // Library-level load_type default (issue #24). null = unset — the app
+  // falls back through the client-side per-user preference and finally
+  // to 'bilateral' at render time. Setting this here overrides the
+  // client-pref tier for everyone reading the catalog entry.
+  let load_type = null;
   let saving = false;
 
   // Reset fields whenever the modal opens.
@@ -60,6 +65,7 @@
       img_url = ex.img_url || '';
       gif_url = ex.gif_url || '';
       video_url = ex.video_url || '';
+      load_type = ex.load_type || null;
     } else {
       name = prefillName || '';
       category = '';
@@ -69,6 +75,7 @@
       instructions = '';
       tips = '';
       img_url = ''; gif_url = ''; video_url = '';
+      load_type = null;
     }
   }
 
@@ -94,6 +101,7 @@
       img_url: img_url || null,
       gif_url: gif_url || null,
       video_url: video_url || null,
+      load_type,
     };
     try {
       const result = exercise
@@ -130,6 +138,22 @@
     <div class="field">
       <label class="label">{$_('exercise_editor.media')}</label>
       <MediaInput bind:img_url bind:gif_url bind:video_url />
+    </div>
+
+    <!-- Load type — library-level default. Falls through the resolver's
+         four-tier chain at render time (see src/lib/workout.js
+         resolveLoadType): per-instance override → library value here →
+         client-side per-user pref → 'bilateral'. Leaving this unset
+         means "no library opinion" so any existing personal Diary
+         preferences keep working. -->
+    <div class="field">
+      <label class="label">Load type</label>
+      <div class="chips">
+        <button type="button" class="chip" class:active={!load_type} on:click={() => load_type = null}>Unset</button>
+        <button type="button" class="chip" class:active={load_type === 'bilateral'} on:click={() => load_type = 'bilateral'}>Bilateral</button>
+        <button type="button" class="chip" class:active={load_type === 'paired'} on:click={() => load_type = 'paired'}>Per side</button>
+        <button type="button" class="chip" class:active={load_type === 'unilateral'} on:click={() => load_type = 'unilateral'}>Alternating</button>
+      </div>
     </div>
 
     <!-- Equipment -->

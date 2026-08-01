@@ -8,6 +8,8 @@ All notable changes to LiftTrace are documented here.
 
 ### Added
 
+- **Library-level `load_type` on exercises** (#24). The Exercise Editor gains a **Load type** field (Unset / Bilateral / Per side / Alternating) so the setting travels with the exercise instead of being hidden per-workout-instance. Batch-imported catalogs (Strong / Hevy / FitNotes / Jefit CSV) can now be fixed up per-exercise once instead of having to re-select per session. Statistics, muscle-group volume, per-exercise progress, share cards, and CSV export all resolve through the new four-tier chain: per-instance override → library value → per-user Diary preference → 'bilateral'. **Historical volume numbers for imported unilateral / alternating exercises will change on first render** — that's the fix (previous numbers were wrong for lack of load_type), but Statistics and share cards will show different totals than before for the same historical sessions.
+
 - **Cardio session logging** (#23). Opt-in via Settings → Workout → **Track Cardio** (off by default so pure lifters aren't cluttered). When enabled, a Cardio card appears on the Diary for logging a session with activity, duration, optional distance / avg HR / notes; a Cardio metric appears on Statistics with weekly minutes total and an optional weekly target line. All cardio is excluded from volume, PRs, and rest-timer firing so it never corrupts the lifting side. Manual entry only by design; device sync (Fitbit, Garmin, Health Connect, etc.) lives in NutriTrace via federation and is not planned for LiftTrace.
 
 - **Pull-to-refresh sync (Android).** In native server mode, swipe down from the top of any page to trigger a manual sync. Matches NutriTrace's behavior for family consistency.

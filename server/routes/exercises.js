@@ -105,13 +105,22 @@ router.get('/:id', wrap((req, res) => {
   res.json(row);
 }));
 
+// One of the three known load types, or null if the caller sent
+// something else (unknown values become "unset" at the library level
+// rather than corrupting the column).
+const _LOAD_TYPES = new Set(['bilateral', 'paired', 'unilateral']);
+function _cleanLoadType(v) {
+  if (v == null || v === '') return null;
+  return _LOAD_TYPES.has(v) ? v : null;
+}
+
 // POST /api/exercises — create custom exercise
 router.post('/', wrap((req, res) => {
-  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url } = req.body;
+  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const result = db.prepare(
-    `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, source, is_global, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?)`
+    `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, source, is_global, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?)`
   ).run(
     name, category || null,
     JSON.stringify(primary_muscles || []),
@@ -119,6 +128,7 @@ router.post('/', wrap((req, res) => {
     JSON.stringify(equipment || []),
     instructions || null, tips || null,
     img_url || null, gif_url || null, video_url || null,
+    _cleanLoadType(load_type),
     uid(req)
   );
   const exercise = db.prepare('SELECT * FROM exercises WHERE id = ?').get(result.lastInsertRowid);
@@ -133,10 +143,16 @@ router.put('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Exercise not found' });
-  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url } = req.body;
+  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type } = req.body;
+  // load_type: an explicit null clears the library-level default (back
+  // to unset), an omitted key leaves the existing value, and 'bilateral' /
+  // 'paired' / 'unilateral' set it explicitly.
+  const nextLoadType = load_type === undefined
+    ? existing.load_type
+    : (load_type === null ? null : _cleanLoadType(load_type));
   db.prepare(
     `UPDATE exercises SET name=?, category=?, primary_muscles=?, secondary_muscles=?, equipment=?,
-     instructions=?, tips=?, img_url=?, gif_url=?, video_url=? WHERE id=?`
+     instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, load_type=? WHERE id=?`
   ).run(
     name || existing.name, category ?? existing.category,
     JSON.stringify(primary_muscles || JSON.parse(existing.primary_muscles || '[]')),
@@ -144,6 +160,7 @@ router.put('/:id', wrap((req, res) => {
     JSON.stringify(equipment || JSON.parse(existing.equipment || '[]')),
     instructions ?? existing.instructions, tips ?? existing.tips,
     img_url ?? existing.img_url, gif_url ?? existing.gif_url, video_url ?? existing.video_url,
+    nextLoadType,
     id
   );
   const updated = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);

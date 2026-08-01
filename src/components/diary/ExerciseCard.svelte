@@ -4,7 +4,7 @@
   import SetRow from './SetRow.svelte';
   import { LtApi } from '../../lib/api.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, exerciseVolume } from '../../lib/workout.js';
+  import { generateWarmupSets, exerciseVolume, resolveLoadType } from '../../lib/workout.js';
   import { exerciseLoadTypes } from '../../stores/settings.js';
   import { portal } from '../../lib/portal.js';
 
@@ -53,14 +53,20 @@
     } catch {}
   }
 
-  // Load type for this exercise instance. Stored on the exercise object
-  // itself so it's saved with the workout; falls back to the user's
-  // per-exercise preference (when they ticked "Remember"), then bilateral.
-  $: loadType = exercise.load_type
-                  || ($exerciseLoadTypes && exercise.exercise_id != null
-                      ? $exerciseLoadTypes[exercise.exercise_id]
-                      : null)
-                  || 'bilateral';
+  // Optional library-level default (issue #24). Diary enriches each
+  // workout exercise with `_library_load_type` from the exercises table
+  // before passing them here so the resolver's library tier fires
+  // without an extra fetch per card.
+  export let libraryLoadType = null;
+
+  // Full four-tier resolution: per-instance override → library default
+  // → client-side per-user preference → 'bilateral'. See src/lib/workout.js
+  // for the resolver's precedence rationale.
+  $: loadType = resolveLoadType(
+    exercise,
+    exercise._library_load_type != null ? exercise._library_load_type : libraryLoadType,
+    $exerciseLoadTypes,
+  );
   $: loadTypeLabel = loadType === 'paired' ? 'Per side'
                    : loadType === 'unilateral' ? 'Alternating'
                    : 'Bilateral';
