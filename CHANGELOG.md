@@ -6,6 +6,10 @@ All notable changes to LiftTrace are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- **Exercise picker sheet on Statistics rendered off-screen for some browsers** (#25). The Statistics → Exercise Progress picker had its own inline bottom-sheet CSS that had drifted from the shared Sheet component the rest of the app uses; on Vivaldi's persistent-web-app mode the divergent viewport-height + safe-area math pushed the sheet body below the visible area, especially when the search filter returned few results. Consolidated onto the shared Sheet so the picker inherits the same viewport treatment every other sheet gets.
+
 ### Added
 
 - **Library-level `load_type` on exercises** (#24). The Exercise Editor gains a **Load type** field (Unset / Bilateral / Per side / Alternating) so the setting travels with the exercise instead of being hidden per-workout-instance. Batch-imported catalogs (Strong / Hevy / FitNotes / Jefit CSV) can now be fixed up per-exercise once instead of having to re-select per session. Statistics, muscle-group volume, per-exercise progress, share cards, and CSV export all resolve through the new four-tier chain: per-instance override → library value → per-user Diary preference → 'bilateral'. **Historical volume numbers for imported unilateral / alternating exercises will change on first render** — that's the fix (previous numbers were wrong for lack of load_type), but Statistics and share cards will show different totals than before for the same historical sessions.

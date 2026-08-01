@@ -9,6 +9,7 @@
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
   import Sparkline from '../components/statistics/Sparkline.svelte';
   import MuscleRecovery from '../components/statistics/MuscleRecovery.svelte';
+  import Sheet from '../components/ui/Sheet.svelte';
   import BodyMap from '../components/statistics/BodyMap.svelte';
   import { MUSCLES, MUSCLE_NAME, rankOf } from '../lib/muscles.js';
   import { weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
@@ -998,33 +999,30 @@
 </div>
 
 <!-- Exercise picker sheet -->
-{#if showExPicker}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="ex-picker-backdrop" on:click={() => showExPicker = false}>
-    <div class="ex-picker-sheet" on:click|stopPropagation>
-      <div class="ex-picker-handle"></div>
-      <div class="ex-picker-header">
-        <h3>{$_('statistics.choose_exercise')}</h3>
-        <button class="btn-icon" on:click={() => showExPicker = false}>
-          <span class="material-symbols-rounded">close</span>
-        </button>
-      </div>
-      <div class="ex-picker-search">
-        <span class="material-symbols-rounded">search</span>
-        <input type="search" bind:value={exSearch} placeholder={$_('statistics.search_exercises_ph')} />
-      </div>
-      <div class="ex-picker-list">
-        {#each filteredExs as ex}
-          <button class="ex-picker-row" on:click={() => { selectedExerciseId = ex.id; showExPicker = false; }}>
-            <span class="ex-picker-name">{ex.name}</span>
-            {#if ex.category}<span class="ex-picker-cat">{ex.category}</span>{/if}
-          </button>
-        {/each}
-      </div>
-    </div>
+<!-- Exercise picker for the Exercise Progress metric. Uses the shared
+     Sheet component (issue #25) rather than a local inline sheet — the
+     duplicated CSS had drifted enough to trigger a Vivaldi-PWA-specific
+     off-screen bug on this one screen while other sheets rendered fine.
+     Consolidating on Sheet.svelte guarantees the picker inherits the
+     same viewport-height + safe-area treatment the rest of the app
+     already had working across environments. -->
+<Sheet bind:open={showExPicker} title={$_('statistics.choose_exercise')} height="full">
+  <div class="ex-picker-search">
+    <span class="material-symbols-rounded">search</span>
+    <input type="search" bind:value={exSearch} placeholder={$_('statistics.search_exercises_ph')} />
   </div>
-{/if}
+  <div class="ex-picker-list">
+    {#each filteredExs as ex}
+      <button class="ex-picker-row" on:click={() => { selectedExerciseId = ex.id; showExPicker = false; }}>
+        <span class="ex-picker-name">{ex.name}</span>
+        {#if ex.category}<span class="ex-picker-cat">{ex.category}</span>{/if}
+      </button>
+    {/each}
+    {#if filteredExs.length === 0}
+      <p class="ex-picker-empty">{exSearch ? 'No exercises match that search.' : 'No exercises in your library yet.'}</p>
+    {/if}
+  </div>
+</Sheet>
 
 <style>
   .page { min-height: 100dvh; background: var(--bg); padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + var(--mini-player-h, 0px) + 16px); }
@@ -1310,27 +1308,12 @@
   .ex-picker-btn:hover { background: var(--surface-2); }
   .ex-picker-btn .material-symbols-rounded { color: var(--text-3); font-size: 20px; }
 
-  /* Picker sheet */
-  .ex-picker-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500;
-    display: flex; align-items: flex-end;
-  }
-  .ex-picker-sheet {
-    width: 100%; max-width: 640px; margin: 0 auto;
-    background: var(--surface-1);
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    max-height: 90dvh; display: flex; flex-direction: column;
-    padding-bottom: var(--safe-bottom);
-  }
-  .ex-picker-handle { width: 40px; height: 4px; background: var(--text-3); opacity: 0.4; border-radius: 2px; margin: 10px auto; }
-  .ex-picker-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 0 20px 8px;
-  }
-  .ex-picker-header h3 { margin: 0; font-size: 17px; font-weight: 700; color: var(--text-1); }
+  /* Picker inner styles — the wrapping sheet + backdrop live in
+     Sheet.svelte now (issue #25). These style the content slotted
+     into it: the search bar, the results list, and the empty-state. */
   .ex-picker-search {
     display: flex; align-items: center; gap: 8px;
-    margin: 0 16px 12px;
+    margin: 0 0 12px;
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md); padding: 0 12px;
   }
@@ -1339,17 +1322,21 @@
     flex: 1; background: none; border: none; outline: none;
     color: var(--text-1); font-size: 15px; padding: 10px 0; font-family: inherit;
   }
-  .ex-picker-list { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
+  .ex-picker-list { display: flex; flex-direction: column; gap: 6px; }
   .ex-picker-row {
     display: flex; justify-content: space-between; align-items: center;
     width: 100%; padding: 12px;
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    cursor: pointer; text-align: left; margin-bottom: 6px;
+    cursor: pointer; text-align: left;
     color: var(--text-1); font-size: 14px; font-weight: 500;
   }
   .ex-picker-row:hover { background: var(--surface-3); }
   .ex-picker-cat { font-size: 11px; color: var(--text-3); text-transform: capitalize; }
+  .ex-picker-empty {
+    font-size: 13px; color: var(--text-3);
+    margin: 24px 0 0; text-align: center;
+  }
 
   /* Empty / loading */
   .empty-state {
