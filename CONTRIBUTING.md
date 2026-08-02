@@ -16,6 +16,7 @@ Thanks for your interest in LiftTrace.
 
 ## Pull requests
 
+- **Target the `dev` branch, not `main`.** All work lands on `dev` first, gets tested there, and is bundled into `main` at release time. PRs opened against `main` will be asked to retarget.
 - Keep changes focused — one concern per PR.
 - Match the existing code style (Svelte 5 in compat mode, no runes, no TypeScript).
 - For server changes, ensure all SQL is parameterized and every new route has appropriate `requireAuth` / `requireAdmin` middleware.
