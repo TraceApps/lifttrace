@@ -183,6 +183,44 @@ function _statRow(icon, label, value) {
   </tr>`;
 }
 
+// ── Coach Feedback Notification ────────────────────────────────────────────
+// Fired when a trainer posts a NEW feedback note on a trainee's workout via
+// POST /api/trainer/feedback. Best-effort and non-blocking; sending failure
+// never breaks the feedback insert. Skip conditions live at the call site
+// (no email address, self-feedback, opt-out, SMTP unconfigured).
+function _escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+export async function sendCoachFeedback(email, workoutName, coachName, feedbackText, viewUrl) {
+  if (!email) return;
+  const origin      = new URL(viewUrl).origin;
+  const safeCoach   = _escapeHtml(coachName || 'Your coach');
+  const safeWorkout = _escapeHtml(workoutName || 'your workout');
+  const raw         = String(feedbackText || '').trim();
+  const max         = 120;
+  const trimmed     = raw.length > max ? raw.slice(0, max - 1) + '…' : raw;
+  const safePreview = _escapeHtml(trimmed);
+  const body = `
+    ${greeting(null)}
+    <p style="margin:0 0 10px;font-size:22px;font-weight:700;color:#FFFFFF;line-height:1.3;">
+      ${safeCoach} left feedback on your workout
+    </p>
+    <p style="margin:0 0 16px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      New note on <strong style="color:#FFFFFF;">${safeWorkout}</strong>.
+    </p>
+    ${safePreview ? `<blockquote style="margin:0 0 24px;padding:14px 18px;background-color:#0D0F14;border-left:3px solid #FF7433;border-radius:6px;font-size:14px;color:#C8CDD9;line-height:1.6;font-style:italic;">${safePreview}</blockquote>` : ''}
+    ${ctaButton(viewUrl, 'View Workout')}
+    ${fallbackUrl(viewUrl)}`;
+  await sendMail({
+    to: email,
+    subject: `${coachName || 'Your coach'} left feedback on your workout`,
+    html: emailWrapper(origin, body, 'You received this because coach-feedback notifications are enabled in your settings.'),
+    text: `${coachName || 'Your coach'} left feedback on ${workoutName || 'your workout'}.\n\n${raw ? `"${raw}"\n\n` : ''}Open it: ${viewUrl}`,
+  });
+}
+
 export async function sendWeeklySummary(email, name, stats, origin = '') {
   const { workoutCount = 0, totalVolume = 0 } = stats;
   const body = `${greeting(name)}

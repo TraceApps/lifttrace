@@ -7,7 +7,7 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { APP_VERSION } from '../../lib/version.js';
-  import { resolveAssetUrl, isNative } from '../../lib/platform.js';
+  import { resolveAssetUrl, iconUrl, isNative } from '../../lib/platform.js';
 
   export let expanded = false;
   export let visible = true;
@@ -24,9 +24,9 @@
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <div class="card">
         <div class="about-hero">
-          <img src={resolveAssetUrl('/icons/icon-192.png')} alt="LiftTrace" class="about-icon" />
+          <img src={iconUrl('/icons/icon-192.png')} alt="LiftTrace" class="about-icon" />
           <div>
-            <div class="about-name">LiftTrace</div>
+            <div class="about-name">{$_('settings_about.app_name')}</div>
             <div class="about-version">
               v{APP_VERSION}
               <span class="platform-tag">{isNative ? 'Android' : 'PWA'}</span>
@@ -58,18 +58,18 @@
         <div class="setting-divider"></div>
         <div class="about-row">
           <span class="material-symbols-rounded about-feat-icon">code</span>
-          <span><a href="https://github.com/TraceApps/lifttrace" target="_blank" rel="noopener" class="about-link">Open source</a> (AGPL-3.0)</span>
+          <span><a href="https://github.com/TraceApps/lifttrace" target="_blank" rel="noopener" class="about-link">{$_('settings_about.open_source')}</a> (AGPL-3.0)</span>
         </div>
         <div class="setting-divider"></div>
         <div class="about-row">
           <span class="material-symbols-rounded about-feat-icon">link</span>
-          <span>Sister app: <a href="https://github.com/TraceApps/nutritrace" target="_blank" rel="noopener" class="about-link">NutriTrace</a> — nutrition tracker</span>
+          <span>{$_('settings_about.sister_app_prefix')}<a href="https://github.com/TraceApps/nutritrace" target="_blank" rel="noopener" class="about-link">NutriTrace</a>{$_('settings_about.sister_app_suffix')}</span>
         </div>
         <div class="setting-divider"></div>
         <div class="about-row" style="flex-direction:column;align-items:flex-start;gap:8px">
           <div style="display:flex;align-items:center;gap:8px">
             <span class="material-symbols-rounded about-feat-icon">volunteer_activism</span>
-            <span>Support development</span>
+            <span>{$_('settings_about.support_development')}</span>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;padding-left:30px">
             <!-- GitHub Sponsors button hidden until the traceapps org Sponsors profile is approved.

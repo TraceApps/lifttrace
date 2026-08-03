@@ -1,12 +1,13 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { slide, fade } from 'svelte/transition';
-  import { push } from 'svelte-spa-router';
+  import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
   import { accentColor, applyAccentColor, pageBanners, bannerStyle } from '../stores/settings.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
+  import SettingsUpdates from '../components/settings/SettingsUpdates.svelte';
   import SettingsAppearance from '../components/settings/SettingsAppearance.svelte';
   import SettingsUnits from '../components/settings/SettingsUnits.svelte';
   import SettingsWorkout from '../components/settings/SettingsWorkout.svelte';
@@ -72,9 +73,9 @@
       const { runSync } = await import('../lib/sync.js');
       await runSync();
       await refreshSyncStatus();
-      showSuccess('Synced');
+      showSuccess($_('settings_main.toast.synced'));
     } catch (e) {
-      showError(e.message || 'Sync failed');
+      showError(e.message || $_('settings_main.toast.sync_failed'));
     } finally {
       _syncing = false;
     }
@@ -105,8 +106,8 @@
   let migrationSummary = null;
 
   async function connectServer() {
-    if (!serverUrlInput.trim()) { showError('Enter a server URL'); return; }
-    if (!serverUsername.trim() || !serverPassword.trim()) { showError('Enter credentials'); return; }
+    if (!serverUrlInput.trim()) { showError($_('settings_main.toast.server_url_required')); return; }
+    if (!serverUsername.trim() || !serverPassword.trim()) { showError($_('settings_main.toast.credentials_required')); return; }
     const url = serverUrlInput.trim().replace(/\/$/, '');
     serverConnecting = true;
     try {
@@ -199,7 +200,7 @@
       }
     } catch (e) {
       mergeStep = null;
-      showError('Sync failed: ' + (e.message || 'Unknown error'));
+      showError($_('settings_main.toast.sync_failed_prefix', { values: { error: e.message || $_('settings_main.toast.unknown_error') } }));
     }
   }
 
@@ -208,7 +209,7 @@
     setNativeMode('server');
     serverMode = 'server';
     mergeStep = null;
-    showSuccess('Connected to server');
+    showSuccess($_('settings_main.toast.connected'));
     setTimeout(() => window.location.reload(), 600);
   }
 
@@ -234,7 +235,7 @@
     serverUsername = '';
     serverPassword = '';
 
-    showSuccess('Disconnected — using local storage');
+    showSuccess($_('settings_main.toast.disconnected'));
     setTimeout(() => window.location.reload(), 600);
   }
 
@@ -360,7 +361,7 @@
   const SECTION_KEYWORDS = {
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
     appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce'],
-    workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate'],
+    workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill'],
     units:          ['units','measurement','measurement system','format','date','time','12h','24h','locale','region','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
     trace:          ['trace','ai','assistant','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image'],
@@ -374,6 +375,7 @@
     users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
+    updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
     about:          ['about','version','lifttrace','license','sister','nutritrace'],
   };
@@ -383,13 +385,87 @@
   // inline string of fallback terms ('mode app server'). The inline form is
   // what older call sites pass; we treat each whitespace-separated token as
   // its own alternative keyword so they actually match search.
-  function sectionVisible(query, keyOrInline) {
+  // ── Drill-in navigation ────────────────────────────────────────────────
+  // svelte-spa-router passes route params via a `params` prop. When URL is
+  // /settings/<slug>, currentSection = <slug> and we render only that
+  // section under a back-arrow header ("sub-page view"). On /settings
+  // alone (index view) we render the list of section rows.
+  export let params = {};
+  $: currentSection = params?.section || null;
+
+  const SECTION_META = {
+    appearance:       { titleKey: 'settings.appearance.section',        icon: 'contrast' },
+    units:            { titleKey: 'settings.units.section',             icon: 'straighten' },
+    workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
+    statistics:       { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
+    catalog:          { titleKey: 'settings.catalog.section',           icon: 'library_books' },
+    trace:            { titleKey: 'settings.ai.section',                icon: 'bolt' },
+    radio:            { titleKey: 'settings.radio.section',             icon: 'radio' },
+    federation:       { titleKey: 'settings.federation.section',        icon: 'link' },
+    serverConnection: { titleKey: 'settings.server.section',            icon: 'cloud' },
+    notifications:    { titleKey: 'settings.notifications.section',     icon: 'notifications' },
+    data:             { titleKey: 'settings.data.section',              icon: 'archive' },
+    workoutImport:    { titleKey: 'settings.workout_import.section',    icon: 'upload' },
+    updates:          { titleKey: 'settings.updates.section',           icon: 'system_update' },
+    helpImprove:      { titleKey: 'settings.diagnostics.section',       icon: 'troubleshoot' },
+    users:            { titleKey: 'settings.users.section',             icon: 'group' },
+    authentication:   { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
+    email:            { titleKey: 'settings.email.section',             icon: 'mail' },
+    about:            { titleKey: 'settings.about.section',             icon: 'info' },
+  };
+
+  // Reactive predicates. On sub-page (currentSection truthy) hide every
+  // other section via visible=false, force-open the current one via
+  // expanded=true. On index keep the classic keyword filter.
+  $: sectionVisible = (query, keyOrInline) => {
+    if (currentSection) return keyOrInline === currentSection;
     if (!query) return true;
     if (SECTION_KEYWORDS[keyOrInline]) {
       return SECTION_KEYWORDS[keyOrInline].some(kw => kw.includes(query));
     }
     return String(keyOrInline || '').toLowerCase().split(/\s+/).filter(Boolean)
       .some(kw => kw.includes(query));
+  };
+
+  // Reverse the peel-in animation on tap: swap the back button + title
+  // into their -out classes so the reversed CSS keyframe plays, then
+  // navigate after the animation completes.
+  let _leaving = false;
+  async function backToIndex() {
+    if (_leaving) return;
+    _leaving = true;
+    await new Promise(r => setTimeout(r, 240));
+    push('/settings');
+  }
+
+  // Deep-link ?q= scroll: on sub-page mount, scan DOM for the search
+  // query and scroll+highlight the first matching setting.
+  $: _urlQuery = $querystring ? new URLSearchParams($querystring).get('q') : null;
+  let _lastDeepLinkKey = null;
+  $: {
+    const key = `${currentSection || ''}|${_urlQuery || ''}`;
+    if (currentSection && _urlQuery && key !== _lastDeepLinkKey) {
+      _lastDeepLinkKey = key;
+      _scheduleDeepLinkScroll(_urlQuery);
+    }
+  }
+  async function _scheduleDeepLinkScroll(q) {
+    await tick();
+    await new Promise(r => setTimeout(r, 60));
+    const q_norm = q.toLowerCase().trim();
+    if (!q_norm) return;
+    const scope = document.querySelector('.subpage-view');
+    if (!scope) return;
+    const candidates = scope.querySelectorAll('.setting-label, .setting-desc, .sub-label, .setting-row');
+    let hit = null;
+    for (const el of candidates) {
+      if ((el.textContent || '').toLowerCase().includes(q_norm)) { hit = el; break; }
+    }
+    if (!hit) return;
+    const row = hit.closest('.setting-row') || hit;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('deep-link-highlight');
+    setTimeout(() => row.classList.remove('deep-link-highlight'), 2200);
   }
 
   // ── Collapsible sections ─────────────────────────────────────────────────
@@ -410,18 +486,27 @@
     email: false,
     users: false,
     authentication: false,
+    updates: false,
     helpImprove: false,
     about: false,
   };
+  // Drill-in navigation replaces the old accordion toggle. On the index
+  // (/settings) tapping a section-toggle button routes to the section's
+  // sub-page. On a sub-page tapping the same section behaves as "back to
+  // index". Forwards active search query as ?q= so the sub-page can
+  // auto-scroll to the matching setting on land.
   function toggleSection(key) {
-    openSections = { ...openSections, [key]: !openSections[key] };
+    if (currentSection === key) push('/settings');
+    else {
+      const q = settingsQuery ? `?q=${encodeURIComponent(settingsQuery)}` : '';
+      push(`/settings/${key}${q}`);
+    }
   }
-  // Reactive expanded map — re-runs when openSections OR the query changes
+  // Reactive expanded map: on sub-page force-open the current section,
+  // on index keep everything collapsed (drill-in replaces accordion,
+  // bodies are one nav-click away).
   $: expanded = Object.fromEntries(
-    Object.keys(openSections).map(k => [
-      k,
-      openSections[k] || (!!settingsQuery && sectionVisible(settingsQuery, k)),
-    ])
+    Object.keys(openSections).map(k => [k, currentSection === k])
   );
 
   // Exercise catalog state moved into SettingsCatalog.svelte
@@ -445,26 +530,46 @@
        top offset (which budged when the header re-laid out under it). -->
   <div class="settings-sticky-top">
     <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
-      <h1>{$_('routes.settings.title')}</h1>
+      {#if currentSection}
+        <!-- Back button "peels out" from the left edge of the section
+             title via a CSS keyframe (Svelte transitions don't fire
+             here because svelte-spa-router unmounts + remounts the
+             whole component between /settings and /settings/:section). -->
+        <button class="settings-back"
+                class:back-peel-in={!_leaving}
+                class:back-peel-out={_leaving}
+                on:click={backToIndex}
+                aria-label={$_('common.back')}>
+          <span class="material-symbols-rounded">arrow_back</span>
+        </button>
+        <h1 class:title-slide-in={!_leaving}
+            class:title-slide-out={_leaving}>
+          {SECTION_META[currentSection]?.titleKey ? $_(SECTION_META[currentSection].titleKey) : currentSection}
+        </h1>
+      {:else}
+        <h1>{$_('routes.settings.title')}</h1>
+      {/if}
     </header>
 
-    <div class="settings-search-bar">
-    <span class="material-symbols-rounded settings-search-icon">search</span>
-    <input
-      class="settings-search-input"
-      type="search"
-      placeholder="Search settings…"
-      bind:value={settingsSearch}
-    />
-    {#if settingsSearch}
-      <button class="settings-search-clear" on:click={() => settingsSearch = ''} title="Clear">
-        <span class="material-symbols-rounded" style="font-size:18px">close</span>
-      </button>
+    {#if !currentSection}
+      <div class="settings-search-bar">
+      <span class="material-symbols-rounded settings-search-icon">search</span>
+      <input
+        class="settings-search-input"
+        type="search"
+        placeholder={$_('settings_main.search_ph')}
+        bind:value={settingsSearch}
+      />
+      {#if settingsSearch}
+        <button class="settings-search-clear" on:click={() => settingsSearch = ''} title={$_('settings_main.clear_search')}>
+          <span class="material-symbols-rounded" style="font-size:18px">close</span>
+        </button>
+      {/if}
+      </div>
     {/if}
-    </div>
   </div>
 
-  <div class="content">
+  <div class="content" class:subpage-view={!!currentSection}>
 
     <!-- ── Profile hero — identity card at the top of Settings.
          Avatar + name (nickname → full name → "My Profile" fallback) +
@@ -492,7 +597,7 @@
         {#if _hasName && _u.role === 'admin' && $userMgmtActive}
           <span class="profile-hero-role">admin</span>
         {:else if !_hasName}
-          <span class="profile-hero-sub">Tap to add your name and photo</span>
+          <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
         {/if}
       </div>
       <span class="material-symbols-rounded profile-hero-chev">chevron_right</span>
@@ -500,7 +605,7 @@
     {/if}
 
     <!-- ═══ DISPLAY ═══════════════════════════════════════════════════════ -->
-    <p class="group-label">Display</p>
+    <p class="group-label">{$_('settings_main.group_display')}</p>
 
     <SettingsAppearance
       visible={sectionVisible(settingsQuery, 'appearance')}
@@ -531,7 +636,7 @@
     />
 
     <!-- ═══ INTEGRATIONS ══════════════════════════════════════════════════ -->
-    <p class="group-label">Integrations</p>
+    <p class="group-label">{$_('settings_main.group_integrations')}</p>
 
     {#if !localOnly}
       <SettingsCatalog
@@ -579,7 +684,7 @@
           {#if serverMode === 'server' && getServerUrl()}
             <div class="setting-row">
               <div>
-                <span class="setting-label">Connected</span>
+                <span class="setting-label">{$_('settings_main.server.connected')}</span>
                 <div class="setting-desc">{getServerUrl()}</div>
               </div>
               <span class="material-symbols-rounded" style="color:var(--success, #22c55e);font-size:22px">cloud_done</span>
@@ -587,7 +692,7 @@
             <div class="setting-divider"></div>
             <div class="setting-row">
               <div>
-                <span class="setting-label">Last Synced</span>
+                <span class="setting-label">{$_('settings_main.server.last_synced')}</span>
                 <div class="setting-desc">
                   {#key _nowTick}{_fmtTimeAgo(lastSyncAt)}{/key}
                 </div>
@@ -611,28 +716,28 @@
           {:else}
             <div class="setting-row">
               <div>
-                <span class="setting-label">Local Mode</span>
-                <div class="setting-desc">All data stored on this device only</div>
+                <span class="setting-label">{$_('settings_main.server.local_mode')}</span>
+                <div class="setting-desc">{$_('settings_main.server.local_mode_desc')}</div>
               </div>
               <span class="material-symbols-rounded" style="color:var(--text-3);font-size:22px">smartphone</span>
             </div>
             <div class="setting-divider"></div>
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
               <div class="form-group" style="margin:0">
-                <label class="form-label">Server URL</label>
+                <label class="form-label">{$_('settings_main.server.server_url')}</label>
                 <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} />
               </div>
               <div class="form-group" style="margin:0">
-                <label class="form-label">Username</label>
-                <input class="form-input" type="text" placeholder="Your username" bind:value={serverUsername} autocapitalize="off" />
+                <label class="form-label">{$_('settings_main.server.username')}</label>
+                <input class="form-input" type="text" placeholder={$_('settings_main.server.username_ph')} bind:value={serverUsername} autocapitalize="off" />
               </div>
               <div class="form-group" style="margin:0">
-                <label class="form-label">Password</label>
+                <label class="form-label">{$_('settings_main.server.password')}</label>
                 <div style="position:relative">
                   {#if serverShowPw}
-                    <input class="form-input" type="text" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
+                    <input class="form-input" type="text" placeholder={$_('settings_main.server.password_ph')} bind:value={serverPassword} style="padding-right:40px" />
                   {:else}
-                    <input class="form-input" type="password" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
+                    <input class="form-input" type="password" placeholder={$_('settings_main.server.password_ph')} bind:value={serverPassword} style="padding-right:40px" />
                   {/if}
                   <button type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-3);padding:4px" on:click={() => serverShowPw = !serverShowPw}>
                     <span class="material-symbols-rounded" style="font-size:20px">{serverShowPw ? 'visibility_off' : 'visibility'}</span>
@@ -678,6 +783,23 @@
       onToggle={() => toggleSection('workoutImport')}
     />
 
+    <!-- Updates — inline section since SettingsUpdates is a shared
+         component across TraceApps and doesn't take the LT-specific
+         visible/expanded/onToggle prop shape. Canonical position across
+         NT/CT/LT: right before Diagnostics in the App group. -->
+    {#if sectionVisible(settingsQuery, 'updates')}
+      <button class="section-toggle" on:click={() => toggleSection('updates')}>
+        <span class="material-symbols-rounded si">system_update</span>
+        <span class="section-name">{$_('settings.updates.section')}</span>
+        <span class="material-symbols-rounded chevron" class:rotated={openSections.updates}>expand_more</span>
+      </button>
+      {#if expanded.updates}
+        <div class="section-body" transition:slide={{ duration: 180 }}>
+          <SettingsUpdates />
+        </div>
+      {/if}
+    {/if}
+
     <SettingsDiagnostics
       visible={sectionVisible(settingsQuery, 'helpImprove')}
       expanded={expanded.helpImprove}
@@ -690,7 +812,7 @@
          purely admin-facing. Hidden on native standalone (no server),
          and hidden for non-admin members on multi-user instances. -->
     {#if !localOnly && (!$userMgmtActive || $currentUser?.role === 'admin')}
-      <p class="group-label">Admin</p>
+      <p class="group-label">{$_('settings_main.group_admin')}</p>
 
       <SettingsUserManagement
         visible={sectionVisible(settingsQuery, 'users')}
@@ -732,7 +854,7 @@
 {#if mergeStep === 'ask-settings'}
   <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }}>
     <div class="merge-dialog">
-      <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">Sync Options</h3>
+      <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">{$_('settings_main.merge.title')}</h3>
       <p style="font-size:13px;color:var(--text-3);margin:0 0 12px;line-height:1.5">
         You have data on this phone. How should it be handled when connecting?
       </p>
@@ -753,25 +875,25 @@
         <button class="merge-option" on:click={() => _mergeAndConnect('upload')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_upload</span>
           <div>
-            <div class="merge-option-title">Upload phone to server</div>
+            <div class="merge-option-title">{$_('settings_main.merge.upload')}</div>
             <div class="merge-option-desc">Send this phone's workouts, programs, and settings to the server. Existing server data stays.</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('download')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_download</span>
           <div>
-            <div class="merge-option-title">Download server to phone</div>
+            <div class="merge-option-title">{$_('settings_main.merge.download')}</div>
             <div class="merge-option-desc">Replace this phone's data with everything from the server. Local data is discarded.</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('merge')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">sync</span>
           <div>
-            <div class="merge-option-title">Merge both</div>
+            <div class="merge-option-title">{$_('settings_main.merge.merge')}</div>
             <div class="merge-option-desc">Upload phone data to the server AND download server data. Nothing is lost, but duplicates are possible.</div>
           </div>
         </button>
-        <button class="btn btn-ghost" style="color:var(--text-3);margin-top:4px;width:100%;justify-content:center;height:40px" on:click={cancelMerge}>Cancel</button>
+        <button class="btn btn-ghost" style="color:var(--text-3);margin-top:4px;width:100%;justify-content:center;height:40px" on:click={cancelMerge}>{$_('settings_main.merge.cancel')}</button>
       </div>
     </div>
   </div>
@@ -821,13 +943,13 @@
           </ul>
         </div>
       {/if}
-      <button class="btn btn-primary" style="width:100%;justify-content:center;height:42px" on:click={_finalizeConnect}>Continue</button>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;height:42px" on:click={_finalizeConnect}>{$_('settings_main.merge.continue')}</button>
     </div>
   </div>
 {/if}
 
 <!-- Custom color picker sheet -->
-<Sheet bind:open={showColorSheet} title="Custom Color">
+<Sheet bind:open={showColorSheet} title={$_('settings_main.color.title')}>
   <div class="cp-body">
     <div class="cp-preview" style="background:{customColorHex}">
       <span class="cp-preview-hex">{customHexInput}</span>
@@ -840,7 +962,7 @@
       </div>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Saturation</label>
+      <label class="form-label">{$_('settings_main.color.saturation')}</label>
       <div class="cp-slider-wrap">
         <input type="range" class="cp-slider cp-sat" min="0" max="100"
           bind:value={cpSat} on:input={cpUpdateFromSliders}
@@ -848,7 +970,7 @@
       </div>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Lightness</label>
+      <label class="form-label">{$_('settings_main.color.lightness')}</label>
       <div class="cp-slider-wrap">
         <input type="range" class="cp-slider cp-lgt" min="0" max="100"
           bind:value={cpLgt} on:input={cpUpdateFromSliders}
@@ -873,7 +995,7 @@
       </div>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Hex code</label>
+      <label class="form-label">{$_('settings_main.color.hex_code')}</label>
       <div class="cp-hex-row">
         <span class="cp-hex-dot" style="background:{/^#[0-9a-fA-F]{6}$/.test(customHexInput) ? customHexInput : '#ccc'}"></span>
         <input class="form-input" type="text" placeholder="#rrggbb" maxlength="7"
@@ -883,7 +1005,7 @@
           on:keydown={e => e.key === 'Enter' && applyCustomColor()} />
       </div>
     </div>
-    <button class="btn btn-primary" style="height:44px;width:100%;margin-top:4px;justify-content:center" on:click={applyCustomColor}>Apply Color</button>
+    <button class="btn btn-primary" style="height:44px;width:100%;margin-top:4px;justify-content:center" on:click={applyCustomColor}>{$_('settings_main.color.apply')}</button>
   </div>
 </Sheet>
 
@@ -985,6 +1107,83 @@
   .settings-search-clear:hover { color: var(--text-1); background: var(--surface-2); }
 
   .content { padding: 16px var(--page-px) 0; }
+  /* Settings-only override: reduce horizontal page padding on phone
+     widths so cards get ~10-12px more breathing room per side. Desktop
+     / tablet widths (>= 768px) keep the default padding. */
+  @media (max-width: 767px) {
+    .content { padding-left: 8px; padding-right: 8px; }
+  }
+
+  /* Sub-page view: hide index-only chrome (group labels, profile hero,
+     the section-toggle header row). Each SettingsX wrapper renders
+     both a section-toggle button AND its body when expanded=true;
+     on drill-in we want ONLY the body, so hide every section-toggle
+     descendant here. */
+  .subpage-view :global(.group-label) { display: none; }
+  .subpage-view :global(.profile-hero) { display: none; }
+  .subpage-view :global(.section-toggle) { display: none; }
+
+  /* Back arrow header button — mirrors NT + CT. */
+  .settings-back {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px;
+    margin-right: 8px;
+    border: none; background: transparent; cursor: pointer;
+    color: var(--text-1);
+    border-radius: 50%;
+    transition: background-color 120ms ease;
+  }
+  .settings-back:hover  { background: var(--surface-2); }
+  .settings-back:active { background: var(--surface-3); }
+  .settings-back .material-symbols-rounded { font-size: 24px; }
+
+  /* Back button peel-in — the button appears to unfold from the left
+     edge of the section title. Delayed 80ms so the title appears
+     first, then the arrow reveals. */
+  .back-peel-in {
+    overflow: hidden;
+    transform-origin: left center;
+    animation: back-peel 320ms cubic-bezier(0.34, 1.4, 0.64, 1) 80ms both;
+  }
+  @keyframes back-peel {
+    from { width: 0;    margin-right: 0;  opacity: 0; transform: scale(0.4); }
+    to   { width: 40px; margin-right: 8px; opacity: 1; transform: scale(1);   }
+  }
+  .back-peel-out {
+    overflow: hidden;
+    transform-origin: left center;
+    animation: back-peel-reverse 240ms cubic-bezier(0.4, 0, 0.6, 1) both;
+  }
+  @keyframes back-peel-reverse {
+    from { width: 40px; margin-right: 8px; opacity: 1; transform: scale(1);   }
+    to   { width: 0;    margin-right: 0;  opacity: 0; transform: scale(0.4); }
+  }
+  .title-slide-in {
+    animation: title-slide 320ms cubic-bezier(0.34, 1.4, 0.64, 1) 80ms both;
+  }
+  @keyframes title-slide {
+    from { opacity: 0; transform: translateX(-16px); }
+    to   { opacity: 1; transform: translateX(0);      }
+  }
+  .title-slide-out {
+    animation: title-slide-back 240ms cubic-bezier(0.4, 0, 0.6, 1) both;
+  }
+  @keyframes title-slide-back {
+    from { opacity: 1; transform: translateX(0);      }
+    to   { opacity: 0; transform: translateX(-16px); }
+  }
+
+  /* Deep-link highlight — brief pulse on the target row after a
+     search-driven drill-in scroll. */
+  :global(.setting-row.deep-link-highlight) {
+    animation: deep-link-pulse 2s cubic-bezier(.2, .8, .2, 1) both;
+    border-radius: 8px;
+  }
+  @keyframes deep-link-pulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%,  transparent); background-color: transparent; }
+    12%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent); background-color: color-mix(in srgb, var(--accent) 14%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%,  transparent); background-color: transparent; }
+  }
 
   /* .group-label is :global — see below */
 
@@ -1010,8 +1209,11 @@
     flex-shrink: 0;
   }
   :global(.si .material-symbols-rounded) { font-size: 18px; }
-  :global(.chevron) { color: var(--text-3); transition: transform 0.2s ease; }
-  :global(.chevron.rotated) { transform: rotate(180deg); color: var(--accent); }
+  /* Drill-in indicator: chevron always points right (rotate -90deg turns
+     the down-arrow into a right-arrow). No expanded state on the index
+     anymore since each section drills into its own sub-page. */
+  :global(.chevron) { color: var(--text-3); transform: rotate(-90deg); }
+  :global(.chevron.rotated) { transform: rotate(-90deg); color: var(--text-3); }
 
   :global(.section-body) { padding: 12px var(--page-px); display: flex; flex-direction: column; gap: 10px; }
 

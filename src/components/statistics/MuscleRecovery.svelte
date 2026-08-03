@@ -8,6 +8,7 @@
   Tooltip on hover / tap shows "Chest · 36h ago · 12 sets".
 -->
 <script>
+  import { _ } from 'svelte-i18n';
   import { computeMuscleRecovery, freshnessFor, MUSCLE_BUCKETS } from '../../lib/muscle-recovery.js';
 
   export let workouts = [];
@@ -43,14 +44,14 @@
 <div class="card recovery-card">
   <div class="recovery-head">
     <div>
-      <span class="recovery-title">Muscle Recovery</span>
+      <span class="recovery-title">{$_('muscle_recovery.title')}</span>
       <span class="recovery-sub">Hours since last completed set, past {windowDays} days</span>
     </div>
     <div class="recovery-legend">
-      <span class="legend-dot" style="background:#ef4444"></span><span class="legend-lbl">Fatigued</span>
-      <span class="legend-dot" style="background:#f97316"></span><span class="legend-lbl">Recovering</span>
-      <span class="legend-dot" style="background:#f59e0b"></span><span class="legend-lbl">Ready</span>
-      <span class="legend-dot" style="background:#10b981"></span><span class="legend-lbl">Fresh</span>
+      <span class="legend-dot" style="background:#ef4444"></span><span class="legend-lbl">{$_('muscle_recovery.fatigued')}</span>
+      <span class="legend-dot" style="background:#f97316"></span><span class="legend-lbl">{$_('muscle_recovery.recovering')}</span>
+      <span class="legend-dot" style="background:#f59e0b"></span><span class="legend-lbl">{$_('muscle_recovery.ready')}</span>
+      <span class="legend-dot" style="background:#10b981"></span><span class="legend-lbl">{$_('muscle_recovery.fresh')}</span>
     </div>
   </div>
 
@@ -215,8 +216,8 @@
       </g>
 
       <!-- Labels under each figure -->
-      <text x="60" y="278" text-anchor="middle" class="figure-label">Front</text>
-      <text x="180" y="278" text-anchor="middle" class="figure-label">Back</text>
+      <text x="60" y="278" text-anchor="middle" class="figure-label">{$_('muscle_recovery.front')}</text>
+      <text x="180" y="278" text-anchor="middle" class="figure-label">{$_('muscle_recovery.back')}</text>
     </svg>
 
     <!-- Selected-muscle caption. Shows when the user hovers a region. -->

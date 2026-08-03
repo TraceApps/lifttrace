@@ -80,7 +80,15 @@ db.exec(`
     source          TEXT DEFAULT 'custom',
     is_global       INTEGER DEFAULT 0,
     created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    created_at      TEXT DEFAULT (datetime('now'))
+    created_at      TEXT DEFAULT (datetime('now')),
+    -- Library-wide load_type default. NULL = "unset" (the fallthrough is
+    -- unambiguous — user's client-side $exerciseLoadTypes pref wins over
+    -- NULL and only loses to an explicit non-NULL library value the
+    -- exercise owner set). See feedback_traceapps_dev_workflow + issue
+    -- #24: fixes volume math + CSV export + history display for
+    -- imported unilateral/alternating exercises whose load_type never
+    -- made it out of the live Diary session.
+    load_type       TEXT DEFAULT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
   CREATE INDEX IF NOT EXISTS idx_exercises_source   ON exercises(source);
@@ -149,6 +157,36 @@ db.exec(`
     stats   TEXT DEFAULT '{}',
     UNIQUE(user_id, date)
   );
+`);
+
+// ── Cardio Log ───────────────────────────────────────────────────────────
+// Manual cardio session entry. Deliberately separate from workout_log so
+// nothing on the set-based lifting side (volume totals, PRs, rest-timer)
+// has to filter for it — cardio just doesn't appear in those queries.
+// See feedback_lifttrace_cardio_scope.md: device sync (Fitbit / Garmin /
+// Health Connect / Apple Health) is explicitly out of scope for LT; those
+// live in NutriTrace via federation.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cardio_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER,
+    date          TEXT NOT NULL,
+    activity      TEXT NOT NULL,
+    duration_min  INTEGER NOT NULL,
+    distance      REAL,
+    distance_unit TEXT DEFAULT 'km',
+    avg_hr        INTEGER,
+    notes         TEXT,
+    -- Pinned template flag (mirrors NT activity_log.is_template). Rows
+    -- flagged 1 double as one-tap re-log presets on the Diary CardioCard:
+    -- their activity + duration + distance + hr + notes seed a new
+    -- session for today when the chip is tapped, without erasing the
+    -- original entry from history.
+    is_template   INTEGER DEFAULT 0,
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_cardio_log_user_date ON cardio_log(user_id, date);
 `);
 
 // ── OAuth/OIDC state + provider tables ───────────────────────────────────
@@ -299,6 +337,10 @@ addColumnIfMissing('program_assignments', 'week_cursor_pinned_at', 'week_cursor_
 // Persisted (not derived) so a past session keeps its week after the athlete
 // advances — a logged Week 2 always reads Week 2.
 addColumnIfMissing('workout_log', 'program_week', 'program_week INTEGER');
+// Library-level load_type default (issue #24). NULL = unset.
+addColumnIfMissing('exercises', 'load_type', 'load_type TEXT DEFAULT NULL');
+// Pinned cardio templates (NT activity_log parity).
+addColumnIfMissing('cardio_log', 'is_template', 'is_template INTEGER DEFAULT 0');
 
 // Phase 2 — trainer prescribes workouts to members (undated "try this" or
 // dated "do this on YYYY-MM-DD"). Either template_id references a template,

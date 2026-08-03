@@ -63,7 +63,7 @@
 
   async function test({ silentOk = false } = {}) {
     if (!canTest) {
-      showError('Enter a URL and access token first');
+      showError($_('settings_federation.url_token_required'));
       return;
     }
     testing = true;
@@ -123,7 +123,7 @@
 
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Enable Federation</span>
+            <span class="setting-label">{$_('settings_federation.enable_federation')}</span>
             <span class="setting-hint">
               Auto-log each completed workout's estimated calories burned to your NutriTrace diary. Workouts appear in NutriTrace under Settings → Wellness → Workout History.
             </span>
@@ -143,7 +143,7 @@
 
         <div class="setting-row" style="flex-wrap:wrap;gap:8px">
           <div class="setting-label-group" style="width:100%">
-            <span class="setting-label">Instance URL</span>
+            <span class="setting-label">{$_('settings_federation.instance_url')}</span>
             <span class="setting-hint">Your NutriTrace server, e.g. <code>https://nutritrace.example.com</code></span>
           </div>
           <input class="form-input-sm" style="flex:1;min-width:0;width:100%" type="url"
@@ -153,7 +153,7 @@
 
         <div class="setting-row" style="flex-wrap:wrap;gap:8px">
           <div class="setting-label-group" style="width:100%">
-            <span class="setting-label">Access Token</span>
+            <span class="setting-label">{$_('settings_federation.access_token')}</span>
             <span class="setting-hint">
               Generate in NutriTrace under Settings → User Management → API Tokens with the <code>write:workouts</code> scope.
             </span>
@@ -178,7 +178,7 @@
 
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Wearable Priority</span>
+            <span class="setting-label">{$_('settings_federation.wearable_priority')}</span>
             <span class="setting-hint">
               If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → "Prefer Wearable Data Over LiftTrace".
             </span>

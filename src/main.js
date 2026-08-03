@@ -1,3 +1,6 @@
+import { APP_VERSION } from './lib/version.js';
+if (typeof window !== 'undefined') window.__APP_VERSION__ = APP_VERSION;
+
 // Diagnostic log capture MUST be the first import so its console.* wrappers
 // install before any other module logs. See src/lib/log-capture.js.
 import './lib/log-capture.js';

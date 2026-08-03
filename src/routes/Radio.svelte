@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { radioEnabled, radioUrl, radioStations, radioStationsEnabled } from '../stores/settings.js';
   import { isNative, getServerUrl, resolveAssetUrl } from '../lib/platform.js';
   import { playTrack, addToQueue, playNext, currentTrack, streamNowPlaying } from '../stores/player.js';
@@ -96,7 +97,7 @@
   function saveStation() {
     const name = stationName.trim();
     const url = stationUrl.trim();
-    if (!name || !url) { showError('Name and URL are required'); return; }
+    if (!name || !url) { showError($_('radio.toast.name_url_required')); return; }
     const record = {
       id: stationEdit?.id || `station:${Date.now()}`,
       name, url,
@@ -114,7 +115,7 @@
     }
     $radioStations = list;
     showStationDialog = false;
-    showSuccess(stationEdit ? 'Station updated' : 'Station added');
+    showSuccess(stationEdit ? $_('radio.toast.station_updated') : $_('radio.toast.station_added'));
   }
 
   // Move a station up/down within its group (swaps with the nearest
@@ -161,7 +162,7 @@
     });
     $radioStations = list;
     showRenameGroup = false;
-    showSuccess(next ? `Renamed to "${next}"` : 'Stations moved to Ungrouped');
+    showSuccess(next ? $_('radio.toast.renamed_to', { values: { name: next } }) : $_('radio.toast.moved_ungrouped'));
   }
 
   // ── Stations sub-tab (My vs Browse) ─────────────────────────────────────
@@ -195,8 +196,8 @@
         const info = await res.json();
         if (info.name  && !stationName.trim())  stationName  = info.name;
         if (info.genre && !stationGenre.trim()) stationGenre = info.genre;
-        if (!info.name && !info.genre) showError('No station metadata found');
-      } else showError('Could not probe station');
+        if (!info.name && !info.genre) showError($_('radio.toast.no_metadata'));
+      } else showError($_('radio.toast.cant_probe'));
     } catch(e) { showError(e.message); }
     detectingInfo = false;
   }
@@ -213,7 +214,7 @@
       if (res.ok) {
         const { iconUrl } = await res.json();
         if (iconUrl) stationIcon = iconUrl;
-        else showError('No icon found — try pasting homepage URL above');
+        else showError($_('radio.toast.no_icon'));
       }
     } catch {}
     fetchingIcon = false;
@@ -292,7 +293,7 @@
       const url = `https://de1.api.radio-browser.info/json/stations/search?name=${encodeURIComponent(q)}&limit=30&hidebroken=true&order=clickcount&reverse=true`;
       const res = await fetch(url);
       if (res.ok) rbResults = await res.json();
-    } catch(e) { showError('Radio-Browser search failed'); rbResults = []; }
+    } catch(e) { showError($_('radio.toast.rb_search_failed')); rbResults = []; }
     rbSearching = false;
   }
   async function addFromRadioBrowser(r) {
@@ -318,7 +319,7 @@
       } catch {}
     }
     $radioStations = [...($radioStations || []), record];
-    showSuccess(`Added "${record.name}"`);
+    showSuccess($_('radio.toast.added_named', { values: { name: record.name } }));
   }
 
   // Now-playing: `streamNowPlaying` store is driven globally by player.js.
@@ -502,7 +503,7 @@
         artists = await sub.getArtists();
         _LIB_CACHE.artists = artists;
         if (!artists || artists.length === 0) {
-          showError('No artists found — check your media server library');
+          showError($_('radio.toast.no_artists'));
         }
       } else if (t === 'playlists') {
         playlists = await sub.getPlaylists();
@@ -563,7 +564,7 @@
       const rolled = new Set(starredIds);
       if (isStarred) rolled.add(idKey); else rolled.delete(idKey);
       starredIds = rolled;
-      showError(e.message || 'Could not update favorite');
+      showError(e.message || $_('radio.toast.cant_update_fav'));
     }
   }
   function isStarred(kind, item) {
@@ -637,7 +638,7 @@
   // random and plays it — equivalent role to "Mix" on music tabs.
   function playRandomStation() {
     const list = $radioStations || [];
-    if (!list.length) { showError('Add a station first'); return; }
+    if (!list.length) { showError($_('radio.toast.add_station_first')); return; }
     const pick = list[Math.floor(Math.random() * list.length)];
     playStation(pick);
   }
@@ -700,12 +701,12 @@
   }
 
   function ctxAddToQueue() {
-    if (ctxTrack) { addToQueue(ctxTrack); showSuccess('Added to queue'); }
+    if (ctxTrack) { addToQueue(ctxTrack); showSuccess($_('radio.toast.added_to_queue')); }
     ctxTrack = null;
   }
 
   function ctxPlayNext() {
-    if (ctxTrack) { playNext(ctxTrack); showSuccess('Playing next'); }
+    if (ctxTrack) { playNext(ctxTrack); showSuccess($_('radio.toast.playing_next')); }
     ctxTrack = null;
   }
 
@@ -742,19 +743,19 @@
           {#if musicAvailable}
             <button class="icon-btn" class:active={tab === 'search'}
               on:click={() => tab = 'search'}
-              title="Search library" aria-label="Search">
+              title={$_('radio.search_library')} aria-label={$_('radio.search')}>
               <span class="material-symbols-rounded">search</span>
             </button>
           {/if}
           {#if tab === 'stations'}
             <button class="shuffle-btn" on:click={playRandomStation}
               disabled={!($radioStations || []).length}
-              title="Play a random station from your list">
+              title={$_('radio.play_random_station')}>
               <span class="material-symbols-rounded">shuffle</span> Random
             </button>
           {:else if musicAvailable && tab !== 'search'}
             <button class="shuffle-btn" on:click={playRandom}
-              title="Play a random mix of 50 songs from your library">
+              title={$_('radio.play_random_mix')}>
               <span class="material-symbols-rounded">shuffle</span> Mix
             </button>
           {/if}
@@ -763,7 +764,7 @@
 
       {#if tab === 'search' && musicAvailable}
         <div class="radio-search-bar">
-          <input class="search-input" type="search" placeholder="Search artists, albums, songs…"
+          <input class="search-input" type="search" placeholder={$_('radio.search_ph')}
             bind:value={search} on:keydown={e => e.key === 'Enter' && doSearch()} />
           <button class="btn btn-primary" style="height:38px;font-size:13px;flex-shrink:0" on:click={doSearch} disabled={loading}>
             {#if loading}
@@ -792,7 +793,7 @@
         </div>
       {/if}
       {#if searchResults.songs.length > 0}
-        <p class="result-label">Songs</p>
+        <p class="result-label">{$_('radio.songs')}</p>
         {#each searchResults.songs as song}
           {@const track = sub.songToTrack(song)}
           <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -819,7 +820,7 @@
         {/each}
       {/if}
       {#if searchResults.albums.length > 0}
-        <p class="result-label">Albums</p>
+        <p class="result-label">{$_('radio.albums')}</p>
         <div class="album-grid">
           {#each searchResults.albums as album}
             <button class="album-card" on:click={() => openAlbum(album)}>
@@ -831,7 +832,7 @@
         </div>
       {/if}
       {#if searchResults.artists.length > 0}
-        <p class="result-label">Artists</p>
+        <p class="result-label">{$_('radio.artists')}</p>
         {#each searchResults.artists as artist}
           <button class="artist-row" on:click={() => openArtist(artist)}>
             <span class="material-symbols-rounded" style="font-size:20px;color:var(--accent)">person</span>
@@ -1012,7 +1013,7 @@
     <!-- Starred — favorites across songs / albums / artists -->
     {:else if tab === 'starred'}
       {#if starredAlbums.length > 0}
-        <p class="result-label">Albums</p>
+        <p class="result-label">{$_('radio.albums')}</p>
         <div class="album-grid">
           {#each starredAlbums as album (album.id)}
             <button class="album-card" on:click={() => openAlbum(album)}>
@@ -1024,20 +1025,20 @@
         </div>
       {/if}
       {#if starredArtists.length > 0}
-        <p class="result-label">Artists</p>
+        <p class="result-label">{$_('radio.artists')}</p>
         {#each starredArtists as artist (artist.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
           <div class="artist-row" on:click={() => openArtist(artist)} role="button" tabindex="0">
             <span class="material-symbols-rounded" style="font-size:20px;color:var(--accent)">person</span>
             <span class="artist-name">{artist.name}</span>
-            <button class="star-btn" on:click|stopPropagation={() => toggleStar('artist', artist)} title="Unstar">
+            <button class="star-btn" on:click|stopPropagation={() => toggleStar('artist', artist)} title={$_('radio.unstar')}>
               <span class="material-symbols-rounded filled">star</span>
             </button>
           </div>
         {/each}
       {/if}
       {#if starredSongs.length > 0}
-        <p class="result-label">Songs</p>
+        <p class="result-label">{$_('radio.songs')}</p>
         {#each starredSongs as song (song.id)}
           {@const track = sub.songToTrack(song)}
           <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -1051,7 +1052,7 @@
               <span class="track-title">{song.title}</span>
               <span class="track-meta">{song.artist} · {fmtDuration(song.duration)}</span>
             </div>
-            <button class="star-btn" on:click|stopPropagation={() => toggleStar('song', song)} title="Unstar">
+            <button class="star-btn" on:click|stopPropagation={() => toggleStar('song', song)} title={$_('radio.unstar')}>
               <span class="material-symbols-rounded filled">star</span>
             </button>
           </div>
@@ -1068,8 +1069,8 @@
     {:else if tab === 'stations'}
       <div class="station-sub-tabs" data-active={stationsSubTab}>
         <span class="sub-tab-pill" aria-hidden="true"></span>
-        <button class="sub-tab" class:active={stationsSubTab === 'my'} on:click={() => stationsSubTab = 'my'}>My Stations</button>
-        <button class="sub-tab" class:active={stationsSubTab === 'browse'} on:click={() => stationsSubTab = 'browse'}>Browse</button>
+        <button class="sub-tab" class:active={stationsSubTab === 'my'} on:click={() => stationsSubTab = 'my'}>{$_('radio.my_stations')}</button>
+        <button class="sub-tab" class:active={stationsSubTab === 'browse'} on:click={() => stationsSubTab = 'browse'}>{$_('radio.browse')}</button>
       </div>
 
       {#if stationsSubTab === 'my'}
@@ -1090,7 +1091,7 @@
             <span class="material-symbols-rounded group-chev" class:collapsed={isGroupCollapsed(groupName)}>expand_more</span>
             <span class="group-name">{groupName || 'Ungrouped'}</span>
             <span class="group-count">{stations.length}</span>
-            <button class="group-rename-btn" on:click|stopPropagation={() => openRenameGroup(groupName)} title="Rename group">
+            <button class="group-rename-btn" on:click|stopPropagation={() => openRenameGroup(groupName)} title={$_('radio.rename_group')}>
               <span class="material-symbols-rounded">edit</span>
             </button>
           </div>
@@ -1107,12 +1108,12 @@
               on:drop={e => onStationDrop(e, s)}
               on:dragend={onStationDragEnd}
             >
-              <span class="material-symbols-rounded drag-handle" title="Drag to reorder">drag_indicator</span>
+              <span class="material-symbols-rounded drag-handle" title={$_('radio.drag_reorder')}>drag_indicator</span>
               <div class="station-reorder">
-                <button class="reorder-btn" disabled={!canMove(s, 'up')} on:click={() => moveStation(s, 'up')} title="Move up">
+                <button class="reorder-btn" disabled={!canMove(s, 'up')} on:click={() => moveStation(s, 'up')} title={$_('radio.move_up')}>
                   <span class="material-symbols-rounded">keyboard_double_arrow_up</span>
                 </button>
-                <button class="reorder-btn" disabled={!canMove(s, 'down')} on:click={() => moveStation(s, 'down')} title="Move down">
+                <button class="reorder-btn" disabled={!canMove(s, 'down')} on:click={() => moveStation(s, 'down')} title={$_('radio.move_down')}>
                   <span class="material-symbols-rounded">keyboard_double_arrow_down</span>
                 </button>
               </div>
@@ -1223,27 +1224,27 @@
   cancelText="Cancel"
   on:confirm={saveStation}>
   <div class="station-form">
-    <label class="form-label">Name</label>
-    <input class="form-input" type="text" bind:value={stationName} placeholder="SomaFM Groove Salad" />
+    <label class="form-label">{$_('radio.name')}</label>
+    <input class="form-input" type="text" bind:value={stationName} placeholder={$_('radio.name_ph')} />
     <div class="field-header">
-      <label class="form-label">Stream URL</label>
+      <label class="form-label">{$_('radio.stream_url')}</label>
       <button type="button" class="auto-btn" on:click={autoFillFromUrl} disabled={detectingInfo || !stationUrl.trim()} title="Detect station info">
         <span class="material-symbols-rounded">auto_awesome</span>
         {detectingInfo ? 'Detecting…' : 'Auto-fill'}
       </button>
     </div>
     <input class="form-input" type="url" bind:value={stationUrl} placeholder="https://ice1.somafm.com/groovesalad-128-mp3" />
-    <label class="form-label">Genre <span class="optional">(optional)</span></label>
+    <label class="form-label">{$_('radio.genre')} <span class="optional">{$_('radio.optional')}</span></label>
     <input class="form-input" type="text" bind:value={stationGenre} placeholder="Ambient / Downtempo" />
-    <label class="form-label">Homepage <span class="optional">(used for icon lookup)</span></label>
+    <label class="form-label">{$_('radio.homepage')} <span class="optional">{$_('radio.for_icon_lookup')}</span></label>
     <input class="form-input" type="url" bind:value={stationHomepage} placeholder="https://www.deejay.it" />
-    <label class="form-label">Group <span class="optional">(optional)</span></label>
+    <label class="form-label">{$_('radio.group')} <span class="optional">{$_('radio.optional')}</span></label>
     <input class="form-input" type="text" bind:value={stationGroup} list="station-groups" placeholder="Italian, Workout, Chill…" />
     <datalist id="station-groups">
       {#each existingGroups as g}<option value={g}></option>{/each}
     </datalist>
     <div class="field-header">
-      <label class="form-label">Icon URL <span class="optional">(optional)</span></label>
+      <label class="form-label">{$_('radio.icon_url')} <span class="optional">{$_('radio.optional')}</span></label>
       <button type="button" class="auto-btn" on:click={autoFetchIcon} disabled={!stationUrl.trim()} title="Use favicon from stream URL's domain">
         <span class="material-symbols-rounded">image_search</span> Auto
       </button>
@@ -1254,12 +1255,12 @@
 
 <!-- Rename group dialog -->
 <Dialog bind:open={showRenameGroup}
-  title="Rename group"
+  title={$_('radio.rename_group')}
   confirmText="Save"
   cancelText="Cancel"
   on:confirm={saveRenameGroup}>
   <div class="station-form">
-    <label class="form-label">New name <span class="optional">(leave empty to ungroup)</span></label>
+    <label class="form-label">{$_('radio.new_name')} <span class="optional">{$_('radio.leave_empty_ungroup')}</span></label>
     <input class="form-input" type="text" bind:value={renameGroupNew} placeholder="e.g. Italian, Workout" autofocus />
   </div>
 </Dialog>

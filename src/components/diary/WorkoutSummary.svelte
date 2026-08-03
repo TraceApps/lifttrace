@@ -1,10 +1,12 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { weightUnit, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
   import { DB } from '../../lib/db.js';
   import { shareWorkoutCard } from '../../lib/workoutCard.js';
   import { exportWorkoutCsv } from '../../lib/workoutCsv.js';
+  import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
   import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume } from '../../lib/workout.js';
   import { timerState, timerMs } from '../../stores/workoutTimer.js';
@@ -70,7 +72,22 @@
   async function handleExportCsv() {
     if (!workout || exportingCsv) return;
     exportingCsv = true;
-    try { await exportWorkoutCsv({ ...workout, duration_min: effectiveDurationMin }, $weightUnit); }
+    try {
+      // Look up library-level load_type per exercise so alternating
+      // sets logged as a single `reps` value expand to two CSV rows
+      // (L + R) and the exported total reconciles with Statistics.
+      // See issue #24. Silent fall-through to empty map on failure so
+      // export still works when the library fetch fails.
+      let libLoadTypes = null;
+      try {
+        const libraryExercises = await LtApi.listExercises();
+        libLoadTypes = new Map();
+        for (const e of libraryExercises || []) {
+          if (e?.id != null && e.load_type) libLoadTypes.set(e.id, e.load_type);
+        }
+      } catch {}
+      await exportWorkoutCsv({ ...workout, duration_min: effectiveDurationMin }, $weightUnit, libLoadTypes);
+    }
     catch (e) { showError(e.message || 'Export failed'); }
     exportingCsv = false;
   }
@@ -187,20 +204,20 @@
         </div>
         <div class="ws-stat">
           <span class="ws-stat-val">{stats.sets}</span>
-          <span class="ws-stat-label">Sets</span>
+          <span class="ws-stat-label">{$_('workout_summary.sets')}</span>
         </div>
         <div class="ws-stat">
           <span class="ws-stat-val">{stats.exercises}</span>
-          <span class="ws-stat-label">Exercises</span>
+          <span class="ws-stat-label">{$_('workout_summary.exercises')}</span>
         </div>
         <button class="ws-stat ws-stat-edit" on:click={openDurationEditor}
                 title="Tap to edit duration" type="button">
           {#if effectiveDurationMin > 0}
             <span class="ws-stat-val">{fmtDuration(effectiveDurationMin)}</span>
-            <span class="ws-stat-label">Duration</span>
+            <span class="ws-stat-label">{$_('workout_summary.duration')}</span>
           {:else}
             <span class="ws-stat-val ws-stat-placeholder">Add</span>
-            <span class="ws-stat-label">Duration</span>
+            <span class="ws-stat-label">{$_('workout_summary.duration')}</span>
           {/if}
           <span class="material-symbols-rounded ws-stat-edit-icon">edit</span>
         </button>
@@ -218,7 +235,7 @@
           </div>
           <div class="ws-duration-custom">
             <input class="ws-duration-input" type="number" inputmode="numeric"
-                   min="1" max="1440" step="1" placeholder="Custom"
+                   min="1" max="1440" step="1" placeholder={$_('workout_summary.custom')}
                    bind:value={durationCustomMin}
                    on:keydown={(e) => { if (e.key === 'Enter') submitCustomDuration(); }} />
             <span class="ws-duration-unit">min</span>
@@ -282,7 +299,7 @@
           <span class="material-symbols-rounded" style="font-size:18px">share</span>
           {sharing ? 'Preparing…' : 'Share'}
         </button>
-        <button class="btn btn-primary ws-done-btn" on:click={() => open = false}>Done</button>
+        <button class="btn btn-primary ws-done-btn" on:click={() => open = false}>{$_('workout_summary.done')}</button>
       </div>
     </div>
   </div>

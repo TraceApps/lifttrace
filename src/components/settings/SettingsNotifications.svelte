@@ -54,11 +54,11 @@
       });
       if (!res.ok) {
         const data = await res.json();
-        showError(data.error || 'Test failed');
+        showError(data.error || $_('settings_notifications.toast.test_failed'));
         pushTestResult = 'fail';
       } else {
         pushTestResult = 'ok';
-        showSuccess('Test sent, check your device');
+        showSuccess($_('settings_notifications.toast.test_sent'));
       }
     } catch { pushTestResult = 'fail'; }
     pushTesting = false;
@@ -102,23 +102,23 @@
   </button>
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
-      <p class="sub-label">Delivery</p>
+      <p class="sub-label">{$_('settings_notifications.sections.delivery')}</p>
       <div class="card">
         {#if $notifPushService !== 'none'}
           <ConnectionStatus
             status={pushBannerStatus}
-            okLabel="Configured"
+            okLabel={$_('settings_notifications.push.configured')}
             connectedAs={pushProviderLabel}
-            error={pushTestResult === 'fail' ? `${pushProviderLabel} test failed — check the URL and credentials below` : ''}
+            error={pushTestResult === 'fail' ? $_('settings_notifications.push.test_failed_hint', { values: { provider: pushProviderLabel } }) : ''}
             onRetest={testPush}
             retestDisabled={pushBannerDisabled}
-            retestLabel="Send Test"
+            retestLabel={$_('settings_notifications.push.send_test')}
           />
         {/if}
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Device Notifications</span>
-            <span class="setting-hint">{isNative ? 'System notifications shown by Android in the status bar and on the lock screen' : 'Browser notification alerts'}</span>
+            <span class="setting-label">{$_('settings_notifications.push.device')}</span>
+            <span class="setting-hint">{isNative ? $_('settings_notifications.push.device_desc_native') : $_('settings_notifications.push.device_desc_web')}</span>
           </div>
           <Toggle bind:checked={$notifLocalEnabled} />
         </div>
@@ -126,24 +126,24 @@
           <div class="setting-row">
             <div class="setting-label-group">
               <span class="setting-hint" style="color:var(--warn,#FFB347)">
-                {isNative ? 'Android needs permission to show notifications.' : 'The browser needs permission to show notifications.'}
+                {isNative ? $_('settings_notifications.push.perm_hint_native') : $_('settings_notifications.push.perm_hint_web')}
               </span>
             </div>
             <button class="btn btn-secondary" style="height:32px;font-size:12px" on:click={_requestPermission}>
-              Grant
+              {$_('settings_notifications.push.grant')}
             </button>
           </div>
         {/if}
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Push Service</span>
-            <span class="setting-hint">External push delivery (Gotify, ntfy, or Apprise)</span>
+            <span class="setting-label">{$_('settings_notifications.push.push_service')}</span>
+            <span class="setting-hint">{$_('settings_notifications.push.push_service_desc')}</span>
           </div>
           <select class="form-select-sm" bind:value={$notifPushService}>
-            <option value="none">None</option>
-            <option value="apprise">Apprise</option>
-            <option value="gotify">Gotify</option>
-            <option value="ntfy">ntfy</option>
+            <option value="none">{$_('settings_notifications.push.option_none')}</option>
+            <option value="apprise">{$_('settings_notifications.push.option_apprise')}</option>
+            <option value="gotify">{$_('settings_notifications.push.option_gotify')}</option>
+            <option value="ntfy">{$_('settings_notifications.push.option_ntfy')}</option>
           </select>
         </div>
       </div>
@@ -151,18 +151,18 @@
       {#if $notifPushService === 'gotify'}
         <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
           <div class="form-group">
-            <label class="form-label">Gotify Server URL</label>
-            <input class="form-input" type="text" bind:value={$gotifyUrl} placeholder="https://gotify.example.com" />
+            <label class="form-label">{$_('settings_notifications.push.gotify_url')}</label>
+            <input class="form-input" type="text" bind:value={$gotifyUrl} placeholder={$_('settings_notifications.push.gotify_url_ph')} />
           </div>
           <div class="form-group">
-            <label class="form-label">App Token</label>
+            <label class="form-label">{$_('settings_notifications.push.gotify_token')}</label>
             <div style="display:flex;gap:8px;align-items:center">
               {#if pushShowToken}
-                <input class="form-input" style="flex:1" type="text" bind:value={$gotifyToken} placeholder="Gotify app token" />
+                <input class="form-input" style="flex:1" type="text" bind:value={$gotifyToken} placeholder={$_('settings_notifications.push.gotify_token_ph')} />
               {:else}
-                <input class="form-input" style="flex:1" type="password" bind:value={$gotifyToken} placeholder="Gotify app token" />
+                <input class="form-input" style="flex:1" type="password" bind:value={$gotifyToken} placeholder={$_('settings_notifications.push.gotify_token_ph')} />
               {/if}
-              <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? 'Hide' : 'Show'}>
+              <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? $_('settings_notifications.push.hide') : $_('settings_notifications.push.show')}>
                 <span class="material-symbols-rounded">{pushShowToken ? 'visibility_off' : 'visibility'}</span>
               </button>
             </div>
@@ -171,22 +171,22 @@
       {:else if $notifPushService === 'ntfy'}
         <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
           <div class="form-group">
-            <label class="form-label">ntfy Server URL</label>
-            <input class="form-input" type="text" bind:value={$ntfyUrl} placeholder="https://ntfy.sh" />
+            <label class="form-label">{$_('settings_notifications.push.ntfy_url')}</label>
+            <input class="form-input" type="text" bind:value={$ntfyUrl} placeholder={$_('settings_notifications.push.ntfy_url_ph')} />
           </div>
           <div class="form-group">
-            <label class="form-label">Topic</label>
-            <input class="form-input" type="text" bind:value={$ntfyTopic} placeholder="lifttrace" />
+            <label class="form-label">{$_('settings_notifications.push.ntfy_topic')}</label>
+            <input class="form-input" type="text" bind:value={$ntfyTopic} placeholder={$_('settings_notifications.push.ntfy_topic_ph')} />
           </div>
           <div class="form-group">
-            <label class="form-label">Access Token (optional)</label>
+            <label class="form-label">{$_('settings_notifications.push.ntfy_token')}</label>
             <div style="display:flex;gap:8px;align-items:center">
               {#if pushShowToken}
-                <input class="form-input" style="flex:1" type="text" bind:value={$ntfyToken} placeholder="Bearer token" />
+                <input class="form-input" style="flex:1" type="text" bind:value={$ntfyToken} placeholder={$_('settings_notifications.push.ntfy_token_ph')} />
               {:else}
-                <input class="form-input" style="flex:1" type="password" bind:value={$ntfyToken} placeholder="Bearer token" />
+                <input class="form-input" style="flex:1" type="password" bind:value={$ntfyToken} placeholder={$_('settings_notifications.push.ntfy_token_ph')} />
               {/if}
-              <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? 'Hide' : 'Show'}>
+              <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? $_('settings_notifications.push.hide') : $_('settings_notifications.push.show')}>
                 <span class="material-symbols-rounded">{pushShowToken ? 'visibility_off' : 'visibility'}</span>
               </button>
             </div>
@@ -195,126 +195,126 @@
       {:else if $notifPushService === 'apprise'}
         <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
           <div class="form-group">
-            <label class="form-label">Apprise Server URL</label>
-            <input class="form-input" type="text" bind:value={$appriseUrl} placeholder="http://apprise:8000" />
+            <label class="form-label">{$_('settings_notifications.push.apprise_url')}</label>
+            <input class="form-input" type="text" bind:value={$appriseUrl} placeholder={$_('settings_notifications.push.apprise_url_ph')} />
           </div>
           <div class="form-group">
-            <label class="form-label">Tag (optional)</label>
-            <input class="form-input" type="text" bind:value={$appriseTag} placeholder="lifttrace" />
+            <label class="form-label">{$_('settings_notifications.push.apprise_tag')}</label>
+            <input class="form-input" type="text" bind:value={$appriseTag} placeholder={$_('settings_notifications.push.apprise_tag_ph')} />
           </div>
         </div>
       {/if}
 
       {#if anyNotifEnabled}
-        <p class="sub-label">Scheduled Reminders</p>
+        <p class="sub-label">{$_('settings_notifications.sections.scheduled_reminders')}</p>
         <div class="card">
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Workout Reminder</span>
-              <span class="setting-hint">Daily reminder to train</span>
+              <span class="setting-label">{$_('settings_notifications.reminders.workout')}</span>
+              <span class="setting-hint">{$_('settings_notifications.reminders.workout_desc')}</span>
             </div>
             <Toggle bind:checked={$notifWorkoutReminder} />
           </div>
           {#if $notifWorkoutReminder}
             <div class="setting-row">
-              <span class="setting-label">Time</span>
+              <span class="setting-label">{$_('settings_notifications.reminders.time')}</span>
               <input class="form-input-sm" type="time" bind:value={$notifWorkoutTime} style="width:120px" />
             </div>
           {/if}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Rest Day Reminder</span>
-              <span class="setting-hint">Reminds you to recover after training days</span>
+              <span class="setting-label">{$_('settings_notifications.reminders.rest_day')}</span>
+              <span class="setting-hint">{$_('settings_notifications.reminders.rest_day_desc')}</span>
             </div>
             <Toggle bind:checked={$notifRestDay} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Streak Alert</span>
-              <span class="setting-hint">Warns when your streak is at risk</span>
+              <span class="setting-label">{$_('settings_notifications.reminders.streak')}</span>
+              <span class="setting-hint">{$_('settings_notifications.reminders.streak_desc')}</span>
             </div>
             <Toggle bind:checked={$notifStreakAlert} />
           </div>
           {#if $notifStreakAlert}
             <div class="setting-row">
-              <span class="setting-label">Alert Time</span>
+              <span class="setting-label">{$_('settings_notifications.reminders.alert_time')}</span>
               <input class="form-input-sm" type="time" bind:value={$notifStreakTime} style="width:120px" />
             </div>
           {/if}
         </div>
 
-        <p class="sub-label">Alerts & Celebrations</p>
+        <p class="sub-label">{$_('settings_notifications.sections.alerts')}</p>
         <div class="card">
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Workout Complete</span>
-              <span class="setting-hint">Celebrate when all sets are done</span>
+              <span class="setting-label">{$_('settings_notifications.alerts.complete')}</span>
+              <span class="setting-hint">{$_('settings_notifications.alerts.complete_desc')}</span>
             </div>
             <Toggle bind:checked={$notifWorkoutComplete} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Personal Records</span>
-              <span class="setting-hint">Celebrate when you hit a new PR</span>
+              <span class="setting-label">{$_('settings_notifications.alerts.prs')}</span>
+              <span class="setting-hint">{$_('settings_notifications.alerts.prs_desc')}</span>
             </div>
             <Toggle bind:checked={$notifPRCelebrations} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Coach Feedback</span>
-              <span class="setting-hint">Ping when your coach leaves a note on a workout</span>
+              <span class="setting-label">{$_('settings_notifications.alerts.coach_feedback')}</span>
+              <span class="setting-hint">{$_('settings_notifications.alerts.coach_feedback_desc')}</span>
             </div>
             <Toggle bind:checked={$notifCoachFeedback} />
           </div>
         </div>
 
         {#if isCoach}
-          <p class="sub-label">Coaching</p>
+          <p class="sub-label">{$_('settings_notifications.sections.coaching')}</p>
           <div class="card">
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Member Completes Prescribed Workout</span>
-                <span class="setting-hint">Push when a member finishes a workout you prescribed for that day</span>
+                <span class="setting-label">{$_('settings_notifications.coach.member_completes')}</span>
+                <span class="setting-hint">{$_('settings_notifications.coach.member_completes_desc')}</span>
               </div>
               <Toggle bind:checked={$notifMemberCompletes} />
             </div>
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Member Missed a Prescription</span>
-                <span class="setting-hint">Push the morning after a dated prescription's day passes without a completed workout</span>
+                <span class="setting-label">{$_('settings_notifications.coach.member_missed')}</span>
+                <span class="setting-hint">{$_('settings_notifications.coach.member_missed_desc')}</span>
               </div>
               <Toggle bind:checked={$notifMemberMissed} />
             </div>
             <div class="setting-row">
               <div class="setting-label-group">
-                <span class="setting-label">Member Replied to Feedback</span>
-                <span class="setting-hint">Push when a coachee replies to one of your notes</span>
+                <span class="setting-label">{$_('settings_notifications.coach.member_reply')}</span>
+                <span class="setting-hint">{$_('settings_notifications.coach.member_reply_desc')}</span>
               </div>
               <Toggle bind:checked={$notifMemberReply} />
             </div>
           </div>
         {/if}
 
-        <p class="sub-label">Summaries</p>
+        <p class="sub-label">{$_('settings_notifications.sections.summaries')}</p>
         <div class="card">
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Weekly Summary</span>
-              <span class="setting-hint">Push + email digest of your training week</span>
+              <span class="setting-label">{$_('settings_notifications.summaries.weekly')}</span>
+              <span class="setting-hint">{$_('settings_notifications.summaries.weekly_desc')}</span>
             </div>
             <Toggle bind:checked={$notifWeeklySummary} />
           </div>
           {#if $notifWeeklySummary}
             <div class="setting-row">
-              <span class="setting-label">Delivery Day</span>
+              <span class="setting-label">{$_('settings_notifications.summaries.delivery_day')}</span>
               <select class="form-select-sm" bind:value={$weeklySummaryDay}>
-                {#each ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] as d, i}
+                {#each [$_('settings_notifications.summaries.day_sun'), $_('settings_notifications.summaries.day_mon'), $_('settings_notifications.summaries.day_tue'), $_('settings_notifications.summaries.day_wed'), $_('settings_notifications.summaries.day_thu'), $_('settings_notifications.summaries.day_fri'), $_('settings_notifications.summaries.day_sat')] as d, i}
                   <option value={i}>{d}</option>
                 {/each}
               </select>
             </div>
             <div class="setting-row">
-              <span class="setting-label">Delivery Time</span>
+              <span class="setting-label">{$_('settings_notifications.summaries.delivery_time')}</span>
               <input class="form-input-sm" type="time" bind:value={$weeklySummaryTime} style="width:120px" />
             </div>
           {/if}

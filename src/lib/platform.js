@@ -142,9 +142,30 @@ function _withAuthQuery(url) {
  * when in native server mode. Checks local image cache first for offline support.
  * On web, returns the path unchanged.
  */
+/**
+ * Version-busted URL for one of the app's icon PNGs. Browsers cache
+ * these hard by URL and won't refetch when the file changes underneath
+ * them; appending ?v=<version> makes each dev bump a new URL so a
+ * shipped icon fix is actually visible without cache-clearing.
+ */
+export function iconUrl(path) {
+  const resolved = resolveAssetUrl(path);
+  if (!resolved) return resolved;
+  if (resolved.startsWith('data:') || resolved.includes('?')) return resolved;
+  const v = (typeof window !== 'undefined' && window.__APP_VERSION__) || 'dev';
+  return `${resolved}?v=${encodeURIComponent(v)}`;
+}
+
+// WebView's own origin — historically https://localhost, now
+// https://app.lifttrace.local after the hostname flip for password-
+// manager identity. Any absolute URL that begins with this origin is
+// already a bundled asset served from the APK.
+const _webviewOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
 export function resolveAssetUrl(path) {
   if (!path) return path;
-  if (path.startsWith('data:') || path.startsWith('file:') || path.startsWith('https://localhost')) return path;
+  if (path.startsWith('data:') || path.startsWith('file:')) return path;
+  if (_webviewOrigin && path.startsWith(_webviewOrigin)) return path;
   if (isNative) {
     // Always check local image cache first (fastest, works offline + disconnected)
     if (_imageMap[path]) return _imageMap[path];

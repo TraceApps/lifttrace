@@ -3,6 +3,7 @@
    * Workouts-per-week chart. Shared by Statistics' Overview + Frequency views.
    * Mirrors WeeklyVolumeChart.svelte — same multi-week / solo / empty behaviour.
    */
+  import { _ } from 'svelte-i18n';
   import { fmtWeekLabel } from '../../lib/statsFormat.js';
 
   export let frequency = [];   // [{ week, count }]
@@ -21,7 +22,7 @@
 
 {#if frequency.length >= 2}
   <div class="chart-card">
-    <h3 class="chart-title">Workouts per Week</h3>
+    <h3 class="chart-title">{$_('workout_frequency_chart.title')}</h3>
     {#if detailed}
       <p class="chart-desc">Training days logged each week in this range.</p>
     {/if}
@@ -45,13 +46,13 @@
   </div>
 {:else if frequency.length === 1}
   <div class="chart-card">
-    <h3 class="chart-title">Workouts per Week</h3>
+    <h3 class="chart-title">{$_('workout_frequency_chart.title')}</h3>
     {#if detailed}
       <p class="chart-desc">Training days logged each week in this range.</p>
     {/if}
     <div class="solo-stat">
       <span class="solo-value">{frequency[0].count}</span>
-      <span class="solo-label">This week</span>
+      <span class="solo-label">{$_('workout_frequency_chart.this_week')}</span>
     </div>
     {#if detailed}
       <p class="chart-sub">Log another week to see trends.</p>

@@ -19,6 +19,19 @@ const config: CapacitorConfig = {
     },
   },
   server: {
+    // WebView identity for Android autofill. Without an explicit hostname
+    // Capacitor serves from https://localhost/, which is what password
+    // managers like Bitwarden read as the site name — so saved credentials
+    // show up as "localhost". Setting a hostname makes the WebView report
+    // https://app.lifttrace.local/ instead. .local (RFC 6762) is reserved
+    // for local/private use, no collision risk.
+    //
+    // ONE-TIME UPGRADE COST: origin change orphans localStorage /
+    // sessionStorage / IndexedDB / cookies. SQLite via
+    // @capacitor-community/sqlite is origin-independent — workout data is
+    // safe. Users on a linked server need to re-enter server URL + log in
+    // once; standalone users see prefs default once.
+    hostname: 'app.lifttrace.local',
     androidScheme: 'https',
   },
   plugins: {

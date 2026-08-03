@@ -4,13 +4,17 @@
   import Router, { location } from 'svelte-spa-router';
 
   import BottomNav from './components/layout/BottomNav.svelte';
+  import UpdateBanner from './components/UpdateBanner.svelte';
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation } from './stores/settings.js';
-  import { locale } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { slide } from 'svelte/transition';
+  import { portal } from './lib/portal.js';
+  import { describeConnectionIssue } from './lib/connection-message.js';
 
   // Drive svelte-i18n's active locale from the user's saved language setting.
   $: if ($language) locale.set($language);
@@ -25,6 +29,107 @@
   // Local-only standalone or PWA never show the badge (no server to be
   // offline from).
   $: _syncModeActive = isNative && getNativeMode() === 'server';
+  // Server is reachable when the OS reports online AND the classifier
+  // hasn't flagged a structured issue. Drives the red cloud badge and
+  // banner suppression — matches NT's exact predicate.
+  $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
+  // Reactive copy build for the smart connection banner. Falls back to
+  // the generic "Sync error" title when a non-connection error is
+  // surfaced with showFailureBanner=true.
+  $: _connectionCopy = describeConnectionIssue($syncState.connectionIssue, $_, true);
+  $: _syncBannerCopy = $syncState.showErrorBanner && _connectionCopy
+    ? { ..._connectionCopy, icon: 'cloud_off' }
+    : ($syncState.showErrorBanner && $syncState.error
+      ? { title: $_('sync.error_title'), detail: $syncState.error, icon: 'error' }
+      : null);
+
+  // Pull-to-refresh gesture (native server mode). Mirrors NT App.svelte.
+  // LT-specific: the whole viewport scrolls the document (not a fixed
+  // .page-transition inner scroller like NT/CT), so the "at the top?"
+  // check reads window.scrollY / documentElement.scrollTop rather than
+  // scrollTop on the .page-transition element.
+  const PULL_SYNC_SLOP = 10;
+  const PULL_SYNC_THRESHOLD = 64;
+  const PULL_SYNC_MAX = 88;
+  let _pullStartX = 0;
+  let _pullStartY = 0;
+  let _pullDistance = 0;
+  let _pullTracking = false;
+  let _pullRefreshing = false;
+  let _retryingConnection = false;
+
+  async function _waitForSyncIdle(maxMs = 4000) {
+    const start = Date.now();
+    return new Promise(resolve => {
+      const check = () => {
+        let s; syncState.subscribe(v => s = v)();
+        if (!s?.syncing || Date.now() - start > maxMs) resolve();
+        else setTimeout(check, 100);
+      };
+      check();
+    });
+  }
+
+  async function _runForcedSync() {
+    try {
+      const mod = await import('./lib/sync.js');
+      let result = await mod.fullSync(false, true, true);
+      if (result?.reason === 'busy') {
+        await _waitForSyncIdle();
+        result = await mod.fullSync(false, true, true);
+      }
+      return result;
+    } catch (e) {
+      console.warn('[sync] forced sync failed:', e?.message);
+      return { ok: false };
+    }
+  }
+
+  async function _retryServerConnection() {
+    if (_retryingConnection) return;
+    _retryingConnection = true;
+    try { await _runForcedSync(); }
+    finally { _retryingConnection = false; }
+  }
+
+  function _dismissSyncBanner() {
+    // LT imports syncState directly (not via mirror), so no dynamic
+    // import needed. Clears only the full banner surface; leaves
+    // connectionIssue so the badge + Settings status keep reflecting
+    // the actual reachability state.
+    syncState.update(s => ({ ...s, showErrorBanner: false, error: null }));
+  }
+
+  function _startPullSync(event) {
+    if (!_syncModeActive || _pullRefreshing || sidebarOpen || showNativeSetup) return;
+    if (event.target?.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav')) return;
+    const scrollY = window.scrollY || document.scrollingElement?.scrollTop || 0;
+    if (scrollY > 0) return;
+    _pullStartX = event.touches[0].clientX;
+    _pullStartY = event.touches[0].clientY;
+    _pullTracking = true;
+    _pullDistance = 0;
+  }
+  function _movePullSync(event) {
+    if (!_pullTracking) return;
+    const dx = event.touches[0].clientX - _pullStartX;
+    const dy = event.touches[0].clientY - _pullStartY;
+    if (Math.abs(dx) > Math.abs(dy)) { _pullTracking = false; _pullDistance = 0; return; }
+    if (dy < PULL_SYNC_SLOP) return;
+    event.preventDefault();
+    _pullDistance = Math.min(PULL_SYNC_MAX, (dy - PULL_SYNC_SLOP) * 0.5);
+  }
+  async function _finishPullSync() {
+    if (!_pullTracking) return;
+    const hit = _pullDistance >= PULL_SYNC_THRESHOLD;
+    _pullTracking = false;
+    if (!hit) { _pullDistance = 0; return; }
+    _pullRefreshing = true;
+    console.info('[sync] pull-to-refresh triggered');
+    try { await _runForcedSync(); }
+    finally { _pullRefreshing = false; _pullDistance = 0; }
+  }
+  function _cancelPullSync() { _pullTracking = false; _pullDistance = 0; }
 
   // True on first launch in Capacitor when the user hasn't picked local-vs-server.
   // Renders before any routing so the user can't slip past it.
@@ -76,6 +181,7 @@
     '/statistics':            Statistics,
     '/radio':                 Radio,
     '/settings':              Settings,
+    '/settings/:section':     Settings,
     '/coaching':              Coaching,
     '/coaching/:memberId':    Coaching,
     '/wizard':                Wizard,
@@ -369,11 +475,34 @@
       // NutriTrace #34.
       window.location.hash = '#/wizard';
     }
+
+    if (isNative) {
+      // Update-notification tap listener: registered at boot so a
+      // shade-notification tap that cold-starts the app still routes
+      // to Settings for the install action.
+      import('./lib/notifications.js').then(({ registerUpdateTapListener }) => {
+        registerUpdateTapListener(() => {
+          import('svelte-spa-router').then(({ push }) => push('/settings'));
+        });
+      }).catch(() => { /* ignore */ });
+
+      // Clean stale APKs from Directory.Data/updates/ on boot.
+      import('./lib/updates.js').then(({ cleanUpdateCache }) => {
+        cleanUpdateCache();
+      }).catch(() => { /* ignore */ });
+    }
   });
 
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
 </script>
+
+<svelte:window
+  on:touchstart|capture={_startPullSync}
+  on:touchmove|nonpassive|capture={_movePullSync}
+  on:touchend|capture={_finishPullSync}
+  on:touchcancel|capture={_cancelPullSync}
+/>
 
 {#if showNativeSetup}
   <NativeSetup />
@@ -392,13 +521,54 @@
       aria-label="Open menu"
     >
       <span class="material-symbols-rounded">menu</span>
-      {#if _syncModeActive && !$syncState.online}
+      {#if _syncModeActive && !_serverReachable}
         <span class="conn-badge conn-offline" aria-label="Offline">
           <span class="material-symbols-rounded" style="font-size:10px">cloud_off</span>
         </span>
       {/if}
     </button>
   </header>
+{/if}
+
+<!-- In-app update banner (native only). Renders only if the OS-level
+     notification permission is denied — grants suppress the banner and
+     route through a shade notification instead. -->
+{#if !needsLogin}<UpdateBanner />{/if}
+
+{#if _syncModeActive && !needsLogin && _syncBannerCopy}
+  <div class="sync-connection-banner"
+    use:portal
+    transition:slide={{ duration: $disableAnimations ? 0 : 200 }}>
+    <span class="material-symbols-rounded sync-banner-icon">{_syncBannerCopy.icon}</span>
+    <div class="sync-banner-copy">
+      <div class="sync-banner-title">{_syncBannerCopy.title}</div>
+      <div class="sync-banner-detail">{_syncBannerCopy.detail}</div>
+    </div>
+    <button class="sync-banner-btn sync-banner-retry"
+      on:click={_retryServerConnection}
+      disabled={_retryingConnection || $syncState.syncing}>
+      {_retryingConnection ? $_('sync.retrying') : $_('sync.retry')}
+    </button>
+    <button class="sync-banner-btn sync-banner-dismiss"
+      on:click={_dismissSyncBanner}
+      aria-label={$_('sync.dismiss_message')}>
+      <span class="material-symbols-rounded">close</span>
+    </button>
+  </div>
+{/if}
+
+{#if _syncModeActive && !sidebarOpen && (_pullDistance > 0 || _pullRefreshing)}
+  <div
+    class="pull-sync-indicator"
+    class:ready-to-sync={_pullDistance >= PULL_SYNC_THRESHOLD}
+    use:portal
+    style:transform={`translate(-50%, ${Math.round(_pullDistance * 0.45)}px)`}
+    aria-hidden="true"
+  >
+    <span class="material-symbols-rounded" class:pull-sync-spin={_pullRefreshing}>
+      {_pullRefreshing ? 'autorenew' : 'arrow_downward'}
+    </span>
+  </div>
 {/if}
 
 {#key $location}
@@ -481,6 +651,87 @@
   .conn-offline {
     background: var(--error, #ef4444);
     color: #fff;
+  }
+
+  /* Smart connection banner. Ported from NT so it sits BELOW the
+     device status bar and the app's compact header instead of covering
+     the clock / hamburger on Android. */
+  .sync-connection-banner {
+    position: fixed;
+    top: calc(var(--safe-top) + 60px);
+    left: calc(var(--sidebar-w, 0px) + 12px);
+    right: 12px;
+    z-index: 250;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    color: var(--error, #ef4444);
+    background: color-mix(in srgb, var(--error, #ef4444) 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--error, #ef4444) 25%, var(--border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    font-size: 12px;
+    font-weight: 500;
+    transition: left 0.25s ease;
+  }
+  .sync-banner-icon {
+    flex: 0 0 auto;
+    font-size: 18px;
+  }
+  .sync-banner-copy {
+    min-width: 0; flex: 1;
+    display: flex; flex-direction: column; gap: 2px;
+    line-height: 1.35;
+  }
+  .sync-banner-title { font-size: 13px; font-weight: 600; }
+  .sync-banner-detail { color: var(--text-2); font-weight: 400; }
+  .sync-banner-btn {
+    flex: 0 0 auto;
+    border: 0;
+    color: var(--error, #ef4444);
+    background: transparent;
+    font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  .sync-banner-btn:disabled { opacity: 0.6; cursor: default; }
+  .sync-banner-dismiss {
+    display: flex; align-items: center;
+    padding: 2px;
+  }
+  .sync-banner-dismiss .material-symbols-rounded { font-size: 18px; }
+
+  /* Pull-to-refresh spinner — mirrors NT App.svelte exactly. Fixed
+     top with safe-area offset so it clears the status bar; left
+     accounts for a persistent sidebar so it centers over the CONTENT
+     area, not the whole viewport. */
+  .pull-sync-indicator {
+    position: fixed;
+    top: calc(var(--safe-top, 0px) + 8px);
+    left: calc(var(--sidebar-w, 0px) + (100vw - var(--sidebar-w, 0px)) / 2);
+    z-index: 251;
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-2);
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    box-shadow: var(--shadow-lg);
+    pointer-events: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  .pull-sync-indicator.ready-to-sync {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .pull-sync-indicator .material-symbols-rounded {
+    font-size: 20px;
+    transition: transform 120ms;
+  }
+  .pull-sync-indicator.ready-to-sync .material-symbols-rounded {
+    transform: rotate(180deg);
+  }
+  @keyframes pull-sync-spin { to { transform: rotate(360deg); } }
+  .pull-sync-indicator .pull-sync-spin {
+    animation: pull-sync-spin 0.8s linear infinite;
   }
 
   :global(.page-transition) {

@@ -234,8 +234,8 @@ function restoreFromZip(zip) {
     for (const u of data.users || []) if (u.trainer_id) linkTrainer.run(u.trainer_id, u.id);
 
     // Restore custom exercises (user-created, not global seeds)
-    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at)`);
-    for (const e of data.exercises || []) insExercise.run(e);
+    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type)`);
+    for (const e of data.exercises || []) insExercise.run({ load_type: null, ...e });
 
     const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete)`);
     for (const p of data.programs || []) insProgram.run(_withProgramDefaults(p));
@@ -284,6 +284,13 @@ function restoreFromZip(zip) {
 
     const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats) VALUES (@id,@user_id,@date,@stats)`);
     for (const b of data.body_stats_log || []) insBody.run(b);
+
+    // Cardio sessions. Legacy backups (pre-v1.1.0) have no cardio_log key
+    // so `data.cardio_log || []` handles the gap silently. Wipe first so
+    // restore is authoritative rather than merge-append.
+    db.prepare('DELETE FROM cardio_log').run();
+    const insCardio = db.prepare(`INSERT OR IGNORE INTO cardio_log (id,user_id,date,activity,duration_min,distance,distance_unit,avg_hr,notes,is_template,created_at,updated_at) VALUES (@id,@user_id,@date,@activity,@duration_min,@distance,@distance_unit,@avg_hr,@notes,@is_template,@created_at,@updated_at)`);
+    for (const c of data.cardio_log || []) insCardio.run({ is_template: 0, ...c });
 
     const insSettings = db.prepare(`INSERT OR IGNORE INTO user_settings (user_id,key,value) VALUES (@user_id,@key,@value)`);
     for (const s of data.user_settings || []) insSettings.run(s);
@@ -359,6 +366,7 @@ function dumpDatabase() {
     coach_activity:      safe('SELECT * FROM coach_activity'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
+    cardio_log:          safe('SELECT * FROM cardio_log'),
     user_settings:       db.prepare('SELECT * FROM user_settings').all(),
     app_config:          db.prepare('SELECT * FROM app_config').all(),
     ai_chat_history:     db.prepare('SELECT * FROM ai_chat_history').all(),

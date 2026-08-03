@@ -5,6 +5,7 @@
    * - Single-week: renders the solo-stat card.
    * - Zero weeks: renders nothing; parent decides the empty state.
    */
+  import { _ } from 'svelte-i18n';
   import { fmtVol, fmtWeekLabel } from '../../lib/statsFormat.js';
 
   export let volume = [];   // [{ week, volume }]
@@ -19,7 +20,7 @@
 
 {#if volume.length >= 2}
   <div class="chart-card">
-    <h3 class="chart-title">Weekly Volume</h3>
+    <h3 class="chart-title">{$_('weekly_volume_chart.title')}</h3>
     {#if detailed}
       <p class="chart-desc">Total weight moved each week (weight × reps across all completed sets).</p>
     {/if}
@@ -38,13 +39,13 @@
   </div>
 {:else if volume.length === 1}
   <div class="chart-card">
-    <h3 class="chart-title">Weekly Volume</h3>
+    <h3 class="chart-title">{$_('weekly_volume_chart.title')}</h3>
     {#if detailed}
       <p class="chart-desc">Total weight moved each week (weight × reps across all completed sets).</p>
     {/if}
     <div class="solo-stat">
       <span class="solo-value">{fmtVol(volume[0].volume)} {unit}</span>
-      <span class="solo-label">This week</span>
+      <span class="solo-label">{$_('weekly_volume_chart.this_week')}</span>
     </div>
     {#if detailed}
       <p class="chart-sub">Log another week to see trends.</p>

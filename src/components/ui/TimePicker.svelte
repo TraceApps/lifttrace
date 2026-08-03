@@ -18,6 +18,7 @@
    *   change — fires with the new HH:MM string after the user taps Set Time
    */
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { timeFormat } from '../../stores/settings.js';
 
@@ -105,7 +106,7 @@
 
       <div class="tp-columns">
         <div class="tp-col">
-          <div class="tp-col-label">Hour</div>
+          <div class="tp-col-label">{$_('time_picker.hour')}</div>
           <div class="tp-grid" class:tp-grid-4={!is24} class:tp-grid-6={is24}>
             {#each HOURS as h}
               <button class="tp-cell" class:tp-sel={selHour === h} on:click={() => selHour = h}>
@@ -116,7 +117,7 @@
         </div>
 
         <div class="tp-col">
-          <div class="tp-col-label">Minute</div>
+          <div class="tp-col-label">{$_('time_picker.minute')}</div>
           <div class="tp-grid tp-grid-4">
             {#each MINUTES as m}
               <button class="tp-cell" class:tp-sel={selMinute === m} on:click={() => selMinute = m}>{String(m).padStart(2, '0')}</button>
@@ -136,8 +137,8 @@
       </div>
 
       <div class="tp-actions">
-        <button class="btn btn-ghost" on:click={() => open = false}>Cancel</button>
-        <button class="btn btn-primary" on:click={_confirm}>Set Time</button>
+        <button class="btn btn-ghost" on:click={() => open = false}>{$_('time_picker.cancel')}</button>
+        <button class="btn btn-primary" on:click={_confirm}>{$_('time_picker.set_time')}</button>
       </div>
     </div>
   </div>

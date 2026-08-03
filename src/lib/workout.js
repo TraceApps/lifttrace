@@ -3,6 +3,31 @@
  */
 
 /**
+ * Resolve which `load_type` applies to a workout-instance exercise.
+ * Four-tier chain, evaluated top-to-bottom:
+ *   1. Per-instance override (`exercise.load_type` on the workout row) — the user
+ *      picked something for THIS session; always wins.
+ *   2. Library-level default (`libraryLoadType`, resolved by the caller from the
+ *      exercises table) — only when explicitly non-null. Owners set this via the
+ *      Exercise Editor; it's the shared truth for the catalog entry.
+ *   3. Client-side per-user preference (`clientPrefs[exercise_id]`) — legacy per-
+ *      user override from the Diary "Remember" toggle. Applies when the library
+ *      hasn't been explicitly set.
+ *   4. `'bilateral'` fallback.
+ *
+ * See issue #24. Library default beats client pref only when it's explicitly
+ * non-NULL so users who've been living off client prefs don't get their setup
+ * silently rewritten by a defaulted library column.
+ */
+export function resolveLoadType(exercise, libraryLoadType, clientPrefs) {
+  if (exercise?.load_type) return exercise.load_type;
+  if (libraryLoadType) return libraryLoadType;
+  const exId = exercise?.exercise_id;
+  if (clientPrefs && exId != null && clientPrefs[exId]) return clientPrefs[exId];
+  return 'bilateral';
+}
+
+/**
  * Per-set volume that honors the exercise's load_type. Three modes:
  *   - 'bilateral'  (default): weight × reps                — one load, both sides work together
  *   - 'paired'              : weight × reps × 2            — per-DB / per-side weight, both sides work simultaneously
@@ -36,11 +61,18 @@ export function setVolume(set, loadType = 'bilateral') {
 
 /**
  * Per-exercise volume — sums completed working sets through setVolume()
- * using the exercise's load_type (defaults to bilateral). Warm-ups excluded.
+ * using the exercise's resolved load_type (see resolveLoadType). Warm-ups
+ * excluded.
+ *
+ * Optional `opts.libraryLoadType` and `opts.clientPrefs` let callers plug
+ * the full four-tier chain in. Called with only the exercise (old signature),
+ * behavior is unchanged: uses `exercise.load_type` or falls back to
+ * 'bilateral' — matches the pre-issue-#24 semantics for callers that haven't
+ * been updated yet.
  */
-export function exerciseVolume(exercise) {
+export function exerciseVolume(exercise, opts = {}) {
   if (!exercise) return 0;
-  const loadType = exercise.load_type || 'bilateral';
+  const loadType = resolveLoadType(exercise, opts.libraryLoadType, opts.clientPrefs);
   let total = 0;
   for (const s of (exercise.sets || [])) {
     if (!s.completed || s.warmup) continue;
