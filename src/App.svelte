@@ -653,42 +653,49 @@
     color: #fff;
   }
 
-  /* Smart connection banner. Mirrors NT + CT. Fixed-top strip with
-     structured title + detail + Retry + Dismiss. */
+  /* Smart connection banner. Ported from NT so it sits BELOW the
+     device status bar and the app's compact header instead of covering
+     the clock / hamburger on Android. */
   .sync-connection-banner {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 210;
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 10px 14px;
-    background: color-mix(in srgb, var(--error, #ef4444) 10%, var(--bg));
-    color: var(--text-1);
-    border-bottom: 1px solid color-mix(in srgb, var(--error, #ef4444) 25%, transparent);
-    font-size: 13px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    position: fixed;
+    top: calc(var(--safe-top) + 60px);
+    left: calc(var(--sidebar-w, 0px) + 12px);
+    right: 12px;
+    z-index: 250;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    color: var(--error, #ef4444);
+    background: color-mix(in srgb, var(--error, #ef4444) 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--error, #ef4444) 25%, var(--border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    font-size: 12px;
+    font-weight: 500;
+    transition: left 0.25s ease;
   }
   .sync-banner-icon {
-    color: var(--error, #ef4444);
-    font-size: 20px;
-    flex-shrink: 0;
-    margin-top: 1px;
+    flex: 0 0 auto;
+    font-size: 18px;
   }
-  .sync-banner-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .sync-banner-title { font-weight: 600; }
-  .sync-banner-detail { color: var(--text-2); font-size: 12px; line-height: 1.4; word-break: break-word; }
+  .sync-banner-copy {
+    min-width: 0; flex: 1;
+    display: flex; flex-direction: column; gap: 2px;
+    line-height: 1.35;
+  }
+  .sync-banner-title { font-size: 13px; font-weight: 600; }
+  .sync-banner-detail { color: var(--text-2); font-weight: 400; }
   .sync-banner-btn {
-    background: transparent; color: var(--accent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    border-radius: 6px;
-    font-size: 12px; font-weight: 600;
-    padding: 6px 10px; cursor: pointer;
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    border: 0;
+    color: var(--error, #ef4444);
+    background: transparent;
+    font: inherit; font-weight: 600;
+    cursor: pointer;
   }
-  .sync-banner-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-  .sync-banner-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .sync-banner-btn:disabled { opacity: 0.6; cursor: default; }
   .sync-banner-dismiss {
-    border: none;
-    color: var(--text-2);
-    padding: 4px;
-    display: inline-flex; align-items: center; justify-content: center;
+    display: flex; align-items: center;
+    padding: 2px;
   }
   .sync-banner-dismiss .material-symbols-rounded { font-size: 18px; }
 
