@@ -42,7 +42,7 @@
       logsCopied = true;
       setTimeout(() => logsCopied = false, 2000);
     } catch {
-      showError('Copy failed â€” select the text manually');
+      showError($_('settings_diagnostics.copy_failed'));
     }
   }
 
@@ -68,7 +68,7 @@
   function clearLogs() {
     clearLogBuffer();
     logsText = '(cleared)';
-    showSuccess('Logs cleared');
+    showSuccess($_('settings_diagnostics.logs_cleared'));
   }
 
   function toggleVerbose(on) {
@@ -89,7 +89,7 @@
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Verbose Diagnostic Logging</span>
+            <span class="setting-label">{$_('settings_diagnostics.verbose_logging')}</span>
             <span class="setting-hint">
               Enables detailed app-internal logs (sync, settings, notifications, SQLite). Off by
               default â€” turn on while reproducing a bug, then export below.
@@ -101,7 +101,7 @@
         <div class="setting-divider"></div>
 
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-          <span class="setting-label">View Diagnostic Logs</span>
+          <span class="setting-label">{$_('settings_diagnostics.view_logs')}</span>
           <p class="setting-hint" style="line-height:1.5;margin:0">
             Last 500 lines from the app's console. Useful for bug reports â€” copy or share to a
             <a href="https://github.com/TraceApps/lifttrace/issues" target="_blank" rel="noopener" style="color:var(--accent)">GitHub issue</a>.

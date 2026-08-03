@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { slide, fade } from 'svelte/transition';
   import ExerciseCard from './ExerciseCard.svelte';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
@@ -110,7 +111,7 @@
     <div class="superset-header" on:click={() => _setExpanded(!expanded)} role="button" tabindex="0">
       <div class="superset-badge">
         <span class="material-symbols-rounded ss-icon">link</span>
-        <span class="ss-label">Superset</span>
+        <span class="ss-label">{$_('superset_card.superset')}</span>
         <span class="ss-count">{exercises.length} exercises</span>
       </div>
       <div class="ss-meta">
@@ -175,9 +176,9 @@
                           placeholder="Reply to your coach…"></textarea>
                         <div class="reply-actions">
                           {#if f.member_reply}
-                            <button class="reply-link danger" on:click={() => onDeleteReply(f.id)}>Delete</button>
+                            <button class="reply-link danger" on:click={() => onDeleteReply(f.id)}>{$_('superset_card.delete')}</button>
                           {/if}
-                          <button class="reply-link" on:click={onCancelReply}>Cancel</button>
+                          <button class="reply-link" on:click={onCancelReply}>{$_('superset_card.cancel')}</button>
                           <button class="reply-save" class:flashed={replySavedFlash === f.id}
                                   on:click={() => onSaveReply(f.id)}
                                   disabled={replySaving === f.id || !(replyDrafts[f.id] || '').trim()}>

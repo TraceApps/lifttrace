@@ -114,7 +114,7 @@
 
   async function testConnection() {
     if (!canTest && !envLocks.ai) {
-      testError = 'Fill in provider, API key, and model first';
+      testError = $_('settings_trace.toast.fill_required');
       return;
     }
     testing   = true;
@@ -135,11 +135,11 @@
           systemPrompt,
         });
       }
-      if (!text || typeof text !== 'string') throw new Error('Empty response from AI');
+      if (!text || typeof text !== 'string') throw new Error($_('settings_trace.toast.empty_response'));
       aiKeyVerified.set(true);
-      showSuccess('Trace AI connected — assistant is ready');
+      showSuccess($_('settings_trace.toast.connected'));
     } catch (e) {
-      testError = e.message || 'Test failed';
+      testError = e.message || $_('settings_trace.toast.test_failed');
       aiKeyVerified.set(false);
       showError(testError);
     } finally {
@@ -148,12 +148,12 @@
   }
 
   $: _providerLabel = envLocks.ai
-    ? 'Environment-locked'
+    ? $_('settings_trace.provider_env_locked')
     : ({
-        claude:      'Anthropic Claude',
-        openai:      'OpenAI',
-        gemini:      'Google Gemini',
-        'oai-compat':'OpenAI Compatible',
+        claude:       $_('settings_trace.provider_claude'),
+        openai:       $_('settings_trace.provider_openai'),
+        gemini:       $_('settings_trace.provider_gemini'),
+        'oai-compat': $_('settings_trace.provider_oai_compat'),
       }[$aiProvider] || $aiProvider || '');
 </script>
 
@@ -177,53 +177,50 @@
         {/if}
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Enable AI Assistant</span>
-            <span class="setting-hint">Adds a floating chat button to all pages</span>
+            <span class="setting-label">{$_('settings_trace.labels.enable')}</span>
+            <span class="setting-hint">{$_('settings_trace.labels.enable_desc')}</span>
           </div>
           <Toggle checked={_displayedAiEnabled} on:change={e => { if (!envLocks.ai) aiEnabled.set(e.detail); }} disabled={envLocks.ai} />
         </div>
         {#if _displayedAiEnabled}
           <div class="setting-row">
-            <span class="setting-label">Provider</span>
+            <span class="setting-label">{$_('settings_trace.labels.provider')}</span>
             <select class="form-select-sm" bind:value={$aiProvider} on:change={_onProviderChange}>
-              <option value="claude">Anthropic Claude</option>
-              <option value="openai">OpenAI</option>
-              <option value="gemini">Google Gemini</option>
-              <option value="oai-compat">OpenAI Compatible</option>
+              <option value="claude">{$_('settings_trace.provider_claude')}</option>
+              <option value="openai">{$_('settings_trace.provider_openai')}</option>
+              <option value="gemini">{$_('settings_trace.provider_gemini')}</option>
+              <option value="oai-compat">{$_('settings_trace.provider_oai_compat')}</option>
             </select>
           </div>
 
           {#if $aiProvider === 'oai-compat'}
-            <!-- Custom OpenAI-compatible: free-text Base URL + Model name -->
             <div class="setting-row" style="flex-wrap:wrap;gap:8px">
               <div class="setting-label-group" style="width:100%">
-                <span class="setting-label">Base URL</span>
-                <span class="setting-hint">
-                  Any OpenAI Compatible <code>/v1/chat/completions</code> endpoint — Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. Don't include the path; just the origin.
-                </span>
+                <span class="setting-label">{$_('settings_trace.labels.base_url')}</span>
+                <span class="setting-hint">{$_('settings_trace.labels.base_url_desc')}</span>
               </div>
               <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:100%">
                 <input class="form-input-sm" style="flex:1" type="url"
-                  placeholder="http://localhost:11434  or  https://api.deepseek.com"
+                  placeholder={$_('settings_trace.labels.base_url_ph')}
                   bind:value={aiBaseUrlVal} autocomplete="off" />
                 <button class="btn btn-primary" style="height:36px;font-size:13px;white-space:nowrap" on:click={saveAiBaseUrl} disabled={testing}>
-                  {testing ? 'Testing…' : 'Save'}
+                  {testing ? $_('settings_trace.labels.testing') : $_('settings_trace.labels.save')}
                 </button>
               </div>
             </div>
             <div class="setting-row">
-              <span class="setting-label">Model</span>
-              <input class="form-input-sm" type="text" bind:value={$aiModel} placeholder="llama3.1:8b" />
+              <span class="setting-label">{$_('settings_trace.labels.model')}</span>
+              <input class="form-input-sm" type="text" bind:value={$aiModel} placeholder={$_('settings_trace.labels.model_ph')} />
             </div>
             <div style="padding:10px 16px;display:flex;gap:8px;align-items:flex-start;background:color-mix(in srgb,#f59e0b 8%, transparent);border-left:3px solid #f59e0b;border-radius:6px">
               <span class="material-symbols-rounded" style="font-size:18px;color:#f59e0b;flex-shrink:0">info</span>
               <div class="setting-hint" style="margin:0;line-height:1.5">
-                <strong>Tool calls / vision reliability varies by model.</strong> Llama 3.1+, Mistral, Qwen 2.5+ handle reasoning well; smaller or older models may struggle with Smart Log parsing. If you're unsure, start with a known-good model and verify chat works before relying on it.
+                <strong>{$_('settings_trace.labels.reliability_title')}</strong> {$_('settings_trace.labels.reliability_body')}
               </div>
             </div>
           {:else}
             <div class="setting-row">
-              <span class="setting-label">Model</span>
+              <span class="setting-label">{$_('settings_trace.labels.model')}</span>
               <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={_syncModelFromSelect}>
                 {#each providerModels as m}
                   <option value={m.value}>{m.label}</option>
@@ -232,7 +229,7 @@
             </div>
             {#if aiModelSelectVal === '__custom__'}
               <div class="setting-row">
-                <span class="setting-label">Custom Model ID</span>
+                <span class="setting-label">{$_('settings_trace.labels.custom_model_id')}</span>
                 <input class="form-input-sm" type="text"
                   placeholder={$aiProvider === 'gemini' ? 'gemini-3.5-flash' : $aiProvider === 'claude' ? 'claude-sonnet-5' : 'gpt-4o'}
                   bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} />
@@ -240,10 +237,7 @@
               <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:flex-start">
                 <span class="material-symbols-rounded" style="font-size:16px;color:var(--muted);flex-shrink:0;margin-top:2px">info</span>
                 <div class="setting-hint" style="margin:0;line-height:1.5">
-                  Enter the exact model ID from the vendor (e.g.
-                  {#if $aiProvider === 'gemini'}<a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener" class="about-link">Google's model list</a>
-                  {:else if $aiProvider === 'claude'}<a href="https://docs.anthropic.com/en/docs/about-claude/models/overview" target="_blank" rel="noopener" class="about-link">Anthropic's model list</a>
-                  {:else}<a href="https://platform.openai.com/docs/models" target="_blank" rel="noopener" class="about-link">OpenAI's model list</a>{/if}). Use this if the preset dropdown doesn't have the model you want.
+                  {$_('settings_trace.labels.custom_hint')}
                 </div>
               </div>
             {/if}
@@ -252,37 +246,37 @@
           <div class="setting-row" style="flex-wrap:wrap;gap:8px">
             <div class="setting-label-group" style="width:100%">
               <span class="setting-label">
-                API key{$aiProvider === 'oai-compat' ? ' (optional)' : ''}
+                {$_('settings_trace.labels.api_key')}{$aiProvider === 'oai-compat' ? $_('settings_trace.labels.api_key_optional') : ''}
               </span>
               <span class="setting-hint">
                 {#if $aiProvider === 'claude'}
-                  Get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener" class="about-link">console.anthropic.com</a>
+                  {$_('settings_trace.labels.key_hint_claude')} <a href="https://console.anthropic.com" target="_blank" rel="noopener" class="about-link">console.anthropic.com</a>
                 {:else if $aiProvider === 'openai'}
-                  Get one at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="about-link">platform.openai.com</a>
+                  {$_('settings_trace.labels.key_hint_openai')} <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="about-link">platform.openai.com</a>
                 {:else if $aiProvider === 'gemini'}
-                  Get one at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="about-link">aistudio.google.com</a>
+                  {$_('settings_trace.labels.key_hint_gemini')} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="about-link">aistudio.google.com</a>
                 {:else if $aiProvider === 'oai-compat'}
-                  Local endpoints (Ollama, LM Studio, etc.) typically don't need a key. Cloud providers like DeepSeek or Groq do — get one from their dashboard.
+                  {$_('settings_trace.labels.key_hint_oai')}
                 {/if}
               </span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:100%">
               {#if aiShowKey}
-                <input class="form-input-sm" style="flex:1" type="text" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? 'Leave blank for local endpoints' : 'Paste your API key here'} autocomplete="off" />
+                <input class="form-input-sm" style="flex:1" type="text" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off" />
               {:else}
-                <input class="form-input-sm" style="flex:1" type="password" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? 'Leave blank for local endpoints' : 'Paste your API key here'} autocomplete="off" />
+                <input class="form-input-sm" style="flex:1" type="password" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off" />
               {/if}
-              <button class="btn-icon-toggle" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? 'Hide' : 'Show'}>
+              <button class="btn-icon-toggle" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
                 <span class="material-symbols-rounded">{aiShowKey ? 'visibility_off' : 'visibility'}</span>
               </button>
               <button class="btn btn-primary" style="height:36px;font-size:13px;white-space:nowrap" on:click={saveAiKey} disabled={testing}>
-                {testing ? 'Testing…' : 'Save'}
+                {testing ? $_('settings_trace.labels.testing') : $_('settings_trace.labels.save')}
               </button>
             </div>
           </div>
           <div class="setting-row">
-            <span class="setting-label">Assistant Name</span>
-            <input class="form-input-sm" type="text" bind:value={$aiAssistantName} placeholder="Trace" />
+            <span class="setting-label">{$_('settings_trace.labels.assistant_name')}</span>
+            <input class="form-input-sm" type="text" bind:value={$aiAssistantName} placeholder={$_('settings_trace.labels.assistant_name_ph')} />
           </div>
         {/if}
       </div>

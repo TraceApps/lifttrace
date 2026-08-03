@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import {
-    weeklyWorkoutGoal, screenKeepAwake, autoFillLastWeights,
+    weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, screenKeepAwake, autoFillLastWeights,
     showCompletionSummary, autoCollapseCompleted, autoNameWorkouts,
     exerciseReorderMethod, confirmExerciseRemoval, restTimerEnabled,
     restDuration, restAutoStart, restAlert, restAlertVibrate, restAlertTone,
@@ -17,16 +17,16 @@
   export let visible = true;
   export let onToggle = () => {};
 
-  const BODY_STATS = [
-    { id: 'weight',  label: 'Weight' },
-    { id: 'bodyFat', label: 'Body Fat %' },
-    { id: 'neck',    label: 'Neck' },
-    { id: 'chest',   label: 'Chest' },
-    { id: 'waist',   label: 'Waist' },
-    { id: 'hips',    label: 'Hips' },
-    { id: 'biceps',  label: 'Biceps' },
-    { id: 'thighs',  label: 'Thighs' },
-    { id: 'calves',  label: 'Calves' },
+  $: BODY_STATS = [
+    { id: 'weight',  label: $_('settings_workout.body_stats.weight') },
+    { id: 'bodyFat', label: $_('settings_workout.body_stats.body_fat') },
+    { id: 'neck',    label: $_('settings_workout.body_stats.neck') },
+    { id: 'chest',   label: $_('settings_workout.body_stats.chest') },
+    { id: 'waist',   label: $_('settings_workout.body_stats.waist') },
+    { id: 'hips',    label: $_('settings_workout.body_stats.hips') },
+    { id: 'biceps',  label: $_('settings_workout.body_stats.biceps') },
+    { id: 'thighs',  label: $_('settings_workout.body_stats.thighs') },
+    { id: 'calves',  label: $_('settings_workout.body_stats.calves') },
   ];
 </script>
 
@@ -38,154 +38,171 @@
   </button>
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
-      <p class="sub-label">Goals & Progress</p>
+      <p class="sub-label">{$_('settings_workout.sections.goals')}</p>
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Weekly Goal</span>
-            <span class="setting-hint">Target number of training days per week</span>
+            <span class="setting-label">{$_('settings_workout.goals.weekly')}</span>
+            <span class="setting-hint">{$_('settings_workout.goals.weekly_desc')}</span>
           </div>
           <select class="form-select-sm" bind:value={$weeklyWorkoutGoal}>
             {#each [2,3,4,5,6,7] as n}
-              <option value={n}>{n} workouts/week</option>
+              <option value={n}>{$_('settings_workout.goals.weekly_option', { values: { n } })}</option>
             {/each}
           </select>
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Screen Keep-Awake</span>
-            <span class="setting-hint">Keep the screen on during workouts</span>
+            <span class="setting-label">Track Cardio</span>
+            <span class="setting-hint">Log cardio sessions (bike, run, row, etc.) from the Diary and see weekly minutes on Statistics. Off by default so pure lifters aren't cluttered. Manual entry only; device sync stays in NutriTrace.</span>
+          </div>
+          <Toggle bind:checked={$cardioEnabled} />
+        </div>
+        {#if $cardioEnabled}
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <span class="setting-label">Weekly Cardio Minutes</span>
+              <span class="setting-hint">Target line on the Statistics Cardio chart. Set to 0 to hide the target.</span>
+            </div>
+            <input class="form-input-sm" type="number" min="0" step="15" style="width:90px"
+              bind:value={$weeklyCardioMinutesGoal} />
+          </div>
+        {/if}
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <span class="setting-label">{$_('settings_workout.goals.keep_awake')}</span>
+            <span class="setting-hint">{$_('settings_workout.goals.keep_awake_desc')}</span>
           </div>
           <Toggle bind:checked={$screenKeepAwake} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Show Calorie Estimate</span>
-            <span class="setting-hint">Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height + weight + date of birth + sex set in Profile. Resistance-training estimates are loose by Â±25% â€” treated as an "~est" badge in the UI, not a hard number.</span>
+            <span class="setting-label">{$_('settings_workout.goals.calorie_est')}</span>
+            <span class="setting-hint">{$_('settings_workout.goals.calorie_est_desc')}</span>
           </div>
           <Toggle bind:checked={$caloriesBurnedEnabled} />
         </div>
       </div>
 
-      <p class="sub-label">Logging Behavior</p>
+      <p class="sub-label">{$_('settings_workout.sections.logging')}</p>
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-Fill Last Weights</span>
-            <span class="setting-hint">Pre-fill weight and reps from your last session</span>
+            <span class="setting-label">{$_('settings_workout.logging.autofill')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.autofill_desc')}</span>
           </div>
           <Toggle bind:checked={$autoFillLastWeights} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Completion Summary</span>
-            <span class="setting-hint">Show stats recap when all sets are done</span>
+            <span class="setting-label">{$_('settings_workout.logging.summary')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.summary_desc')}</span>
           </div>
           <Toggle bind:checked={$showCompletionSummary} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-Collapse Completed Exercises</span>
-            <span class="setting-hint">Collapse a card once every set is ticked â€” tap to re-expand</span>
+            <span class="setting-label">{$_('settings_workout.logging.auto_collapse')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.auto_collapse_desc')}</span>
           </div>
           <Toggle bind:checked={$autoCollapseCompleted} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-Name Workouts</span>
-            <span class="setting-hint">Name empty workouts from exercise categories (Push Day, Pull Day, etc.)</span>
+            <span class="setting-label">{$_('settings_workout.logging.auto_name')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.auto_name_desc')}</span>
           </div>
           <Toggle bind:checked={$autoNameWorkouts} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Reorder Method</span>
-            <span class="setting-hint">How to reorder exercises in the diary</span>
+            <span class="setting-label">{$_('settings_workout.logging.reorder')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.reorder_desc')}</span>
           </div>
           <select class="form-select-sm" bind:value={$exerciseReorderMethod}>
-            <option value="both">Drag + buttons</option>
-            <option value="drag">Drag only</option>
-            <option value="buttons">Buttons only</option>
+            <option value="both">{$_('settings_workout.logging.reorder_both')}</option>
+            <option value="drag">{$_('settings_workout.logging.reorder_drag')}</option>
+            <option value="buttons">{$_('settings_workout.logging.reorder_buttons')}</option>
           </select>
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Confirm Before Removing</span>
-            <span class="setting-hint">Ask before removing an exercise or superset from the diary</span>
+            <span class="setting-label">{$_('settings_workout.logging.confirm_remove')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.confirm_remove_desc')}</span>
           </div>
           <Toggle bind:checked={$confirmExerciseRemoval} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Auto-Generate Warm-Up Sets</span>
-            <span class="setting-hint">When a template loads with target weights, prepend bar / 50% / 70% / 85% warm-ups. You can always add or remove them per-exercise.</span>
+            <span class="setting-label">{$_('settings_workout.logging.warmups')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.warmups_desc')}</span>
           </div>
           <Toggle bind:checked={$autoGenerateWarmups} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Track RPE per Set</span>
-            <span class="setting-hint">Log Rate of Perceived Exertion (6â€“10 scale) on each completed set. Useful for autoregulated programs.</span>
+            <span class="setting-label">{$_('settings_workout.logging.rpe')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.rpe_desc')}</span>
           </div>
           <Toggle bind:checked={$trackRpe} />
         </div>
       </div>
 
-      <p class="sub-label">Rest Timer</p>
+      <p class="sub-label">{$_('settings_workout.sections.rest_timer')}</p>
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Rest Timer</span>
-            <span class="setting-hint">Countdown between sets</span>
+            <span class="setting-label">{$_('settings_workout.rest.enabled')}</span>
+            <span class="setting-hint">{$_('settings_workout.rest.enabled_desc')}</span>
           </div>
           <Toggle bind:checked={$restTimerEnabled} />
         </div>
         {#if $restTimerEnabled}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Rest Duration</span>
-              <span class="setting-hint">Default â€” remembered per-exercise after first use</span>
+              <span class="setting-label">{$_('settings_workout.rest.duration')}</span>
+              <span class="setting-hint">{$_('settings_workout.rest.duration_desc')}</span>
             </div>
             <select class="form-select-sm" bind:value={$restDuration}>
               {#each [30,45,60,75,90,120,150,180,240,300] as s}
-                <option value={s}>{s >= 60 ? `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}` : `${s}s`}</option>
+                <option value={s}>{s >= 60 ? `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}` : $_('settings_workout.rest.duration_seconds', { values: { s } })}</option>
               {/each}
             </select>
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Auto-Start on Set</span>
-              <span class="setting-hint">Start rest timer when you check off a set</span>
+              <span class="setting-label">{$_('settings_workout.rest.auto_start')}</span>
+              <span class="setting-hint">{$_('settings_workout.rest.auto_start_desc')}</span>
             </div>
             <Toggle bind:checked={$restAutoStart} />
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Alert When Done</span>
-              <span class="setting-hint">Get notified when the timer finishes</span>
+              <span class="setting-label">{$_('settings_workout.rest.alert')}</span>
+              <span class="setting-hint">{$_('settings_workout.rest.alert_desc')}</span>
             </div>
             <Toggle bind:checked={$restAlert} />
           </div>
           {#if $restAlert}
             <div class="setting-row" style="padding-left:28px">
               <div class="setting-label-group">
-                <span class="setting-label">Vibrate</span>
-                <span class="setting-hint">Short vibration pattern on finish</span>
+                <span class="setting-label">{$_('settings_workout.rest.vibrate')}</span>
+                <span class="setting-hint">{$_('settings_workout.rest.vibrate_desc')}</span>
               </div>
               <Toggle bind:checked={$restAlertVibrate} />
             </div>
             <div class="setting-row" style="padding-left:28px">
               <div class="setting-label-group">
-                <span class="setting-label">Play Tone</span>
-                <span class="setting-hint">Brief chime when the timer hits zero</span>
+                <span class="setting-label">{$_('settings_workout.rest.tone')}</span>
+                <span class="setting-hint">{$_('settings_workout.rest.tone_desc')}</span>
               </div>
               <Toggle bind:checked={$restAlertTone} />
             </div>
             {#if $restAlertTone}
               <div class="setting-row" style="padding-left:28px;flex-direction:column;align-items:stretch;gap:6px">
                 <div class="setting-label-group">
-                  <span class="setting-label">Tone Style</span>
-                  <span class="setting-hint">Tap a row to select; tap â–¶ to preview</span>
+                  <span class="setting-label">{$_('settings_workout.rest.tone_style')}</span>
+                  <span class="setting-hint">{$_('settings_workout.rest.tone_style_desc')}</span>
                 </div>
                 <div class="tone-list">
                   {#each REST_TONES as tone}
@@ -199,7 +216,7 @@
                           <span class="material-symbols-rounded tone-selected">check_circle</span>
                         {/if}
                       </button>
-                      <button class="tone-preview" on:click={() => previewRestTone(tone.id)} title="Preview">
+                      <button class="tone-preview" on:click={() => previewRestTone(tone.id)} title={$_('settings_workout.rest.preview')}>
                         <span class="material-symbols-rounded">play_arrow</span>
                       </button>
                     </div>
@@ -211,11 +228,11 @@
         {/if}
       </div>
 
-      <p class="sub-label">Body Measurements</p>
+      <p class="sub-label">{$_('settings_workout.sections.body_measurements')}</p>
       <div class="card">
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label" style="font-size:12px;color:var(--text-3)">Toggle which stats appear in the diary body stats sheet</span>
+            <span class="setting-label" style="font-size:12px;color:var(--text-3)">{$_('settings_workout.body_stats.toggle_desc')}</span>
           </div>
         </div>
         {#each BODY_STATS as stat}

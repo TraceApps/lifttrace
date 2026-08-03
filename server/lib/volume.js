@@ -26,9 +26,22 @@ export function setVolume(set, loadType = 'bilateral') {
   return w * (Number(set.reps) || 0);
 }
 
-export function exerciseVolume(exercise) {
+/**
+ * Server-side resolver — server never sees the client's `$exerciseLoadTypes`
+ * localStorage per-user pref, so the resolver is a two-tier chain:
+ *   per-instance override → library default (if non-null) → 'bilateral'.
+ * See src/lib/workout.js resolveLoadType for the full four-tier chain
+ * the client uses.
+ */
+export function resolveLoadType(exercise, libraryLoadType) {
+  if (exercise?.load_type) return exercise.load_type;
+  if (libraryLoadType) return libraryLoadType;
+  return 'bilateral';
+}
+
+export function exerciseVolume(exercise, libraryLoadType) {
   if (!exercise) return 0;
-  const loadType = exercise.load_type || 'bilateral';
+  const loadType = resolveLoadType(exercise, libraryLoadType);
   let total = 0;
   for (const s of (exercise.sets || [])) {
     if (!s.completed || s.warmup) continue;

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { weightUnit } from '../stores/settings.js';
   import { showError, showSuccess } from '../stores/toast.js';
@@ -37,7 +38,7 @@
     })) return;
     try {
       await LtApi.deleteExercise(exercise.id);
-      showSuccess('Exercise deleted');
+      showSuccess($_('exercise_detail.deleted'));
       push('/exercises');
     } catch(e) { showError(e.message); }
   }
@@ -175,7 +176,7 @@
       {#if progressSvg}
         <div class="progress-card">
           <div class="progress-head">
-            <h3 class="progress-title">Top Set Over Time</h3>
+            <h3 class="progress-title">{$_('exercise_detail.top_set_over_time')}</h3>
             <span class="progress-meta">{progressPoints.length} sessions</span>
           </div>
           <svg class="progress-svg" viewBox="0 0 {progressSvg.W} {progressSvg.H}" preserveAspectRatio="none">
@@ -195,7 +196,7 @@
 
       {#if similar.length > 0}
         <div class="similar-section">
-          <h3 class="similar-title">Similar exercises</h3>
+          <h3 class="similar-title">{$_('exercise_detail.similar_exercises')}</h3>
           <p class="similar-sub">Alternatives that train the same primary muscles — useful when equipment is taken or you're training somewhere new.</p>
           <div class="similar-grid">
             {#each similar as s (s.id)}
@@ -223,8 +224,8 @@
       <p>Couldn't load this exercise.</p>
       {#if loadError}<p class="err-detail">{loadError}</p>{/if}
       <div class="err-actions">
-        <button class="btn btn-primary" on:click={load}>Try Again</button>
-        <button class="btn btn-secondary" on:click={() => push('/exercises')}>Back to Exercises</button>
+        <button class="btn btn-primary" on:click={load}>{$_('exercise_detail.try_again')}</button>
+        <button class="btn btn-secondary" on:click={() => push('/exercises')}>{$_('exercise_detail.back_to_exercises')}</button>
       </div>
     </div>
   {/if}

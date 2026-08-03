@@ -109,7 +109,7 @@
   let testDialogInputEl;
 
   function openTestDialog() {
-    if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
+    if (!smtpHost) { smtpTestStatus = 'fail'; showError($_('settings_email.smtp_host_required')); return; }
     testRecipient = $currentUser?.email || '';
     showTestDialog = true;
     tick().then(() => testDialogInputEl?.focus());
@@ -122,7 +122,7 @@
   async function confirmTestSmtp() {
     const to = (testRecipient || '').trim();
     if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-      showError('Enter a valid email address');
+      showError($_('settings_email.invalid_email'));
       return;
     }
     showTestDialog = false;
@@ -187,7 +187,7 @@
   </button>
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
-      <p class="sub-label" style="padding-bottom:4px">Used for password resets and user invites</p>
+      <p class="sub-label" style="padding-bottom:4px">{$_('settings_email.hint')}</p>
       {#if smtpLocked}
         <div class="env-lock-banner">
           <span class="material-symbols-rounded" style="font-size:16px">lock</span>
@@ -205,28 +205,28 @@
           retestLabel="Send Test"
         />
         <div class="form-group">
-          <label class="form-label">SMTP Host</label>
+          <label class="form-label">{$_('settings_email.smtp_host')}</label>
           <input class="form-input" type="text" placeholder="e.g. smtp.example.com"
             bind:value={smtpHost} disabled={smtpLocked} />
         </div>
         <div style="display:flex;gap:10px">
           <div class="form-group" style="flex:1">
-            <label class="form-label">Port</label>
+            <label class="form-label">{$_('settings_email.port')}</label>
             <input class="form-input" type="number" placeholder="587"
               bind:value={smtpPort} disabled={smtpLocked} />
           </div>
           <div class="form-group" style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end;padding-bottom:2px">
-            <label class="form-label">TLS</label>
+            <label class="form-label">{$_('settings_email.tls')}</label>
             <Toggle checked={smtpSecure} on:change={e => smtpSecure = e.detail} />
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Username</label>
-          <input class="form-input" type="text" autocomplete="off" placeholder="SMTP username or email"
+          <label class="form-label">{$_('settings_email.username')}</label>
+          <input class="form-input" type="text" autocomplete="off" placeholder={$_('settings_email.username_ph')}
             bind:value={smtpUser} disabled={smtpLocked} />
         </div>
         <div class="form-group">
-          <label class="form-label">Password</label>
+          <label class="form-label">{$_('settings_email.password')}</label>
           <div style="display:flex;gap:8px;align-items:center">
             <!-- Single input masked via CSS text-security instead of a
                  type-swap: on some Android WebView builds the swap left
@@ -237,7 +237,7 @@
             <input bind:this={smtpPassInputEl}
               class="form-input smtp-pass" class:masked={!smtpShowPass && !passIsStored}
               style="flex:1" type="text" autocomplete="new-password"
-              placeholder="SMTP password or app password"
+              placeholder={$_('settings_email.password_ph')}
               bind:value={smtpPass} disabled={smtpLocked || passIsStored} />
             {#if passIsStored}
               <button type="button" class="btn-icon-toggle change-btn"
@@ -260,8 +260,8 @@
           {/if}
         </div>
         <div class="form-group">
-          <label class="form-label">From address</label>
-          <input class="form-input" type="email" placeholder="LiftTrace <noreply@example.com>"
+          <label class="form-label">{$_('settings_email.from_address')}</label>
+          <input class="form-input" type="email" placeholder={$_('settings_email.from_address_ph')}
             bind:value={smtpFrom} disabled={smtpLocked} />
         </div>
         <div style="display:flex;align-items:center;gap:10px">
@@ -284,15 +284,15 @@
     on:keydown={(e) => e.key === 'Escape' && closeTestDialog()}>
     <div class="test-dialog" role="dialog" aria-labelledby="test-dialog-title"
       on:click|stopPropagation>
-      <h3 id="test-dialog-title">Send Test Email</h3>
+      <h3 id="test-dialog-title">{$_('settings_email.send_test_email')}</h3>
       <p>Where should we send the test?</p>
       <input bind:this={testDialogInputEl} class="form-input" type="email"
         placeholder="you@example.com" bind:value={testRecipient}
         on:keydown={(e) => e.key === 'Enter' && confirmTestSmtp()} />
       <div class="test-dialog-actions">
-        <button class="btn btn-ghost" on:click={closeTestDialog}>Cancel</button>
+        <button class="btn btn-ghost" on:click={closeTestDialog}>{$_('settings_email.cancel')}</button>
         <button class="btn btn-primary" on:click={confirmTestSmtp}
-          disabled={!testRecipient.trim()}>Send</button>
+          disabled={!testRecipient.trim()}>{$_('settings_email.send')}</button>
       </div>
     </div>
   </div>

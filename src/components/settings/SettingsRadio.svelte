@@ -89,7 +89,7 @@
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Streaming Stations</span>
+            <span class="setting-label">{$_('settings_radio.streaming_stations')}</span>
             <span class="setting-hint">Listen to internet radio. Add stations from the directory or paste a stream URL.</span>
           </div>
           <Toggle bind:checked={$radioStationsEnabled} />
@@ -98,16 +98,16 @@
         {#if $radioEnabled}
           <div class="setting-divider"></div>
           <div class="setting-row">
-            <span class="setting-label">Provider</span>
+            <span class="setting-label">{$_('settings_radio.provider')}</span>
             <select class="form-select-sm" bind:value={$radioProvider}>
-              <option value="emby">Emby</option>
-              <option value="jellyfin">Jellyfin</option>
-              <option value="plex">Plex</option>
+              <option value="emby">{$_('settings_radio.emby')}</option>
+              <option value="jellyfin">{$_('settings_radio.jellyfin')}</option>
+              <option value="plex">{$_('settings_radio.plex')}</option>
               <option value="subsonic">Subsonic (Navidrome, Airsonic, Gonic)</option>
             </select>
           </div>
           <div class="setting-row">
-            <span class="setting-label">Server URL</span>
+            <span class="setting-label">{$_('settings_radio.server_url')}</span>
             <input class="form-input-sm" type="text" bind:value={$radioUrl}
               placeholder={$radioProvider === 'plex' ? 'https://plex.example.com:32400' : $radioProvider === 'jellyfin' ? 'https://jellyfin.example.com' : 'https://navidrome.example.com'} />
           </div>
@@ -126,11 +126,11 @@
           <div class="setting-divider"></div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Crossfade</span>
-              <span class="setting-hint">Blend tracks together during transitions</span>
+              <span class="setting-label">{$_('settings_radio.crossfade')}</span>
+              <span class="setting-hint">{$_('settings_radio.crossfade_hint')}</span>
             </div>
             <select class="form-select-sm" bind:value={$radioCrossfade}>
-              <option value={0}>Off</option>
+              <option value={0}>{$_('settings_radio.off')}</option>
               {#each [1,2,3,4,5,6,8,10,12] as s}
                 <option value={s}>{s}s</option>
               {/each}
@@ -138,7 +138,7 @@
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Highest Quality Playback</span>
+              <span class="setting-label">{$_('settings_radio.highest_quality')}</span>
               <span class="setting-hint">Stream original format when your library is homogeneous; falls back automatically for mixed queues</span>
             </div>
             <Toggle bind:checked={$radioOriginalFormat} />

@@ -28,7 +28,7 @@
       const ok = await biometric.authenticate('Enable biometric sign-in');
       if (!ok) {
         biometricLoginEnabled.set(false);
-        showError('Biometric verification was canceled or failed.');
+        showError($_('profile.biometric_cancelled'));
         return;
       }
       // Stash the current JWT so the next sign-in can unlock with biometric.
@@ -156,7 +156,7 @@
       linkedProviders = data.links || [];
       showSuccess($_('profile.unlinked'));
     } catch (e) {
-      showError('Could not reach server');
+      showError($_('profile.server_unreachable'));
     } finally { unlinking = null; }
   }
   $: linkedProviderIds = new Set(linkedProviders.map(l => l.oidc_provider_id));
@@ -349,10 +349,10 @@
         <label class="form-label">{$_('profile.gender')}</label>
         <select class="form-select" bind:value={gender}>
           <option value="">{$_('profile.gender_unset')}</option>
-          <option value="male">Male</option>
-          <option value="female">Female</option>
+          <option value="male">{$_('profile.gender_male')}</option>
+          <option value="female">{$_('profile.gender_female')}</option>
           <option value="non-binary">Non-binary</option>
-          <option value="other">Other</option>
+          <option value="other">{$_('profile.gender_other')}</option>
         </select>
       </div>
       <div class="form-group">
@@ -438,9 +438,9 @@
         <label class="form-label">{$_('profile.current_password')}</label>
         <div class="pw-wrap">
           {#if showPw}
-            <input class="form-input" type="text" bind:value={currentPassword} placeholder="Enter current password" />
+            <input class="form-input" type="text" bind:value={currentPassword} placeholder={$_('profile.current_password_ph')} />
           {:else}
-            <input class="form-input" type="password" bind:value={currentPassword} placeholder="Enter current password" />
+            <input class="form-input" type="password" bind:value={currentPassword} placeholder={$_('profile.current_password_ph')} />
           {/if}
           <button class="pw-toggle" on:click={() => showPw = !showPw} type="button">
             <span class="material-symbols-rounded">{showPw ? 'visibility_off' : 'visibility'}</span>
@@ -465,9 +465,9 @@
       <div class="form-group">
         <label class="form-label">{$_('profile.confirm_new_password')}</label>
         {#if showPw}
-          <input class="form-input" type="text" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={confirmPassword} placeholder="Re-enter new password" />
+          <input class="form-input" type="text" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={confirmPassword} placeholder={$_('profile.confirm_password_ph')} />
         {:else}
-          <input class="form-input" type="password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={confirmPassword} placeholder="Re-enter new password" />
+          <input class="form-input" type="password" autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" bind:value={confirmPassword} placeholder={$_('profile.confirm_password_ph')} />
         {/if}
         {#if pwMatch}<span class="form-error">{pwMatch}</span>{/if}
       </div>
@@ -490,7 +490,7 @@
       <div class="setting-row">
         <span class="material-symbols-rounded security-icon">fingerprint</span>
         <div style="flex:1;min-width:0">
-          <span class="security-label">Sign In with Biometric</span>
+          <span class="security-label">{$_('profile.biometric_signin')}</span>
           <div class="setting-hint">
             {#if _biometricSupported}
               Use fingerprint or face unlock instead of typing your password each time. Your password is still required on the first sign-in. Sign-in sessions stay valid for up to a year by default — admins can change this in <strong>Settings → Users → Session Duration</strong>.

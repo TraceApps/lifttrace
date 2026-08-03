@@ -4,7 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled } from '../stores/settings.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
@@ -25,6 +25,7 @@
   import ExerciseCard from '../components/diary/ExerciseCard.svelte';
   import SupersetCard from '../components/diary/SupersetCard.svelte';
   import WorkoutTimer from '../components/diary/WorkoutTimer.svelte';
+  import CardioCard from '../components/diary/CardioCard.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
   import SmartLogModal from '../components/diary/SmartLogModal.svelte';
@@ -382,7 +383,7 @@
         if (replySavedFlash === fbId) replySavedFlash = null;
         if (replyOpenId === fbId) replyOpenId = null;
       }, 600);
-    } catch(e) { showError(e.message || 'Reply failed'); }
+    } catch(e) { showError(e.message || $_('diary_extra.toast.reply_failed')); }
     replySaving = null;
   }
 
@@ -467,11 +468,11 @@
       try {
         const tpl = await LtApi.getTemplate(px.template_id);
         exs = tpl.exercises || [];
-      } catch { showError('Could not load template'); return; }
+      } catch { showError($_('diary_extra.toast.cant_load_template')); return; }
     } else if (Array.isArray(px.exercises)) {
       exs = px.exercises;
     } else {
-      showError('This prescription has no exercises'); return;
+      showError($_('diary_extra.toast.no_exercises')); return;
     }
     if ($todayLog?.exercises?.length > 0) {
       if (!await confirmDialog({ title: 'Replace workout?', message: 'Loading the suggested workout will overwrite your current workout for today.', confirmText: 'Replace', dangerous: true })) return;
@@ -546,50 +547,28 @@
   // gesture standard on every fitness app — Capacitor's WebView doesn't
   // ship one, so this is a minimal implementation that gets out of the
   // way when not in use. Disabled in landscape / when not at top of page.
-  let ptrStartY = 0;
-  let ptrDelta = 0;
-  let ptrActive = false;
-  let ptrRefreshing = false;
-  const PTR_THRESHOLD = 70;
-  function onPtrTouchStart(e) {
-    if (window.scrollY > 0) return;
-    ptrStartY = e.touches[0].clientY;
-    ptrActive = true;
-  }
-  function onPtrTouchMove(e) {
-    if (!ptrActive || ptrRefreshing) return;
-    const dy = e.touches[0].clientY - ptrStartY;
-    if (dy <= 0) { ptrDelta = 0; return; }
-    if (window.scrollY > 0) { ptrActive = false; ptrDelta = 0; return; }
-    // Resistance curve so the pull feels rubbery, not 1:1.
-    ptrDelta = Math.min(dy * 0.55, 140);
-  }
-  async function onPtrTouchEnd() {
-    if (!ptrActive) return;
-    ptrActive = false;
-    if (ptrDelta >= PTR_THRESHOLD && !ptrRefreshing) {
-      ptrRefreshing = true;
-      try {
-        await Promise.all([
-          loadWorkout($currentDate),
-          loadCoachFeedback($currentDate),
-          loadUnreadFeedback(),
-          loadWorkoutDates(),
-          loadPrevBests(),
-          loadSuggestedPrescriptions(),
-        ]);
-      } catch {}
-      notes = $todayLog?.notes || '';
-      ptrRefreshing = false;
-    }
-    ptrDelta = 0;
-  }
+  // Pull-to-refresh removed from this route — App.svelte now owns the
+  // gesture globally (native server mode). Diary reloads its data via
+  // the lt:sync-complete listener above so pull-to-refresh on this page
+  // still gets today's workout + feedback + unread tally + historical
+  // dates + PRs + suggestions refreshed, without the two-spinner overlap
+  // that used to happen when both handlers fired.
 
   function _onSyncComplete() {
+    // Rely on the App-level pull-to-refresh (App.svelte) to fire the sync
+    // itself; this listener refreshes everything the Diary route reads
+    // locally so a user who pulled while staying on Diary sees the new
+    // state without navigating away and back. Previously Diary owned its
+    // own route-scoped PTR — removed for family parity, since NT + CT
+    // put PTR in App.svelte and having it in both places rendered two
+    // spinners on top of each other.
     if ($currentDate) {
       loadWorkout($currentDate).then(() => loadCoachFeedback($currentDate));
     }
     loadUnreadFeedback();
+    loadWorkoutDates();
+    loadPrevBests();
+    loadSuggestedPrescriptions();
   }
 
   onDestroy(() => {
@@ -890,7 +869,7 @@
       exercises: withWarmups,
     });
     notes = '';
-    showSuccess(`Loaded "${template.name}"`);
+    showSuccess($_('diary_extra.toast.loaded_named', { values: { name: template.name } }));
   }
 
   // ── Load from prescription ─────────────────────────────────────────
@@ -903,7 +882,7 @@
     } else if (Array.isArray(px.exercises)) {
       exs = px.exercises;
     } else {
-      showError('This prescription has no exercises'); return;
+      showError($_('diary_extra.toast.no_exercises')); return;
     }
     if ($todayLog?.exercises?.length > 0) {
       if (!await confirmDialog({ title: 'Replace workout?', message: 'Loading the prescribed workout will overwrite your current workout for today.', confirmText: 'Replace', dangerous: true })) return;
@@ -957,7 +936,7 @@
       program_id: recent.program_id || null,
       exercises: filled,
     });
-    showSuccess(`Loaded "${recent.name || 'workout'}"`);
+    showSuccess($_('diary_extra.toast.loaded_workout', { values: { name: recent.name || $_('diary_extra.toast.workout_fallback') } }));
   }
 
   // ── Exercise management ────────────────────────────────────────────
@@ -1014,7 +993,7 @@
         exercise_name: ex.name,
       };
       await saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
-      showSuccess(`Replaced with ${ex.name}`);
+      showSuccess($_('diary_extra.toast.replaced_with', { values: { name: ex.name } }));
       return;
     }
 
@@ -1293,10 +1272,10 @@
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        showError(body?.error || `NutriTrace sync failed (${res.status})`);
+        showError(body?.error || $_('diary_extra.toast.nt_sync_failed', { values: { status: res.status } }));
       }
     } catch (e) {
-      showError(`Couldn't reach NutriTrace: ${e?.message || 'network error'}`);
+      showError($_('diary_extra.toast.cant_reach_nt', { values: { error: e?.message || $_('diary_extra.toast.network_error') } }));
     }
   }
 
@@ -1687,22 +1666,7 @@
   }
 </script>
 
-<div class="page"
-  on:touchstart={onPtrTouchStart}
-  on:touchmove={onPtrTouchMove}
-  on:touchend={onPtrTouchEnd}
-  on:touchcancel={onPtrTouchEnd}>
-  {#if ptrDelta > 0 || ptrRefreshing}
-    <div class="ptr-indicator"
-         class:refreshing={ptrRefreshing}
-         style:transform={`translate3d(-50%, ${ptrRefreshing ? 60 : ptrDelta}px, 0)`}
-         style:opacity={ptrRefreshing ? 1 : Math.min(ptrDelta / 70, 1)}>
-      <span class="material-symbols-rounded" class:spin={ptrRefreshing}
-            style:transform={ptrRefreshing ? '' : `rotate(${ptrDelta * 4}deg)`}>
-        {ptrRefreshing ? 'autorenew' : 'arrow_downward'}
-      </span>
-    </div>
-  {/if}
+<div class="page">
   <!-- Action icons — fixed at top-right, same level as hamburger (NutriTrace pattern) -->
   <div use:portal class="diary-topbar-actions">
     <button class="btn-icon accent" on:click={() => showGymTools = true} aria-label={$_('diary.actions.gym_tools')} title={$_('diary.actions.gym_tools_long')}>
@@ -1786,12 +1750,12 @@
       <div class="stat">
         <span class="material-symbols-rounded stat-icon">check_circle</span>
         <span class="stat-val">{stats.completed}/{stats.total}</span>
-        <span class="stat-label">Sets</span>
+        <span class="stat-label">{$_('diary_extra.sets')}</span>
       </div>
       <div class="stat">
         <span class="material-symbols-rounded stat-icon">fitness_center</span>
         <span class="stat-val">{exercises.length}</span>
-        <span class="stat-label">Exercises</span>
+        <span class="stat-label">{$_('diary_extra.exercises')}</span>
       </div>
       {#if totalVolume > 0}
         <div class="stat">
@@ -1863,12 +1827,12 @@
               <textarea class="reply-input" rows="2"
                 use:autofocus
                 bind:value={replyDrafts[f.id]}
-                placeholder="Reply to your coach…"></textarea>
+                placeholder={$_('diary_extra.reply_ph')}></textarea>
               <div class="reply-actions">
                 {#if f.member_reply}
-                  <button class="reply-link danger" on:click={() => deleteReply(f.id)}>Delete</button>
+                  <button class="reply-link danger" on:click={() => deleteReply(f.id)}>{$_('diary_extra.delete')}</button>
                 {/if}
-                <button class="reply-link" on:click={() => replyOpenId = null}>Cancel</button>
+                <button class="reply-link" on:click={() => replyOpenId = null}>{$_('diary_extra.cancel')}</button>
                 <button class="reply-save" class:flashed={replySavedFlash === f.id}
                         on:click={() => saveReply(f.id)}
                         disabled={replySaving === f.id || !(replyDrafts[f.id] || '').trim()}>
@@ -1983,14 +1947,14 @@
         <div class="quick-starts">
           {#if $activeProgram}
             <button class="quick-card" on:click={openLoadWorkout}>
-              <span class="qc-tag">Active program</span>
+              <span class="qc-tag">{$_('diary_extra.active_program')}</span>
               <span class="qc-title">{$activeProgram.name}</span>
-              <span class="qc-meta">Tap to pick a workout</span>
+              <span class="qc-meta">{$_('diary_extra.tap_pick_workout')}</span>
             </button>
           {/if}
           {#each suggestedPrescriptions.slice(0, 1) as px (px.id)}
             <button class="quick-card coach" on:click={() => startSuggestedPrescription(px)}>
-              <span class="qc-tag">Coach pick</span>
+              <span class="qc-tag">{$_('diary_extra.coach_pick')}</span>
               <span class="qc-title">{px.template_name || px.name || 'Coach workout'}</span>
               <span class="qc-meta">From {px.trainer_name || 'your coach'}</span>
             </button>
@@ -1998,7 +1962,7 @@
           {#each recentWorkouts.slice(0, 1) as rw (rw.id)}
             {@const exs = JSON.parse(rw.exercises || '[]')}
             <button class="quick-card" on:click={() => quickLoad(rw)}>
-              <span class="qc-tag">Last workout</span>
+              <span class="qc-tag">{$_('diary_extra.last_workout')}</span>
               <span class="qc-title">{rw.name || 'Workout'}</span>
               <span class="qc-meta">{exs.length} {exs.length === 1 ? 'exercise' : 'exercises'}</span>
             </button>
@@ -2102,12 +2066,12 @@
                       <div class="reply-edit">
                         <textarea class="reply-input" rows="2"
                           bind:value={replyDrafts[f.id]}
-                          placeholder="Reply to your coach…"></textarea>
+                          placeholder={$_('diary_extra.reply_ph')}></textarea>
                         <div class="reply-actions">
                           {#if f.member_reply}
-                            <button class="reply-link danger" on:click={() => deleteReply(f.id)}>Delete</button>
+                            <button class="reply-link danger" on:click={() => deleteReply(f.id)}>{$_('diary_extra.delete')}</button>
                           {/if}
-                          <button class="reply-link" on:click={() => replyOpenId = null}>Cancel</button>
+                          <button class="reply-link" on:click={() => replyOpenId = null}>{$_('diary_extra.cancel')}</button>
                           <button class="reply-save"
                                   on:click={() => saveReply(f.id)}
                                   disabled={replySaving === f.id || !(replyDrafts[f.id] || '').trim()}>
@@ -2140,7 +2104,7 @@
         <div class="notes-card">
           <textarea
             class="notes-input"
-            placeholder="Workout notes..."
+            placeholder={$_('diary_extra.notes_ph')}
             bind:value={notes}
             on:blur={saveNotes}
             rows="2"
@@ -2170,6 +2134,16 @@
       {/if}
     {/if}
   </div>
+
+  <!-- Cardio sessions for the current date. Opt-in per user (see
+       settings.cardioEnabled — off by default for pure lifters).
+       Sits OUTSIDE the exercises-length guard so cardio can be logged
+       on rest days without needing to add a lifting exercise first. -->
+  {#if $cardioEnabled}
+    <div class="cardio-slot">
+      <CardioCard />
+    </div>
+  {/if}
 
   <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
        Loading from a program mid-workout lives in the ⋮ menu as "Replace workout". -->
@@ -2202,7 +2176,7 @@
   <!-- Load Workout sheet -->
   <Sheet open={showLoadWorkout} on:close={() => { showLoadWorkout = false; selectedProgram = null; }}>
     <div class="load-workout">
-      <h3 class="lw-title">Load Workout</h3>
+      <h3 class="lw-title">{$_('diary_extra.load_workout')}</h3>
 
       {#if loadingPrograms}
         <div class="lw-loading">Loading programs...</div>
@@ -2241,7 +2215,7 @@
               <span class="material-symbols-rounded">chevron_right</span>
             </button>
             <button class="lw-week-auto" title="Resume automatic week tracking"
-              on:click={() => setPlanWeek(null)}>Auto</button>
+              on:click={() => setPlanWeek(null)}>{$_('diary_extra.auto')}</button>
           </div>
         {/if}
 
@@ -2461,7 +2435,7 @@
   <div class="inbox-sheet">
     {#if !inboxLoading && inboxRows.some(r => !r.seen_by_member_at)}
       <div class="inbox-toolbar">
-        <button class="btn-link" on:click={markAllInboxSeen}>Mark All Seen</button>
+        <button class="btn-link" on:click={markAllInboxSeen}>{$_('diary_extra.mark_all_seen')}</button>
       </div>
     {/if}
     {#if inboxLoading}
@@ -3149,6 +3123,17 @@
   .recent-info { display: flex; flex-direction: column; gap: 2px; }
   .recent-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
   .recent-meta { font-size: 12px; color: var(--text-3); }
+
+  /* Cardio slot lives outside the workout container so it renders on
+     rest days too. Uses the same horizontal padding (--page-px) the
+     workout region uses so the cardio card always lines up with
+     exercise cards left and right. Full viewport width otherwise —
+     the earlier max-width cap caused inconsistent alignment against
+     full-width exercise cards. */
+  .cardio-slot {
+    padding: 16px var(--page-px) 0;
+    box-sizing: border-box;
+  }
 
   .notes-card {
     background: var(--surface-1); border: 1px solid var(--border);

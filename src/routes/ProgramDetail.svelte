@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
@@ -41,7 +42,7 @@
       });
       program = updated?.id ? { ...program, ...updated } : { ...program, duration_weeks: dw, advance_mode: settingsAdvance, on_complete: settingsOnComplete };
       showSettings = false;
-      showSuccess('Program settings saved');
+      showSuccess($_('program_detail.toast.settings_saved'));
     } catch(e) { showError(e.message); }
     savingSettings = false;
   }
@@ -65,7 +66,7 @@
     try {
       await LtApi.assignProgram(params.id, { user_id: memberId });
       const m = assignMembers.find(x => x.id === memberId);
-      showSuccess(`Assigned to ${m?.full_name || m?.username || 'member'}`);
+      showSuccess($_('program_detail.toast.assigned_to', { values: { name: m?.full_name || m?.username || $_('program_detail.toast.member_fallback') } }));
       showAssign = false;
     } catch(e) { showError(e.message); }
     assigning = false;
@@ -97,7 +98,7 @@
   async function activate() {
     try {
       await LtApi.setActiveProgram(params.id);
-      showSuccess('Program set as active');
+      showSuccess($_('program_detail.toast.set_active'));
       await load();
     } catch(e) { showError(e.message); }
   }
@@ -105,7 +106,7 @@
   async function deactivate() {
     try {
       await LtApi.deactivateProgram();
-      showSuccess('Program deactivated');
+      showSuccess($_('program_detail.toast.deactivated'));
       await load();
     } catch(e) { showError(e.message); }
   }
@@ -117,7 +118,7 @@
       await LtApi.createTemplate({ program_id: parseInt(params.id), name: newTemplateName.trim() });
       showAddTemplate = false;
       newTemplateName = '';
-      showSuccess('Workout added');
+      showSuccess($_('program_detail.toast.workout_added'));
       await load();
     } catch(e) { showError(e.message); }
     creating = false;
@@ -128,7 +129,7 @@
     if (!await confirmDialog({ title: 'Delete workout?', message: 'This removes the workout template from this program.', confirmText: 'Delete', dangerous: true })) return;
     try {
       await LtApi.deleteTemplate(id);
-      showSuccess('Workout deleted');
+      showSuccess($_('program_detail.toast.workout_deleted'));
       await load();
     } catch(e) { showError(e.message); }
   }
@@ -137,7 +138,7 @@
     if (!await confirmDialog({ title: 'Delete program?', message: 'Deletes the entire program and all of its workouts. This cannot be undone.', confirmText: 'Delete', dangerous: true })) return;
     try {
       await LtApi.deleteProgram(params.id);
-      showSuccess('Program deleted');
+      showSuccess($_('program_detail.toast.program_deleted'));
       push('/programs');
     } catch(e) { showError(e.message); }
   }
@@ -212,7 +213,7 @@
           exercises: t.exercises,
         });
       }
-      showSuccess('Program duplicated');
+      showSuccess($_('program_detail.toast.duplicated'));
       push(`/programs/${p.id}`);
     } catch(e) { showError(e.message); }
   }
@@ -348,7 +349,7 @@
       <!-- Workout Templates -->
       <div class="section">
         <div class="section-header">
-          <h3 class="section-title">Workouts</h3>
+          <h3 class="section-title">{$_('program_detail.workouts')}</h3>
           <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>
             <span class="material-symbols-rounded">add</span>
             Add
@@ -392,7 +393,7 @@
           <div class="empty-templates">
             <span class="material-symbols-rounded">playlist_add</span>
             <p>No workouts in this program yet.</p>
-            <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>Add Workout</button>
+            <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>{$_('program_detail.add_workout')}</button>
           </div>
         {/if}
       </div>
@@ -409,7 +410,7 @@
         <p class="hint">An admin can assign members to you from Settings → User Management.</p>
       </div>
     {:else}
-      <p class="hint">Pick a member to assign <strong>{program?.name}</strong> to:</p>
+      <p class="hint">{@html $_('program_detail.assign_hint', { values: { name: `<strong>${program?.name ?? ''}</strong>` } })}</p>
       {#each assignMembers as m (m.id)}
         <button class="assign-row" on:click={() => assignTo(m.id)} disabled={assigning}>
           <div class="avatar">{(m.full_name || m.username || '?')[0].toUpperCase()}</div>
@@ -435,22 +436,22 @@
     </div>
     {#if settingsDuration > 1}
       <div class="form-group">
-        <label class="form-label">Advance the week by</label>
+        <label class="form-label">{$_('program_detail.advance_week_by')}</label>
         <select class="form-select" bind:value={settingsAdvance}>
-          <option value="sessions">Sessions completed</option>
+          <option value="sessions">{$_('program_detail.option_sessions')}</option>
           <option value="calendar">Calendar (7 days per week)</option>
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Past the final week</label>
+        <label class="form-label">{$_('program_detail.past_final_week')}</label>
         <select class="form-select" bind:value={settingsOnComplete}>
-          <option value="hold">Hold on the final week</option>
+          <option value="hold">{$_('program_detail.option_hold')}</option>
           <option value="repeat">Repeat from week 1</option>
         </select>
       </div>
     {/if}
     <div class="form-actions">
-      <button class="btn btn-secondary" on:click={() => showSettings = false}>Cancel</button>
+      <button class="btn btn-secondary" on:click={() => showSettings = false}>{$_('program_detail.cancel')}</button>
       <button class="btn btn-primary" on:click={saveSettings} disabled={savingSettings}>
         {savingSettings ? 'Saving...' : 'Save'}
       </button>
@@ -461,14 +462,14 @@
 <!-- Add Workout Sheet -->
 <Sheet open={showAddTemplate} on:close={() => showAddTemplate = false}>
   <div class="form-sheet">
-    <h3 class="form-title">New Workout</h3>
+    <h3 class="form-title">{$_('program_detail.new_workout')}</h3>
     <div class="form-group">
-      <label class="form-label">Name</label>
+      <label class="form-label">{$_('program_detail.name')}</label>
       <input class="form-input" type="text" bind:value={newTemplateName} placeholder="e.g. Upper Body A, Leg Day, Push" autofocus
         on:keydown={e => e.key === 'Enter' && addTemplate()} />
     </div>
     <div class="form-actions">
-      <button class="btn btn-secondary" on:click={() => showAddTemplate = false}>Cancel</button>
+      <button class="btn btn-secondary" on:click={() => showAddTemplate = false}>{$_('program_detail.cancel')}</button>
       <button class="btn btn-primary" on:click={addTemplate} disabled={creating || !newTemplateName.trim()}>
         {creating ? 'Adding...' : 'Add Workout'}
       </button>

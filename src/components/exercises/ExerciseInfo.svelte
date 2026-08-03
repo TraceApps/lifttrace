@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   /**
    * Shared exercise detail content — reused by the full ExerciseDetail
    * page and the ExerciseInfoSheet bottom-sheet preview. Takes an
@@ -7,6 +8,21 @@
   export let exercise = null;
   export let pr = null;          // { weight, date, unit } or null
   export let history = null;     // [{ date, sets: [...] }] or null
+
+  // Load-type-aware set formatter (issue #24). Alternating exercises
+  // logged with per-side reps show `w × L+R` (e.g. `30 × 5+5`);
+  // paired shows `w × N` unchanged; bilateral is the current
+  // `w × reps` form. Uses the exercise library's `load_type` since
+  // this component receives the library exercise object.
+  function _formatSet(s) {
+    const lt = exercise?.load_type || 'bilateral';
+    if (lt === 'unilateral' && (s.reps_l != null || s.reps_r != null)) {
+      const l = s.reps_l ?? '';
+      const r = s.reps_r ?? '';
+      return `${s.weight}×${l}+${r}`;
+    }
+    return `${s.weight}×${s.reps}`;
+  }
 </script>
 
 {#if exercise}
@@ -51,7 +67,7 @@
   <!-- Muscles -->
   {#if exercise.primary_muscles?.length}
     <div class="section">
-      <h3 class="section-title">Primary Muscles</h3>
+      <h3 class="section-title">{$_('exercise_info.primary_muscles')}</h3>
       <div class="tags">
         {#each exercise.primary_muscles as m}<span class="tag muscle">{m}</span>{/each}
       </div>
@@ -59,7 +75,7 @@
   {/if}
   {#if exercise.secondary_muscles?.length}
     <div class="section">
-      <h3 class="section-title">Secondary Muscles</h3>
+      <h3 class="section-title">{$_('exercise_info.secondary_muscles')}</h3>
       <div class="tags">
         {#each exercise.secondary_muscles as m}<span class="tag">{m}</span>{/each}
       </div>
@@ -69,13 +85,13 @@
   <!-- Instructions -->
   {#if exercise.instructions}
     <div class="section">
-      <h3 class="section-title">How to Perform</h3>
+      <h3 class="section-title">{$_('exercise_info.how_to_perform')}</h3>
       <p class="instructions">{exercise.instructions}</p>
     </div>
   {/if}
   {#if exercise.tips}
     <div class="section">
-      <h3 class="section-title">Tips</h3>
+      <h3 class="section-title">{$_('exercise_info.tips')}</h3>
       <p class="instructions">{exercise.tips}</p>
     </div>
   {/if}
@@ -85,7 +101,7 @@
     <div class="pr-card">
       <span class="material-symbols-rounded pr-icon">emoji_events</span>
       <div class="pr-info">
-        <span class="pr-label">Personal Record</span>
+        <span class="pr-label">{$_('exercise_info.personal_record')}</span>
         <span class="pr-value">{pr.weight} {pr.unit || ''}</span>
         <span class="pr-date">{pr.date}</span>
       </div>
@@ -95,13 +111,13 @@
   <!-- History (optional) -->
   {#if history && history.length > 0}
     <div class="section">
-      <h3 class="section-title">Recent History</h3>
+      <h3 class="section-title">{$_('exercise_info.recent_history')}</h3>
       <div class="history-list">
         {#each history.slice(0, 10) as h}
           <div class="history-row">
             <span class="hist-date">{h.date}</span>
             <span class="hist-sets">
-              {(h.sets || []).filter(s => s.completed).map(s => `${s.weight}×${s.reps}`).join(' | ')}
+              {(h.sets || []).filter(s => s.completed).map(_formatSet).join(' | ')}
             </span>
           </div>
         {/each}

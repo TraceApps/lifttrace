@@ -13,6 +13,8 @@ import templatesRoutes   from './routes/templates.js';
 import workoutRoutes     from './routes/workout.js';
 import statsRoutes       from './routes/stats.js';
 import bodyStatsRoutes   from './routes/body-stats.js';
+import updatesRoutes    from './routes/updates.js';
+import cardioRoutes      from './routes/cardio.js';
 import uploadRoutes      from './routes/upload.js';
 import settingsRoutes    from './routes/settings.js';
 import appConfigRoutes   from './routes/app-config.js';
@@ -80,12 +82,19 @@ const router = express.Router();
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
 
-// CORS — allow same-host + Capacitor origins
+// CORS — allow same-host + Capacitor origins.
+// Capacitor WebView origins:
+//   https://localhost              — legacy (kept for older APKs)
+//   http://localhost               — legacy http scheme
+//   https://app.lifttrace.local    — current app identity (see
+//                                    capacitor.config.ts for why)
 router.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
     const host = req.get('host');
-    const isCapacitor = origin === 'https://localhost' || origin === 'http://localhost';
+    const isCapacitor = origin === 'https://localhost'
+      || origin === 'http://localhost'
+      || origin === 'https://app.lifttrace.local';
     const isSameHost = host && origin.includes(host);
     if (isCapacitor || isSameHost) {
       res.setHeader('Access-Control-Allow-Origin', origin);
@@ -145,6 +154,8 @@ router.use('/api/templates',    templatesRoutes);
 router.use('/api/workout',      workoutRoutes);
 router.use('/api/stats',        statsRoutes);
 router.use('/api/body-stats',   bodyStatsRoutes);
+router.use('/api/updates',     updatesRoutes);
+router.use('/api/cardio',       cardioRoutes);
 router.use('/api/upload',       uploadRoutes);
 router.use('/api/settings',     settingsRoutes);
 router.use('/api/app-config',   appConfigRoutes);

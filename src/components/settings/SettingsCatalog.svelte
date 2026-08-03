@@ -195,7 +195,7 @@
     })) return;
     try {
       await LtApi.deleteExercise(ex.id);
-      showSuccess('Deleted');
+      showSuccess($_('settings_catalog.deleted'));
       await loadCustomExercises();
     } catch(e) { showError(e.message); }
   }
@@ -261,7 +261,7 @@
               </div>
               <div class="src-desc">{src.description}</div>
               {#if src.requiresKey}
-                <input class="form-input-sm src-key" type="password" placeholder="RapidAPI key" bind:value={sourceKeys[src.id]} />
+                <input class="form-input-sm src-key" type="password" placeholder={$_('settings_catalog.rapidapi_key_ph')} bind:value={sourceKeys[src.id]} />
                 <div class="src-byok-note">
                   Bring your own RapidAPI key. By enabling this source you confirm you have an
                   active subscription (free tier available) and accept RapidAPI's and the API
@@ -293,7 +293,7 @@
       <div class="card" style="margin-top:12px">
         <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
           <div class="setting-label-group">
-            <span class="setting-label">Offline Exercise Library</span>
+            <span class="setting-label">{$_('settings_catalog.offline_library')}</span>
             <span class="setting-hint">Pre-download every exercise GIF / image to your device cache. Useful for gyms without signal or before going mobile. Re-run any time after importing a new source.</span>
           </div>
           {#if precacheProgress}
@@ -311,7 +311,7 @@
         </div>
       </div>
 
-      <p class="sub-label">My Exercises</p>
+      <p class="sub-label">{$_('settings_catalog.my_exercises')}</p>
       <div class="card">
         <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px">
           <div style="font-size:12px;color:var(--text-3)">
@@ -356,7 +356,7 @@
         {/if}
       </div>
 
-      <p class="sub-label">Custom Catalog</p>
+      <p class="sub-label">{$_('settings_catalog.custom_catalog')}</p>
       <div class="card cc-card">
         <p class="cc-intro">
           Import your own exercises from JSON. Useful for sharing
@@ -400,15 +400,15 @@
         </details>
 
         <label class="cc-field">
-          <span class="cc-field-label">Catalog name</span>
+          <span class="cc-field-label">{$_('settings_catalog.catalog_name')}</span>
           <input class="form-input-sm cc-input" type="text" bind:value={customCatalogName}
             placeholder="e.g. My Exercises" maxlength="60" />
         </label>
 
         <label class="cc-field">
-          <span class="cc-field-label">JSON</span>
+          <span class="cc-field-label">{$_('settings_catalog.json')}</span>
           <textarea class="form-input-sm cc-json" bind:value={customCatalogJson}
-            placeholder="Paste JSON here, or pick a .json file below"></textarea>
+            placeholder={$_('settings_catalog.json_ph')}></textarea>
         </label>
 
         <div class="cc-actions">
@@ -451,7 +451,7 @@
       </div>
 
       {#if importedCatalogs.length > 0}
-        <p class="sub-label">Imported Catalogs</p>
+        <p class="sub-label">{$_('settings_catalog.imported_catalogs')}</p>
         <div class="card">
           {#each importedCatalogs as cat (cat.id)}
             <div class="src-row">

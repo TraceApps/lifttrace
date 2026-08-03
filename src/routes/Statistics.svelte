@@ -9,9 +9,10 @@
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
   import Sparkline from '../components/statistics/Sparkline.svelte';
   import MuscleRecovery from '../components/statistics/MuscleRecovery.svelte';
+  import Sheet from '../components/ui/Sheet.svelte';
   import BodyMap from '../components/statistics/BodyMap.svelte';
   import { MUSCLES, MUSCLE_NAME, rankOf } from '../lib/muscles.js';
-  import { weeklyWorkoutGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
+  import { weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
   import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
@@ -20,7 +21,9 @@
   import { showError } from '../stores/toast.js';
 
   // ── Metric + range state ─────────────────────────────────────────────
-  const METRICS = [
+  // Base metric pills — cardio conditionally appended when the user
+  // has opted-in via Settings → Workout → Track Cardio.
+  const BASE_METRICS = [
     { id: 'overview', label: 'Overview',         icon: 'dashboard' },
     { id: 'progress', label: 'Exercise Progress', icon: 'trending_up' },
     { id: 'records',  label: 'Records',           icon: 'emoji_events' },
@@ -28,6 +31,8 @@
     { id: 'freq',     label: 'Frequency',         icon: 'calendar_month' },
     { id: 'weight',   label: 'Body Weight',       icon: 'monitor_weight' },
   ];
+  const CARDIO_METRIC = { id: 'cardio', label: 'Cardio', icon: 'directions_run' };
+  $: METRICS = $cardioEnabled ? [...BASE_METRICS, CARDIO_METRIC] : BASE_METRICS;
 
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
 
@@ -54,6 +59,8 @@
   let muscleGroups = [];
   let muscleLoad = {};   // { [slug]: effectiveSets } for the body map
   let weekdayDist = [];
+  let cardioWeekly = []; // [{ week, minutes }] for the Cardio metric
+  let cardioSessions = []; // individual sessions in range, newest first, for the session list under the chart
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
   let exercises = [];
@@ -103,7 +110,10 @@
   // positioned indicator can slide between variably-sized, horizontally
   // scrolling pills. Updates on metric change + window resize.
   let metricBarEl;
-  const pillRefs = new Array(6);
+  const pillRefs = new Array(7);
+  // If the user disables cardio while sitting on the Cardio metric, snap
+  // back to Overview so we don't render a metric whose pill is gone.
+  $: if (!$cardioEnabled && metric === 'cardio') metric = 'overview';
   let indicatorPos = { left: 0, width: 0 };
   function _measureIndicator() {
     const activeIdx = METRICS.findIndex(m => m.id === metric);
@@ -140,7 +150,7 @@
   async function loadData() {
     loading = true;
     try {
-      const [v, f, r, s, mg, mes, wd] = await Promise.all([
+      const [v, f, r, s, mg, mes, wd, cw, cs] = await Promise.all([
         LtApi.getVolume(startDate, endDate),
         LtApi.getFrequency(startDate, endDate),
         LtApi.getRecords(),
@@ -148,9 +158,13 @@
         LtApi.getMuscleGroupVolume(startDate, endDate),
         LtApi.getMuscleEffectiveSets(startDate, endDate),
         LtApi.getWeekdayDistribution(startDate, endDate),
+        LtApi.getCardioWeekly(startDate, endDate).catch(() => []),
+        LtApi.listCardio(startDate, endDate).catch(() => []),
       ]);
       volume = v; frequency = f; records = r; streaks = s;
       muscleGroups = mg; muscleLoad = mes || {}; weekdayDist = wd;
+      cardioWeekly = Array.isArray(cw) ? cw : [];
+      cardioSessions = Array.isArray(cs) ? cs : [];
 
       // Heatmap dates + cached full records (the calorie estimator needs
       // exercises + duration_min, both already in this payload).
@@ -495,15 +509,15 @@
           <div class="summary-card">
             <span class="material-symbols-rounded sc-icon">local_fire_department</span>
             <span class="sc-value">{streaks.currentStreak}</span>
-            <span class="sc-label">Day Streak</span>
-            <div class="sc-spark" title="Last 14 days — filled dots are workout days">
+            <span class="sc-label">{$_('statistics.day_streak')}</span>
+            <div class="sc-spark" title={$_('statistics.streak_hint')}>
               <Sparkline type="dots" values={streakSparkline} width={84} height={14} color="var(--accent)" />
             </div>
           </div>
           <div class="summary-card">
             <span class="material-symbols-rounded sc-icon">emoji_events</span>
             <span class="sc-value">{streaks.longestStreak}</span>
-            <span class="sc-label">Longest</span>
+            <span class="sc-label">{$_('statistics.longest')}</span>
           </div>
           <div class="summary-card">
             <span class="material-symbols-rounded sc-icon">calendar_today</span>
@@ -514,7 +528,7 @@
                 {periodDeltas.cntPct > 0 ? '+' : ''}{periodDeltas.cntPct}% vs prior
               </span>
             {:else if freqSparkline.length >= 2}
-              <div class="sc-spark" title="Workouts per week — last 8 weeks">
+              <div class="sc-spark" title={$_('statistics.wpw_hint')}>
                 <Sparkline type="bars" values={freqSparkline} width={84} height={14} color="var(--accent)" />
               </div>
             {/if}
@@ -527,7 +541,7 @@
         </div>
 
         {#if rangeCalories != null}
-          <div class="cal-strip" title="Mifflin-St Jeor BMR × MET — rough estimate, ±25%.">
+          <div class="cal-strip" title={$_('statistics.cal_hint')}>
             <span class="material-symbols-rounded cal-icon">local_fire_department</span>
             <span class="cal-val">~{rangeCalories.toLocaleString()} kcal</span>
             <span class="cal-label">burned this {range}</span>
@@ -547,8 +561,8 @@
           </div>
           <div class="hm-legend">
             <div class="hm-legend-scale">
-              <div class="hm-cell"></div><span>Rest</span>
-              <div class="hm-cell hm-active"></div><span>Workout</span>
+              <div class="hm-cell"></div><span>{$_('statistics.hm_rest')}</span>
+              <div class="hm-cell hm-active"></div><span>{$_('statistics.hm_workout')}</span>
             </div>
             <span class="hm-legend-label">{streaks.totalWorkouts} total workouts</span>
           </div>
@@ -586,7 +600,7 @@
         {:else if !progressData.length}
           <div class="empty-state">
             <span class="material-symbols-rounded">info</span>
-            <p>No completed sets for <strong>{selectedExercise?.name}</strong> in this range.</p>
+            <p>{@html $_('statistics.no_sets', { values: { name: `<strong>${selectedExercise?.name}</strong>` } })}</p>
           </div>
         {:else}
           <div class="summary-row">
@@ -604,13 +618,13 @@
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.sessions}</span>
-              <span class="sc-label">Sessions</span>
+              <span class="sc-label">{$_('statistics.sessions')}</span>
             </div>
           </div>
 
           <div class="chart-card">
             <div class="chart-title-row">
-              <h3 class="chart-title">Top Set Over Time</h3>
+              <h3 class="chart-title">{$_('statistics.top_set')}</h3>
               {#if hasRpe}
                 <div class="chart-legend">
                   <span class="legend-item"><span class="legend-swatch accent"></span>Top set ({$weightUnit})</span>
@@ -641,7 +655,7 @@
           </div>
 
           <div class="list-card">
-            <h3 class="chart-title">Session History</h3>
+            <h3 class="chart-title">{$_('statistics.session_history')}</h3>
             {#each progressData.slice().reverse() as p}
               <div class="history-row">
                 <span class="hr-date">{p.date}</span>
@@ -669,7 +683,7 @@
               <div class="records-list">
                 {#each recentPRs as r}
                   {#if /^\d+$/.test(String(r.exerciseId))}
-                    <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title="Open exercise">
+                    <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title={$_('statistics.open_exercise')}>
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
                         <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
@@ -697,7 +711,7 @@
               <div class="records-list">
                 {#each group.records as r}
                   {#if /^\d+$/.test(String(r.exerciseId))}
-                    <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title="Open exercise">
+                    <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title={$_('statistics.open_exercise')}>
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
                         <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
@@ -736,7 +750,7 @@
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{fmtVol(maxVolWeek)}</span>
-            <span class="sc-label">Peak week</span>
+            <span class="sc-label">{$_('statistics.peak_week')}</span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{volume.length ? fmtVol(totalVolume / volume.length) : 0}</span>
@@ -744,7 +758,7 @@
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{volume.length}</span>
-            <span class="sc-label">Weeks</span>
+            <span class="sc-label">{$_('statistics.weeks')}</span>
           </div>
         </div>
 
@@ -754,7 +768,7 @@
           {@const rank = rankOf(muscleLoad)}
           {@const totalSets = MUSCLES.reduce((s, m) => s + (muscleLoad[m] || 0), 0)}
           <div class="chart-card">
-            <h3 class="chart-title">Muscle Balance</h3>
+            <h3 class="chart-title">{$_('statistics.muscle_balance')}</h3>
             <p class="chart-sub" style="margin-top:-4px;margin-bottom:12px">
               Shaded by effective sets, relative to the hardest-worked muscle in this range.
             </p>
@@ -764,18 +778,18 @@
                  Same vocabulary the muscle-heat coloring uses so "more
                  accent = more training" reads the same everywhere. -->
             <div class="bm-legend">
-              <span class="bm-legend-label">Less</span>
+              <span class="bm-legend-label">{$_('statistics.less')}</span>
               <span class="bm-legend-swatch l0"></span>
               <span class="bm-legend-swatch l1"></span>
               <span class="bm-legend-swatch l2"></span>
               <span class="bm-legend-swatch l3"></span>
               <span class="bm-legend-swatch l4"></span>
-              <span class="bm-legend-label">More</span>
+              <span class="bm-legend-label">{$_('statistics.more')}</span>
             </div>
 
             {#if rank.missed.length > 0}
               <div class="bm-missed">
-                <p class="bm-missed-title">Not trained in this period</p>
+                <p class="bm-missed-title">{$_('statistics.not_trained')}</p>
                 <div class="bm-chips">
                   {#each rank.missed as slug}
                     <span class="bm-chip">{MUSCLE_NAME[slug]}</span>
@@ -803,7 +817,7 @@
         <div class="summary-row">
           <div class="summary-card">
             <span class="sc-value-sm">{totalWorkoutsInRange}</span>
-            <span class="sc-label">Workouts</span>
+            <span class="sc-label">{$_('statistics.workouts')}</span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{avgFreq}</span>
@@ -811,11 +825,11 @@
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{maxFreqWeek}</span>
-            <span class="sc-label">Best Week</span>
+            <span class="sc-label">{$_('statistics.best_week')}</span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{streaks.currentStreak}</span>
-            <span class="sc-label">Streak</span>
+            <span class="sc-label">{$_('statistics.streak')}</span>
           </div>
         </div>
 
@@ -823,7 +837,7 @@
 
         {#if weekdayDist.length > 0 && totalWorkoutsInRange > 0}
           <div class="chart-card">
-            <h3 class="chart-title">Weekday Distribution</h3>
+            <h3 class="chart-title">{$_('statistics.weekday_dist')}</h3>
             <div class="bar-chart">
               {#each weekdayDist as w}
                 <div class="bar-col">
@@ -871,12 +885,12 @@
               <span class="sc-value-sm" class:gain={bwStats.change > 0} class:loss={bwStats.change < 0}>
                 {bwStats.change > 0 ? '+' : ''}{bwStats.change.toFixed(1)}
               </span>
-              <span class="sc-label">Change</span>
+              <span class="sc-label">{$_('statistics.change')}</span>
             </div>
           </div>
 
           <div class="chart-card">
-            <h3 class="chart-title">Body Weight Trend</h3>
+            <h3 class="chart-title">{$_('statistics.body_weight_trend')}</h3>
             <svg class="line-chart" viewBox="0 0 {Math.max(bodyWeights.length * 20, 200)} 120" preserveAspectRatio="none">
               <polyline fill="none" stroke="var(--accent)" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round"
@@ -892,7 +906,7 @@
           </div>
 
           <div class="list-card">
-            <h3 class="chart-title">History</h3>
+            <h3 class="chart-title">{$_('statistics.history')}</h3>
             {#each bodyWeights.slice().reverse() as b}
               <div class="history-row">
                 <span class="hr-date">{b.date}</span>
@@ -902,38 +916,113 @@
           </div>
         {/if}
       {/if}
+
+      {#if metric === 'cardio'}
+        {@const cwTotal = cardioWeekly.reduce((s, w) => s + (w.minutes || 0), 0)}
+        {@const cwMax   = cardioWeekly.reduce((s, w) => Math.max(s, w.minutes || 0), 0)}
+        {@const cwAvg   = cardioWeekly.length ? Math.round(cwTotal / cardioWeekly.length) : 0}
+        {@const cwHit   = $weeklyCardioMinutesGoal > 0 ? cardioWeekly.filter(w => w.minutes >= $weeklyCardioMinutesGoal).length : 0}
+        {#if cardioWeekly.length === 0}
+          <div class="empty-state">
+            <span class="material-symbols-rounded">directions_run</span>
+            <p>No cardio logged in this range. Add sessions from the Diary.</p>
+          </div>
+        {:else}
+          <div class="summary-row">
+            <div class="summary-card">
+              <span class="sc-value-sm">{cwTotal}</span>
+              <span class="sc-label">Total min</span>
+            </div>
+            <div class="summary-card">
+              <span class="sc-value-sm">{cwAvg}</span>
+              <span class="sc-label">Avg / week</span>
+            </div>
+            <div class="summary-card">
+              <span class="sc-value-sm">{cwMax}</span>
+              <span class="sc-label">Peak week</span>
+            </div>
+            {#if $weeklyCardioMinutesGoal > 0}
+              <div class="summary-card">
+                <span class="sc-value-sm">{cwHit}<span class="sc-sub">/{cardioWeekly.length}</span></span>
+                <span class="sc-label">On target</span>
+              </div>
+            {/if}
+          </div>
+
+          <div class="chart-card">
+            <h3 class="chart-title">Weekly Minutes</h3>
+            <div class="cw-bars" style="--target-frac: {$weeklyCardioMinutesGoal > 0 && cwMax > 0 ? Math.min(1, $weeklyCardioMinutesGoal / Math.max(cwMax, $weeklyCardioMinutesGoal)) : 0}">
+              {#each cardioWeekly as w}
+                {@const denom = Math.max(cwMax, $weeklyCardioMinutesGoal || 0)}
+                {@const pct = denom > 0 ? Math.round((w.minutes / denom) * 100) : 0}
+                {@const hitGoal = $weeklyCardioMinutesGoal > 0 && w.minutes >= $weeklyCardioMinutesGoal}
+                <div class="cw-col" title="{w.week}: {w.minutes} min">
+                  <div class="cw-fill" class:hit={hitGoal} style="height:{pct}%"></div>
+                  <span class="cw-label">{w.week.slice(5)}</span>
+                </div>
+              {/each}
+            </div>
+            {#if $weeklyCardioMinutesGoal > 0}
+              <p class="chart-sub" style="text-align:center">Target: {$weeklyCardioMinutesGoal} min / week</p>
+            {:else}
+              <p class="chart-sub" style="text-align:center">Set a weekly target in Settings → Workout to compare against.</p>
+            {/if}
+          </div>
+
+          {#if cardioSessions.length > 0}
+            <div class="chart-card">
+              <h3 class="chart-title">Sessions</h3>
+              <ul class="cs-list">
+                {#each cardioSessions.slice(0, 100) as s (s.id)}
+                  <li class="cs-row">
+                    <div class="cs-main">
+                      <span class="cs-activity">{s.activity}</span>
+                      <span class="cs-meta">
+                        {s.duration_min} min
+                        {#if s.distance != null}· {s.distance} {s.distance_unit || 'km'}{/if}
+                        {#if s.avg_hr != null}· {s.avg_hr} bpm{/if}
+                      </span>
+                    </div>
+                    <span class="cs-date">{s.date}</span>
+                  </li>
+                {/each}
+              </ul>
+              {#if cardioSessions.length > 100}
+                <p class="chart-sub" style="text-align:center">Showing the 100 most recent sessions in this range.</p>
+              {/if}
+            </div>
+          {/if}
+        {/if}
+      {/if}
     </div>
   {/if}
 </div>
 
 <!-- Exercise picker sheet -->
-{#if showExPicker}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="ex-picker-backdrop" on:click={() => showExPicker = false}>
-    <div class="ex-picker-sheet" on:click|stopPropagation>
-      <div class="ex-picker-handle"></div>
-      <div class="ex-picker-header">
-        <h3>Choose Exercise</h3>
-        <button class="btn-icon" on:click={() => showExPicker = false}>
-          <span class="material-symbols-rounded">close</span>
-        </button>
-      </div>
-      <div class="ex-picker-search">
-        <span class="material-symbols-rounded">search</span>
-        <input type="search" bind:value={exSearch} placeholder="Search exercises…" />
-      </div>
-      <div class="ex-picker-list">
-        {#each filteredExs as ex}
-          <button class="ex-picker-row" on:click={() => { selectedExerciseId = ex.id; showExPicker = false; }}>
-            <span class="ex-picker-name">{ex.name}</span>
-            {#if ex.category}<span class="ex-picker-cat">{ex.category}</span>{/if}
-          </button>
-        {/each}
-      </div>
-    </div>
+<!-- Exercise picker for the Exercise Progress metric. Uses the shared
+     Sheet component (issue #25) rather than a local inline sheet — the
+     duplicated CSS had drifted enough to trigger a Vivaldi-PWA-specific
+     off-screen bug on this one screen while other sheets rendered fine.
+     Consolidating on Sheet.svelte guarantees the picker inherits the
+     same viewport-height + safe-area treatment the rest of the app
+     already had working across environments. -->
+<Sheet bind:open={showExPicker} title={$_('statistics.choose_exercise')} height="full">
+  <div class="ex-picker-search">
+    <span class="material-symbols-rounded">search</span>
+    <input type="search" bind:value={exSearch} placeholder={$_('statistics.search_exercises_ph')} />
   </div>
-{/if}
+  <div class="ex-picker-list">
+    {#each filteredExs as ex}
+      <button class="ex-picker-row" on:click={() => { selectedExerciseId = ex.id; showExPicker = false; }}>
+        <span class="ex-picker-name">{ex.name}</span>
+        {#if ex.category}<span class="ex-picker-cat">{ex.category}</span>{/if}
+      </button>
+    {/each}
+    {#if filteredExs.length === 0}
+      <p class="ex-picker-empty">{exSearch ? 'No exercises match that search.' : 'No exercises in your library yet.'}</p>
+    {/if}
+  </div>
+</Sheet>
 
 <style>
   .page { min-height: 100dvh; background: var(--bg); padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + var(--mini-player-h, 0px) + 16px); }
@@ -1219,27 +1308,12 @@
   .ex-picker-btn:hover { background: var(--surface-2); }
   .ex-picker-btn .material-symbols-rounded { color: var(--text-3); font-size: 20px; }
 
-  /* Picker sheet */
-  .ex-picker-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500;
-    display: flex; align-items: flex-end;
-  }
-  .ex-picker-sheet {
-    width: 100%; max-width: 640px; margin: 0 auto;
-    background: var(--surface-1);
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    max-height: 90dvh; display: flex; flex-direction: column;
-    padding-bottom: var(--safe-bottom);
-  }
-  .ex-picker-handle { width: 40px; height: 4px; background: var(--text-3); opacity: 0.4; border-radius: 2px; margin: 10px auto; }
-  .ex-picker-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 0 20px 8px;
-  }
-  .ex-picker-header h3 { margin: 0; font-size: 17px; font-weight: 700; color: var(--text-1); }
+  /* Picker inner styles — the wrapping sheet + backdrop live in
+     Sheet.svelte now (issue #25). These style the content slotted
+     into it: the search bar, the results list, and the empty-state. */
   .ex-picker-search {
     display: flex; align-items: center; gap: 8px;
-    margin: 0 16px 12px;
+    margin: 0 0 12px;
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md); padding: 0 12px;
   }
@@ -1248,17 +1322,21 @@
     flex: 1; background: none; border: none; outline: none;
     color: var(--text-1); font-size: 15px; padding: 10px 0; font-family: inherit;
   }
-  .ex-picker-list { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
+  .ex-picker-list { display: flex; flex-direction: column; gap: 6px; }
   .ex-picker-row {
     display: flex; justify-content: space-between; align-items: center;
     width: 100%; padding: 12px;
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    cursor: pointer; text-align: left; margin-bottom: 6px;
+    cursor: pointer; text-align: left;
     color: var(--text-1); font-size: 14px; font-weight: 500;
   }
   .ex-picker-row:hover { background: var(--surface-3); }
   .ex-picker-cat { font-size: 11px; color: var(--text-3); text-transform: capitalize; }
+  .ex-picker-empty {
+    font-size: 13px; color: var(--text-3);
+    margin: 24px 0 0; text-align: center;
+  }
 
   /* Empty / loading */
   .empty-state {
@@ -1275,4 +1353,64 @@
   @media (max-width: 400px) {
     .summary-row { grid-template-columns: repeat(2, 1fr); }
   }
+
+  /* Cardio weekly-minutes bars. Same visual language as the frequency
+     chart: accent fill grows with training, target-hit weeks flip to
+     success green. --target-frac is set inline so the horizontal target
+     line renders at the right height. */
+  .cw-bars {
+    position: relative;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    align-items: end;
+    gap: 4px;
+    height: 140px;
+    padding-top: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .cw-bars::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    bottom: calc(var(--target-frac, 0) * 100% * 0.94);
+    height: 1px;
+    background: color-mix(in srgb, var(--accent) 40%, transparent);
+    border-top: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+    background: transparent;
+    display: var(--target-frac, none);
+    pointer-events: none;
+  }
+  .cw-col {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    align-items: center;
+    height: 100%;
+    gap: 4px;
+  }
+  .cw-fill {
+    width: 100%;
+    background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 60%, transparent));
+    border-radius: 3px 3px 0 0;
+    min-height: 2px;
+    transition: height var(--dur-slow, 400ms);
+  }
+  .cw-fill.hit { background: linear-gradient(180deg, var(--success, #2FD66F), color-mix(in srgb, var(--success, #2FD66F) 60%, transparent)); }
+  .cw-label { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .sc-sub { font-size: 13px; color: var(--text-3); font-weight: 600; }
+
+  /* Cardio session list under the weekly chart. Compact rows, newest
+     first, date on the right. Read-only here — editing happens on the
+     Diary CardioCard because that's where the date context lives. */
+  .cs-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .cs-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .cs-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .cs-activity { font-size: 13px; font-weight: 700; color: var(--text-1); }
+  .cs-meta { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .cs-date { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 </style>

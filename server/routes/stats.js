@@ -27,10 +27,23 @@ function getAllWorkouts(userId) {
   return rows.filter(r => hasCompletedSet(r.exercises));
 }
 
+// Library-level load_type lookup for volume calculators. Kept as a
+// {exercise_id → load_type} map so stat handlers can resolve per exercise
+// without an N+1 database hit inside the loop. NULL library values mean
+// "unset" — the resolver falls through to 'bilateral' server-side (client
+// still applies its per-user pref before rendering). See issue #24.
+function loadLibraryLoadTypes() {
+  const rows = db.prepare('SELECT id, load_type FROM exercises WHERE load_type IS NOT NULL').all();
+  const map = new Map();
+  for (const r of rows) map.set(r.id, r.load_type);
+  return map;
+}
+
 // GET /api/stats/volume?start=&end=
 router.get('/volume', wrap((req, res) => {
   const { start, end } = req.query;
   const rows = getWorkouts(uid(req), start, end);
+  const libMap = loadLibraryLoadTypes();
   const byWeek = {};
   for (const row of rows) {
     const d = new Date(row.date);
@@ -40,7 +53,7 @@ router.get('/volume', wrap((req, res) => {
     const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
     if (!byWeek[weekStart]) byWeek[weekStart] = 0;
     for (const ex of row.exercises) {
-      byWeek[weekStart] += exerciseVolume(ex);
+      byWeek[weekStart] += exerciseVolume(ex, libMap.get(ex.exercise_id));
     }
   }
   res.json(Object.entries(byWeek).map(([week, volume]) => ({ week, volume })));
@@ -90,6 +103,8 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
   const exerciseId = parseInt(req.params.exerciseId);
   const { start, end } = req.query;
   const rows = getWorkouts(uid(req), start, end);
+  const libRow = db.prepare('SELECT load_type FROM exercises WHERE id = ?').get(exerciseId);
+  const libLoadType = libRow?.load_type || null;
   const progress = [];
   for (const row of rows) {
     const ex = row.exercises.find(e => e.exercise_id === exerciseId);
@@ -97,7 +112,7 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
     const completedSets = (ex.sets || []).filter(s => s.completed && !s.warmup && s.weight > 0);
     if (!completedSets.length) continue;
     const maxWeight = Math.max(...completedSets.map(s => s.weight));
-    const lt = ex.load_type || 'bilateral';
+    const lt = ex.load_type || libLoadType || 'bilateral';
     const totalVolume = completedSets.reduce((sum, s) => sum + setVolume(s, lt), 0);
     // Average RPE across the session's working sets (when logged). Null
     // if the user hasn't opted into RPE or didn't log any values.
@@ -119,22 +134,22 @@ router.get('/muscle-group-volume', wrap((req, res) => {
   const { start, end } = req.query;
   const rows = getWorkouts(uid(req), start, end);
   // Build exercise_id → primary muscles[] lookup once
-  const exRows = db.prepare('SELECT id, primary_muscles, category FROM exercises').all();
+  const exRows = db.prepare('SELECT id, primary_muscles, category, load_type FROM exercises').all();
   const exMap = {};
   for (const ex of exRows) {
     let muscles = [];
     try { muscles = JSON.parse(ex.primary_muscles || '[]'); } catch {}
-    exMap[ex.id] = { muscles, category: ex.category || 'other' };
+    exMap[ex.id] = { muscles, category: ex.category || 'other', load_type: ex.load_type || null };
   }
 
   const out = {};
   for (const row of rows) {
     for (const ex of row.exercises) {
-      const info = exMap[ex.exercise_id] || { muscles: [], category: 'other' };
+      const info = exMap[ex.exercise_id] || { muscles: [], category: 'other', load_type: null };
       // Use category as fallback muscle group so every set counts somewhere
       const groups = info.muscles.length ? info.muscles : [info.category];
       const normalized = [...new Set(groups.map(g => _normalizeMuscle(g)))];
-      const lt = ex.load_type || 'bilateral';
+      const lt = ex.load_type || info.load_type || 'bilateral';
       for (const set of ex.sets || []) {
         if (!set.completed || set.warmup || set.weight <= 0) continue;
         const w = setVolume(set, lt);

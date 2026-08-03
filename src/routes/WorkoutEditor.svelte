@@ -1,9 +1,11 @@
 <script>
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { exerciseLoadTypes, trackRpe } from '../stores/settings.js';
+  import { resolveLoadType } from '../lib/workout.js';
   import TemplateSpecRow from '../components/programs/TemplateSpecRow.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
@@ -135,7 +137,7 @@
     arr[idx] = { ...arr[idx], superset_id: undefined, superset_size: undefined, superset_position: undefined };
     if (ssId) recalcSuperset(arr, ssId);
     commit(arr);
-    showSuccess('Removed from superset');
+    showSuccess($_('workout_editor.toast.removed_from_ss'));
   }
 
   function addToSuperset(idx, targetSsId) {
@@ -154,7 +156,7 @@
     const groupSets = arr.find(e => e.superset_id === targetSsId)?.target_sets;
     if (groupSets) ex.target_sets = groupSets;
     commit(arr);
-    showSuccess('Added to superset');
+    showSuccess($_('workout_editor.toast.added_to_ss'));
   }
 
   function createSuperset(indices) {
@@ -175,7 +177,7 @@
     const insertAt = Math.min(...indices.map(i => Math.min(i, arr.length)));
     arr.splice(insertAt, 0, ...extracted);
     commit(arr);
-    showSuccess('Superset created');
+    showSuccess($_('workout_editor.toast.ss_created'));
   }
 
   function dissolveSuperset(ssId) {
@@ -188,7 +190,7 @@
       }
     }
     commit(arr);
-    showSuccess('Superset dissolved');
+    showSuccess($_('workout_editor.toast.ss_dissolved'));
   }
 
 
@@ -200,10 +202,16 @@
   let loadMenuIdx = null;
   let rememberLoadType = false;
   function exLoadType(ex) {
-    return ex.load_type
-        || ($exerciseLoadTypes && ex.exercise_id != null
-              ? $exerciseLoadTypes[ex.exercise_id] : null)
-        || 'bilateral';
+    // Full four-tier resolution: per-instance → library default →
+    // client-side per-user pref → 'bilateral'. See src/lib/workout.js
+    // resolveLoadType. The library value lands on the exercise object
+    // via the picker's include-library-fields fetch (Diary + editor
+    // both populate `_library_load_type` when available).
+    return resolveLoadType(
+      ex,
+      ex._library_load_type != null ? ex._library_load_type : (ex.exercise_load_type || null),
+      $exerciseLoadTypes,
+    );
   }
   function pickLoadType(idx, next) {
     const ex = exercises[idx];
@@ -277,7 +285,7 @@
       exercise_name: newEx.name,
     };
     commit(arr);
-    showSuccess(`Replaced with ${newEx.name}`);
+    showSuccess($_('workout_editor.toast.replaced_with', { values: { name: newEx.name } }));
   }
 
   function handleJoinSuperset(ssId) {
@@ -318,7 +326,7 @@
     const result = [...before, ...members, ...after];
     recalcSuperset(result, targetSsId);
     commit(result);
-    showSuccess('Supersets merged');
+    showSuccess($_('workout_editor.toast.ss_merged'));
   }
 
   // Superset-level actions
@@ -431,7 +439,7 @@
       if (groupSets) moved.target_sets = groupSets;
       commit(arr);
       addingToSsId = null;
-      showSuccess('Added to superset');
+      showSuccess($_('workout_editor.toast.added_to_ss'));
     } else {
       template.exercises = [...exercises, newEx];
     }
@@ -657,7 +665,7 @@
     saving = true;
     try {
       await LtApi.updateTemplate(params.templateId, { name: template.name, exercises: template.exercises });
-      showSuccess('Workout saved');
+      showSuccess($_('workout_editor.toast.saved'));
       push(`/programs/${params.programId}`);
     } catch(e) { showError(e.message); }
     saving = false;
@@ -671,7 +679,7 @@
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
     {#if template}
-      <input class="title-input" type="text" bind:value={template.name} placeholder="Workout name" />
+      <input class="title-input" type="text" bind:value={template.name} placeholder={$_('workout_editor.name_ph')} />
       <button class="btn btn-primary save-btn" on:click={save} disabled={saving}>
         {saving ? 'Saving...' : 'Save'}
       </button>
@@ -707,7 +715,7 @@
       {#if exercises.length === 0}
         <div class="empty">
           <span class="material-symbols-rounded">playlist_add</span>
-          <p>Add exercises to this workout template</p>
+          <p>{$_('workout_editor.empty_hint')}</p>
         </div>
       {:else}
         {#each groups as group (group.id)}
@@ -716,9 +724,9 @@
             <div class="superset-block">
               <div class="ss-header">
                 <span class="material-symbols-rounded ss-icon">link</span>
-                <span class="ss-label">Superset</span>
+                <span class="ss-label">{$_('workout_editor.superset')}</span>
                 <span class="ss-count">{group.exercises.length} exercises</span>
-                <button class="btn-icon-xs ss-menu" on:click={() => openSsActions(group.id)} title="Superset options">
+                <button class="btn-icon-xs ss-menu" on:click={() => openSsActions(group.id)} title={$_('workout_editor.ss_options')}>
                   <span class="material-symbols-rounded">more_horiz</span>
                 </button>
               </div>
@@ -740,12 +748,12 @@
                       <div class="ex-header">
                         <div class="reorder-btns">
                           {#if idx > 0}
-                            <button class="btn-icon-xs" on:click|stopPropagation={() => moveUp(idx)} title="Move up">
+                            <button class="btn-icon-xs" on:click|stopPropagation={() => moveUp(idx)} title={$_('workout_editor.move_up')}>
                               <span class="material-symbols-rounded">keyboard_double_arrow_up</span>
                             </button>
                           {/if}
                           {#if idx < exercises.length - 1}
-                            <button class="btn-icon-xs" on:click|stopPropagation={() => moveDown(idx)} title="Move down">
+                            <button class="btn-icon-xs" on:click|stopPropagation={() => moveDown(idx)} title={$_('workout_editor.move_down')}>
                               <span class="material-symbols-rounded">keyboard_double_arrow_down</span>
                             </button>
                           {/if}
@@ -754,13 +762,13 @@
                         {#each [exLoadType(ex)] as lt}
                           <button type="button" class="load-chip" class:non-default={lt !== 'bilateral'}
                                   on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
-                                  title="Load type">
+                                  title={$_('workout_editor.load_type')}>
                             {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>Per side
                             {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>Alternating
                             {:else}<span class="material-symbols-rounded">straighten</span>{/if}
                           </button>
                         {/each}
-                        <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title="View exercise details" aria-label="View exercise details">
+                        <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title={$_('workout_editor.view_details')} aria-label={$_('workout_editor.view_details')}>
                           <span class="material-symbols-rounded">info</span>
                         </button>
                         {#if durationWeeks > 1 && activeWeek < durationWeeks}
@@ -771,7 +779,7 @@
                             <span class="material-symbols-rounded">arrow_forward</span>{activeWeek + 1}
                           </button>
                         {/if}
-                        <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExActions(idx)} title="Options">
+                        <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExActions(idx)} title={$_('workout_editor.options')}>
                           <span class="material-symbols-rounded">more_vert</span>
                         </button>
                       </div>
@@ -780,7 +788,7 @@
                         <!-- svelte-ignore a11y-no-static-element-interactions -->
                         <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null}></div>
                         <div class="load-menu" on:click|stopPropagation>
-                          <div class="load-menu-head">Load type</div>
+                          <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
                           {#each [['bilateral','Bilateral','single load — barbell, machine, both arms move one thing'],
                                   ['paired','Per side','both arms work together with separate equal loads'],
                                   ['unilateral','Alternating','one side at a time']] as [val, label, hint]}
@@ -795,7 +803,7 @@
                           {/each}
                           <label class="load-menu-remember">
                             <input type="checkbox" bind:checked={rememberLoadType} />
-                            <span>Remember for this exercise</span>
+                            <span>{$_('workout_editor.remember_ex')}</span>
                           </label>
                         </div>
                       {/if}
@@ -817,27 +825,27 @@
                             <button class="per-set-add" on:click={() => addSpecSet(idx)}>
                               <span class="material-symbols-rounded">add</span> Add set
                             </button>
-                            <button class="per-set-link" on:click={() => disablePerSet(idx)}>Use uniform targets</button>
+                            <button class="per-set-link" on:click={() => disablePerSet(idx)}>{$_('workout_editor.use_uniform')}</button>
                           </div>
                         </div>
                       {:else}
                         <div class="ex-fields three-col">
                           <div class="field">
-                            <label>Sets</label>
+                            <label>{$_('workout_editor.sets')}</label>
                             <input type="number" value={weekVal(ex, 'sets', activeWeek)} on:input={e => setWeekVal(idx, 'sets', parseInt(e.target.value))} placeholder="—" />
                           </div>
                           <div class="field">
-                            <label>Reps</label>
+                            <label>{$_('workout_editor.reps')}</label>
                             <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder="e.g. 8-12" />
                           </div>
                           <div class="field">
-                            <label>Weight</label>
+                            <label>{$_('workout_editor.weight')}</label>
                             <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder="e.g. 135" />
                           </div>
                         </div>
                         <div class="ex-fields two-col">
                           <div class="field">
-                            <label>Tempo</label>
+                            <label>{$_('workout_editor.tempo')}</label>
                             <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder="e.g. 3.1.1" />
                           </div>
                           <div class="field">
@@ -850,7 +858,7 @@
                           Different weight or reps per set…
                         </button>
                       {/if}
-                      <input class="notes-input" type="text" value={ex.notes || ''} on:input={e => updateExercise(idx, 'notes', e.target.value)} placeholder="Notes..." />
+                      <input class="notes-input" type="text" value={ex.notes || ''} on:input={e => updateExercise(idx, 'notes', e.target.value)} placeholder={$_('workout_editor.notes_ph')} />
                     </div>
                   </div>
                 {/each}
@@ -868,12 +876,12 @@
               <div class="ex-header">
                 <div class="reorder-btns">
                   {#if idx > 0}
-                    <button class="btn-icon-xs" on:click|stopPropagation={() => moveUp(idx)} title="Move up">
+                    <button class="btn-icon-xs" on:click|stopPropagation={() => moveUp(idx)} title={$_('workout_editor.move_up')}>
                       <span class="material-symbols-rounded">keyboard_double_arrow_up</span>
                     </button>
                   {/if}
                   {#if idx < exercises.length - 1}
-                    <button class="btn-icon-xs" on:click|stopPropagation={() => moveDown(idx)} title="Move down">
+                    <button class="btn-icon-xs" on:click|stopPropagation={() => moveDown(idx)} title={$_('workout_editor.move_down')}>
                       <span class="material-symbols-rounded">keyboard_double_arrow_down</span>
                     </button>
                   {/if}
@@ -883,13 +891,13 @@
                 {#each [exLoadType(ex)] as lt}
                   <button type="button" class="load-chip" class:non-default={lt !== 'bilateral'}
                           on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
-                          title="Load type">
+                          title={$_('workout_editor.load_type')}>
                     {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>Per side
                     {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>Alternating
                     {:else}<span class="material-symbols-rounded">straighten</span>{/if}
                   </button>
                 {/each}
-                <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title="View exercise details" aria-label="View exercise details">
+                <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title={$_('workout_editor.view_details')} aria-label={$_('workout_editor.view_details')}>
                   <span class="material-symbols-rounded">info</span>
                 </button>
                 {#if durationWeeks > 1 && activeWeek < durationWeeks}
@@ -900,7 +908,7 @@
                     <span class="material-symbols-rounded">arrow_forward</span>{activeWeek + 1}
                   </button>
                 {/if}
-                <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExActions(idx)} title="Options">
+                <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExActions(idx)} title={$_('workout_editor.options')}>
                   <span class="material-symbols-rounded">more_vert</span>
                 </button>
               </div>
@@ -909,7 +917,7 @@
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
                 <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null}></div>
                 <div class="load-menu" on:click|stopPropagation>
-                  <div class="load-menu-head">Load type</div>
+                  <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
                   {#each [['bilateral','Bilateral','single load — barbell, machine, both arms move one thing'],
                           ['paired','Per side','both arms work together with separate equal loads'],
                           ['unilateral','Alternating','one side at a time']] as [val, label, hint]}
@@ -924,7 +932,7 @@
                   {/each}
                   <label class="load-menu-remember">
                     <input type="checkbox" bind:checked={rememberLoadType} />
-                    <span>Remember for this exercise</span>
+                    <span>{$_('workout_editor.remember_ex')}</span>
                   </label>
                 </div>
               {/if}
@@ -946,27 +954,27 @@
                     <button class="per-set-add" on:click={() => addSpecSet(idx)}>
                       <span class="material-symbols-rounded">add</span> Add set
                     </button>
-                    <button class="per-set-link" on:click={() => disablePerSet(idx)}>Use uniform targets</button>
+                    <button class="per-set-link" on:click={() => disablePerSet(idx)}>{$_('workout_editor.use_uniform')}</button>
                   </div>
                 </div>
               {:else}
                 <div class="ex-fields three-col">
                   <div class="field">
-                    <label>Sets</label>
+                    <label>{$_('workout_editor.sets')}</label>
                     <input type="number" value={weekVal(ex, 'sets', activeWeek)} on:input={e => setWeekVal(idx, 'sets', parseInt(e.target.value))} placeholder="—" />
                   </div>
                   <div class="field">
-                    <label>Reps</label>
+                    <label>{$_('workout_editor.reps')}</label>
                     <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder="e.g. 8-12" />
                   </div>
                   <div class="field">
-                    <label>Weight</label>
+                    <label>{$_('workout_editor.weight')}</label>
                     <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder="e.g. 135" />
                   </div>
                 </div>
                 <div class="ex-fields two-col">
                   <div class="field">
-                    <label>Tempo</label>
+                    <label>{$_('workout_editor.tempo')}</label>
                     <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder="e.g. 3.1.1" />
                   </div>
                   <div class="field">
@@ -979,7 +987,7 @@
                   Different weight or reps per set…
                 </button>
               {/if}
-              <input class="notes-input" type="text" value={ex.notes || ''} on:input={e => updateExercise(idx, 'notes', e.target.value)} placeholder="Notes..." />
+              <input class="notes-input" type="text" value={ex.notes || ''} on:input={e => updateExercise(idx, 'notes', e.target.value)} placeholder={$_('workout_editor.notes_ph')} />
             </div>
           {/if}
         {/each}
@@ -1023,7 +1031,7 @@
 <Sheet open={ssPickerOpen} on:close={() => ssPickerOpen = false}>
   <div class="ss-picker">
     {#if ssPickerMode === 'join'}
-      <h3 class="picker-title">Add to Superset</h3>
+      <h3 class="picker-title">{$_('workout_editor_ss.add_to_superset')}</h3>
       <p class="picker-hint">Choose which superset to join:</p>
       {#each existingSupersets as ss}
         <button class="ss-option" on:click={() => handleJoinSuperset(ss.id)}>
@@ -1037,8 +1045,8 @@
         </button>
       {/each}
     {:else if ssPickerMode === 'new'}
-      <h3 class="picker-title">Create Superset</h3>
-      <p class="picker-hint">Select exercises to group with <strong>{exercises[asTargetIdx]?.exercise_name}</strong>:</p>
+      <h3 class="picker-title">{$_('workout_editor_ss.create_superset')}</h3>
+      <p class="picker-hint">{@html $_('workout_editor_ss.create_hint', { values: { name: `<strong>${exercises[asTargetIdx]?.exercise_name ?? ''}</strong>` } })}</p>
       <div class="pick-list">
         {#each exercises as ex, i}
           {#if i !== asTargetIdx && !(ex.superset_id != null && ex.superset_size > 1)}
@@ -1059,7 +1067,7 @@
 <!-- Merge superset picker -->
 <Sheet open={ssMergePickerOpen} on:close={() => ssMergePickerOpen = false}>
   <div class="ss-picker">
-    <h3 class="picker-title">Merge Into Superset</h3>
+    <h3 class="picker-title">{$_('workout_editor_ss.merge_into_superset')}</h3>
     <p class="picker-hint">All exercises from both supersets will be combined:</p>
     {#each existingSupersets.filter(s => String(s.id) !== String(ssAsTargetId)) as ss}
       <button class="ss-option" on:click={() => handleMerge(ss.id)}>

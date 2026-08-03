@@ -4,7 +4,43 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
-## Unreleased
+## v1.1.0 — 2026-08-03
+
+### Added
+
+- **Cardio session logging** (#23). Opt-in via Settings → Workout → **Track Cardio** (off by default so pure lifters aren't cluttered). When enabled, a Cardio card appears on the Diary for logging a session with activity, duration, optional distance / avg HR / notes; a Cardio metric appears on Statistics with weekly minutes total and an optional weekly target line. All cardio is excluded from volume, PRs, and rest-timer firing so it never corrupts the lifting side. Manual entry only by design; device sync (Fitbit, Garmin, Health Connect, etc.) lives in NutriTrace via federation and is not planned for LiftTrace.
+
+- **Pin cardio sessions as quick-log templates.** Tap the pin icon on any cardio session to save it as a one-tap template; pinned templates show up as chips at the top of the Cardio card so the next "same-as-yesterday" run / bike / row is a single tap instead of re-filling the form. Templates carry activity, duration, distance, HR, and notes forward. Tap the pin again to unpin. Matches NutriTrace's Activities quick-log flow.
+
+- **Library-level `load_type` on exercises** (#24). The Exercise Editor gains a **Load type** field (Unset / Bilateral / Per side / Alternating) so the setting travels with the exercise instead of being hidden per-workout-instance. Batch-imported catalogs (Strong / Hevy / FitNotes / Jefit CSV) can now be fixed up per-exercise once instead of having to re-select per session. Statistics, muscle-group volume, per-exercise progress, share cards, and CSV export all resolve through the new four-tier chain: per-instance override → library value → per-user Diary preference → 'bilateral'. **Historical volume numbers for imported unilateral / alternating exercises will change on first render** (that's the fix; previous numbers were wrong for lack of load_type), but Statistics and share cards will show different totals than before for the same historical sessions.
+
+- **In-app updates.** New Settings → Updates panel checks GitHub Releases for a newer version and, on Android, downloads the signed APK and hands off to the system installer via FileProvider. One primary button drives the whole flow (Check Now → Download & Install → Downloading X%). Skip This Version link when an update's available. Collapsible "What's new" panel below the button renders the release notes inline (markdown) with a "View on GitHub" link. Silent shade notification when the OS notification permission is granted; top-of-app banner as fallback when permission's denied. Opt-in Stable or Dev channels. Same shared TraceApps signing key means Android upgrades in place with no reinstall.
+
+- **Pull-to-refresh sync (Android).** In native server mode, swipe down from the top of any page to trigger a manual sync. Matches NutriTrace's behavior for family consistency.
+- **Smart connection banner.** When sync fails, the banner explains what actually went wrong (no network vs cellular-only vs server unreachable vs HTTP error) with a Retry button, instead of a generic "sync error". Structured classification via `describeConnectionIssue` mirrors NT.
+- **Cloud icon in hamburger menu goes red on server disconnect.** Previously never lit up (`syncState.online` was initialized `true` and never written); now driven by a real reachability probe + browser online/offline events + server-side classifier, matching NT's behavior.
+- **Optional email on the "Create Admin Account" form.** Shows up only when SMTP is configured via environment variables (`SMTP_HOST`/`SMTP_USER`/etc. in docker-compose), so we know the server can actually reach that address at that point. Stored on the admin's user record for password-reset and invite emails later.
+- **Accent-tinted browser chrome.** The browser tab bar / address strip now picks up your current accent color via `<meta name="theme-color">`. Running LiftTrace alongside NutriTrace / CookTrace? Pick a distinct accent per install and the tabs read as visually different at a glance. Favicon stays the branded LiftTrace mark.
+
+### Changed
+
+- **Full i18n retrofit across the app.** Every hardcoded UI string has been extracted into `src/i18n/en.json` and reads via `svelte-i18n`. Covers Settings (Notifications, Workout, Appearance, Authentication, User Management, Trace, Backup, Email, Radio, Catalog, Statistics, Units, Federation, Diagnostics, About), Diary + WorkoutEditor + WorkoutSummary + SupersetCard + ExerciseCard + SmartLog, Coaching + Programs + ProgramDetail + TemplateSpecRow, Exercises + ExerciseDetail + ExerciseEditor + ExerciseInfo, Statistics charts + MuscleRecovery, Radio (station library + dialogs), Profile, Login, NativeSetup, Trace AI, and shared UI (TimePicker). ~500 new keys added, Weblate-ready. Chicago-style title case for labels/buttons/headings, sentence case for body prose / errors / placeholders / toasts.
+- **Bitwarden / password managers now show a real app identifier instead of "localhost" (Android).** The Android app used to serve its WebView from `https://localhost/`, so autofill entries saved through Bitwarden / 1Password / etc. showed up as "localhost" (indistinguishable from any other localhost app). LiftTrace now identifies itself as `app.lifttrace.local`, which reads clearly in autofill dialogs and in your saved-credentials list. **One-time upgrade cost:** the origin change orphans locally cached web-only state, so on first launch after upgrading you'll need to re-enter your server URL + log in again (server-connected users), and your theme / accent / display prefs will reset to defaults (standalone users). **Your workout, program, and exercise data is unaffected** (that lives in a local SQLite database that's separate from the WebView).
+- **SMTP "Username" field relabeled to "Email or Username".** Most SMTP providers want the full email as the username; label change removes the guesswork.
+
+### Fixed
+
+- **Server-connection banner no longer covers the phone's notification bar.** The red "server unreachable" banner used to sit edge-to-edge at viewport top:0, which on Android meant it slid up over the status bar / clock / hamburger. Now floats as a rounded card below the status bar and the app's compact header, matching NutriTrace.
+- **Exercise picker sheet on Statistics rendered off-screen for some browsers** (#25). The Statistics → Exercise Progress picker had its own inline bottom-sheet CSS that had drifted from the shared Sheet component the rest of the app uses; on Vivaldi's persistent-web-app mode the divergent viewport-height + safe-area math pushed the sheet body below the visible area, especially when the search filter returned few results. Consolidated onto the shared Sheet so the picker inherits the same viewport treatment every other sheet gets.
+- **App icon no longer shows a white halo.** The bundled icon PNGs had ~15px of solid white padding baked into their corners. On tinted browser chrome the halo was visible around the tab favicon; in-app the icon looked framed. Corners now clear cleanly. Icon URLs also cache-busted with the app version so shipped icon fixes actually take effect without users needing to clear their browser cache.
+- **Create Admin form layout aligned with NT/CT** (parity with NT #122). Two-column layout (Username / Full Name on top, Password / Confirm below with matching eye toggles that share show/hide state) replaces the prior stacked single-column layout.
+
+### Security
+
+- **`adm-zip` bumped to 0.6.0** (GHSA-xcpc-8h2w-3j85).
+- **`brace-expansion` bumped to 5.0.7** (CVE-2026-13149, high).
+- **`body-parser` bumped** (CVE-2026-12590).
+- **`fast-uri` bumped** (transitive CVE fix).
 
 ## v1.0.2 — 2026-07-28
 

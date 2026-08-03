@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, userMgmtActive } from '../middleware/auth.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { setVolume } from '../lib/volume.js';
+import { sendCoachFeedback, isEmailConfigured } from '../email.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -187,7 +188,7 @@ router.post('/feedback', wrap((req, res) => {
   const { workout_id, exercise_idx, note } = req.body || {};
   if (!workout_id) return res.status(400).json({ error: 'workout_id required' });
 
-  const workout = db.prepare('SELECT id, user_id, date FROM workout_log WHERE id = ?').get(workout_id);
+  const workout = db.prepare('SELECT id, user_id, date, name FROM workout_log WHERE id = ?').get(workout_id);
   if (!workout) return res.status(404).json({ error: 'Workout not found' });
   if (!ownsMember(req.user, workout.user_id)) return res.status(403).json({ error: 'Not your member' });
 
@@ -233,6 +234,26 @@ router.post('/feedback', wrap((req, res) => {
       const noteText = String(note).trim();
       const body = noteText.length > max ? noteText.slice(0, max - 1) + '…' : noteText;
       pushNotify(workout.user_id, `💬 ${trainerName}`, body, 4).catch(() => {});
+
+      // Best-effort email so trainees hear about coach feedback even
+      // when the app is closed. Same opt-in as push (notifCoachFeedback);
+      // skipped for self-feedback (trainer coaching themselves), when
+      // SMTP isn't configured, or when the trainee has no email on file.
+      if (isEmailConfigured() && workout.user_id !== req.user.id) {
+        const trainee = db.prepare(
+          'SELECT email, COALESCE(nickname, full_name, username) AS name FROM users WHERE id = ?'
+        ).get(workout.user_id);
+        if (trainee?.email) {
+          const workoutLabel = workout.name
+            ? `${workout.name} (${workout.date})`
+            : `your workout on ${workout.date}`;
+          const proto = req.headers['x-forwarded-proto'] || req.protocol;
+          const host  = req.headers['x-forwarded-host']  || req.get('host');
+          const viewUrl = `${proto}://${host}/#/`;
+          sendCoachFeedback(trainee.email, workoutLabel, trainerName, noteText, viewUrl)
+            .catch(() => {});
+        }
+      }
     }
   }
 

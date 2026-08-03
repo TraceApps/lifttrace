@@ -102,11 +102,13 @@ Two mechanisms cover pre-release testing between stable releases.
 
 Every dev-worthy build refreshes the [`dev-latest`](https://github.com/traceapps/lifttrace/releases/tag/dev-latest) GitHub pre-release. The APK is signed with the same keystore as stable releases, so it upgrades in place. Same guarantees as the Docker `:dev` tag, which auto-publishes on every push to `dev`. This is the default channel for testers who want "always the newest thing."
 
-### Milestone `v<version>-dev.N` (occasional, pinnable)
+### Milestone `v<version>-devNN` (occasional, pinnable)
 
-When a specific feature or fix is worth its own tester milestone (a new AI coach tool, a Radio backend, a big program-engine change), a numbered pre-release gets cut: `v1.0.4-dev.1`, `v1.1.0-dev.1`, etc. These get their own permanent GH release, their own tester-facing notes, and their own Docker tag (`ghcr.io/traceapps/lifttrace:1.0.4-dev.1`) alongside `:dev`. `dev-latest` is refreshed to point at the same commit.
+When a specific feature or fix is worth its own tester milestone (a new AI coach tool, a Radio backend, a big program-engine change), a numbered pre-release gets cut: `v1.0.4-dev01`, `v1.1.0-dev01`, etc. These get their own permanent GH release, their own tester-facing notes, and their own Docker tag (`ghcr.io/traceapps/lifttrace:1.0.4-dev01`) alongside `:dev`. `dev-latest` is refreshed to point at the same commit.
 
-Use numbered dev builds when reporting bugs ("I saw this on `v1.1.0-dev.2`") or if you want to install a specific milestone and stay on it. Everyone else, `dev-latest` covers you.
+Iteration numbers are zero-padded two digits for 1 through 9 (`dev01`, `dev02`, …, `dev09`) and natural two digits from 10 onward (`dev10`, `dev11`, …). No dot between `dev` and the number. That keeps the identifier inside SemVer 2.0.0 §9 and gives correct lex ordering everywhere (GitHub Tags, `gh release list`, Docker Hub).
+
+Use numbered dev builds when reporting bugs ("I saw this on `v1.1.0-dev02`") or if you want to install a specific milestone and stay on it. Everyone else, `dev-latest` covers you.
 
 Both channels use the shared TraceApps keystore, so upgrading between them (or from either back to stable) works in place.
 

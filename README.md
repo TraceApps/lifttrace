@@ -81,7 +81,7 @@ Open `http://localhost:3002` and you're lifting.
 
 See [DEPLOY.md](DEPLOY.md) for image tag conventions, reverse proxies, subpath mounting, Cloudflare Tunnel, Docker secrets, and the four Android HTTPS paths.
 
-Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone builds also get numbered `-dev.N` pre-releases. See [DEPLOY.md](DEPLOY.md) for details.
+Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone builds also get numbered `-devNN` pre-releases. See [DEPLOY.md](DEPLOY.md) for details.
 
 ## Env vars
 

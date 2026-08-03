@@ -240,11 +240,11 @@
   async function saveProvider() {
     if (oidcBusy) return;
     if (!oidcEditing.issuer_url?.trim() || !oidcEditing.client_id?.trim()) {
-      showError('Issuer URL and Client ID are required');
+      showError($_('settings_auth.toast.issuer_client_required'));
       return;
     }
     if (!oidcEditing.redirect_uris?.filter(Boolean).length) {
-      showError('At least one redirect URI is required');
+      showError($_('settings_auth.toast.redirect_required'));
       return;
     }
     oidcBusy = true;
@@ -263,7 +263,7 @@
       });
       const data = await r.json();
       if (!r.ok) { showError(data?.error || $_('common.errors.save_failed')); return; }
-      showSuccess(isEdit ? 'Provider updated' : 'Provider created');
+      showSuccess(isEdit ? $_('settings_auth.toast.provider_updated') : $_('settings_auth.toast.provider_created'));
       oidcEditing = null;
       await loadData();
     } catch (e) {
@@ -287,7 +287,7 @@
   }
 
   async function deleteProvider(p) {
-    if (!confirm(`Delete provider "${p.display_name || p.issuer_url}"? Linked users will lose this sign-in option.`)) return;
+    if (!confirm($_('settings_auth.confirm.delete_provider', { values: { name: p.display_name || p.issuer_url } }))) return;
     oidcBusy = true;
     try {
       const r = await fetch(apiUrl(`/api/admin/oidc/providers/${p.id}`), {
@@ -297,7 +297,7 @@
         const data = await r.json().catch(() => ({}));
         showError(data?.error || $_('common.errors.delete_failed')); return;
       }
-      showSuccess('Provider deleted');
+      showSuccess($_('settings_auth.toast.provider_deleted'));
       await loadData();
     } catch { showError($_('common.errors.cant_reach_server')); }
     finally { oidcBusy = false; }
@@ -306,10 +306,10 @@
   async function togglePasswordLogin() {
     const next = !enablePasswordLogin;
     if (!next && !oidcProviders.some(p => p.is_active)) {
-      showError('Add at least one active OIDC provider before disabling password login.');
+      showError($_('settings_auth.toast.need_active_provider'));
       return;
     }
-    if (!next && !confirm('Disable password login? Users without an OIDC link will not be able to sign in until you re-enable it. RECOVERY_TOKEN will still work.')) return;
+    if (!next && !confirm($_('settings_auth.confirm.disable_password'))) return;
     try {
       const r = await fetch(apiUrl('/api/admin/oidc/password-login'), {
         method: 'PUT', credentials: 'include', headers: _csrfHeaders(),
@@ -318,7 +318,7 @@
       const data = await r.json();
       if (!r.ok) { showError(data?.error || $_('common.errors.save_failed')); return; }
       enablePasswordLogin = !!data.enable_email_password_login;
-      showSuccess(enablePasswordLogin ? 'Password login enabled' : 'Password login disabled');
+      showSuccess(enablePasswordLogin ? $_('settings_auth.toast.password_login_enabled') : $_('settings_auth.toast.password_login_disabled'));
     } catch { showError($_('common.errors.cant_reach_server')); }
   }
 
@@ -343,7 +343,7 @@
 {#if visible}
   <button class="section-toggle" on:click={onToggle}>
     <span class="si"><span class="material-symbols-rounded">vpn_key</span></span>
-    <span class="section-name">Authentication</span>
+    <span class="section-name">{$_('settings_auth.section')}</span>
     <span class="material-symbols-rounded chevron" class:rotated={expanded}>expand_more</span>
   </button>
   {#if expanded}
@@ -352,8 +352,8 @@
     <div class="card settings-card">
       <div class="setting-row">
         <div>
-          <span class="setting-label">User Management Is Required</span>
-          <div class="setting-desc">Single Sign-On is scoped to user accounts, so User Management has to be enabled first. Set it up in <strong>Settings → User Management</strong>, then come back here.</div>
+          <span class="setting-label">{$_('settings_auth.empty.user_mgmt_required')}</span>
+          <div class="setting-desc">{$_('settings_auth.empty.user_mgmt_required_desc')}</div>
         </div>
       </div>
     </div>
@@ -361,8 +361,8 @@
     <div class="card settings-card">
       <div class="setting-row">
         <div>
-          <span class="setting-label">Admin Only</span>
-          <div class="setting-desc">Only admins can configure identity providers. If you need this access, ask the admin of this LiftTrace instance to promote your account.</div>
+          <span class="setting-label">{$_('settings_auth.empty.admin_only')}</span>
+          <div class="setting-desc">{$_('settings_auth.empty.admin_only_desc')}</div>
         </div>
       </div>
     </div>
@@ -371,11 +371,11 @@
       <div class="setting-row" style="display:flex;flex-direction:column;align-items:stretch;gap:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
           <div>
-            <span class="setting-label">OIDC Providers (Single Sign-On)</span>
-            <div class="setting-desc">Authentik, Keycloak, Pocket ID, Authelia, Auth0, Google, etc. Users sign in with their existing identity provider.</div>
+            <span class="setting-label">{$_('settings_auth.providers.section_title')}</span>
+            <div class="setting-desc">{$_('settings_auth.providers.section_desc')}</div>
           </div>
           <button class="btn btn-secondary" style="height:32px;font-size:12px;padding:0 12px;white-space:nowrap" on:click={startCreateProvider}>
-            + Add provider
+            {$_('settings_auth.providers.add_provider')}
           </button>
         </div>
 
@@ -386,27 +386,32 @@
               <span class="oidc-name">
                 {p.display_name || p.issuer_url}
                 {#if p.env_locked}
-                  <span class="env-lock-badge" title="Configured via environment variables — edit your .env / docker-compose to change">
+                  <span class="env-lock-badge" title={$_('settings_auth.providers.env_lock_title')}>
                     <span class="material-symbols-rounded" style="font-size:12px">lock</span>
-                    env
+                    {$_('settings_auth.providers.env_lock_pill')}
                   </span>
                 {/if}
               </span>
-              <span class="text-3 text-sm">{p.issuer_url} · link {p.auto_link_verified_email ? 'on' : 'off'} · register {p.auto_register_new_users ? 'on' : 'off'}{!p.is_active ? ' · disabled' : ''}</span>
+              <span class="text-3 text-sm">{$_('settings_auth.providers.row_summary', { values: {
+                issuer: p.issuer_url,
+                link: p.auto_link_verified_email ? $_('settings_auth.providers.link_on') : $_('settings_auth.providers.link_off'),
+                register: p.auto_register_new_users ? $_('settings_auth.providers.link_on') : $_('settings_auth.providers.link_off'),
+                disabled: !p.is_active ? $_('settings_auth.providers.disabled_suffix') : '',
+              } })}</span>
             </div>
             <div class="oidc-actions">
-              <button class="btn-icon" title="Test discovery" on:click={() => testProvider(p.id)} disabled={oidcBusy}>
+              <button class="btn-icon" title={$_('settings_auth.providers.test_title')} on:click={() => testProvider(p.id)} disabled={oidcBusy}>
                 <span class="material-symbols-rounded">network_check</span>
               </button>
               {#if p.env_locked}
-                <button class="btn-icon" title="Configured via environment — read-only" disabled>
+                <button class="btn-icon" title={$_('settings_auth.providers.readonly_title')} disabled>
                   <span class="material-symbols-rounded" style="opacity:0.4">lock</span>
                 </button>
               {:else}
-                <button class="btn-icon" title="Edit" on:click={() => startEditProvider(p)} disabled={oidcBusy}>
+                <button class="btn-icon" title={$_('settings_auth.providers.edit_title')} on:click={() => startEditProvider(p)} disabled={oidcBusy}>
                   <span class="material-symbols-rounded">edit</span>
                 </button>
-                <button class="btn-icon" title="Delete" on:click={() => deleteProvider(p)} disabled={oidcBusy}>
+                <button class="btn-icon" title={$_('settings_auth.providers.delete_title')} on:click={() => deleteProvider(p)} disabled={oidcBusy}>
                   <span class="material-symbols-rounded" style="color:var(--danger)">delete</span>
                 </button>
               {/if}
@@ -415,19 +420,19 @@
         {/each}
 
         {#if !oidcProviders.length}
-          <p class="text-3 text-sm" style="margin:0">No providers configured yet. Click <strong>+ Add provider</strong> to set one up, or define them in your <code>.env</code> using the <code>OIDC_*</code> variables (see README).</p>
+          <p class="text-3 text-sm" style="margin:0">{$_('settings_auth.providers.empty')}</p>
         {/if}
 
         {#if oidcTestResult}
           <div class="oidc-test-result" class:ok={oidcTestResult.ok}>
             {#if oidcTestResult.ok}
-              <strong>Discovery OK</strong>
+              <strong>{$_('settings_auth.providers.discovery_ok')}</strong>
               <div class="text-3 text-sm">issuer: {oidcTestResult.issuer}</div>
               <div class="text-3 text-sm">authorization_endpoint: {oidcTestResult.authorization_endpoint || '—'}</div>
               <div class="text-3 text-sm">token_endpoint: {oidcTestResult.token_endpoint || '—'}</div>
               <div class="text-3 text-sm">end_session_endpoint: {oidcTestResult.end_session_endpoint || '—'}</div>
             {:else}
-              <strong style="color:var(--danger)">Discovery failed</strong>
+              <strong style="color:var(--danger)">{$_('settings_auth.providers.discovery_failed')}</strong>
               <div class="text-3 text-sm">{oidcTestResult.error}</div>
             {/if}
           </div>
@@ -437,7 +442,7 @@
           <div class="oidc-form" transition:slide={{ duration: 180 }}>
             {#if !oidcEditing.id}
               <div class="form-group">
-                <label class="form-label">Provider type</label>
+                <label class="form-label">{$_('settings_auth.form.provider_type')}</label>
                 <div class="oidc-preset-grid">
                   {#each PROVIDER_PRESETS as preset (preset.id)}
                     <button
@@ -465,89 +470,89 @@
               </div>
             {/if}
             <div class="form-group">
-              <label class="form-label">Display name</label>
-              <input class="input" bind:value={oidcEditing.display_name} placeholder={oidcPreset.defaults.display_name || 'Authentik / Pocket ID / Google'} />
+              <label class="form-label">{$_('settings_auth.form.display_name')}</label>
+              <input class="input" bind:value={oidcEditing.display_name} placeholder={oidcPreset.defaults.display_name || $_('settings_auth.form.display_name_default_ph')} />
             </div>
             <div class="form-group">
-              <label class="form-label">Issuer URL *</label>
+              <label class="form-label">{$_('settings_auth.form.issuer_url')}</label>
               <input class="input" bind:value={oidcEditing.issuer_url} placeholder={oidcPreset.issuer_hint} autocomplete="url" />
             </div>
             <div class="form-group">
-              <label class="form-label">Client ID *</label>
+              <label class="form-label">{$_('settings_auth.form.client_id')}</label>
               <input class="input" bind:value={oidcEditing.client_id} autocomplete="off" />
             </div>
             <div class="form-group">
-              <label class="form-label">Client secret {oidcEditing.id ? '(leave blank to keep existing)' : '*'}</label>
+              <label class="form-label">{oidcEditing.id ? $_('settings_auth.form.client_secret_edit') : $_('settings_auth.form.client_secret_new')}</label>
               <input class="input" type="password" bind:value={oidcEditing.client_secret} autocomplete="off" />
             </div>
             <div class="form-group">
-              <label class="form-label">Redirect URIs *</label>
+              <label class="form-label">{$_('settings_auth.form.redirect_uris')}</label>
               {#each oidcEditing.redirect_uris as uri, i}
                 <div style="display:flex;gap:6px;margin-bottom:4px">
                   <input class="input" style="flex:1" bind:value={oidcEditing.redirect_uris[i]} placeholder="https://lifttrace.app/api/auth/oidc/callback/{oidcEditing.id || ':providerId'}" />
                   {#if oidcEditing.redirect_uris.length > 1}
-                    <button class="btn-icon" on:click={() => removeRedirectUri(i)} title="Remove"><span class="material-symbols-rounded">close</span></button>
+                    <button class="btn-icon" on:click={() => removeRedirectUri(i)} title={$_('settings_auth.form.remove_title')}><span class="material-symbols-rounded">close</span></button>
                   {/if}
                 </div>
               {/each}
-              <button class="btn btn-ghost btn-sm" type="button" on:click={addRedirectUri}>+ Add Redirect URI</button>
-              <div class="text-3 text-sm" style="margin-top:4px">Must match exactly what your IdP has configured. The path is <code>/api/auth/oidc/callback/&lt;provider-id&gt;</code> under your LiftTrace base URL.</div>
+              <button class="btn btn-ghost btn-sm" type="button" on:click={addRedirectUri}>{$_('settings_auth.form.add_redirect')}</button>
+              <div class="text-3 text-sm" style="margin-top:4px">{$_('settings_auth.form.redirect_note')}</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Scope</label>
+              <label class="form-label">{$_('settings_auth.form.scope')}</label>
               <input class="input" bind:value={oidcEditing.scope} />
             </div>
             <div class="form-group">
-              <label class="form-label">Token endpoint auth method</label>
+              <label class="form-label">{$_('settings_auth.form.token_auth')}</label>
               <select class="select" bind:value={oidcEditing.token_endpoint_auth_method}>
-                <option value="client_secret_post">client_secret_post (default)</option>
-                <option value="client_secret_basic">client_secret_basic</option>
-                <option value="none">none (PKCE-only public client)</option>
+                <option value="client_secret_post">{$_('settings_auth.form.token_auth_post')}</option>
+                <option value="client_secret_basic">{$_('settings_auth.form.token_auth_basic')}</option>
+                <option value="none">{$_('settings_auth.form.token_auth_none')}</option>
               </select>
             </div>
             <div class="setting-row" style="padding:0">
               <div>
-                <span class="setting-label">Auto-Link Existing Users (Verified Email)</span>
-                <div class="setting-desc">When the IdP says <code>email_verified=true</code> and the email matches an existing LiftTrace user, link them silently on first SSO sign-in. Recommended ON for any IdP you trust to verify emails.</div>
+                <span class="setting-label">{$_('settings_auth.form.auto_link')}</span>
+                <div class="setting-desc">{$_('settings_auth.form.auto_link_desc')}</div>
               </div>
               <Toggle checked={!!oidcEditing.auto_link_verified_email} on:change={e => oidcEditing.auto_link_verified_email = e.detail ? 1 : 0} />
             </div>
             <div class="setting-row" style="padding:0">
               <div>
-                <span class="setting-label">Auto-Register New Users</span>
-                <div class="setting-desc">Allow anyone with an account at this IdP to create a brand-new LiftTrace account on first sign-in. OFF = admin must invite first. Leave OFF for shared IdPs (Google, work SSO) unless you actually want blanket onboarding.</div>
+                <span class="setting-label">{$_('settings_auth.form.auto_register')}</span>
+                <div class="setting-desc">{$_('settings_auth.form.auto_register_desc')}</div>
               </div>
               <Toggle checked={!!oidcEditing.auto_register_new_users} on:change={e => oidcEditing.auto_register_new_users = e.detail ? 1 : 0} />
             </div>
             <div class="setting-row" style="padding:0">
               <div>
-                <span class="setting-label">Provider Active</span>
-                <div class="setting-desc">Inactive providers won't show on the Login page.</div>
+                <span class="setting-label">{$_('settings_auth.form.provider_active')}</span>
+                <div class="setting-desc">{$_('settings_auth.form.provider_active_desc')}</div>
               </div>
               <Toggle checked={!!oidcEditing.is_active} on:change={e => oidcEditing.is_active = e.detail ? 1 : 0} />
             </div>
             {#if !oidcPreset.hides?.includes('admin_group_claim')}
               <div class="form-group">
-                <label class="form-label">Admin group claim (optional)</label>
-                <input class="input" bind:value={oidcEditing.admin_group_claim} placeholder="groups" />
-                <div class="text-3 text-sm">Name of the claim that lists user groups. Common: <code>groups</code>.</div>
+                <label class="form-label">{$_('settings_auth.form.admin_group_claim')}</label>
+                <input class="input" bind:value={oidcEditing.admin_group_claim} placeholder={$_('settings_auth.form.admin_group_claim_ph')} />
+                <div class="text-3 text-sm">{$_('settings_auth.form.admin_group_claim_desc')}</div>
               </div>
             {/if}
             {#if !oidcPreset.hides?.includes('admin_group_value')}
               <div class="form-group">
-                <label class="form-label">Admin group value (optional)</label>
-                <input class="input" bind:value={oidcEditing.admin_group_value} placeholder="LiftTraceAdmins" />
-                <div class="text-3 text-sm">If a user's groups claim contains this value, they're set to admin on each login.</div>
+                <label class="form-label">{$_('settings_auth.form.admin_group_value')}</label>
+                <input class="input" bind:value={oidcEditing.admin_group_value} placeholder={$_('settings_auth.form.admin_group_value_ph')} />
+                <div class="text-3 text-sm">{$_('settings_auth.form.admin_group_value_desc')}</div>
               </div>
             {/if}
             <div class="form-group">
-              <label class="form-label">Logo URL (optional)</label>
-              <input class="input" bind:value={oidcEditing.logo_url} placeholder="https://…/authentik.png" />
+              <label class="form-label">{$_('settings_auth.form.logo_url')}</label>
+              <input class="input" bind:value={oidcEditing.logo_url} placeholder={$_('settings_auth.form.logo_url_ph')} />
             </div>
             <div style="display:flex;gap:8px;margin-top:8px">
-              <button class="btn btn-ghost" style="flex:1" on:click={cancelProviderEdit}>Cancel</button>
+              <button class="btn btn-ghost" style="flex:1" on:click={cancelProviderEdit}>{$_('settings_auth.form.cancel')}</button>
               <button class="btn btn-primary" style="flex:1" on:click={saveProvider} disabled={oidcBusy}>
-                {oidcBusy ? 'Saving…' : (oidcEditing.id ? 'Save changes' : 'Create provider')}
+                {oidcBusy ? $_('settings_auth.form.saving') : (oidcEditing.id ? $_('settings_auth.form.save_changes') : $_('settings_auth.form.create_provider'))}
               </button>
             </div>
           </div>
@@ -557,11 +562,11 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <div>
-          <span class="setting-label">Allow Password Login</span>
+          <span class="setting-label">{$_('settings_auth.password_login.label')}</span>
           <div class="setting-desc">
-            When off, users sign in only via OIDC. Recovery still works via the <code>RECOVERY_TOKEN</code> env var.
+            {$_('settings_auth.password_login.desc')}
             {#if passwordLoginEnvLocked}
-              <br /><em>Locked by <code>OIDC_ENABLE_EMAIL_PASSWORD_LOGIN</code> environment variable.</em>
+              <br /><em>{$_('settings_auth.password_login.env_locked')}</em>
             {/if}
           </div>
         </div>
