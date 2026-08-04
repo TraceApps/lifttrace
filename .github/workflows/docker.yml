@@ -49,12 +49,17 @@ jobs:
 
       # Derive tags from the ref, mirrored to both registries:
       #   semver tag v1.2.3 → :1.2.3, :1.2, :1
-      #   push to main      → :latest, :main, :sha-<shortsha>
+      #   push to main      → :latest, :sha-<shortsha>
       #   push to dev       → :dev, :sha-<shortsha>
       # Users pin :dev for the leading edge, :latest for stable
       # releases, or :1.0 for auto-patch within a minor. Same tag set
       # exists at both ghcr.io/traceapps/lifttrace (primary) and
       # traceapps/lifttrace on Docker Hub (discoverability mirror).
+      #
+      # `:main` intentionally not emitted — it would be identical to
+      # `:latest` in this workflow (both fire on every main push), so
+      # `:latest` is the only stable branch tag. `type=ref,event=branch`
+      # is gated to the dev branch so it still emits `:dev` on dev pushes.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -67,7 +72,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
+            type=ref,event=branch,enable=${{ github.ref == 'refs/heads/dev' }}
             type=sha
 
       - name: Build and push
