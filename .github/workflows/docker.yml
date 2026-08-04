@@ -1,4 +1,4 @@
-name: Build & Push to GHCR
+name: Build & Push
 
 on:
   push:
@@ -41,17 +41,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # Derive tags from the ref:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Derive tags from the ref, mirrored to both registries:
       #   semver tag v1.2.3 → :1.2.3, :1.2, :1
       #   push to main      → :latest, :main, :sha-<shortsha>
       #   push to dev       → :dev, :sha-<shortsha>
       # Users pin :dev for the leading edge, :latest for stable
-      # releases, or :1.0 for auto-patch within a minor.
+      # releases, or :1.0 for auto-patch within a minor. Same tag set
+      # exists at both ghcr.io/traceapps/lifttrace (primary) and
+      # traceapps/lifttrace on Docker Hub (discoverability mirror).
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/traceapps/lifttrace
+          images: |
+            ghcr.io/traceapps/lifttrace
+            traceapps/lifttrace
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
