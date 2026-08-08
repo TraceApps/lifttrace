@@ -135,8 +135,10 @@ export const AI_PROVIDERS = [
 export const AI_MODELS = {
   claude: [
     { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
-    { value: 'claude-sonnet-5',           label: 'Claude Sonnet (smarter)'    },
-    { value: 'claude-opus-4-8',           label: 'Claude Opus (smartest)'     },
+    { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 (balanced)' },
+    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8'            },
+    { value: 'claude-opus-5',             label: 'Claude Opus 5'              },
+    { value: 'claude-fable-5',            label: 'Claude Fable 5 (most capable)' },
     { value: '__custom__',                label: 'Custom…'                    },
   ],
   openai: [
