@@ -24,6 +24,14 @@ function _isEnabled(userId, key) {
   return val === true || val === 'true';
 }
 
+// fetch() requires HTTP header values to be Latin-1 (ByteString) — our
+// titles carry emoji/em dashes, so RFC 2047-encode when non-Latin-1 chars
+// are present. ntfy decodes this natively: https://docs.ntfy.sh/publish/#e-mail-style-headers
+function _encodeHeaderValue(str) {
+  if (!/[^\x00-\xFF]/.test(str)) return str;
+  return `=?UTF-8?B?${Buffer.from(str, 'utf8').toString('base64')}?=`;
+}
+
 // ── Push dispatch ────────────────────────────────────────────────────────────
 
 async function _pushToService(userId, title, message, priority = 5) {
@@ -50,7 +58,7 @@ async function _pushToService(userId, title, message, priority = 5) {
       const topic = _getSetting(userId, 'ntfyTopic');
       const token = _getSetting(userId, 'ntfyToken');
       if (!topic) return;
-      const headers = { 'Title': fullTitle, 'Priority': String(Math.min(5, priority)) };
+      const headers = { 'Title': _encodeHeaderValue(fullTitle), 'Priority': String(Math.min(5, priority)) };
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch(`${url.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
         method: 'POST', headers, body: message,
