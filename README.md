@@ -14,7 +14,8 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
   <a href="https://github.com/traceapps/lifttrace/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/traceapps/lifttrace?label=release&color=blue"></a>
   <a href="https://github.com/traceapps/lifttrace/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/traceapps/lifttrace/total?label=downloads&color=blue"></a>
   <a href="https://traceapps.github.io/docs/lifttrace/"><img alt="Documentation" src="https://img.shields.io/badge/docs-traceapps.github.io-4A90E2?logo=readthedocs&logoColor=white"></a>
-  <a href="https://github.com/traceapps/lifttrace/pkgs/container/lifttrace"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Ftraceapps%2Flifttrace-2496ED?logo=docker&logoColor=white"></a>
+  <a href="https://github.com/traceapps/lifttrace/pkgs/container/lifttrace"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-traceapps%2Flifttrace-2496ED?logo=docker&logoColor=white"></a>
+  <a href="https://hub.docker.com/r/traceapps/lifttrace"><img alt="Docker Hub pulls" src="https://img.shields.io/docker/pulls/traceapps/lifttrace?logo=docker&logoColor=white&label=docker%20pulls"></a>
   <a href="https://github.com/traceapps/lifttrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/lifttrace?style=flat"></a>
 </p>
 
@@ -55,6 +56,8 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **iOS.** No native build yet. Install the PWA from Safari (Share → Add to Home Screen).
 
 ## Install
+
+Published to two registries with identical tag sets: `ghcr.io/traceapps/lifttrace` (primary) and `traceapps/lifttrace` on [Docker Hub](https://hub.docker.com/r/traceapps/lifttrace) (mirror). The snippet below uses GHCR; swap in `traceapps/lifttrace:latest` if that suits your setup.
 
 ```yaml
 services:

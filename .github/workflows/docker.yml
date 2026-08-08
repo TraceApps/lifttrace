@@ -47,22 +47,19 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Derive tags from the ref, mirrored to both registries:
-      #   semver tag v1.2.3 → :1.2.3, :1.2, :1, :latest
-      #   push to main      → :latest
-      #   push to dev       → :dev
-      # Users pin :dev for the leading edge, :latest for stable
-      # releases, or :1.0 for auto-patch within a minor. Same tag set
-      # exists at both ghcr.io/traceapps/lifttrace (primary) and
-      # traceapps/lifttrace on Docker Hub (discoverability mirror).
+      # Only two tags are published, mirrored to both registries:
+      #   push to main (or semver tag on main) → :latest
+      #   push to dev                          → :dev
+      # Same tag set exists at both ghcr.io/traceapps/lifttrace
+      # (primary) and traceapps/lifttrace on Docker Hub (mirror).
       #
-      # `:main` and `:sha-*` intentionally not emitted:
-      #   - `:main` would be identical to `:latest` (both fire on every
-      #     main push) — redundant.
-      #   - `:sha-*` per-commit tags accumulate fast on a busy dev branch
-      #     and clutter the registry tag list — reproducibility for
-      #     stable is covered by `:1.2.3` semver pins, and dev-side
-      #     reproducibility can use manifest digests instead.
+      # Semver family tags (:1.2.3, :1.2, :1) and per-commit :sha-*
+      # tags are intentionally not emitted. Registry stays uncluttered
+      # and users pick one of two known-good pins: :latest for stable
+      # releases (main), :dev for the leading edge. Historical release
+      # artifacts live on the GitHub Releases page (source + signed APK
+      # per tag); reproducibility for a specific version uses manifest
+      # digests instead of a semver tag.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -71,9 +68,6 @@ jobs:
             ghcr.io/traceapps/lifttrace
             traceapps/lifttrace
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch,enable=${{ github.ref == 'refs/heads/dev' }}
 

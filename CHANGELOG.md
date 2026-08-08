@@ -4,6 +4,23 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## v1.1.1 — 2026-08-04
+
+### Changed
+
+- **Docker images now mirror to Docker Hub alongside GHCR.** Pull from `traceapps/lifttrace:1.1.1` on Docker Hub (`hub.docker.com/r/traceapps/lifttrace`) or `ghcr.io/traceapps/lifttrace:1.1.1` on GHCR (the existing primary). Both registries are kept in lockstep. Publish list also trimmed to just `:latest` and `:dev` (dropped noisy `:main` and per-commit `:sha-*` tags — semver-tagged pulls like `:1.1.1` / `:1.1` / `:1` are unaffected).
+
+### Fixed
+
+- **Push notification titles with non-ASCII characters no longer arrive mangled.** The ntfy Title header carries HTTP header bytes only, so a workout name with an em-dash, accented character, or emoji (e.g. "Push — Chest Day") was being dropped or corrupted by the receiving client. Titles are now RFC 2047-encoded (`=?UTF-8?B?…?=`) when they contain any non-ASCII byte, so the notification shade renders them correctly on every ntfy client.
+
+### Security
+
+- **`fast-uri` bumped to 3.1.5** (CVE-2026-18446, GHSA-7p8r-x3mc-p8w7, high — host confusion via backslash authority introducer). Transitive via `vite-plugin-pwa → workbox-build → ajv`; dev-only build-time dep but flagged by Dependabot.
+- **`brace-expansion` bumped to 5.0.9** (GHSA-rgw5-rvv9-x895, high — DoS via unbounded intermediate arrays, bypassing the earlier CVE-2026-14257 mitigation). Prior pin at ^5.0.7 was still affected.
+
+---
+
 ## v1.1.0 — 2026-08-03
 
 ### Added
