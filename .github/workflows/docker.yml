@@ -3,7 +3,12 @@ name: Build & Push
 on:
   push:
     branches: [ main, dev ]
-    tags: [ 'v*.*.*' ]
+    # Semver tags intentionally omitted. Merging to main already fires this
+    # workflow and publishes :latest to both registries; a tag push would
+    # fire it again with no matching tag rule (branches-only metadata),
+    # which fails with "tag is needed when pushing to registry". Historical
+    # per-version artifacts (source + signed APK) live on the Releases page;
+    # container reproducibility uses manifest digests rather than semver tags.
   workflow_dispatch:
 
 jobs:
