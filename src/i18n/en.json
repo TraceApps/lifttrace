@@ -88,7 +88,13 @@
       "failed":            "Recovery failed",
       "success":           "User management disabled — you are now in single-user mode",
       "done":              "User management has been disabled.<br>Redirecting…"
-    }
+    },
+    "linked":                "Linked",
+    "no_saved":              "No saved sign-in. Please use your password once first.",
+    "saved_expired":         "Your saved sign-in expired. Use your password to sign in.",
+    "biometric_failed":      "Biometric sign-in failed. Use your password instead.",
+    "app_name":              "LiftTrace",
+    "biometric_signin":      "Sign In with Biometric"
   },
   "forgot_password": {
     "title":          "Reset Password",
@@ -295,7 +301,15 @@
       "password_change_failed": "Could not change password",
       "unlink_failed":          "Unlink failed",
       "delete_account_failed":  "Could not delete account"
-    }
+    },
+    "biometric_cancelled":   "Biometric verification was canceled or failed.",
+    "server_unreachable":    "Could not reach server",
+    "gender_male":           "Male",
+    "gender_female":         "Female",
+    "gender_other":          "Other",
+    "current_password_ph":   "Enter current password",
+    "confirm_password_ph":   "Re-enter new password",
+    "biometric_signin":      "Sign In with Biometric"
   },
   "settings": {
     "units": {
@@ -494,14 +508,6 @@
     "front":                 "Front",
     "back":                  "Back"
   },
-  "login": {
-    "linked":                "Linked",
-    "no_saved":              "No saved sign-in. Please use your password once first.",
-    "saved_expired":         "Your saved sign-in expired. Use your password to sign in.",
-    "biometric_failed":      "Biometric sign-in failed. Use your password instead.",
-    "app_name":              "LiftTrace",
-    "biometric_signin":      "Sign In with Biometric"
-  },
   "exercise_info": {
     "primary_muscles":       "Primary Muscles",
     "secondary_muscles":     "Secondary Muscles",
@@ -576,16 +582,6 @@
     "show_average_hint":     "Horizontal line at the average value",
     "show_trend":            "Show Trend Line",
     "show_trend_hint":       "Smoothed trend overlay on charts"
-  },
-  "profile": {
-    "biometric_cancelled":   "Biometric verification was canceled or failed.",
-    "server_unreachable":    "Could not reach server",
-    "gender_male":           "Male",
-    "gender_female":         "Female",
-    "gender_other":          "Other",
-    "current_password_ph":   "Enter current password",
-    "confirm_password_ph":   "Re-enter new password",
-    "biometric_signin":      "Sign In with Biometric"
   },
   "settings_catalog": {
     "deleted":               "Deleted",
