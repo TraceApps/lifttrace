@@ -24,14 +24,14 @@
   // Base metric pills — cardio conditionally appended when the user
   // has opted-in via Settings → Workout → Track Cardio.
   const BASE_METRICS = [
-    { id: 'overview', label: 'Overview',         icon: 'dashboard' },
-    { id: 'progress', label: 'Exercise Progress', icon: 'trending_up' },
-    { id: 'records',  label: 'Records',           icon: 'emoji_events' },
-    { id: 'volume',   label: 'Volume',            icon: 'fitness_center' },
-    { id: 'freq',     label: 'Frequency',         icon: 'calendar_month' },
-    { id: 'weight',   label: 'Body Weight',       icon: 'monitor_weight' },
+    { id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' },
+    { id: 'progress', labelKey: 'statistics.tabs.progress', icon: 'trending_up' },
+    { id: 'records',  labelKey: 'statistics.tabs.records',  icon: 'emoji_events' },
+    { id: 'volume',   labelKey: 'statistics.tabs.volume',   icon: 'fitness_center' },
+    { id: 'freq',     labelKey: 'statistics.tabs.freq',     icon: 'calendar_month' },
+    { id: 'weight',   labelKey: 'statistics.tabs.weight',   icon: 'monitor_weight' },
   ];
-  const CARDIO_METRIC = { id: 'cardio', label: 'Cardio', icon: 'directions_run' };
+  const CARDIO_METRIC = { id: 'cardio', labelKey: 'statistics.tabs.cardio', icon: 'directions_run' };
   $: METRICS = $cardioEnabled ? [...BASE_METRICS, CARDIO_METRIC] : BASE_METRICS;
 
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
@@ -348,8 +348,8 @@
   // ── Records — group by category ──────────────────────────────────────
   const CATEGORY_ORDER = ['chest','back','shoulders','arms','legs','core','cardio','other'];
   const CATEGORY_LABELS = {
-    chest: 'Chest', back: 'Back', shoulders: 'Shoulders', arms: 'Arms',
-    legs: 'Legs', core: 'Core', cardio: 'Cardio', other: 'Other',
+    chest: 'statistics.categories.chest', back: 'statistics.categories.back', shoulders: 'statistics.categories.shoulders', arms: 'statistics.categories.arms',
+    legs: 'statistics.categories.legs', core: 'statistics.categories.core', cardio: 'statistics.categories.cardio', other: 'statistics.categories.other',
   };
 
   $: groupedRecords = (() => {
@@ -366,7 +366,7 @@
     for (const k in byCat) byCat[k].sort((a, b) => b.maxWeight - a.maxWeight);
     return CATEGORY_ORDER
       .filter(c => byCat[c] && byCat[c].length)
-      .map(c => ({ category: c, label: CATEGORY_LABELS[c], records: byCat[c] }));
+      .map(c => ({ category: c, labelKey: CATEGORY_LABELS[c], records: byCat[c] }));
   })();
 
   $: recentPRs = records
@@ -378,7 +378,7 @@
   // fmtVol + fmtWeekLabel now live in lib/statsFormat.js (shared with the
   // extracted chart components). Leave this note so nobody reintroduces
   // local copies.
-  const DAY_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DAY_LABELS = ['statistics.days.sun','statistics.days.mon','statistics.days.tue','statistics.days.wed','statistics.days.thu','statistics.days.fri','statistics.days.sat'];
 
   // Exercise picker state
   let showExPicker = false;
@@ -460,7 +460,7 @@
     {#each METRICS as m, i}
       <button class="metric-pill" class:active={metric === m.id} on:click={() => switchMetric(m.id)} bind:this={pillRefs[i]}>
         <span class="material-symbols-rounded metric-icon">{m.icon}</span>
-        <span class="metric-label">{m.label}</span>
+        <span class="metric-label">{$_(m.labelKey)}</span>
       </button>
     {/each}
   </div>
@@ -711,7 +711,7 @@
 
           {#each groupedRecords as group}
             <div class="section">
-              <h3 class="section-title">{group.label}</h3>
+              <h3 class="section-title">{$_(group.labelKey)}</h3>
               <div class="records-list">
                 {#each group.records as r}
                   {#if /^\d+$/.test(String(r.exerciseId))}
@@ -846,12 +846,12 @@
               {#each weekdayDist as w}
                 <div class="bar-col">
                   <div class="bar" style="height: {maxWeekdayCount ? (w.count / maxWeekdayCount * 100) : 0}%"></div>
-                  <span class="bar-label">{DAY_LABELS[w.day]}</span>
+                  <span class="bar-label">{$_(DAY_LABELS[w.day])}</span>
                 </div>
               {/each}
             </div>
             <p class="chart-sub">
-              Most active: {weekdayDist.length ? DAY_LABELS[weekdayDist.indexOf(weekdayDist.reduce((a, b) => a.count > b.count ? a : b))] : '—'}
+              Most active: {weekdayDist.length ? $_(DAY_LABELS[weekdayDist.indexOf(weekdayDist.reduce((a, b) => a.count > b.count ? a : b))]) : '—'}
             </p>
           </div>
         {/if}

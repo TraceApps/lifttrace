@@ -795,6 +795,34 @@
     "notes_ph":            "Notes..."
   },
   "statistics": {
+    "tabs": {
+      "overview": "Overview",
+      "progress": "Exercise Progress",
+      "records":  "Records",
+      "volume":   "Volume",
+      "freq":     "Frequency",
+      "weight":   "Body Weight",
+      "cardio":   "Cardio"
+    },
+    "categories": {
+      "chest":     "Chest",
+      "back":      "Back",
+      "shoulders": "Shoulders",
+      "arms":      "Arms",
+      "legs":      "Legs",
+      "core":      "Core",
+      "cardio":    "Cardio",
+      "other":     "Other"
+    },
+    "days": {
+      "sun": "Sun",
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri",
+      "sat": "Sat"
+    },
     "day_streak":        "Day Streak",
     "streak_hint":       "Last 14 days, filled dots are workout days",
     "longest":           "Longest",
