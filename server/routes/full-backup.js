@@ -5,7 +5,7 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
 import multer from 'multer';
-import db from '../db.js';
+import db, { dedupeExercisesOnce } from '../db.js';
 import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
@@ -325,6 +325,15 @@ function restoreFromZip(zip) {
       // OIDC tables may not exist on a backup taken from a pre-OIDC build —
       // skip silently rather than abort the whole restore.
     }
+
+    // Backups taken during the pre-#34 window can carry duplicate global
+    // exercises (INSERT OR IGNORE was a no-op without a UNIQUE constraint).
+    // Force-run the dedupe pass unconditionally so the restore lands on
+    // the same clean shape a fresh boot does — merges non-null user edits,
+    // rewrites exercise_id refs in the JSON blobs we just inserted,
+    // deletes the duplicate rows.
+    try { dedupeExercisesOnce({ force: true }); }
+    catch (e) { logger.warn?.(`[restore] exercise dedupe skipped: ${e?.message || e}`); }
   })();
 
   // Restore images — guarded against zip-slip + zip-bomb

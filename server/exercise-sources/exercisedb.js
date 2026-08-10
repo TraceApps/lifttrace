@@ -49,15 +49,22 @@ export async function seedFromExerciseDb({ apiKey } = {}) {
     clearTimeout(timer);
   }
 
+  // Pre-check so a re-import reads as a no-op (matches exercisedb-oss).
+  const existingExtIds = new Set(
+    db.prepare(`SELECT external_id FROM exercises WHERE source = 'exercisedb' AND external_id IS NOT NULL`)
+      .all()
+      .map(r => String(r.external_id))
+  );
   const insert = db.prepare(
     `INSERT OR IGNORE INTO exercises
      (name, category, primary_muscles, secondary_muscles, equipment, instructions, gif_url, external_id, source, is_global)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'exercisedb', 1)`
   );
 
-  let count = 0;
+  let count = 0, skipped = 0;
   for (const ex of data) {
     if (!ex.name) continue;
+    if (ex.id && existingExtIds.has(String(ex.id))) { skipped++; continue; }
     const name = titleCase(ex.name);
     const category = mapCategory(ex.bodyPart);
     const primary = ex.target ? [titleCase(ex.target)] : [];
@@ -67,7 +74,7 @@ export async function seedFromExerciseDb({ apiKey } = {}) {
       ? ex.instructions.join('\n\n')
       : (ex.instructions || null);
 
-    insert.run(
+    const res = insert.run(
       name, category,
       JSON.stringify(primary),
       JSON.stringify(secondary),
@@ -76,8 +83,8 @@ export async function seedFromExerciseDb({ apiKey } = {}) {
       ex.gifUrl || null,
       ex.id || null
     );
-    count++;
+    if (res.changes > 0) count++;
   }
-  logger.info(`[exercisedb] processed ${data.length}, inserted ${count}`);
+  logger.info(`[exercisedb] processed ${data.length}, inserted ${count}, skipped ${skipped} already-present`);
   return count;
 }

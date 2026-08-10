@@ -532,4 +532,156 @@ try {
   console.warn('[db] orphan user_id backfill skipped:', e?.message || e);
 }
 
+// ── Duplicate-exercise dedupe (#34) ───────────────────────────────────────
+// Every exercise-catalog seeder used INSERT OR IGNORE against a table with
+// no UNIQUE constraint, so re-importing a source silently doubled every
+// row. Reproducing:
+//   Settings → Exercise Library → import free-db (873 rows)
+//   import free-db again → library holds 1746 rows, two of each.
+// This runs once per install (marker in app_config), merges non-null user
+// edits onto the survivor (lowest id) so pinned video_url / tips /
+// load_type aren't lost, remaps exercise_id references inside the three
+// JSON-blob columns that hold them, deletes the duplicates, then puts the
+// partial UNIQUE index in place so future INSERT OR IGNORE actually works.
+//
+// The partial index guards on `is_global = 1 AND external_id IS NOT NULL`
+// because (a) user-created exercises (is_global=0) are meant to allow
+// name collisions per user and (b) SQLite treats each NULL as distinct
+// for uniqueness — a plain UNIQUE(source, external_id) would let
+// free-db's NULL external_ids collide right past it.
+export function dedupeExercisesOnce({ force = false } = {}) {
+  const MARK = 'exercises_dedupe_v1_done';
+  if (!force) {
+    const row = db.prepare(`SELECT value FROM app_config WHERE key = ?`).get(MARK);
+    if (row) return { skipped: true };
+  }
+
+  const MERGEABLE = ['load_type', 'tips', 'video_url', 'img_url', 'gif_url', 'category', 'instructions'];
+
+  function pickSurvivorAndPatch(ids) {
+    const sorted = ids.slice().sort((a, b) => a - b);
+    const survivorId = sorted[0];
+    const dupIds = sorted.slice(1);
+    const survivor = db.prepare(`SELECT * FROM exercises WHERE id = ?`).get(survivorId);
+    // Read duplicates ordered by id so the first-non-null win is deterministic.
+    const placeholders = dupIds.map(() => '?').join(',');
+    const dups = db.prepare(`SELECT * FROM exercises WHERE id IN (${placeholders}) ORDER BY id`).all(...dupIds);
+    const patch = {};
+    for (const field of MERGEABLE) {
+      if (survivor[field] != null && survivor[field] !== '' && survivor[field] !== '[]') continue;
+      for (const d of dups) {
+        if (d[field] != null && d[field] !== '' && d[field] !== '[]') {
+          patch[field] = d[field];
+          break;
+        }
+      }
+    }
+    if (Object.keys(patch).length) {
+      const setClause = Object.keys(patch).map(k => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE exercises SET ${setClause} WHERE id = ?`).run(...Object.values(patch), survivorId);
+    }
+    return { survivorId, dupIds };
+  }
+
+  function rewriteBlobs(table, remap) {
+    if (remap.size === 0) return 0;
+    const rows = db.prepare(`SELECT id, exercises FROM ${table} WHERE exercises IS NOT NULL`).all();
+    const upd = db.prepare(`UPDATE ${table} SET exercises = ? WHERE id = ?`);
+    let touched = 0;
+    for (const row of rows) {
+      let parsed;
+      try { parsed = JSON.parse(row.exercises); } catch { continue; }
+      if (!Array.isArray(parsed)) continue;
+      let changed = false;
+      for (const ex of parsed) {
+        if (ex && typeof ex === 'object' && remap.has(ex.exercise_id)) {
+          ex.exercise_id = remap.get(ex.exercise_id);
+          changed = true;
+        }
+      }
+      if (changed) {
+        upd.run(JSON.stringify(parsed), row.id);
+        touched++;
+      }
+    }
+    return touched;
+  }
+
+  const remap = new Map();
+  let mergedGroups = 0;
+
+  const run = db.transaction(() => {
+    // Groups by external_id (the correct dedup key when populated).
+    const byExtId = db.prepare(`
+      SELECT source, external_id, GROUP_CONCAT(id) AS ids
+      FROM exercises
+      WHERE is_global = 1 AND external_id IS NOT NULL
+      GROUP BY source, external_id
+      HAVING COUNT(*) > 1
+    `).all();
+    for (const g of byExtId) {
+      const ids = g.ids.split(',').map(Number);
+      const { survivorId, dupIds } = pickSurvivorAndPatch(ids);
+      for (const d of dupIds) remap.set(d, survivorId);
+      mergedGroups++;
+    }
+
+    // Fallback groups by (source, name) for legacy free-db rows with
+    // external_id = NULL. Doesn't need to run again for future imports
+    // because the free-db seeder now populates external_id per row (#34).
+    const byName = db.prepare(`
+      SELECT source, name, GROUP_CONCAT(id) AS ids
+      FROM exercises
+      WHERE is_global = 1 AND external_id IS NULL
+      GROUP BY source, name
+      HAVING COUNT(*) > 1
+    `).all();
+    for (const g of byName) {
+      const ids = g.ids.split(',').map(Number);
+      const { survivorId, dupIds } = pickSurvivorAndPatch(ids);
+      for (const d of dupIds) remap.set(d, survivorId);
+      mergedGroups++;
+    }
+
+    const wlTouched = rewriteBlobs('workout_log', remap);
+    const wtTouched = rewriteBlobs('workout_templates', remap);
+    const cpTouched = rewriteBlobs('coach_prescriptions', remap);
+
+    if (remap.size > 0) {
+      const del = db.prepare(`DELETE FROM exercises WHERE id = ?`);
+      for (const dupId of remap.keys()) del.run(dupId);
+      // eslint-disable-next-line no-console
+      console.log(`[db] dedupe: merged ${remap.size} duplicate exercise row(s) across ${mergedGroups} group(s); rewrote workout_log=${wlTouched}, workout_templates=${wtTouched}, coach_prescriptions=${cpTouched}`);
+    }
+
+    db.prepare(`INSERT INTO app_config (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+      .run(MARK, new Date().toISOString());
+  });
+  run();
+
+  return { skipped: false, merged: remap.size, groups: mergedGroups };
+}
+
+// Dedupe first, THEN put the partial UNIQUE index in place. If dedupe
+// throws (unlikely — the migration is defensive), don't try to add the
+// unique index either: it would fail to create against duplicated data
+// and the failure would fire on every boot. Both migrations are
+// idempotent, so a later boot that succeeds picks up where this one
+// left off.
+try {
+  dedupeExercisesOnce();
+  // Partial index (is_global = 1 AND external_id IS NOT NULL): user-
+  // created exercises may collide by name across users deliberately,
+  // and NULL external_ids don't collide in SQLite anyway (each NULL
+  // reads as distinct for UNIQUE).
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_exercises_source_external
+      ON exercises(source, external_id)
+      WHERE is_global = 1 AND external_id IS NOT NULL;
+  `);
+} catch (e) {
+  console.warn('[db] exercise dedupe + unique index skipped:', e?.message || e);
+}
+
 export default db;

@@ -332,6 +332,14 @@ async function _createSchema(db) {
     `ALTER TABLE exercises           ADD COLUMN load_type TEXT DEFAULT NULL`,
     // Pinned cardio quick-log templates.
     `ALTER TABLE cardio_log          ADD COLUMN is_template INTEGER DEFAULT 0`,
+    // Partial UNIQUE index mirroring the server (#34). Standalone-native
+    // never had the double-import bug because api-native.js seeder pre-
+    // checks (source, external_id / name) before insert, but adding the
+    // index makes the schemas match and lets INSERT OR IGNORE do the
+    // dedup at the DB layer if a future path skips the pre-check.
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_exercises_source_external
+       ON exercises(source, external_id)
+       WHERE is_global = 1 AND external_id IS NOT NULL`,
   ];
   for (const stmt of _alters) {
     try { await db.execute(stmt); } catch { /* duplicate column / table missing — fine */ }
