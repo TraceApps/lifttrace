@@ -823,6 +823,22 @@
     "choose_exercise":   "Choose Exercise",
     "search_exercises_ph": "Search exercises…"
   },
+  "gym_tools": {
+    "plates":          "Plates",
+    "convert":         "Convert",
+    "target_weight":   "Target weight ({unit})",
+    "weight_ph_lb":    "e.g. 225",
+    "weight_ph_kg":    "e.g. 100",
+    "bar":             "Bar: {weight} {unit}",
+    "each_side":       "Each side:",
+    "remainder":       "{weight} {unit} can't be loaded with available plates",
+    "under_bar":       "Weight equals or is less than the bar ({weight} {unit})",
+    "lbs_to_kg":       "lbs → kg",
+    "kg_to_lbs":       "kg → lbs",
+    "pounds":          "Pounds (lbs)",
+    "kilograms":       "Kilograms (kg)",
+    "weight_ph":       "Enter weight"
+  },
   "coaching": {
     "toast": {
       "released":              "{name} released from your roster",

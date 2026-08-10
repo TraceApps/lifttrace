@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { weightUnit } from '../../stores/settings.js';
 
@@ -70,28 +71,29 @@
     <div class="gt-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <button class="gt-close-btn" on:click={() => open = false}
-              aria-label="Close" title="Close">
+              aria-label={$_('common.close')} title={$_('common.close')}>
         <span class="material-symbols-rounded">close</span>
       </button>
       <div class="gt-tabs">
         <button class="gt-tab" class:active={tab === 'plates'} on:click={() => tab = 'plates'}>
-          <span class="material-symbols-rounded" style="font-size:18px">fitness_center</span> Plates
+          <span class="material-symbols-rounded" style="font-size:18px">fitness_center</span> {$_('gym_tools.plates')}
         </button>
         <button class="gt-tab" class:active={tab === 'convert'} on:click={() => tab = 'convert'}>
-          <span class="material-symbols-rounded" style="font-size:18px">swap_horiz</span> Convert
+          <span class="material-symbols-rounded" style="font-size:18px">swap_horiz</span> {$_('gym_tools.convert')}
         </button>
       </div>
 
       {#if tab === 'plates'}
         <div class="gt-body">
           <div class="gt-input-row">
-            <label class="form-label">Target weight ({$weightUnit})</label>
-            <input class="input" type="number" step="0.5" bind:value={targetWeight} placeholder="e.g. 225" />
+            <label class="form-label">{$_('gym_tools.target_weight', { values: { unit: $weightUnit } })}</label>
+            <input class="input" type="number" step="0.5" bind:value={targetWeight}
+                   placeholder={$weightUnit === 'kg' ? $_('gym_tools.weight_ph_kg') : $_('gym_tools.weight_ph_lb')} />
           </div>
-          <div class="gt-bar-info">Bar: {barWeight} {$weightUnit}</div>
+          <div class="gt-bar-info">{$_('gym_tools.bar', { values: { weight: barWeight, unit: $weightUnit } })}</div>
 
           {#if perSide.length > 0}
-            <div class="gt-result-label">Each side:</div>
+            <div class="gt-result-label">{$_('gym_tools.each_side')}</div>
             <div class="gt-plates-visual">
               <div class="gt-bar-end"></div>
               {#each perSide as plate}
@@ -109,10 +111,10 @@
               {/each}
             </div>
             {#if remainder > 0.01}
-              <div class="gt-remainder">⚠️ {remainder} {$weightUnit} can't be loaded with available plates</div>
+              <div class="gt-remainder">⚠️ {$_('gym_tools.remainder', { values: { weight: remainder, unit: $weightUnit } })}</div>
             {/if}
           {:else if targetWeight}
-            <div class="gt-empty">Weight equals or is less than the bar ({barWeight} {$weightUnit})</div>
+            <div class="gt-empty">{$_('gym_tools.under_bar', { values: { weight: barWeight, unit: $weightUnit } })}</div>
           {/if}
         </div>
 
@@ -120,13 +122,13 @@
         <div class="gt-body">
           <div class="gt-convert-row">
             <select class="gt-convert-select" bind:value={convertDir}>
-              <option value="lbs_to_kg">lbs → kg</option>
-              <option value="kg_to_lbs">kg → lbs</option>
+              <option value="lbs_to_kg">{$_('gym_tools.lbs_to_kg')}</option>
+              <option value="kg_to_lbs">{$_('gym_tools.kg_to_lbs')}</option>
             </select>
           </div>
           <div class="gt-input-row">
-            <label class="form-label">{convertDir === 'lbs_to_kg' ? 'Pounds (lbs)' : 'Kilograms (kg)'}</label>
-            <input class="input" type="number" step="0.1" bind:value={convertInput} placeholder="Enter weight" />
+            <label class="form-label">{convertDir === 'lbs_to_kg' ? $_('gym_tools.pounds') : $_('gym_tools.kilograms')}</label>
+            <input class="input" type="number" step="0.1" bind:value={convertInput} placeholder={$_('gym_tools.weight_ph')} />
           </div>
           {#if convertInput}
             <div class="gt-convert-result">
