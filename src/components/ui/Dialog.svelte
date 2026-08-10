@@ -88,6 +88,11 @@
   }
   .dialog-actions {
     display: flex;
+    /* Buttons carry white-space: nowrap, so a flex item can never shrink
+       below its one-line text width. With two long labels that sum past the
+       340px card, the row overflowed the card instead of reflowing. Wrapping
+       stacks them full-width in that case and changes nothing when they fit. */
+    flex-wrap: wrap;
     gap: 10px;
     justify-content: flex-end;
   }
