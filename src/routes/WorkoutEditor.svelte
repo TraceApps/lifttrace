@@ -853,7 +853,7 @@
                             <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder={$_('workout_editor.tempo_ph')} />
                           </div>
                           <div class="field">
-                            <label>{$_('workout_editor.rest')}</label>
+                            <label>{$_('workout_editor.rest')} <span class="unit">(s)</span></label>
                             <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder={$_('workout_editor.rest_ph')} />
                           </div>
                         </div>
@@ -984,7 +984,7 @@
                     <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder={$_('workout_editor.tempo_ph')} />
                   </div>
                   <div class="field">
-                    <label>{$_('workout_editor.rest')}</label>
+                    <label>{$_('workout_editor.rest')} <span class="unit">(s)</span></label>
                     <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder={$_('workout_editor.rest_ph')} />
                   </div>
                 </div>
@@ -1249,6 +1249,8 @@
   .week-copy-arrow:disabled { color: var(--text-3); opacity: 0.4; cursor: default; }
   .week-copy-arrow .material-symbols-rounded { font-size: 20px; }
   .field label { display: block; font-size: 11px; color: var(--text-3); margin-bottom: 3px; font-weight: 600; text-transform: uppercase; }
+  /* Unit symbols must not be uppercased: "s" is seconds, "S" is siemens. */
+  .field label .unit { text-transform: none; }
   .field input {
     width: 100%; background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 7px 8px; color: var(--text-1);

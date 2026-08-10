@@ -12,6 +12,8 @@ All notable changes to LiftTrace are documented here.
 
 - **Weight placeholders in the workout editor and the plate calculator now follow the kg/lb setting from Settings → Units.** Both inputs hard-coded pound examples in their placeholder text regardless of that preference: the workout editor's weight target field always showed `e.g. 135`, and the plate calculator's target weight always showed `e.g. 225`. Switching to kg now shows `e.g. 60` and `e.g. 100` instead; only the example text changes, not the input itself.
 
+- **The rest field in the workout editor now reads `REST (s)` instead of `REST (S)`.** Field labels are uppercased by CSS, which also uppercased the unit: `S` is the symbol for siemens, while seconds is a lowercase `s`. The unit now sits in its own span that opts out of the transform.
+
 ---
 
 ## v1.1.1 — 2026-08-04

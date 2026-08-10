@@ -814,7 +814,7 @@
     "weight_ph_lb":         "e.g. 135",
     "weight_ph_kg":         "e.g. 60",
     "tempo_ph":             "e.g. 3.1.1",
-    "rest":                 "Rest (s)",
+    "rest":                 "Rest",
     "rest_ph":              "e.g. 90",
     "per_set_link":         "Different weight or reps per set…",
     "add_exercise":         "Add Exercise"
