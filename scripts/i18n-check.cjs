@@ -19,6 +19,18 @@ const path = require('path');
 
 const I18N_DIR = path.join(__dirname, '..', 'src', 'i18n');
 const SOURCE_FILE = 'en.json';
+const SRC_DIR = path.join(__dirname, '..', 'src');
+const ROOT = path.join(__dirname, '..');
+
+// Literals that look like i18n keys but are not. Keep the reason next to each.
+const IGNORED_INDIRECT = new Set([
+  // Property path inside a JSON schema for an AI function-calling tool
+  // (src/lib/aiTools.js), not a translation key.
+  'programs.id',
+]);
+
+const CALL_RE = /\$?_\(\s*(['"])([^'"]+)\1/g;
+const KEYISH_RE = /(['"])([a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\1/g;
 
 function flatten(obj, prefix = '') {
   const out = {};
@@ -107,6 +119,48 @@ function findDuplicateKeys(text) {
   return dups;
 }
 
+function walk(dir) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walk(p));
+    else if (/\.(svelte|js)$/.test(e.name)) out.push(p);
+  }
+  return out;
+}
+
+function lineOf(text, index) {
+  let line = 1;
+  for (let i = 0; i < index; i++) if (text[i] === '\n') line++;
+  return line;
+}
+
+/**
+ * Keys referenced from code. `direct` are $_('...') call arguments; `indirect`
+ * are key-shaped literals whose first segment is a top-level en.json key, which
+ * covers keys held in constants (e.g. Settings' SECTION_META titleKey).
+ * Each entry is { key, file, line }; the first occurrence of a key wins.
+ */
+function collectKeyRefs(topLevelKeys, files = walk(SRC_DIR)) {
+  const direct = new Map();
+  const indirect = new Map();
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    const rel = path.relative(ROOT, file).split(path.sep).join('/');
+    for (const m of text.matchAll(CALL_RE)) {
+      if (!direct.has(m[2])) direct.set(m[2], { key: m[2], file: rel, line: lineOf(text, m.index) });
+    }
+    for (const m of text.matchAll(KEYISH_RE)) {
+      const key = m[2];
+      if (direct.has(key) || indirect.has(key)) continue;
+      if (IGNORED_INDIRECT.has(key)) continue;
+      if (!topLevelKeys.has(key.split('.')[0])) continue;
+      indirect.set(key, { key, file: rel, line: lineOf(text, m.index) });
+    }
+  }
+  return { direct, indirect };
+}
+
 function loadJson(file) {
   return JSON.parse(fs.readFileSync(path.join(I18N_DIR, file), 'utf8'));
 }
@@ -152,6 +206,6 @@ function main() {
   process.exit(anyGap ? 1 : 0);
 }
 
-module.exports = { flatten, findDuplicateKeys };
+module.exports = { flatten, findDuplicateKeys, collectKeyRefs, IGNORED_INDIRECT };
 
 if (require.main === module) main();
