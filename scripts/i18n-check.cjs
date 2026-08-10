@@ -43,6 +43,12 @@ const IGNORED_INDIRECT = new Set([
 const CALL_RE = /\$?_\(\s*(['"])([^'"]+)\1/g;
 const KEYISH_RE = /(['"])([a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\1/g;
 
+// Dotted string literals whose trailing segment matches one of these is a
+// filename, not an i18n key — e.g. 'foods.json' in local-backup.js. Kept as
+// a shape rule (not per-string ignore entries) so the check stays drop-in
+// across NutriTrace / CookTrace, where 'settings.json' and friends live.
+const FILE_EXT_TAIL = /\.(?:json|js|cjs|mjs|ts|tsx|jsx|svelte|css|scss|html|md|svg|png|jpe?g|webp|gif|ico|mp3|mp4|wav|ogg|woff2?|ttf|otf|yml|yaml|toml|txt|zip)$/i;
+
 function flatten(obj, prefix = '') {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -165,6 +171,7 @@ function collectKeyRefs(topLevelKeys, files = walk(SRC_DIR)) {
       const key = m[2];
       if (direct.has(key) || indirect.has(key)) continue;
       if (IGNORED_INDIRECT.has(key)) continue;
+      if (FILE_EXT_TAIL.test(key)) continue;
       if (!topLevelKeys.has(key.split('.')[0])) continue;
       indirect.set(key, { key, file: rel, line: lineOf(text, m.index) });
     }
@@ -234,6 +241,6 @@ function main() {
   console.log('');
 }
 
-module.exports = { flatten, findDuplicateKeys, collectKeyRefs, IGNORED_INDIRECT };
+module.exports = { flatten, findDuplicateKeys, collectKeyRefs, IGNORED_INDIRECT, FILE_EXT_TAIL };
 
 if (require.main === module) main();

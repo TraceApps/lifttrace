@@ -109,3 +109,24 @@ test('collectKeyRefs: a key seen in $_() is not also reported as indirect', () =
   assert.equal(direct.size, 1);
   assert.equal(indirect.size, 0);
 });
+
+test('collectKeyRefs: filename literals sharing a top-level key name are not indirect refs', () => {
+  // Regression: previously 'foods.json' / 'settings.json' etc. matched
+  // KEYISH_RE and were reported as unresolved i18n keys.
+  const src = [
+    `const paths = ['foods.json', 'diary.json', 'settings.json'];`,
+    `const asset = 'icons/logo.svg';`,
+    `import x from './x.svelte';`,
+  ].join('\n');
+  const f = fixture('H.js', src);
+  const { indirect } = collectKeyRefs(new Set(['foods', 'diary', 'settings', 'icons']), [f]);
+  assert.equal(indirect.size, 0, [...indirect.keys()].join(', '));
+});
+
+test('collectKeyRefs: a real i18n key that happens to end in a bare word still resolves', () => {
+  // Sanity: the filename filter must not swallow legit keys like `login.title`
+  // or `settings.workout.section`.
+  const f = fixture('I.svelte', `const t = 'login.title';\nconst s = 'settings.workout.section';`);
+  const { indirect } = collectKeyRefs(new Set(['login', 'settings']), [f]);
+  assert.equal(indirect.size, 2);
+});
