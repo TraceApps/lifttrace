@@ -9,6 +9,7 @@
   // hard line against device sync in LT.
 
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { LtApi } from '../../lib/api.js';
   import { currentDate } from '../../stores/workout.js';
   import { weightUnit } from '../../stores/settings.js';
@@ -141,10 +142,10 @@
 
   async function remove(session) {
     const ok = await confirmDialog({
-      title: 'Delete cardio session?',
-      message: `${session.activity} · ${session.duration_min} min`,
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      title: $_('diary.confirm.delete_cardio_title'),
+      message: $_('diary.confirm.delete_cardio_msg', { values: { activity: session.activity, duration: session.duration_min } }),
+      confirmText: $_('common.delete'),
+      cancelText: $_('common.cancel'),
       dangerous: true,
     });
     if (!ok) return;
