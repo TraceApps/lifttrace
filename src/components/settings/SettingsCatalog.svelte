@@ -64,9 +64,9 @@
 
   async function clearSource(src) {
     if (!await confirmDialog({
-      title: `Clear imported exercises?`,
-      message: `This removes all ${src.count} exercises imported from ${src.name}. The source stays listed so you can re-import at any time.`,
-      confirmText: 'Clear',
+      title: $_('settings_catalog.confirm.clear_imported_title'),
+      message: $_('settings_catalog.confirm.clear_imported_msg', { values: { count: src.count, name: src.name } }),
+      confirmText: $_('settings_catalog.confirm.clear_confirm'),
       dangerous: true,
     })) return;
     sourceBusy = { ...sourceBusy, [src.id]: 'clear' };
@@ -189,9 +189,9 @@
 
   async function removeCustom(ex) {
     if (!await confirmDialog({
-      title: `Delete "${ex.name}"?`,
-      message: 'Workout history keeps its record — only the library link breaks.',
-      confirmText: 'Delete', dangerous: true,
+      title: $_('settings_catalog.confirm.delete_named_title', { values: { name: ex.name } }),
+      message: $_('settings_catalog.confirm.delete_exercise_msg'),
+      confirmText: $_('common.delete'), dangerous: true,
     })) return;
     try {
       await LtApi.deleteExercise(ex.id);
@@ -203,9 +203,9 @@
   async function removeAllCustom() {
     if (customExercises.length === 0) return;
     if (!await confirmDialog({
-      title: `Delete all ${customExercises.length} custom exercises?`,
-      message: 'This cannot be undone. Workout history keeps its records — only library links break.',
-      confirmText: 'Delete all', dangerous: true,
+      title: $_('settings_catalog.confirm.delete_all_title', { values: { count: customExercises.length } }),
+      message: $_('settings_catalog.confirm.delete_all_msg'),
+      confirmText: $_('settings_catalog.confirm.delete_all_confirm'), dangerous: true,
     })) return;
     try {
       const r = await LtApi.deleteAllCustomExercises();
@@ -229,7 +229,7 @@
   }
 
   async function deleteCatalog(cat) {
-    if (!await confirmDialog({ title: `Delete "${cat.name}"?`, message: `All ${cat.count} exercises from this catalog will be removed.`, confirmText: 'Delete', dangerous: true })) return;
+    if (!await confirmDialog({ title: $_('settings_catalog.confirm.delete_named_title', { values: { name: cat.name } }), message: $_('settings_catalog.confirm.delete_catalog_msg', { values: { count: cat.count } }), confirmText: $_('common.delete'), dangerous: true })) return;
     try {
       await fetch('/api/exercise-import/catalogs/delete', {
         method: 'POST', credentials: 'include',
