@@ -438,7 +438,10 @@
     "add_to_superset":       "Add to Superset",
     "create_superset":       "Create Superset",
     "create_hint":           "Select exercises to group with {name}:",
-    "merge_into_superset":   "Merge Into Superset"
+    "merge_into_superset":   "Merge Into Superset",
+    "join_hint":             "Choose which superset to join:",
+    "create_confirm":        "Create Superset ({count} exercises)",
+    "merge_hint":            "All exercises from both supersets will be combined:"
   },
   "time_picker": {
     "hour":                  "Hour",
@@ -792,7 +795,29 @@
     "reps":                "Reps",
     "weight":              "Weight",
     "tempo":               "Tempo",
-    "notes_ph":            "Notes..."
+    "notes_ph":            "Notes...",
+    "week":                 "Week {n}",
+    "copy_week":            "Copy Week {from} into Week {to}",
+    "week_matches":         "Week {to} already matches Week {from}",
+    "copy_week_aria":       "Copy this week into the next week",
+    "ex_count":             "{count} exercises",
+    "load_bilateral":       "Bilateral",
+    "load_paired":          "Per side",
+    "load_unilateral":      "Alternating",
+    "load_hint_bilateral":  "single load — barbell, machine, both arms move one thing",
+    "load_hint_paired":     "both arms work together with separate equal loads",
+    "load_hint_unilateral": "one side at a time",
+    "copy_ex_week":         "Copy this exercise's Week {from} into Week {to}",
+    "copy_ex_week_aria":    "Copy this exercise into Week {to}",
+    "add_set":              "Add set",
+    "reps_ph":              "e.g. 8-12",
+    "weight_ph_lb":         "e.g. 135",
+    "weight_ph_kg":         "e.g. 60",
+    "tempo_ph":             "e.g. 3.1.1",
+    "rest":                 "Rest (s)",
+    "rest_ph":              "e.g. 90",
+    "per_set_link":         "Different weight or reps per set…",
+    "add_exercise":         "Add Exercise"
   },
   "statistics": {
     "day_streak":        "Day Streak",
