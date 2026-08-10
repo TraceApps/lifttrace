@@ -945,11 +945,11 @@
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{cwAvg}</span>
-              <span class="sc-label">{$_('statistics.avg_week_cardio')}</span>
+              <span class="sc-label">{$_('statistics.avg_week')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{cwMax}</span>
-              <span class="sc-label">{$_('statistics.peak_week_cardio')}</span>
+              <span class="sc-label">{$_('statistics.peak_week')}</span>
             </div>
             {#if $weeklyCardioMinutesGoal > 0}
               <div class="summary-card">

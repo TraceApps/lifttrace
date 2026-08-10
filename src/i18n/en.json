@@ -898,8 +898,6 @@
     "bw_max":               "Max",
     "no_cardio_range":      "No cardio logged in this range. Add sessions from the Diary.",
     "total_min":            "Total min",
-    "avg_week_cardio":      "Avg / week",
-    "peak_week_cardio":     "Peak week",
     "on_target":            "On target",
     "weekly_minutes":       "Weekly Minutes",
     "week_minutes":         "{week}: {n} min",
