@@ -117,9 +117,12 @@
         date: $currentDate,
         activity,
         duration_min: duration,
-        distance: f_distance.trim() ? Number(f_distance) : null,
+        // Distance and heart rate bind to <input type="number">, so Svelte
+        // replaces the initial '' with a number once the field is touched and
+        // with null once it is cleared. Testing emptiness, not stringness.
+        distance: f_distance == null || f_distance === '' ? null : Number(f_distance),
         distance_unit: distanceUnit,
-        avg_hr: f_hr.trim() ? parseInt(f_hr, 10) : null,
+        avg_hr: f_hr == null || f_hr === '' ? null : parseInt(f_hr, 10),
         notes: f_notes.trim() || null,
       };
       if (editingId != null) {
