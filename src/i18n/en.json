@@ -804,6 +804,14 @@
       "weight":   "Body Weight",
       "cardio":   "Cardio"
     },
+    "ranges": {
+      "w1":  "1W",
+      "m1":  "1M",
+      "m3":  "3M",
+      "m6":  "6M",
+      "y1":  "1Y",
+      "all": "All"
+    },
     "categories": {
       "chest":     "Chest",
       "back":      "Back",
@@ -901,7 +909,8 @@
     "n_bpm":                "{n} bpm",
     "showing_100_sessions": "Showing the 100 most recent sessions in this range.",
     "no_exercises_match":   "No exercises match that search.",
-    "no_exercises_library": "No exercises in your library yet."
+    "no_exercises_library": "No exercises in your library yet.",
+    "load_failed":          "Failed to load stats"
   },
   "coaching": {
     "toast": {

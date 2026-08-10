@@ -35,6 +35,10 @@
   $: METRICS = $cardioEnabled ? [...BASE_METRICS, CARDIO_METRIC] : BASE_METRICS;
 
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
+  // Rendered chip labels, keyed off the same range identifiers used for logic
+  // (RANGES[range] lookups, range === 'All' comparisons, etc). The RANGES
+  // keys themselves stay untranslated identifiers; only what's shown changes.
+  const RANGE_LABEL_KEYS = { '1W': 'statistics.ranges.w1', '1M': 'statistics.ranges.m1', '3M': 'statistics.ranges.m3', '6M': 'statistics.ranges.m6', '1Y': 'statistics.ranges.y1', 'All': 'statistics.ranges.all' };
 
   let metric = 'overview';
   let range = '1M';
@@ -184,7 +188,7 @@
       if (metric === 'progress' && selectedExerciseId) await loadProgress();
     } catch(e) {
       console.error(e);
-      showError('Failed to load stats');
+      showError($_('statistics.load_failed'));
     }
     loading = false;
   }
@@ -468,7 +472,7 @@
   <!-- Range picker -->
   <div class="range-bar">
     {#each Object.keys(RANGES) as r}
-      <button class="range-chip" class:active={range === r} on:click={() => range = r}>{r}</button>
+      <button class="range-chip" class:active={range === r} on:click={() => range = r}>{$_(RANGE_LABEL_KEYS[r])}</button>
     {/each}
   </div>
 
