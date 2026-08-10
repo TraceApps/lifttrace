@@ -136,9 +136,9 @@
     if (!memberId || !overview?.user) return;
     const name = memberLabel(overview.user);
     if (!await confirmDialog({
-      title: 'Release coachee?',
-      message: `Remove ${name} from your coaching roster? Their account stays — you'll just no longer be their coach, and any prescriptions or program assignments you've given them will be removed.`,
-      confirmText: 'Release',
+      title: $_('coaching.confirm.release_coachee_title'),
+      message: $_('coaching.confirm.release_coachee_msg', { values: { name } }),
+      confirmText: $_('coaching.confirm.release_confirm'),
       dangerous: true,
     })) return;
     try {
@@ -238,9 +238,9 @@
   async function deleteWorkoutFeedback() {
     if (!workoutDetail) return;
     if (!await confirmDialog({
-      title: 'Delete this note?',
-      message: 'Your workout-level feedback for this session will be removed.',
-      confirmText: 'Delete',
+      title: $_('coaching.confirm.delete_note_title'),
+      message: $_('coaching.confirm.delete_workout_note_msg'),
+      confirmText: $_('common.delete'),
       dangerous: true,
     })) return;
     workoutNote = '';
@@ -268,9 +268,9 @@
   async function deleteExerciseFeedback(idx) {
     if (!workoutDetail || idx == null) return;
     if (!await confirmDialog({
-      title: 'Delete this note?',
-      message: 'Your note on this exercise will be removed.',
-      confirmText: 'Delete',
+      title: $_('coaching.confirm.delete_note_title'),
+      message: $_('coaching.confirm.delete_exercise_note_msg'),
+      confirmText: $_('common.delete'),
       dangerous: true,
     })) return;
     exerciseNotes[idx] = '';
@@ -287,9 +287,9 @@
   async function unassignProgram(programId, programName) {
     if (!memberId) return;
     if (!await confirmDialog({
-      title: 'Remove program?',
-      message: `Remove ${programName} from ${memberLabel(overview?.user)}'s assigned programs?`,
-      confirmText: 'Remove',
+      title: $_('coaching.confirm.remove_program_title'),
+      message: $_('coaching.confirm.remove_program_msg', { values: { program: programName, name: memberLabel(overview?.user) } }),
+      confirmText: $_('coaching.confirm.remove_confirm'),
       dangerous: true,
     })) return;
     try {
@@ -419,7 +419,7 @@
   }
 
   async function deletePrescription(id) {
-    if (!await confirmDialog({ title: 'Remove prescription?', message: 'The member will no longer see this prescription in their diary.', confirmText: 'Remove', dangerous: true })) return;
+    if (!await confirmDialog({ title: $_('coaching.confirm.remove_prescription_title'), message: $_('coaching.confirm.remove_prescription_msg'), confirmText: $_('coaching.confirm.remove_confirm'), dangerous: true })) return;
     try {
       await LtApi.deletePrescription(id);
       prescriptions = prescriptions.filter(p => p.id !== id);
