@@ -1,14 +1,25 @@
 #!/usr/bin/env node
 /**
- * i18n-check — compare each translation file in src/i18n/ against en.json
- * and report missing / orphaned keys.
+ * i18n-check — three checks over src/i18n/ and the code that uses it.
  *
  * Usage:  npm run i18n:check
  *
- * "Missing" = key exists in en.json but not in <lang>.json — translator needs
- *             to add a translation. App will fall back to English at runtime.
- * "Orphaned" = key exists in <lang>.json but not in en.json — leftover from a
- *              renamed or removed source key. Harmless but worth cleaning up.
+ * Errors (exit 1):
+ *   1. Duplicate keys in en.json at any nesting depth. JSON.parse keeps the
+ *      last occurrence and drops the earlier ones silently, so a repeated
+ *      section makes whole blocks of copy vanish and render as raw keys. This
+ *      check scans the raw text, because after parsing the evidence is gone.
+ *   2. Keys referenced in code that don't resolve against en.json.
+ *
+ * Informational (exit 0):
+ *   3. Missing / orphaned keys in other locale files. Translating is
+ *      deliberately unhurried (see CONTRIBUTING), so a partial translation
+ *      reports but does not fail the build.
+ *
+ * Reference scanning covers literal keys in `$_('...')` calls plus key-shaped
+ * literals held in constants (e.g. Settings' SECTION_META titleKey), matched by
+ * shape and by their first segment existing in en.json. A key that reaches $_()
+ * some other way is not verified: that is a coverage gap, not a false pass.
  *
  * Stale-translation detection (English source changed but translation didn't)
  * is NOT possible from JSON alone. Convention: rename the key when meaning
@@ -166,44 +177,61 @@ function loadJson(file) {
 }
 
 function main() {
-  const enFlat = flatten(loadJson(SOURCE_FILE));
-  const enKeys = new Set(Object.keys(enFlat));
-  const total = enKeys.size;
+  const raw = fs.readFileSync(path.join(I18N_DIR, SOURCE_FILE), 'utf8');
+  const errors = [];
 
-  const allFiles = fs.readdirSync(I18N_DIR).filter(f => f.endsWith('.json') && f !== SOURCE_FILE);
+  const dups = findDuplicateKeys(raw);
+  const en = JSON.parse(raw);
+  const enKeys = new Set(Object.keys(flatten(en)));
+  const topLevel = new Set(Object.keys(en));
 
-  console.log(`\ni18n status — source: ${SOURCE_FILE} (${total} keys)\n`);
+  console.log(`\ni18n status — source: ${SOURCE_FILE} (${enKeys.size} keys)\n`);
 
-  if (allFiles.length === 0) {
-    console.log('  No other locale files yet. Add fr.json / de.json / nl.json / etc. to src/i18n/.\n');
-    process.exit(0);
+  if (dups.length) {
+    errors.push(`${dups.length} duplicate key(s) in ${SOURCE_FILE}`);
+    console.log(`  ✗ duplicate keys in ${SOURCE_FILE} — JSON.parse silently keeps the last one:`);
+    for (const d of dups) console.log(`        ${d}`);
+  } else {
+    console.log(`  ✓ no duplicate keys in ${SOURCE_FILE}`);
   }
 
-  let anyGap = false;
-  for (const file of allFiles.sort()) {
-    const langFlat = flatten(loadJson(file));
-    const langKeys = new Set(Object.keys(langFlat));
-    const missing = [...enKeys].filter(k => !langKeys.has(k));
-    const orphaned = [...langKeys].filter(k => !enKeys.has(k));
-    const translated = total - missing.length;
-    const pct = ((translated / total) * 100).toFixed(0);
-    const status = missing.length === 0 && orphaned.length === 0 ? '✓' : '!';
-    console.log(`  ${status} ${file.padEnd(10)} ${translated}/${total}  ${pct.padStart(3)}%  ${missing.length} missing, ${orphaned.length} orphaned`);
-    if (missing.length || orphaned.length) anyGap = true;
-    if (missing.length > 0 && missing.length <= 10) {
-      for (const k of missing) console.log(`        missing: ${k}`);
-    } else if (missing.length > 10) {
-      console.log(`        missing: ${missing.slice(0, 5).join(', ')} ... and ${missing.length - 5} more`);
-    }
-    if (orphaned.length > 0 && orphaned.length <= 5) {
-      for (const k of orphaned) console.log(`       orphaned: ${k}`);
-    } else if (orphaned.length > 5) {
-      console.log(`       orphaned: ${orphaned.slice(0, 3).join(', ')} ... and ${orphaned.length - 3} more`);
-    }
+  const { direct, indirect } = collectKeyRefs(topLevel);
+  const unresolved = [...direct.values(), ...indirect.values()].filter(r => !enKeys.has(r.key));
+  if (unresolved.length) {
+    errors.push(`${unresolved.length} code-referenced key(s) missing from ${SOURCE_FILE}`);
+    console.log(`  ✗ keys referenced in code but absent from ${SOURCE_FILE}:`);
+    for (const r of unresolved) console.log(`        ${r.key}  (${r.file}:${r.line})`);
+  } else {
+    console.log(`  ✓ all ${direct.size + indirect.size} code-referenced keys resolve `
+                + `(${direct.size} via $_(), ${indirect.size} via constants)`);
   }
 
+  const locales = fs.readdirSync(I18N_DIR).filter(f => f.endsWith('.json') && f !== SOURCE_FILE);
+  if (locales.length === 0) {
+    console.log('\n  No other locale files yet. Add fr.json / de.json / nl.json / etc. to src/i18n/.');
+  } else {
+    console.log('');
+    for (const file of locales.sort()) {
+      const langKeys = new Set(Object.keys(flatten(loadJson(file))));
+      const missing = [...enKeys].filter(k => !langKeys.has(k));
+      const orphaned = [...langKeys].filter(k => !enKeys.has(k));
+      const translated = enKeys.size - missing.length;
+      const pct = ((translated / enKeys.size) * 100).toFixed(0);
+      const status = missing.length === 0 && orphaned.length === 0 ? '✓' : 'i';
+      console.log(`  ${status} ${file.padEnd(10)} ${translated}/${enKeys.size}  ${pct.padStart(3)}%  ${missing.length} missing, ${orphaned.length} orphaned`);
+      if (missing.length > 0 && missing.length <= 10) for (const k of missing) console.log(`        missing: ${k}`);
+      else if (missing.length > 10) console.log(`        missing: ${missing.slice(0, 5).join(', ')} ... and ${missing.length - 5} more`);
+      if (orphaned.length > 0 && orphaned.length <= 5) for (const k of orphaned) console.log(`       orphaned: ${k}`);
+      else if (orphaned.length > 5) console.log(`       orphaned: ${orphaned.slice(0, 3).join(', ')} ... and ${orphaned.length - 3} more`);
+    }
+    console.log('\n  Incomplete translations are informational and do not fail this check.');
+  }
+
+  if (errors.length) {
+    console.log(`\n  FAILED: ${errors.join('; ')}\n`);
+    process.exit(1);
+  }
   console.log('');
-  process.exit(anyGap ? 1 : 0);
 }
 
 module.exports = { flatten, findDuplicateKeys, collectKeyRefs, IGNORED_INDIRECT };
