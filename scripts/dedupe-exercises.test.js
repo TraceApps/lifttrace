@@ -3,10 +3,14 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-// node:sqlite is available since Node 22 and needs no build step. The
-// production code uses better-sqlite3, which shares the same synchronous
-// prepare/get/all/run surface these tests exercise.
-import { DatabaseSync as Database } from 'node:sqlite';
+// Use better-sqlite3 from server/node_modules — the same driver
+// production actually runs against. createRequire lets us reach it
+// without hoisting it into the root package.json (it's a server-only
+// dep). CI installs both root + server deps so this works in the
+// Checks workflow.
+import { createRequire } from 'node:module';
+const serverRequire = createRequire(new URL('../server/', import.meta.url));
+const Database = serverRequire('better-sqlite3');
 
 // Standalone reproduction of the dedupe logic in server/db.js so the tests
 // can drive it against a scratch SQLite file without importing all of the
