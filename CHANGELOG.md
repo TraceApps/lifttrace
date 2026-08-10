@@ -4,6 +4,14 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **The All range on Statistics no longer hides body measurements taken before your first workout.** The body-weight chart bounded its query by the earliest `workout_log` date, which is the right bound for volume, frequency, progress and records but not for weigh-ins: those are independent of whether you trained that day. Anyone who imported a weight history from another app, or weighed in during a break from training, silently lost those points with no way to see them from the UI. The All range now starts from the same `2000-01-01` floor the code already falls back to when there are no workouts.
+
+---
+
 ## v1.1.1 — 2026-08-04
 
 ### Changed

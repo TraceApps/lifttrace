@@ -191,9 +191,13 @@
 
   async function loadBodyWeights() {
     try {
-      // startDate / endDate are already reactive and handle the "All" case
-      // by resolving to earliestWorkoutDate.
-      const rows = await LtApi.getBodyStatsRange(startDate, endDate);
+      // Body stats are independent of workout history: someone can weigh in
+      // during a break, or import years of weigh-ins from another app before
+      // logging their first session here. Bounding "All" by the first workout
+      // date silently hides those, so this range starts from the epoch floor
+      // that startDate already falls back to when there are no workouts.
+      const from = range === 'All' ? '2000-01-01' : startDate;
+      const rows = await LtApi.getBodyStatsRange(from, endDate);
       bodyWeights = (rows || [])
         .map(r => ({ date: r.date, weight: parseFloat(r.stats?.weight) }))
         .filter(p => Number.isFinite(p.weight))
