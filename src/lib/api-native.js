@@ -705,6 +705,39 @@ const Workout = {
     const hasAny = exercises.some(ex =>
       Array.isArray(ex?.sets) && ex.sets.some(s => s?.completed && !s?.warmup)
     );
+
+    // Option C (2026-08-11): persist any explicit per-entry deletions
+    // as pending tombstones in the local mirror. Sync push includes
+    // these so the server-side merge treats them as deleted rather
+    // than preserving-by-default. Without this, a delete performed
+    // while offline would silently fail to propagate on reconnect.
+    const dr = body.deleted_uuids;
+    if (dr) {
+      const del = dr.exercises || (Array.isArray(dr) ? dr : []);
+      const setsByEx = (dr.sets && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
+      const ts = _now();
+      for (const uuid of del) {
+        if (typeof uuid === 'string' && uuid) {
+          await dbRun(
+            `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
+             VALUES (?, ?, 'exercise', '', ?, ?, 'pending')`,
+            [ME, date, uuid, ts]
+          );
+        }
+      }
+      for (const [exUuid, uuids] of Object.entries(setsByEx)) {
+        for (const uuid of (uuids || [])) {
+          if (typeof uuid === 'string' && uuid) {
+            await dbRun(
+              `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
+               VALUES (?, ?, 'set', ?, ?, ?, 'pending')`,
+              [ME, date, exUuid, uuid, ts]
+            );
+          }
+        }
+      }
+    }
+
     // Auto-delete empty entries (matches server behavior)
     if (!hasAny && !body.notes && !body.duration_min) {
       await dbRun(

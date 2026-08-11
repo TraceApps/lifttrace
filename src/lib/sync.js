@@ -270,6 +270,11 @@ export async function pullSnapshot(silent = false) {
     await _applyTemplates(pull.workout_templates, result);
     await _applyAssignments(pull.program_assignments, result);
     await _applyWorkouts(pull.workout_log, result);
+    // Option C (2026-08-11): apply server-side per-entry tombstones so a
+    // delete performed on another device drops the matching items/sets
+    // from the local workout rows here too. Runs AFTER _applyWorkouts
+    // so it filters the freshly-mirrored rows in one pass.
+    await _applyWorkoutTombstones(pull.workout_tombstones, result);
     await _applyBodyStats(pull.body_stats_log, result);
     await _applySettings(pull.user_settings, result);
     await _applyChat(pull.ai_chat_history, result);
@@ -437,6 +442,67 @@ async function _applyWorkouts(rows, result) {
     );
   }
   result.tables.workouts = rows.length;
+}
+
+/**
+ * Apply server-side per-entry tombstones to the local mirror. For each
+ * tombstone: (1) upsert into local workout_tombstones with
+ * sync_state='clean' so it's not resent on the next push, (2) drop
+ * the matching exercise or set from that date's workout_log row so
+ * the UI reflects the deletion immediately without waiting for a
+ * subsequent write. Runs after _applyWorkouts so it filters rows the
+ * pull just refreshed.
+ */
+async function _applyWorkoutTombstones(rows, result) {
+  if (!rows?.length) { result.tables.workoutTombstones = 0; return; }
+  const byDate = new Map();
+  for (const t of rows) {
+    if (!t || !t.date || !t.kind || !t.uuid) continue;
+    await dbRun(
+      `INSERT INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
+       VALUES (1, ?, ?, ?, ?, ?, 'clean')
+       ON CONFLICT(user_id, date, kind, ex_uuid, uuid) DO UPDATE SET
+         deleted_at = excluded.deleted_at, sync_state = 'clean'`,
+      [t.date, t.kind, t.ex_uuid || '', t.uuid, t.deleted_at || new Date().toISOString()]
+    );
+    // Only exercise/set kinds filter the daily workout row locally;
+    // template tombstones affect a separate table.
+    if (t.kind !== 'exercise' && t.kind !== 'set') continue;
+    const g = byDate.get(t.date) || { exUuids: new Set(), setsByEx: new Map() };
+    if (t.kind === 'exercise') g.exUuids.add(t.uuid);
+    else {
+      const set = g.setsByEx.get(t.ex_uuid) || new Set();
+      set.add(t.uuid);
+      g.setsByEx.set(t.ex_uuid, set);
+    }
+    byDate.set(t.date, g);
+  }
+  for (const [date, g] of byDate) {
+    const rows2 = await dbQuery(
+      `SELECT id, exercises FROM workout_log WHERE user_id = 1 AND date = ?`,
+      [date]
+    );
+    const row = rows2?.[0];
+    if (!row) continue;
+    let exercises;
+    try { exercises = JSON.parse(row.exercises || '[]'); } catch { continue; }
+    if (!Array.isArray(exercises)) continue;
+    const filtered = [];
+    for (const ex of exercises) {
+      if (ex?.uuid && g.exUuids.has(ex.uuid)) continue; // drop whole exercise
+      const setTombstones = g.setsByEx.get(ex?.uuid);
+      if (setTombstones && Array.isArray(ex.sets)) {
+        filtered.push({ ...ex, sets: ex.sets.filter(s => !s?.uuid || !setTombstones.has(s.uuid)) });
+      } else {
+        filtered.push(ex);
+      }
+    }
+    await dbRun(
+      `UPDATE workout_log SET exercises = ? WHERE id = ?`,
+      [JSON.stringify(filtered), row.id]
+    );
+  }
+  result.tables.workoutTombstones = rows.length;
 }
 
 async function _applyBodyStats(rows, result) {
