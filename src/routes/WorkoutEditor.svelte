@@ -4,7 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { showSuccess, showError } from '../stores/toast.js';
-  import { exerciseLoadTypes, trackRpe } from '../stores/settings.js';
+  import { exerciseLoadTypes, trackRpe, weightUnit } from '../stores/settings.js';
   import { resolveLoadType } from '../lib/workout.js';
   import TemplateSpecRow from '../components/programs/TemplateSpecRow.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
@@ -697,15 +697,17 @@
              The copy arrow sits between the active week and the next, and is
              only enabled when the current week actually differs from next. -->
         <div class="week-strip">
-          {#each Array(durationWeeks) as _, i}
+          {#each Array(durationWeeks) as _w, i}
             <button class="week-tab" class:active={activeWeek === i + 1} on:click={() => activeWeek = i + 1}>
-              Week {i + 1}
+              {$_('workout_editor.week', { values: { n: i + 1 } })}
             </button>
             {#if activeWeek === i + 1 && i + 1 < durationWeeks}
               <button class="week-copy-arrow" disabled={!canCopyWeek}
                 on:click={copyWeekToNext}
-                title={canCopyWeek ? `Copy Week ${activeWeek} into Week ${activeWeek + 1}` : `Week ${activeWeek + 1} already matches Week ${activeWeek}`}
-                aria-label="Copy this week into the next week">
+                title={canCopyWeek
+                  ? $_('workout_editor.copy_week', { values: { from: activeWeek, to: activeWeek + 1 } })
+                  : $_('workout_editor.week_matches', { values: { from: activeWeek, to: activeWeek + 1 } })}
+                aria-label={$_('workout_editor.copy_week_aria')}>
                 <span class="material-symbols-rounded">arrow_forward</span>
               </button>
             {/if}
@@ -725,7 +727,7 @@
               <div class="ss-header">
                 <span class="material-symbols-rounded ss-icon">link</span>
                 <span class="ss-label">{$_('workout_editor.superset')}</span>
-                <span class="ss-count">{group.exercises.length} exercises</span>
+                <span class="ss-count">{$_('workout_editor.ex_count', { values: { count: group.exercises.length } })}</span>
                 <button class="btn-icon-xs ss-menu" on:click={() => openSsActions(group.id)} title={$_('workout_editor.ss_options')}>
                   <span class="material-symbols-rounded">more_horiz</span>
                 </button>
@@ -763,8 +765,8 @@
                           <button type="button" class="load-chip" class:non-default={lt !== 'bilateral'}
                                   on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
                                   title={$_('workout_editor.load_type')}>
-                            {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>Per side
-                            {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>Alternating
+                            {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
+                            {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
                             {:else}<span class="material-symbols-rounded">straighten</span>{/if}
                           </button>
                         {/each}
@@ -774,8 +776,10 @@
                         {#if durationWeeks > 1 && activeWeek < durationWeeks}
                           <button type="button" class="ex-week-copy" disabled={!weekDiffersFromNext(ex, activeWeek, durationWeeks)}
                             on:click|stopPropagation={() => copyExerciseWeekToNext(idx)}
-                            title={weekDiffersFromNext(ex, activeWeek, durationWeeks) ? `Copy this exercise's Week ${activeWeek} into Week ${activeWeek + 1}` : `Week ${activeWeek + 1} already matches Week ${activeWeek}`}
-                            aria-label="Copy this exercise into Week {activeWeek + 1}">
+                            title={weekDiffersFromNext(ex, activeWeek, durationWeeks)
+                              ? $_('workout_editor.copy_ex_week', { values: { from: activeWeek, to: activeWeek + 1 } })
+                              : $_('workout_editor.week_matches', { values: { from: activeWeek, to: activeWeek + 1 } })}
+                            aria-label={$_('workout_editor.copy_ex_week_aria', { values: { to: activeWeek + 1 } })}>
                             <span class="material-symbols-rounded">arrow_forward</span>{activeWeek + 1}
                           </button>
                         {/if}
@@ -789,14 +793,14 @@
                         <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null}></div>
                         <div class="load-menu" on:click|stopPropagation>
                           <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
-                          {#each [['bilateral','Bilateral','single load — barbell, machine, both arms move one thing'],
-                                  ['paired','Per side','both arms work together with separate equal loads'],
-                                  ['unilateral','Alternating','one side at a time']] as [val, label, hint]}
+                          {#each [['bilateral','workout_editor.load_bilateral','workout_editor.load_hint_bilateral'],
+                                  ['paired','workout_editor.load_paired','workout_editor.load_hint_paired'],
+                                  ['unilateral','workout_editor.load_unilateral','workout_editor.load_hint_unilateral']] as [val, labelKey, hintKey]}
                             <button class="load-menu-item" class:active={exLoadType(ex) === val} type="button"
                                     on:click={() => pickLoadType(idx, val)}>
                               <div class="lm-text">
-                                <span class="lm-label">{label}</span>
-                                <span class="lm-hint">{hint}</span>
+                                <span class="lm-label">{$_(labelKey)}</span>
+                                <span class="lm-hint">{$_(hintKey)}</span>
                               </div>
                               {#if exLoadType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
                             </button>
@@ -823,7 +827,7 @@
                           {/each}
                           <div class="per-set-actions">
                             <button class="per-set-add" on:click={() => addSpecSet(idx)}>
-                              <span class="material-symbols-rounded">add</span> Add set
+                              <span class="material-symbols-rounded">add</span> {$_('workout_editor.add_set')}
                             </button>
                             <button class="per-set-link" on:click={() => disablePerSet(idx)}>{$_('workout_editor.use_uniform')}</button>
                           </div>
@@ -836,26 +840,26 @@
                           </div>
                           <div class="field">
                             <label>{$_('workout_editor.reps')}</label>
-                            <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder="e.g. 8-12" />
+                            <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder={$_('workout_editor.reps_ph')} />
                           </div>
                           <div class="field">
                             <label>{$_('workout_editor.weight')}</label>
-                            <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder="e.g. 135" />
+                            <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder={$weightUnit === 'kg' ? $_('workout_editor.weight_ph_kg') : $_('workout_editor.weight_ph_lb')} />
                           </div>
                         </div>
                         <div class="ex-fields two-col">
                           <div class="field">
                             <label>{$_('workout_editor.tempo')}</label>
-                            <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder="e.g. 3.1.1" />
+                            <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder={$_('workout_editor.tempo_ph')} />
                           </div>
                           <div class="field">
-                            <label>Rest (s)</label>
-                            <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder="e.g. 90" />
+                            <label>{$_('workout_editor.rest')} <span class="unit">(s)</span></label>
+                            <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder={$_('workout_editor.rest_ph')} />
                           </div>
                         </div>
                         <button class="per-set-link" on:click={() => enablePerSet(idx)}>
                           <span class="material-symbols-rounded" style="font-size:14px">tune</span>
-                          Different weight or reps per set…
+                          {$_('workout_editor.per_set_link')}
                         </button>
                       {/if}
                       <input class="notes-input" type="text" value={ex.notes || ''} on:input={e => updateExercise(idx, 'notes', e.target.value)} placeholder={$_('workout_editor.notes_ph')} />
@@ -892,8 +896,8 @@
                   <button type="button" class="load-chip" class:non-default={lt !== 'bilateral'}
                           on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
                           title={$_('workout_editor.load_type')}>
-                    {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>Per side
-                    {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>Alternating
+                    {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
+                    {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
                     {:else}<span class="material-symbols-rounded">straighten</span>{/if}
                   </button>
                 {/each}
@@ -903,8 +907,10 @@
                 {#if durationWeeks > 1 && activeWeek < durationWeeks}
                   <button type="button" class="ex-week-copy" disabled={!weekDiffersFromNext(ex, activeWeek, durationWeeks)}
                     on:click|stopPropagation={() => copyExerciseWeekToNext(idx)}
-                    title={weekDiffersFromNext(ex, activeWeek, durationWeeks) ? `Copy this exercise's Week ${activeWeek} into Week ${activeWeek + 1}` : `Week ${activeWeek + 1} already matches Week ${activeWeek}`}
-                    aria-label="Copy this exercise into Week {activeWeek + 1}">
+                    title={weekDiffersFromNext(ex, activeWeek, durationWeeks)
+                      ? $_('workout_editor.copy_ex_week', { values: { from: activeWeek, to: activeWeek + 1 } })
+                      : $_('workout_editor.week_matches', { values: { from: activeWeek, to: activeWeek + 1 } })}
+                    aria-label={$_('workout_editor.copy_ex_week_aria', { values: { to: activeWeek + 1 } })}>
                     <span class="material-symbols-rounded">arrow_forward</span>{activeWeek + 1}
                   </button>
                 {/if}
@@ -918,14 +924,14 @@
                 <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null}></div>
                 <div class="load-menu" on:click|stopPropagation>
                   <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
-                  {#each [['bilateral','Bilateral','single load — barbell, machine, both arms move one thing'],
-                          ['paired','Per side','both arms work together with separate equal loads'],
-                          ['unilateral','Alternating','one side at a time']] as [val, label, hint]}
+                  {#each [['bilateral','workout_editor.load_bilateral','workout_editor.load_hint_bilateral'],
+                          ['paired','workout_editor.load_paired','workout_editor.load_hint_paired'],
+                          ['unilateral','workout_editor.load_unilateral','workout_editor.load_hint_unilateral']] as [val, labelKey, hintKey]}
                     <button class="load-menu-item" class:active={exLoadType(ex) === val} type="button"
                             on:click={() => pickLoadType(idx, val)}>
                       <div class="lm-text">
-                        <span class="lm-label">{label}</span>
-                        <span class="lm-hint">{hint}</span>
+                        <span class="lm-label">{$_(labelKey)}</span>
+                        <span class="lm-hint">{$_(hintKey)}</span>
                       </div>
                       {#if exLoadType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
                     </button>
@@ -952,7 +958,7 @@
                   {/each}
                   <div class="per-set-actions">
                     <button class="per-set-add" on:click={() => addSpecSet(idx)}>
-                      <span class="material-symbols-rounded">add</span> Add set
+                      <span class="material-symbols-rounded">add</span> {$_('workout_editor.add_set')}
                     </button>
                     <button class="per-set-link" on:click={() => disablePerSet(idx)}>{$_('workout_editor.use_uniform')}</button>
                   </div>
@@ -965,26 +971,26 @@
                   </div>
                   <div class="field">
                     <label>{$_('workout_editor.reps')}</label>
-                    <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder="e.g. 8-12" />
+                    <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder={$_('workout_editor.reps_ph')} />
                   </div>
                   <div class="field">
                     <label>{$_('workout_editor.weight')}</label>
-                    <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder="e.g. 135" />
+                    <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder={$weightUnit === 'kg' ? $_('workout_editor.weight_ph_kg') : $_('workout_editor.weight_ph_lb')} />
                   </div>
                 </div>
                 <div class="ex-fields two-col">
                   <div class="field">
                     <label>{$_('workout_editor.tempo')}</label>
-                    <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder="e.g. 3.1.1" />
+                    <input type="text" value={weekVal(ex, 'tempo', activeWeek)} on:input={e => setWeekVal(idx, 'tempo', e.target.value)} placeholder={$_('workout_editor.tempo_ph')} />
                   </div>
                   <div class="field">
-                    <label>Rest (s)</label>
-                    <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder="e.g. 90" />
+                    <label>{$_('workout_editor.rest')} <span class="unit">(s)</span></label>
+                    <input type="number" value={weekVal(ex, 'rest_sec', activeWeek)} on:input={e => setWeekVal(idx, 'rest_sec', parseInt(e.target.value))} placeholder={$_('workout_editor.rest_ph')} />
                   </div>
                 </div>
                 <button class="per-set-link" on:click={() => enablePerSet(idx)}>
                   <span class="material-symbols-rounded" style="font-size:14px">tune</span>
-                  Different weight or reps per set…
+                  {$_('workout_editor.per_set_link')}
                 </button>
               {/if}
               <input class="notes-input" type="text" value={ex.notes || ''} on:input={e => updateExercise(idx, 'notes', e.target.value)} placeholder={$_('workout_editor.notes_ph')} />
@@ -995,7 +1001,7 @@
 
       <button class="add-btn" on:click={() => { addingToSsId = null; showPicker = true; }}>
         <span class="material-symbols-rounded">add</span>
-        Add Exercise
+        {$_('workout_editor.add_exercise')}
       </button>
     </div>
   {/if}
@@ -1021,7 +1027,7 @@
 <!-- Superset action sheet -->
 <ActionSheet
   bind:open={ssAsOpen}
-  title="Superset Options"
+  title={$_('workout_editor.ss_options')}
   actions={ssAsActions}
   on:select={handleSsAction}
   on:cancel={() => ssAsOpen = false}
@@ -1032,7 +1038,7 @@
   <div class="ss-picker">
     {#if ssPickerMode === 'join'}
       <h3 class="picker-title">{$_('workout_editor_ss.add_to_superset')}</h3>
-      <p class="picker-hint">Choose which superset to join:</p>
+      <p class="picker-hint">{$_('workout_editor_ss.join_hint')}</p>
       {#each existingSupersets as ss}
         <button class="ss-option" on:click={() => handleJoinSuperset(ss.id)}>
           <span class="material-symbols-rounded" style="color:var(--accent)">link</span>
@@ -1058,7 +1064,7 @@
         {/each}
       </div>
       <button class="btn btn-primary pick-confirm" disabled={newSsPicks.length === 0} on:click={handleCreateSuperset}>
-        Create Superset ({newSsPicks.length + 1} exercises)
+        {$_('workout_editor_ss.create_confirm', { values: { count: newSsPicks.length + 1 } })}
       </button>
     {/if}
   </div>
@@ -1068,7 +1074,7 @@
 <Sheet open={ssMergePickerOpen} on:close={() => ssMergePickerOpen = false}>
   <div class="ss-picker">
     <h3 class="picker-title">{$_('workout_editor_ss.merge_into_superset')}</h3>
-    <p class="picker-hint">All exercises from both supersets will be combined:</p>
+    <p class="picker-hint">{$_('workout_editor_ss.merge_hint')}</p>
     {#each existingSupersets.filter(s => String(s.id) !== String(ssAsTargetId)) as ss}
       <button class="ss-option" on:click={() => handleMerge(ss.id)}>
         <span class="material-symbols-rounded" style="color:var(--accent)">merge</span>
@@ -1243,6 +1249,8 @@
   .week-copy-arrow:disabled { color: var(--text-3); opacity: 0.4; cursor: default; }
   .week-copy-arrow .material-symbols-rounded { font-size: 20px; }
   .field label { display: block; font-size: 11px; color: var(--text-3); margin-bottom: 3px; font-weight: 600; text-transform: uppercase; }
+  /* Unit symbols must not be uppercased: "s" is seconds, "S" is siemens. */
+  .field label .unit { text-transform: none; }
   .field input {
     width: 100%; background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 7px 8px; color: var(--text-1);
