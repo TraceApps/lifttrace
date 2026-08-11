@@ -202,6 +202,22 @@
       "unpin_template":        "Unpin quick-log template",
       "delete_aria":           "Delete cardio session",
       "empty":                 "No cardio logged for this day."
+    },
+    "confirm": {
+      "delete_cardio_title":     "Delete cardio session?",
+      "delete_cardio_msg":       "{activity} · {duration} min",
+      "delete_reply_title":      "Delete your reply?",
+      "delete_reply_msg":        "Your reply to this note will be removed.",
+      "replace_workout_title":   "Replace workout?",
+      "replace_confirm":         "Replace",
+      "replace_suggested_msg":   "Loading the suggested workout will overwrite your current workout for today.",
+      "replace_template_msg":    "Picking a new template will overwrite your current workout for today.",
+      "replace_prescribed_msg":  "Loading the prescribed workout will overwrite your current workout for today.",
+      "remove_exercise_title":   "Remove exercise?",
+      "remove_exercise_msg":     "{name} will be removed from today's workout.",
+      "remove_superset_title":   "Remove superset?",
+      "remove_superset_msg":     "{list} will be removed from today's workout.",
+      "remove_confirm":          "Remove"
     }
   },
   "trace": {
@@ -561,7 +577,11 @@
     "top_set_over_time":     "Top Set Over Time",
     "similar_exercises":     "Similar Exercises",
     "try_again":             "Try Again",
-    "back_to_exercises":     "Back to Exercises"
+    "back_to_exercises":     "Back to Exercises",
+    "confirm": {
+      "delete_title": "Delete \"{name}\"?",
+      "delete_msg":   "This removes the exercise from your library. Any workouts that logged it keep their history — only the link breaks."
+    }
   },
   "settings_federation": {
     "url_token_required":    "Enter a URL and access token first",
@@ -603,7 +623,13 @@
     "how_to_export":         "How to Export",
     "import_another_file":   "Import Another File",
     "ready_to_import":       "Ready to Import",
-    "cancel":                "Cancel"
+    "cancel":                "Cancel",
+    "confirm": {
+      "duplicate_dates_title": "{count} dates already have workouts",
+      "duplicate_dates_msg":   "Skip the imported copies of those days, or replace your existing workouts with the imported ones?",
+      "replace_existing":      "Replace existing",
+      "skip_duplicates":       "Skip duplicates"
+    }
   },
   "settings_statistics": {
     "default_chart_type":    "Default Chart Type",
@@ -625,7 +651,18 @@
     "catalog_name":          "Catalog Name",
     "json":                  "JSON",
     "json_ph":               "Paste JSON here, or pick a .json file below",
-    "imported_catalogs":     "Imported Catalogs"
+    "imported_catalogs":     "Imported Catalogs",
+    "confirm": {
+      "clear_imported_title": "Clear imported exercises?",
+      "clear_imported_msg":   "This removes all {count} exercises imported from {name}. The source stays listed so you can re-import at any time.",
+      "clear_confirm":        "Clear",
+      "delete_named_title":   "Delete \"{name}\"?",
+      "delete_exercise_msg":  "Workout history keeps its record — only the library link breaks.",
+      "delete_all_title":     "Delete all {count} custom exercises?",
+      "delete_all_msg":       "This cannot be undone. Workout history keeps its records — only library links break.",
+      "delete_all_confirm":   "Delete all",
+      "delete_catalog_msg":   "All {count} exercises from this catalog will be removed."
+    }
   },
   "settings_radio": {
     "streaming_stations":    "Streaming Stations",
@@ -677,7 +714,13 @@
     "option_hold":           "Hold on the Final Week",
     "cancel":                "Cancel",
     "new_workout":           "New Workout",
-    "name":                  "Name"
+    "name":                  "Name",
+    "confirm": {
+      "delete_workout_title": "Delete workout?",
+      "delete_workout_msg":   "This removes the workout template from this program.",
+      "delete_program_title": "Delete program?",
+      "delete_program_msg":   "Deletes the entire program and all of its workouts. This cannot be undone."
+    }
   },
   "exercise_editor": {
     "toast": {
@@ -798,7 +841,11 @@
     "group":                   "Group",
     "icon_url":                "Icon URL",
     "new_name":                "New Name",
-    "leave_empty_ungroup":     "(leave empty to ungroup)"
+    "leave_empty_ungroup":     "(leave empty to ungroup)",
+    "confirm": {
+      "delete_station_title": "Delete station?",
+      "delete_station_msg":   "\"{name}\" will be removed from your stations list."
+    }
   },
   "workout_editor": {
     "toast": {
@@ -1017,7 +1064,20 @@
     "duration":                "Duration",
     "feedback_ph":             "Form, intensity, what to push next…",
     "notes":                   "Notes",
-    "template":                "Workout Template"
+    "template":                "Workout Template",
+    "confirm": {
+      "release_coachee_title":     "Release coachee?",
+      "release_coachee_msg":       "Remove {name} from your coaching roster? Their account stays — you'll just no longer be their coach, and any prescriptions or program assignments you've given them will be removed.",
+      "release_confirm":           "Release",
+      "delete_note_title":         "Delete this note?",
+      "delete_workout_note_msg":   "Your workout-level feedback for this session will be removed.",
+      "delete_exercise_note_msg":  "Your note on this exercise will be removed.",
+      "remove_program_title":      "Remove program?",
+      "remove_program_msg":        "Remove {program} from {name}'s assigned programs?",
+      "remove_confirm":            "Remove",
+      "remove_prescription_title": "Remove prescription?",
+      "remove_prescription_msg":   "The member will no longer see this prescription in their diary."
+    }
   },
   "settings_main": {
     "toast": {
