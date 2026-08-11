@@ -95,7 +95,7 @@
         <div class="bs-grid">
           {#each visibleStats as stat (stat.id)}
             <div>
-              <label class="form-label">{stat.label} ({getUnit(stat.id)})</label>
+              <label class="form-label">{stat.label} <span class="unit">({getUnit(stat.id)})</span></label>
               <input class="input" type="number" step="0.1" min="0"
                 bind:value={stats[stat.id]} placeholder="—" />
             </div>

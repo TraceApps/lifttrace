@@ -126,7 +126,7 @@
 
   async function deleteTemplate(e, id) {
     e.stopPropagation();
-    if (!await confirmDialog({ title: 'Delete workout?', message: 'This removes the workout template from this program.', confirmText: 'Delete', dangerous: true })) return;
+    if (!await confirmDialog({ title: $_('program_detail.confirm.delete_workout_title'), message: $_('program_detail.confirm.delete_workout_msg'), confirmText: $_('common.delete'), dangerous: true })) return;
     try {
       await LtApi.deleteTemplate(id);
       showSuccess($_('program_detail.toast.workout_deleted'));
@@ -135,7 +135,7 @@
   }
 
   async function deleteProgram() {
-    if (!await confirmDialog({ title: 'Delete program?', message: 'Deletes the entire program and all of its workouts. This cannot be undone.', confirmText: 'Delete', dangerous: true })) return;
+    if (!await confirmDialog({ title: $_('program_detail.confirm.delete_program_title'), message: $_('program_detail.confirm.delete_program_msg'), confirmText: $_('common.delete'), dangerous: true })) return;
     try {
       await LtApi.deleteProgram(params.id);
       showSuccess($_('program_detail.toast.program_deleted'));

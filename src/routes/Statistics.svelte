@@ -24,17 +24,21 @@
   // Base metric pills — cardio conditionally appended when the user
   // has opted-in via Settings → Workout → Track Cardio.
   const BASE_METRICS = [
-    { id: 'overview', label: 'Overview',         icon: 'dashboard' },
-    { id: 'progress', label: 'Exercise Progress', icon: 'trending_up' },
-    { id: 'records',  label: 'Records',           icon: 'emoji_events' },
-    { id: 'volume',   label: 'Volume',            icon: 'fitness_center' },
-    { id: 'freq',     label: 'Frequency',         icon: 'calendar_month' },
-    { id: 'weight',   label: 'Body Weight',       icon: 'monitor_weight' },
+    { id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' },
+    { id: 'progress', labelKey: 'statistics.tabs.progress', icon: 'trending_up' },
+    { id: 'records',  labelKey: 'statistics.tabs.records',  icon: 'emoji_events' },
+    { id: 'volume',   labelKey: 'statistics.tabs.volume',   icon: 'fitness_center' },
+    { id: 'freq',     labelKey: 'statistics.tabs.freq',     icon: 'calendar_month' },
+    { id: 'weight',   labelKey: 'statistics.tabs.weight',   icon: 'monitor_weight' },
   ];
-  const CARDIO_METRIC = { id: 'cardio', label: 'Cardio', icon: 'directions_run' };
+  const CARDIO_METRIC = { id: 'cardio', labelKey: 'statistics.tabs.cardio', icon: 'directions_run' };
   $: METRICS = $cardioEnabled ? [...BASE_METRICS, CARDIO_METRIC] : BASE_METRICS;
 
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
+  // Rendered chip labels, keyed off the same range identifiers used for logic
+  // (RANGES[range] lookups, range === 'All' comparisons, etc). The RANGES
+  // keys themselves stay untranslated identifiers; only what's shown changes.
+  const RANGE_LABEL_KEYS = { '1W': 'statistics.ranges.w1', '1M': 'statistics.ranges.m1', '3M': 'statistics.ranges.m3', '6M': 'statistics.ranges.m6', '1Y': 'statistics.ranges.y1', 'All': 'statistics.ranges.all' };
 
   let metric = 'overview';
   let range = '1M';
@@ -184,16 +188,20 @@
       if (metric === 'progress' && selectedExerciseId) await loadProgress();
     } catch(e) {
       console.error(e);
-      showError('Failed to load stats');
+      showError($_('statistics.load_failed'));
     }
     loading = false;
   }
 
   async function loadBodyWeights() {
     try {
-      // startDate / endDate are already reactive and handle the "All" case
-      // by resolving to earliestWorkoutDate.
-      const rows = await LtApi.getBodyStatsRange(startDate, endDate);
+      // Body stats are independent of workout history: someone can weigh in
+      // during a break, or import years of weigh-ins from another app before
+      // logging their first session here. Bounding "All" by the first workout
+      // date silently hides those, so this range starts from the epoch floor
+      // that startDate already falls back to when there are no workouts.
+      const from = range === 'All' ? '2000-01-01' : startDate;
+      const rows = await LtApi.getBodyStatsRange(from, endDate);
       bodyWeights = (rows || [])
         .map(r => ({ date: r.date, weight: parseFloat(r.stats?.weight) }))
         .filter(p => Number.isFinite(p.weight))
@@ -344,8 +352,8 @@
   // ── Records — group by category ──────────────────────────────────────
   const CATEGORY_ORDER = ['chest','back','shoulders','arms','legs','core','cardio','other'];
   const CATEGORY_LABELS = {
-    chest: 'Chest', back: 'Back', shoulders: 'Shoulders', arms: 'Arms',
-    legs: 'Legs', core: 'Core', cardio: 'Cardio', other: 'Other',
+    chest: 'statistics.categories.chest', back: 'statistics.categories.back', shoulders: 'statistics.categories.shoulders', arms: 'statistics.categories.arms',
+    legs: 'statistics.categories.legs', core: 'statistics.categories.core', cardio: 'statistics.categories.cardio', other: 'statistics.categories.other',
   };
 
   $: groupedRecords = (() => {
@@ -362,7 +370,7 @@
     for (const k in byCat) byCat[k].sort((a, b) => b.maxWeight - a.maxWeight);
     return CATEGORY_ORDER
       .filter(c => byCat[c] && byCat[c].length)
-      .map(c => ({ category: c, label: CATEGORY_LABELS[c], records: byCat[c] }));
+      .map(c => ({ category: c, labelKey: CATEGORY_LABELS[c], records: byCat[c] }));
   })();
 
   $: recentPRs = records
@@ -374,7 +382,7 @@
   // fmtVol + fmtWeekLabel now live in lib/statsFormat.js (shared with the
   // extracted chart components). Leave this note so nobody reintroduces
   // local copies.
-  const DAY_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DAY_LABELS = ['statistics.days.sun','statistics.days.mon','statistics.days.tue','statistics.days.wed','statistics.days.thu','statistics.days.fri','statistics.days.sat'];
 
   // Exercise picker state
   let showExPicker = false;
@@ -456,7 +464,7 @@
     {#each METRICS as m, i}
       <button class="metric-pill" class:active={metric === m.id} on:click={() => switchMetric(m.id)} bind:this={pillRefs[i]}>
         <span class="material-symbols-rounded metric-icon">{m.icon}</span>
-        <span class="metric-label">{m.label}</span>
+        <span class="metric-label">{$_(m.labelKey)}</span>
       </button>
     {/each}
   </div>
@@ -464,12 +472,12 @@
   <!-- Range picker -->
   <div class="range-bar">
     {#each Object.keys(RANGES) as r}
-      <button class="range-chip" class:active={range === r} on:click={() => range = r}>{r}</button>
+      <button class="range-chip" class:active={range === r} on:click={() => range = r}>{$_(RANGE_LABEL_KEYS[r])}</button>
     {/each}
   </div>
 
   {#if loading}
-    <div class="loading">Loading stats...</div>
+    <div class="loading">{$_('statistics.loading_stats')}</div>
   {:else}
     <div class="content">
       <!-- ═════════ OVERVIEW ═════════ -->
@@ -490,15 +498,15 @@
             <div class="goal-ring-body">
               <div class="goal-ring-top">
                 <span class="goal-ring-num">{weekProgress.count}</span>
-                <span class="goal-ring-of">of</span>
+                <span class="goal-ring-of">{$_('statistics.of')}</span>
                 <span class="goal-ring-num">{weekProgress.goal}</span>
-                <span class="goal-ring-of">this week</span>
+                <span class="goal-ring-of">{$_('statistics.this_week')}</span>
               </div>
               <span class="goal-ring-pct">
                 {#if weekProgress.pct >= 100}
-                  🎯 Goal hit
+                  🎯 {$_('statistics.goal_hit')}
                 {:else}
-                  {weekProgress.goal - weekProgress.count} to go
+                  {$_('statistics.to_go', { values: { n: weekProgress.goal - weekProgress.count } })}
                 {/if}
               </span>
             </div>
@@ -522,10 +530,10 @@
           <div class="summary-card">
             <span class="material-symbols-rounded sc-icon">calendar_today</span>
             <span class="sc-value">{totalWorkoutsInRange}</span>
-            <span class="sc-label">This {range}</span>
+            <span class="sc-label">{$_('statistics.this_range', { values: { range } })}</span>
             {#if periodDeltas && periodDeltas.cntPct != null}
               <span class="sc-delta" class:up={periodDeltas.cntPct > 0} class:down={periodDeltas.cntPct < 0}>
-                {periodDeltas.cntPct > 0 ? '+' : ''}{periodDeltas.cntPct}% vs prior
+                {$_('statistics.vs_prior', { values: { pct: (periodDeltas.cntPct > 0 ? '+' : '') + periodDeltas.cntPct } })}
               </span>
             {:else if freqSparkline.length >= 2}
               <div class="sc-spark" title={$_('statistics.wpw_hint')}>
@@ -536,21 +544,21 @@
           <div class="summary-card">
             <span class="material-symbols-rounded sc-icon">speed</span>
             <span class="sc-value">{avgFreq}</span>
-            <span class="sc-label">Avg / Week</span>
+            <span class="sc-label">{$_('statistics.avg_week')}</span>
           </div>
         </div>
 
         {#if rangeCalories != null}
           <div class="cal-strip" title={$_('statistics.cal_hint')}>
             <span class="material-symbols-rounded cal-icon">local_fire_department</span>
-            <span class="cal-val">~{rangeCalories.toLocaleString()} kcal</span>
-            <span class="cal-label">burned this {range}</span>
-            <span class="cal-badge">est</span>
+            <span class="cal-val">{$_('statistics.kcal_amount', { values: { n: rangeCalories.toLocaleString() } })}</span>
+            <span class="cal-label">{$_('statistics.burned_this', { values: { range } })}</span>
+            <span class="cal-badge">{$_('statistics.est')}</span>
           </div>
         {/if}
 
         <div class="chart-card">
-          <h3 class="chart-title">Activity · Last 90 days</h3>
+          <h3 class="chart-title">{$_('statistics.activity_90d')}</h3>
           <div class="heatmap">
             {#each heatmapDays as day}
               <div class="hm-cell"
@@ -564,7 +572,7 @@
               <div class="hm-cell"></div><span>{$_('statistics.hm_rest')}</span>
               <div class="hm-cell hm-active"></div><span>{$_('statistics.hm_workout')}</span>
             </div>
-            <span class="hm-legend-label">{streaks.totalWorkouts} total workouts</span>
+            <span class="hm-legend-label">{$_('statistics.total_workouts', { values: { n: streaks.totalWorkouts } })}</span>
           </div>
         </div>
 
@@ -576,7 +584,7 @@
         {#if totalWorkoutsInRange === 0}
           <div class="empty-state">
             <span class="material-symbols-rounded">fitness_center</span>
-            <p>No workouts logged in this range yet.</p>
+            <p>{$_('statistics.no_workouts_yet')}</p>
           </div>
         {/if}
       {/if}
@@ -585,18 +593,18 @@
       {#if metric === 'progress'}
         <button class="ex-picker-btn" on:click={() => { showExPicker = true; exSearch = ''; }}>
           <span class="material-symbols-rounded">search</span>
-          <span>{selectedExercise?.name || 'Choose an exercise…'}</span>
+          <span>{selectedExercise?.name || $_('statistics.choose_exercise_fallback')}</span>
           <span class="material-symbols-rounded" style="margin-left:auto">chevron_right</span>
         </button>
 
         {#if !selectedExerciseId}
           <div class="empty-state">
             <span class="material-symbols-rounded">trending_up</span>
-            <h4 class="empty-title">Track any lift's progress</h4>
-            <p>Choose an exercise above to see how your top set has changed over time. Useful for checking if you're actually progressing on key lifts like bench press, squat, or deadlift.</p>
+            <h4 class="empty-title">{$_('statistics.track_progress_title')}</h4>
+            <p>{$_('statistics.track_progress_desc')}</p>
           </div>
         {:else if progressLoading}
-          <Spinner block label="Loading chart…" />
+          <Spinner block label={$_('statistics.loading_chart')} />
         {:else if !progressData.length}
           <div class="empty-state">
             <span class="material-symbols-rounded">info</span>
@@ -606,15 +614,15 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.max}</span>
-              <span class="sc-label">Max {$weightUnit}</span>
+              <span class="sc-label">{$_('statistics.max_unit', { values: { unit: $weightUnit } })}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.min}</span>
-              <span class="sc-label">Min {$weightUnit}</span>
+              <span class="sc-label">{$_('statistics.min_unit', { values: { unit: $weightUnit } })}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.avg}</span>
-              <span class="sc-label">Avg {$weightUnit}</span>
+              <span class="sc-label">{$_('statistics.avg_unit', { values: { unit: $weightUnit } })}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.sessions}</span>
@@ -627,8 +635,8 @@
               <h3 class="chart-title">{$_('statistics.top_set')}</h3>
               {#if hasRpe}
                 <div class="chart-legend">
-                  <span class="legend-item"><span class="legend-swatch accent"></span>Top set ({$weightUnit})</span>
-                  <span class="legend-item"><span class="legend-swatch rpe"></span>Avg RPE (5–10)</span>
+                  <span class="legend-item"><span class="legend-swatch accent"></span>{$_('statistics.top_set_legend', { values: { unit: $weightUnit } })}</span>
+                  <span class="legend-item"><span class="legend-swatch rpe"></span>{$_('statistics.avg_rpe_legend')}</span>
                 </div>
               {/if}
             </div>
@@ -659,7 +667,7 @@
             {#each progressData.slice().reverse() as p}
               <div class="history-row">
                 <span class="hr-date">{p.date}</span>
-                <span class="hr-value">{p.maxWeight} {$weightUnit} · {p.sets} sets</span>
+                <span class="hr-value">{p.maxWeight} {$weightUnit} · {$_('statistics.n_sets', { values: { n: p.sets } })}</span>
               </div>
             {/each}
           </div>
@@ -671,14 +679,14 @@
         {#if !records.length}
           <div class="empty-state">
             <span class="material-symbols-rounded">emoji_events</span>
-            <p>No records yet. Complete a workout to set your first PRs.</p>
+            <p>{$_('statistics.no_records_yet')}</p>
           </div>
         {:else}
           {#if recentPRs.length}
             <div class="section">
               <h3 class="section-title">
                 <span class="material-symbols-rounded">trending_up</span>
-                Recent PRs
+                {$_('statistics.recent_prs')}
               </h3>
               <div class="records-list">
                 {#each recentPRs as r}
@@ -707,7 +715,7 @@
 
           {#each groupedRecords as group}
             <div class="section">
-              <h3 class="section-title">{group.label}</h3>
+              <h3 class="section-title">{$_(group.labelKey)}</h3>
               <div class="records-list">
                 {#each group.records as r}
                   {#if /^\d+$/.test(String(r.exerciseId))}
@@ -717,7 +725,7 @@
                         <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
                         <span class="record-meta">
                           {r.date}
-                          {#if r.e1rm > r.maxWeight} · Est. 1RM {r.e1rm}{/if}
+                          {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
                         </span>
                       </div>
                       <span class="material-symbols-rounded record-chev">chevron_right</span>
@@ -729,7 +737,7 @@
                         <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
                         <span class="record-meta">
                           {r.date}
-                          {#if r.e1rm > r.maxWeight} · Est. 1RM {r.e1rm}{/if}
+                          {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
                         </span>
                       </div>
                     </div>
@@ -746,7 +754,7 @@
         <div class="summary-row">
           <div class="summary-card">
             <span class="sc-value-sm">{fmtVol(totalVolume)}</span>
-            <span class="sc-label">Total {$weightUnit}</span>
+            <span class="sc-label">{$_('statistics.total_unit', { values: { unit: $weightUnit } })}</span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{fmtVol(maxVolWeek)}</span>
@@ -754,7 +762,7 @@
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{volume.length ? fmtVol(totalVolume / volume.length) : 0}</span>
-            <span class="sc-label">Avg / Week</span>
+            <span class="sc-label">{$_('statistics.avg_week')}</span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{volume.length}</span>
@@ -770,7 +778,7 @@
           <div class="chart-card">
             <h3 class="chart-title">{$_('statistics.muscle_balance')}</h3>
             <p class="chart-sub" style="margin-top:-4px;margin-bottom:12px">
-              Shaded by effective sets, relative to the hardest-worked muscle in this range.
+              {$_('statistics.muscle_balance_desc')}
             </p>
             <BodyMap load={muscleLoad} />
 
@@ -799,7 +807,9 @@
             {/if}
 
             <p class="chart-sub" style="margin-top:14px">
-              {totalSets.toFixed(1)} effective sets across {rank.worked.length} muscle{rank.worked.length === 1 ? '' : 's'}.
+              {rank.worked.length === 1
+                ? $_('statistics.effective_sets_one', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })
+                : $_('statistics.effective_sets_other', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })}
             </p>
           </div>
         {/if}
@@ -807,7 +817,7 @@
         {#if volume.length === 0}
           <div class="empty-state">
             <span class="material-symbols-rounded">fitness_center</span>
-            <p>No volume logged in this range.</p>
+            <p>{$_('statistics.no_volume_range')}</p>
           </div>
         {/if}
       {/if}
@@ -821,7 +831,7 @@
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{avgFreq}</span>
-            <span class="sc-label">Avg / Week</span>
+            <span class="sc-label">{$_('statistics.avg_week')}</span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{maxFreqWeek}</span>
@@ -842,12 +852,12 @@
               {#each weekdayDist as w}
                 <div class="bar-col">
                   <div class="bar" style="height: {maxWeekdayCount ? (w.count / maxWeekdayCount * 100) : 0}%"></div>
-                  <span class="bar-label">{DAY_LABELS[w.day]}</span>
+                  <span class="bar-label">{$_(DAY_LABELS[w.day])}</span>
                 </div>
               {/each}
             </div>
             <p class="chart-sub">
-              Most active: {weekdayDist.length ? DAY_LABELS[weekdayDist.indexOf(weekdayDist.reduce((a, b) => a.count > b.count ? a : b))] : '—'}
+              {$_('statistics.most_active', { values: { day: weekdayDist.length ? $_(DAY_LABELS[weekdayDist.indexOf(weekdayDist.reduce((a, b) => a.count > b.count ? a : b))]) : '—' } })}
             </p>
           </div>
         {/if}
@@ -855,7 +865,7 @@
         {#if totalWorkoutsInRange === 0}
           <div class="empty-state">
             <span class="material-symbols-rounded">calendar_month</span>
-            <p>No workouts in this range.</p>
+            <p>{$_('statistics.no_workouts_in_range')}</p>
           </div>
         {/if}
       {/if}
@@ -865,21 +875,21 @@
         {#if bodyWeights.length === 0}
           <div class="empty-state">
             <span class="material-symbols-rounded">monitor_weight</span>
-            <p>No body weight logged yet. Tap the scale icon in the diary to log your weight.</p>
+            <p>{$_('statistics.no_body_weight')}</p>
           </div>
         {:else}
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.current}</span>
-              <span class="sc-label">Current {$weightUnit}</span>
+              <span class="sc-label">{$_('statistics.current_unit', { values: { unit: $weightUnit } })}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.min}</span>
-              <span class="sc-label">Min</span>
+              <span class="sc-label">{$_('statistics.bw_min')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.max}</span>
-              <span class="sc-label">Max</span>
+              <span class="sc-label">{$_('statistics.bw_max')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm" class:gain={bwStats.change > 0} class:loss={bwStats.change < 0}>
@@ -925,62 +935,62 @@
         {#if cardioWeekly.length === 0}
           <div class="empty-state">
             <span class="material-symbols-rounded">directions_run</span>
-            <p>No cardio logged in this range. Add sessions from the Diary.</p>
+            <p>{$_('statistics.no_cardio_range')}</p>
           </div>
         {:else}
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{cwTotal}</span>
-              <span class="sc-label">Total min</span>
+              <span class="sc-label">{$_('statistics.total_min')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{cwAvg}</span>
-              <span class="sc-label">Avg / week</span>
+              <span class="sc-label">{$_('statistics.avg_week')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{cwMax}</span>
-              <span class="sc-label">Peak week</span>
+              <span class="sc-label">{$_('statistics.peak_week')}</span>
             </div>
             {#if $weeklyCardioMinutesGoal > 0}
               <div class="summary-card">
                 <span class="sc-value-sm">{cwHit}<span class="sc-sub">/{cardioWeekly.length}</span></span>
-                <span class="sc-label">On target</span>
+                <span class="sc-label">{$_('statistics.on_target')}</span>
               </div>
             {/if}
           </div>
 
           <div class="chart-card">
-            <h3 class="chart-title">Weekly Minutes</h3>
+            <h3 class="chart-title">{$_('statistics.weekly_minutes')}</h3>
             <div class="cw-bars" style="--target-frac: {$weeklyCardioMinutesGoal > 0 && cwMax > 0 ? Math.min(1, $weeklyCardioMinutesGoal / Math.max(cwMax, $weeklyCardioMinutesGoal)) : 0}">
               {#each cardioWeekly as w}
                 {@const denom = Math.max(cwMax, $weeklyCardioMinutesGoal || 0)}
                 {@const pct = denom > 0 ? Math.round((w.minutes / denom) * 100) : 0}
                 {@const hitGoal = $weeklyCardioMinutesGoal > 0 && w.minutes >= $weeklyCardioMinutesGoal}
-                <div class="cw-col" title="{w.week}: {w.minutes} min">
+                <div class="cw-col" title={$_('statistics.week_minutes', { values: { week: w.week, n: w.minutes } })}>
                   <div class="cw-fill" class:hit={hitGoal} style="height:{pct}%"></div>
                   <span class="cw-label">{w.week.slice(5)}</span>
                 </div>
               {/each}
             </div>
             {#if $weeklyCardioMinutesGoal > 0}
-              <p class="chart-sub" style="text-align:center">Target: {$weeklyCardioMinutesGoal} min / week</p>
+              <p class="chart-sub" style="text-align:center">{$_('statistics.target_min_week', { values: { n: $weeklyCardioMinutesGoal } })}</p>
             {:else}
-              <p class="chart-sub" style="text-align:center">Set a weekly target in Settings → Workout to compare against.</p>
+              <p class="chart-sub" style="text-align:center">{$_('statistics.no_target_hint')}</p>
             {/if}
           </div>
 
           {#if cardioSessions.length > 0}
             <div class="chart-card">
-              <h3 class="chart-title">Sessions</h3>
+              <h3 class="chart-title">{$_('statistics.sessions')}</h3>
               <ul class="cs-list">
                 {#each cardioSessions.slice(0, 100) as s (s.id)}
                   <li class="cs-row">
                     <div class="cs-main">
                       <span class="cs-activity">{s.activity}</span>
                       <span class="cs-meta">
-                        {s.duration_min} min
+                        {$_('statistics.n_min', { values: { n: s.duration_min } })}
                         {#if s.distance != null}· {s.distance} {s.distance_unit || 'km'}{/if}
-                        {#if s.avg_hr != null}· {s.avg_hr} bpm{/if}
+                        {#if s.avg_hr != null}· {$_('statistics.n_bpm', { values: { n: s.avg_hr } })}{/if}
                       </span>
                     </div>
                     <span class="cs-date">{s.date}</span>
@@ -988,7 +998,7 @@
                 {/each}
               </ul>
               {#if cardioSessions.length > 100}
-                <p class="chart-sub" style="text-align:center">Showing the 100 most recent sessions in this range.</p>
+                <p class="chart-sub" style="text-align:center">{$_('statistics.showing_100_sessions')}</p>
               {/if}
             </div>
           {/if}
@@ -1019,7 +1029,7 @@
       </button>
     {/each}
     {#if filteredExs.length === 0}
-      <p class="ex-picker-empty">{exSearch ? 'No exercises match that search.' : 'No exercises in your library yet.'}</p>
+      <p class="ex-picker-empty">{exSearch ? $_('statistics.no_exercises_match') : $_('statistics.no_exercises_library')}</p>
     {/if}
   </div>
 </Sheet>

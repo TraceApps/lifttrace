@@ -58,7 +58,12 @@ export async function fetchFreeDbRows({ fetchFn = fetch } = {}) {
       img_url: imgs[0] || null,
       gif_url: imgs[1] || null,
       video_url: null,
-      external_id: null,
+      // Upstream ships a stable id per exercise ('3_4_Sit-Up',
+      // 'Ab_Crunch_Machine', etc.) — all 873 are unique. Without it
+      // re-imports would insert every row a second time, because
+      // INSERT OR IGNORE only ignores on a UNIQUE-constraint hit and
+      // there's nothing UNIQUE about (source, name) alone. #34.
+      external_id: ex.id || null,
     });
   }
   return rows;

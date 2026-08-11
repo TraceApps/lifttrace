@@ -32,9 +32,9 @@
 
   async function removeExercise() {
     if (!await confirmDialog({
-      title: `Delete "${exercise.name}"?`,
-      message: 'This removes the exercise from your library. Any workouts that logged it keep their history — only the link breaks.',
-      confirmText: 'Delete', dangerous: true,
+      title: $_('exercise_detail.confirm.delete_title', { values: { name: exercise.name } }),
+      message: $_('exercise_detail.confirm.delete_msg'),
+      confirmText: $_('common.delete'), dangerous: true,
     })) return;
     try {
       await LtApi.deleteExercise(exercise.id);

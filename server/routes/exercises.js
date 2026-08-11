@@ -95,6 +95,24 @@ router.get('/usage', wrap((req, res) => {
   res.json(out);
 }));
 
+// GET /api/exercises/media-urls — flat list of every gif/img/video URL in the
+// library, used by the PWA to pre-cache media for offline use. Stays above
+// /:id: Express matches in registration order, so from below it this path is
+// read as an exercise id and answered with a 404.
+router.get('/media-urls', wrap((req, res) => {
+  const rows = db.prepare(
+    `SELECT gif_url, img_url, video_url FROM exercises
+     WHERE gif_url IS NOT NULL OR img_url IS NOT NULL OR video_url IS NOT NULL`
+  ).all();
+  const set = new Set();
+  for (const r of rows) {
+    if (r.gif_url)   set.add(r.gif_url);
+    if (r.img_url)   set.add(r.img_url);
+    if (r.video_url) set.add(r.video_url);
+  }
+  res.json({ urls: [...set] });
+}));
+
 // GET /api/exercises/:id
 router.get('/:id', wrap((req, res) => {
   const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(parseInt(req.params.id));
@@ -250,22 +268,6 @@ router.post('/sources/clear', wrap(async (req, res) => {
   if (!source) return res.status(400).json({ error: 'source required' });
   const removed = clearSource(source);
   res.json({ ok: true, removed });
-}));
-
-// GET /api/exercises/media-urls — flat list of every gif/img/video URL in the
-// library, used by the PWA to pre-cache media for offline use.
-router.get('/media-urls', wrap((req, res) => {
-  const rows = db.prepare(
-    `SELECT gif_url, img_url, video_url FROM exercises
-     WHERE gif_url IS NOT NULL OR img_url IS NOT NULL OR video_url IS NOT NULL`
-  ).all();
-  const set = new Set();
-  for (const r of rows) {
-    if (r.gif_url)   set.add(r.gif_url);
-    if (r.img_url)   set.add(r.img_url);
-    if (r.video_url) set.add(r.video_url);
-  }
-  res.json({ urls: [...set] });
 }));
 
 // Legacy endpoint kept for back-compat with the existing Settings sync button

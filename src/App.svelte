@@ -103,8 +103,25 @@
   function _startPullSync(event) {
     if (!_syncModeActive || _pullRefreshing || sidebarOpen || showNativeSetup) return;
     if (event.target?.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav')) return;
-    const scrollY = window.scrollY || document.scrollingElement?.scrollTop || 0;
-    if (scrollY > 0) return;
+    // Walk up from the touch target to the nearest scrolling ancestor.
+    // Catches nested overflow containers (should the layout add one later)
+    // AND the document itself (LT's current default: no nested scrollers,
+    // document scrolls).
+    let el = event.target;
+    let foundScroller = false;
+    while (el && el !== document.body) {
+      const s = getComputedStyle(el);
+      if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+        if (el.scrollTop > 0) return;
+        foundScroller = true;
+        break;
+      }
+      el = el.parentElement;
+    }
+    if (!foundScroller) {
+      const rootScroll = window.scrollY || document.scrollingElement?.scrollTop || 0;
+      if (rootScroll > 0) return;
+    }
     _pullStartX = event.touches[0].clientX;
     _pullStartY = event.touches[0].clientY;
     _pullTracking = true;
