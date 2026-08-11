@@ -49,11 +49,18 @@ export async function seedFromExerciseDb({ apiKey } = {}) {
     clearTimeout(timer);
   }
 
-  // Pre-check so a re-import reads as a no-op (matches exercisedb-oss).
-  const existingExtIds = new Set(
-    db.prepare(`SELECT external_id FROM exercises WHERE source = 'exercisedb' AND external_id IS NOT NULL`)
-      .all()
-      .map(r => String(r.external_id))
+  // Pre-check + resurrect: a re-import reads as a no-op for live rows
+  // and resurrects soft-deleted rows in place to keep exercise_id
+  // references in workout_log JSON blobs valid (#49).
+  const liveExtIds = new Set(
+    db.prepare(`SELECT external_id FROM exercises
+                WHERE source = 'exercisedb' AND external_id IS NOT NULL AND deleted_at IS NULL`)
+      .all().map(r => String(r.external_id))
+  );
+  const resurrectByExtId = db.prepare(
+    `UPDATE exercises
+       SET deleted_at = NULL, updated_at = datetime('now')
+     WHERE source = 'exercisedb' AND external_id = ? AND deleted_at IS NOT NULL`
   );
   const insert = db.prepare(
     `INSERT OR IGNORE INTO exercises
@@ -61,10 +68,14 @@ export async function seedFromExerciseDb({ apiKey } = {}) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'exercisedb', 1)`
   );
 
-  let count = 0, skipped = 0;
+  let count = 0, skipped = 0, resurrected = 0;
   for (const ex of data) {
     if (!ex.name) continue;
-    if (ex.id && existingExtIds.has(String(ex.id))) { skipped++; continue; }
+    if (ex.id && liveExtIds.has(String(ex.id))) { skipped++; continue; }
+    if (ex.id) {
+      const rs = resurrectByExtId.run(String(ex.id));
+      if (rs.changes > 0) { resurrected++; continue; }
+    }
     const name = titleCase(ex.name);
     const category = mapCategory(ex.bodyPart);
     const primary = ex.target ? [titleCase(ex.target)] : [];
@@ -85,6 +96,6 @@ export async function seedFromExerciseDb({ apiKey } = {}) {
     );
     if (res.changes > 0) count++;
   }
-  logger.info(`[exercisedb] processed ${data.length}, inserted ${count}, skipped ${skipped} already-present`);
-  return count;
+  logger.info(`[exercisedb] processed ${data.length}, inserted ${count}, resurrected ${resurrected}, skipped ${skipped} already-present`);
+  return count + resurrected;
 }

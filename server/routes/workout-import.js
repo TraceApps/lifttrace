@@ -155,7 +155,9 @@ function _getUserWeightUnit(userId) {
 
 function _loadLibraryForUser(userId) {
   return db.prepare(
-    `SELECT id, name FROM exercises WHERE is_global = 1 OR created_by = ?`
+    // Live rows only — matching an imported workout against a soft-deleted
+    // exercise would immediately orphan the reference again (#49).
+    `SELECT id, name FROM exercises WHERE deleted_at IS NULL AND (is_global = 1 OR created_by = ?)`
   ).all(userId);
 }
 

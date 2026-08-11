@@ -48,7 +48,9 @@ export function getSource(id) {
 /** Status: per-source counts in the database */
 export function listSourceStatus() {
   const counts = db.prepare(
-    `SELECT source, COUNT(*) as c FROM exercises GROUP BY source`
+    // Live rows only — cleared catalogs are soft-deleted (#49) but shouldn't
+    // count against the "already have exercises from this source" tally.
+    `SELECT source, COUNT(*) as c FROM exercises WHERE deleted_at IS NULL GROUP BY source`
   ).all();
   const map = Object.fromEntries(counts.map(r => [r.source, r.c]));
   return SOURCES.map(s => ({
@@ -71,10 +73,20 @@ export async function importSource(id, opts = {}) {
   return count;
 }
 
-/** Delete every globally-seeded exercise tagged with this source. */
+/** Soft-delete every globally-seeded exercise tagged with this source.
+ *  Hard-delete would orphan `exercise_id` references sitting in
+ *  workout_log / workout_templates / coach_prescriptions JSON blobs;
+ *  Muscle Balance then buckets every affected set as `other` and per-
+ *  exercise progress returns empty (issue #49). Soft-delete keeps the
+ *  row (and its `id`) intact; the pre-checks in the seeders resurrect
+ *  it on the next matching import instead of inserting a new row.
+ *  Reads on the exercises table filter by `deleted_at IS NULL` so
+ *  soft-deleted rows stay out of pickers, stats lookups, and exports. */
 export function clearSource(id) {
   const result = db.prepare(
-    `DELETE FROM exercises WHERE source = ? AND is_global = 1`
+    `UPDATE exercises
+       SET deleted_at = datetime('now'), updated_at = datetime('now')
+     WHERE source = ? AND is_global = 1 AND deleted_at IS NULL`
   ).run(id);
   return result.changes;
 }
@@ -86,7 +98,9 @@ export function clearSource(id) {
  *  license terms surfaced). Self-hosters can still force auto-seed via
  *  EXERCISE_SOURCES='wger,free-db' in their compose file. */
 export async function autoSeed() {
-  const total = db.prepare('SELECT COUNT(*) as c FROM exercises').get().c;
+  // Live rows only — a fresh install that has soft-deleted rows from a
+  // previous clear should still see a bootstrap seed happen (#49).
+  const total = db.prepare('SELECT COUNT(*) as c FROM exercises WHERE deleted_at IS NULL').get().c;
   if (total >= 10) return;
 
   const raw = process.env.EXERCISE_SOURCES || '';

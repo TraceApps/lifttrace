@@ -654,14 +654,14 @@
     "imported_catalogs":     "Imported Catalogs",
     "confirm": {
       "clear_imported_title": "Clear imported exercises?",
-      "clear_imported_msg":   "This removes all {count} exercises imported from {name}. The source stays listed so you can re-import at any time.",
+      "clear_imported_msg":   "This hides all {count} exercises imported from {name} from your library. Workout history keeps its links — re-importing the same source later restores them in place.",
       "clear_confirm":        "Clear",
       "delete_named_title":   "Delete \"{name}\"?",
       "delete_exercise_msg":  "Workout history keeps its record — only the library link breaks.",
       "delete_all_title":     "Delete all {count} custom exercises?",
       "delete_all_msg":       "This cannot be undone. Workout history keeps its records — only library links break.",
       "delete_all_confirm":   "Delete all",
-      "delete_catalog_msg":   "All {count} exercises from this catalog will be removed."
+      "delete_catalog_msg":   "All {count} exercises from this catalog will be hidden from your library. Workout history keeps its links — re-importing the same catalog later restores them in place."
     }
   },
   "settings_radio": {

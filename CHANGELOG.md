@@ -12,6 +12,14 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Clearing an exercise catalog and re-importing it no longer silently unlinks your workout history** (#49). Both clear paths (built-in sources + imported catalogs) previously did a hard `DELETE`, so the re-import minted new autoincrement ids while every `exercise_id` stored in `workout_log` / `workout_templates` / `coach_prescriptions` JSON blobs still pointed at the deleted rows. The knock-on effects were largely invisible: Muscle Balance grouped every affected set under `other` because the id-to-muscle lookup fell through to a default bucket (the reporter measured 4830 sets, 100% `other`, on his own instance); per-exercise Progress returned empty for cleared exercises; the Records rows landed on "Exercise not found" when tapped. Clearing a catalog now soft-deletes via the existing `deleted_at` column instead, and the seeders resurrect the matching `(source, external_id)` row in place on the next re-import rather than inserting a fresh row — preserving the id so every historical reference stays valid, with no blob rewriting needed. Reads that enumerate the library for pickers, catalogs, media pre-cache, or workout-import matching now filter `deleted_at IS NULL`; reads that resolve a specific id for stats (Muscle Balance, volume, per-exercise progress, load-type) intentionally keep including soft-deleted rows so historical breakdowns stay honest. Sync differential pulls and full-backup export are unaffected (both must carry soft-deleted rows). Ported the same treatment to standalone Android for schema parity. Users who cleared and re-imported before this landed will keep the orphaned references — no automatic recovery is attempted since matching by name alone is ambiguous (roughly 20% of names collide across the built-in sources and can resolve to different muscle groups). Diagnosed by @backmind.
+
+---
+
 ## v1.1.2 — 2026-08-11
 
 ### Added

@@ -10,7 +10,11 @@ router.use(requireAuth);
 // GET /api/exercises — list with optional filters
 router.get('/', wrap((req, res) => {
   const { category, equipment, search, limit, offset } = req.query;
-  let sql = 'SELECT * FROM exercises WHERE 1=1';
+  // Library listing — hide soft-deleted rows from pickers + browsing. Rows
+  // that were cleared via Settings → Catalog stay in the table so past
+  // workout_log references keep resolving (#49), but they don't belong in
+  // the library UI.
+  let sql = 'SELECT * FROM exercises WHERE deleted_at IS NULL';
   const params = [];
 
   if (category) { sql += ' AND category = ?'; params.push(category); }
@@ -101,8 +105,11 @@ router.get('/usage', wrap((req, res) => {
 // read as an exercise id and answered with a 404.
 router.get('/media-urls', wrap((req, res) => {
   const rows = db.prepare(
+    // Live rows only — no point pre-caching media for exercises the user
+    // has cleared from their library (#49).
     `SELECT gif_url, img_url, video_url FROM exercises
-     WHERE gif_url IS NOT NULL OR img_url IS NOT NULL OR video_url IS NOT NULL`
+     WHERE deleted_at IS NULL
+       AND (gif_url IS NOT NULL OR img_url IS NOT NULL OR video_url IS NOT NULL)`
   ).all();
   const set = new Set();
   for (const r of rows) {
@@ -114,6 +121,10 @@ router.get('/media-urls', wrap((req, res) => {
 }));
 
 // GET /api/exercises/:id
+// Intentionally does NOT filter deleted_at — a tap on a Records row for an
+// exercise the user has cleared from their library should still resolve to
+// that exercise's detail page rather than a bare 404 (#49). Callers that
+// want to hide soft-deleted rows filter at their own layer.
 router.get('/:id', wrap((req, res) => {
   const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(parseInt(req.params.id));
   if (!row) return res.status(404).json({ error: 'Exercise not found' });
@@ -159,7 +170,10 @@ router.post('/', wrap((req, res) => {
 // PUT /api/exercises/:id
 router.put('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  const existing = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
+  // Filter on deleted_at so a soft-deleted (cleared) exercise cannot be
+  // edited — the picker doesn't surface it, so this path shouldn't be
+  // reachable in normal use, but block it defensively (#49).
+  const existing = db.prepare('SELECT * FROM exercises WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!existing) return res.status(404).json({ error: 'Exercise not found' });
   const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type } = req.body;
   // load_type: an explicit null clears the library-level default (back

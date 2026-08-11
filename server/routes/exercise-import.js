@@ -86,8 +86,10 @@ router.post('/import-json', wrap((req, res) => {
 // ── List imported catalogs ───────────────────────────────────────────────────
 router.get('/catalogs', wrap((req, res) => {
   const rows = db.prepare(
+    // Live rows only — cleared catalogs are soft-deleted (#49) and shouldn't
+    // show up on the catalogs page with a stale row count.
     `SELECT source, COUNT(*) as count FROM exercises
-     WHERE source LIKE 'import:%' GROUP BY source`
+     WHERE source LIKE 'import:%' AND deleted_at IS NULL GROUP BY source`
   ).all();
   const catalogs = rows.map(r => {
     const name = r.source.replace('import:', '');
@@ -112,11 +114,19 @@ router.post('/catalogs/toggle', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-// ── Delete an imported catalog ───────────────────────────────────────────────
+// ── Soft-delete an imported catalog ─────────────────────────────────────────
+// Hard-delete would orphan exercise_id references in workout_log JSON
+// blobs (issue #49); soft-delete keeps the id so a later re-import
+// resurrects it in place instead of minting a new one. Reads filter on
+// deleted_at IS NULL so cleared rows disappear from pickers + stats.
 router.post('/catalogs/delete', wrap((req, res) => {
   const { name } = req.body;
   const source = `import:${name}`;
-  const result = db.prepare('DELETE FROM exercises WHERE source = ?').run(source);
+  const result = db.prepare(
+    `UPDATE exercises
+       SET deleted_at = datetime('now'), updated_at = datetime('now')
+     WHERE source = ? AND deleted_at IS NULL`
+  ).run(source);
   // Clean up disabled flag
   db.prepare('DELETE FROM user_settings WHERE key = ?').run(`catalog_disabled_${name}`);
   res.json({ ok: true, removed: result.changes });
