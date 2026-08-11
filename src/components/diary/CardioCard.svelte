@@ -30,6 +30,9 @@
   let f_distance = '';
   let f_hr = '';
   let f_notes = '';
+  // Needed to tell an empty numeric field from one holding unparseable text:
+  // both bind to null, only validity.badInput distinguishes them.
+  let distanceEl, hrEl;
   let saving = false;
 
   $: distanceUnit = $weightUnit === 'lbs' ? 'mi' : 'km';
@@ -111,15 +114,24 @@
     const duration = parseInt(f_duration, 10);
     if (!activity) { showError('Activity required'); return; }
     if (!Number.isFinite(duration) || duration <= 0) { showError('Duration must be a positive number of minutes'); return; }
+    // A number input the browser cannot parse reports its value as empty, so
+    // without this an entry like "11ax" would be dropped silently instead of
+    // telling the user. badInput is the only thing that separates "left blank"
+    // from "typed something that isn't a number".
+    if (distanceEl?.validity?.badInput) { showError('Distance must be a number'); return; }
+    if (hrEl?.validity?.badInput) { showError('Heart rate must be a number'); return; }
     saving = true;
     try {
       const payload = {
         date: $currentDate,
         activity,
         duration_min: duration,
-        distance: f_distance.trim() ? Number(f_distance) : null,
+        // Distance and heart rate bind to <input type="number">, so Svelte
+        // replaces the initial '' with a number once the field is touched and
+        // with null once it is cleared. Testing emptiness, not stringness.
+        distance: f_distance == null || f_distance === '' ? null : Number(f_distance),
         distance_unit: distanceUnit,
-        avg_hr: f_hr.trim() ? parseInt(f_hr, 10) : null,
+        avg_hr: f_hr == null || f_hr === '' ? null : parseInt(f_hr, 10),
         notes: f_notes.trim() || null,
       };
       if (editingId != null) {
@@ -194,8 +206,8 @@
         <input class="input input-narrow" type="number" min="1" placeholder="min" bind:value={f_duration} />
       </div>
       <div class="row">
-        <input class="input" type="number" step="0.1" placeholder="Distance ({distanceUnit}, optional)" bind:value={f_distance} />
-        <input class="input input-narrow" type="number" min="30" max="230" placeholder="bpm" bind:value={f_hr} />
+        <input class="input" type="number" step="0.1" placeholder="Distance ({distanceUnit}, optional)" bind:this={distanceEl} bind:value={f_distance} />
+        <input class="input input-narrow" type="number" min="30" max="230" placeholder="bpm" bind:this={hrEl} bind:value={f_hr} />
       </div>
       <input class="input" placeholder="Notes (optional)" bind:value={f_notes} />
       <div class="row row-actions">
