@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 
 const dbPath = process.env.DB_PATH || './lifttrace.db';
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -146,6 +147,32 @@ db.exec(`
     UNIQUE(user_id, date)
   );
   CREATE INDEX IF NOT EXISTS idx_workout_log_date ON workout_log(date);
+
+  -- Per-entry deletion tombstones for the nested collections that used
+  -- to lose data on wholesale replace. Kinds:
+  --   'exercise'          - a workout_log exercise
+  --   'set'               - a set within an exercise on a workout day
+  --                         (ex_uuid = parent exercise uuid)
+  --   'template_exercise' - an exercise within a workout_template
+  --                         (date = "template:<template_id>")
+  --   'template_set'      - a set within a template exercise
+  --                         (ex_uuid = parent exercise uuid)
+  -- ex_uuid uses '' (not NULL) for kinds without a parent so the
+  -- composite PK dedupes cleanly (SQLite treats NULL as distinct in
+  -- UNIQUE constraints).
+  CREATE TABLE IF NOT EXISTS workout_tombstones (
+    user_id     INTEGER,
+    date        TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    ex_uuid     TEXT NOT NULL DEFAULT '',
+    uuid        TEXT NOT NULL,
+    deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, date, kind, ex_uuid, uuid)
+  );
+  CREATE INDEX IF NOT EXISTS idx_workout_tombstones_user_date
+    ON workout_tombstones(user_id, date);
+  CREATE INDEX IF NOT EXISTS idx_workout_tombstones_deleted
+    ON workout_tombstones(deleted_at);
 `);
 
 // ── Body Stats ───────────────────────────────────────────────────────────
@@ -682,6 +709,68 @@ try {
   `);
 } catch (e) {
   console.warn('[db] exercise dedupe + unique index skipped:', e?.message || e);
+}
+
+// ── Per-entry uuid backfill (Option C — merge safety) ────────────────────
+// Every workout_log exercise and every set within it gets a stable uuid;
+// same for workout_templates exercises + sets. New writes will carry
+// client-generated uuids; this one-shot pass fills in uuids on records
+// logged before uuids existed, so the merge helper has something to
+// match against.
+//
+// CRITICAL (same as NT's diary_uuid_backfill_v1): rewrite in place
+// WITHOUT bumping updated_at / created_at, so differential /sync/pull
+// doesn't see every row as changed and clobber unpushed local edits.
+try {
+  const done = db.prepare(`SELECT value FROM app_config WHERE key = 'workout_uuid_backfill_v1'`).get();
+  if (!done) {
+    let addedExercises = 0, addedSets = 0, changedWorkouts = 0, changedTemplates = 0;
+    db.transaction(() => {
+      // workout_log.exercises
+      const wRows = db.prepare(`SELECT id, exercises FROM workout_log`).all();
+      const wUpd = db.prepare(`UPDATE workout_log SET exercises = ? WHERE id = ?`);
+      for (const row of wRows) {
+        let exs;
+        try { exs = JSON.parse(row.exercises || '[]'); } catch { continue; }
+        if (!Array.isArray(exs)) continue;
+        let changed = false;
+        for (const ex of exs) {
+          if (ex && typeof ex === 'object' && !ex.uuid) { ex.uuid = randomUUID(); addedExercises++; changed = true; }
+          if (ex && Array.isArray(ex.sets)) {
+            for (const s of ex.sets) {
+              if (s && typeof s === 'object' && !s.uuid) { s.uuid = randomUUID(); addedSets++; changed = true; }
+            }
+          }
+        }
+        if (changed) { wUpd.run(JSON.stringify(exs), row.id); changedWorkouts++; }
+      }
+      // workout_templates.exercises
+      const tRows = db.prepare(`SELECT id, exercises FROM workout_templates`).all();
+      const tUpd = db.prepare(`UPDATE workout_templates SET exercises = ? WHERE id = ?`);
+      for (const row of tRows) {
+        let exs;
+        try { exs = JSON.parse(row.exercises || '[]'); } catch { continue; }
+        if (!Array.isArray(exs)) continue;
+        let changed = false;
+        for (const ex of exs) {
+          if (ex && typeof ex === 'object' && !ex.uuid) { ex.uuid = randomUUID(); addedExercises++; changed = true; }
+          if (ex && Array.isArray(ex.sets)) {
+            for (const s of ex.sets) {
+              if (s && typeof s === 'object' && !s.uuid) { s.uuid = randomUUID(); addedSets++; changed = true; }
+            }
+          }
+        }
+        if (changed) { tUpd.run(JSON.stringify(exs), row.id); changedTemplates++; }
+      }
+      db.prepare(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('workout_uuid_backfill_v1', ?)`)
+        .run(new Date().toISOString());
+    })();
+    if (changedWorkouts || changedTemplates) {
+      console.log(`[db] workout uuid backfill: workouts=${changedWorkouts}, templates=${changedTemplates}, exercises+=${addedExercises}, sets+=${addedSets}`);
+    }
+  }
+} catch (e) {
+  console.warn('[db] workout uuid backfill failed:', e?.message || e);
 }
 
 export default db;
