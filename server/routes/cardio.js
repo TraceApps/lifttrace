@@ -26,16 +26,6 @@ router.get('/', wrap((req, res) => {
   res.json(rows);
 }));
 
-// GET /api/cardio/:date — sessions logged on a single date.
-router.get('/:date', wrap((req, res) => {
-  const { date } = req.params;
-  const userId = uid(req);
-  const rows = userId != null
-    ? db.prepare('SELECT * FROM cardio_log WHERE date = ? AND user_id = ? ORDER BY id ASC').all(date, userId)
-    : db.prepare('SELECT * FROM cardio_log WHERE date = ? AND user_id IS NULL ORDER BY id ASC').all(date);
-  res.json(rows);
-}));
-
 // GET /api/cardio/templates — pinned templates (is_template=1), unique by
 // activity name (most-recently-updated wins on collisions). Ordered by
 // most-recently-updated so frequently-tweaked entries stay near the top.
@@ -47,6 +37,24 @@ router.get('/templates', wrap((req, res) => {
   const rows = userId != null
     ? db.prepare('SELECT * FROM cardio_log WHERE user_id = ? AND is_template = 1 ORDER BY updated_at DESC, id DESC').all(userId)
     : db.prepare('SELECT * FROM cardio_log WHERE user_id IS NULL AND is_template = 1 ORDER BY updated_at DESC, id DESC').all();
+  // Rows arrive newest-first, so the first row for a given activity is the
+  // most-recently-updated one: keeping it and dropping the rest is the
+  // collision rule above.
+  const seen = new Set();
+  res.json(rows.filter(row => {
+    if (seen.has(row.activity)) return false;
+    seen.add(row.activity);
+    return true;
+  }));
+}));
+
+// GET /api/cardio/:date — sessions logged on a single date.
+router.get('/:date', wrap((req, res) => {
+  const { date } = req.params;
+  const userId = uid(req);
+  const rows = userId != null
+    ? db.prepare('SELECT * FROM cardio_log WHERE date = ? AND user_id = ? ORDER BY id ASC').all(date, userId)
+    : db.prepare('SELECT * FROM cardio_log WHERE date = ? AND user_id IS NULL ORDER BY id ASC').all(date);
   res.json(rows);
 }));
 
