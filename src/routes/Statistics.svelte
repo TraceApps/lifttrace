@@ -614,15 +614,15 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.max}</span>
-              <span class="sc-label">{$_('statistics.max_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.max')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.min}</span>
-              <span class="sc-label">{$_('statistics.min_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.min')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.avg}</span>
-              <span class="sc-label">{$_('statistics.avg_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.avg')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.sessions}</span>
@@ -754,7 +754,7 @@
         <div class="summary-row">
           <div class="summary-card">
             <span class="sc-value-sm">{fmtVol(totalVolume)}</span>
-            <span class="sc-label">{$_('statistics.total_unit', { values: { unit: $weightUnit } })}</span>
+            <span class="sc-label">{$_('statistics.total')} <span class="unit">{$weightUnit}</span></span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{fmtVol(maxVolWeek)}</span>
@@ -881,15 +881,15 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.current}</span>
-              <span class="sc-label">{$_('statistics.current_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.current')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.min}</span>
-              <span class="sc-label">{$_('statistics.bw_min')}</span>
+              <span class="sc-label">{$_('statistics.min')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.max}</span>
-              <span class="sc-label">{$_('statistics.bw_max')}</span>
+              <span class="sc-label">{$_('statistics.max')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm" class:gain={bwStats.change > 0} class:loss={bwStats.change < 0}>
@@ -941,7 +941,7 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{cwTotal}</span>
-              <span class="sc-label">{$_('statistics.total_min')}</span>
+              <span class="sc-label">{$_('statistics.total')} <span class="unit">min</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{cwAvg}</span>
