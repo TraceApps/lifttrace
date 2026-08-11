@@ -88,7 +88,13 @@
       "failed":            "Recovery failed",
       "success":           "User management disabled — you are now in single-user mode",
       "done":              "User management has been disabled.<br>Redirecting…"
-    }
+    },
+    "linked":                "Linked",
+    "no_saved":              "No saved sign-in. Please use your password once first.",
+    "saved_expired":         "Your saved sign-in expired. Use your password to sign in.",
+    "biometric_failed":      "Biometric sign-in failed. Use your password instead.",
+    "app_name":              "LiftTrace",
+    "biometric_signin":      "Sign In with Biometric"
   },
   "forgot_password": {
     "title":          "Reset Password",
@@ -166,6 +172,52 @@
     "errors": {
       "no_workout_yesterday": "No workout found yesterday",
       "copy_failed":          "Failed to copy workout"
+    },
+    "cardio": {
+      "toast": {
+        "logged":             "Cardio logged",
+        "log_failed":         "Log failed",
+        "pinned":             "Pinned as quick-log",
+        "unpinned":           "Unpinned",
+        "update_failed":      "Update failed",
+        "activity_required":  "Activity required",
+        "duration_invalid":   "Duration must be a positive number of minutes",
+        "distance_invalid":   "Distance must be a number",
+        "hr_invalid":         "Heart rate must be a number",
+        "updated":            "Cardio updated"
+      },
+      "title":                 "Cardio",
+      "total_today":           "{minutes} min today",
+      "add_aria":              "Add cardio session",
+      "templates_aria":        "Pinned quick-log templates",
+      "tpl_title":             "Log now: {activity} · {minutes} min",
+      "activity_placeholder":  "Activity (e.g. Bike, Run, Row)",
+      "duration_placeholder":  "min",
+      "distance_placeholder":  "Distance ({distanceUnit}, optional)",
+      "hr_placeholder":        "bpm",
+      "notes_placeholder":     "Notes (optional)",
+      "log_submit":            "Log",
+      "edit_title":            "Edit session",
+      "pin_template":          "Pin as quick-log template",
+      "unpin_template":        "Unpin quick-log template",
+      "delete_aria":           "Delete cardio session",
+      "empty":                 "No cardio logged for this day."
+    },
+    "confirm": {
+      "delete_cardio_title":     "Delete cardio session?",
+      "delete_cardio_msg":       "{activity} · {duration} min",
+      "delete_reply_title":      "Delete your reply?",
+      "delete_reply_msg":        "Your reply to this note will be removed.",
+      "replace_workout_title":   "Replace workout?",
+      "replace_confirm":         "Replace",
+      "replace_suggested_msg":   "Loading the suggested workout will overwrite your current workout for today.",
+      "replace_template_msg":    "Picking a new template will overwrite your current workout for today.",
+      "replace_prescribed_msg":  "Loading the prescribed workout will overwrite your current workout for today.",
+      "remove_exercise_title":   "Remove exercise?",
+      "remove_exercise_msg":     "{name} will be removed from today's workout.",
+      "remove_superset_title":   "Remove superset?",
+      "remove_superset_msg":     "{list} will be removed from today's workout.",
+      "remove_confirm":          "Remove"
     }
   },
   "trace": {
@@ -295,7 +347,15 @@
       "password_change_failed": "Could not change password",
       "unlink_failed":          "Unlink failed",
       "delete_account_failed":  "Could not delete account"
-    }
+    },
+    "biometric_cancelled":   "Biometric verification was canceled or failed.",
+    "server_unreachable":    "Could not reach server",
+    "gender_male":           "Male",
+    "gender_female":         "Female",
+    "gender_other":          "Other",
+    "current_password_ph":   "Enter current password",
+    "confirm_password_ph":   "Re-enter new password",
+    "biometric_signin":      "Sign In with Biometric"
   },
   "settings": {
     "units": {
@@ -424,7 +484,10 @@
     "add_to_superset":       "Add to Superset",
     "create_superset":       "Create Superset",
     "create_hint":           "Select exercises to group with {name}:",
-    "merge_into_superset":   "Merge Into Superset"
+    "merge_into_superset":   "Merge Into Superset",
+    "join_hint":             "Choose which superset to join:",
+    "create_confirm":        "Create Superset ({count} exercises)",
+    "merge_hint":            "All exercises from both supersets will be combined:"
   },
   "time_picker": {
     "hour":                  "Hour",
@@ -494,14 +557,6 @@
     "front":                 "Front",
     "back":                  "Back"
   },
-  "login": {
-    "linked":                "Linked",
-    "no_saved":              "No saved sign-in. Please use your password once first.",
-    "saved_expired":         "Your saved sign-in expired. Use your password to sign in.",
-    "biometric_failed":      "Biometric sign-in failed. Use your password instead.",
-    "app_name":              "LiftTrace",
-    "biometric_signin":      "Sign In with Biometric"
-  },
   "exercise_info": {
     "primary_muscles":       "Primary Muscles",
     "secondary_muscles":     "Secondary Muscles",
@@ -522,7 +577,11 @@
     "top_set_over_time":     "Top Set Over Time",
     "similar_exercises":     "Similar Exercises",
     "try_again":             "Try Again",
-    "back_to_exercises":     "Back to Exercises"
+    "back_to_exercises":     "Back to Exercises",
+    "confirm": {
+      "delete_title": "Delete \"{name}\"?",
+      "delete_msg":   "This removes the exercise from your library. Any workouts that logged it keep their history — only the link breaks."
+    }
   },
   "settings_federation": {
     "url_token_required":    "Enter a URL and access token first",
@@ -564,7 +623,13 @@
     "how_to_export":         "How to Export",
     "import_another_file":   "Import Another File",
     "ready_to_import":       "Ready to Import",
-    "cancel":                "Cancel"
+    "cancel":                "Cancel",
+    "confirm": {
+      "duplicate_dates_title": "{count} dates already have workouts",
+      "duplicate_dates_msg":   "Skip the imported copies of those days, or replace your existing workouts with the imported ones?",
+      "replace_existing":      "Replace existing",
+      "skip_duplicates":       "Skip duplicates"
+    }
   },
   "settings_statistics": {
     "default_chart_type":    "Default Chart Type",
@@ -577,16 +642,6 @@
     "show_trend":            "Show Trend Line",
     "show_trend_hint":       "Smoothed trend overlay on charts"
   },
-  "profile": {
-    "biometric_cancelled":   "Biometric verification was canceled or failed.",
-    "server_unreachable":    "Could not reach server",
-    "gender_male":           "Male",
-    "gender_female":         "Female",
-    "gender_other":          "Other",
-    "current_password_ph":   "Enter current password",
-    "confirm_password_ph":   "Re-enter new password",
-    "biometric_signin":      "Sign In with Biometric"
-  },
   "settings_catalog": {
     "deleted":               "Deleted",
     "rapidapi_key_ph":       "RapidAPI key",
@@ -596,7 +651,18 @@
     "catalog_name":          "Catalog Name",
     "json":                  "JSON",
     "json_ph":               "Paste JSON here, or pick a .json file below",
-    "imported_catalogs":     "Imported Catalogs"
+    "imported_catalogs":     "Imported Catalogs",
+    "confirm": {
+      "clear_imported_title": "Clear imported exercises?",
+      "clear_imported_msg":   "This removes all {count} exercises imported from {name}. The source stays listed so you can re-import at any time.",
+      "clear_confirm":        "Clear",
+      "delete_named_title":   "Delete \"{name}\"?",
+      "delete_exercise_msg":  "Workout history keeps its record — only the library link breaks.",
+      "delete_all_title":     "Delete all {count} custom exercises?",
+      "delete_all_msg":       "This cannot be undone. Workout history keeps its records — only library links break.",
+      "delete_all_confirm":   "Delete all",
+      "delete_catalog_msg":   "All {count} exercises from this catalog will be removed."
+    }
   },
   "settings_radio": {
     "streaming_stations":    "Streaming Stations",
@@ -648,7 +714,13 @@
     "option_hold":           "Hold on the Final Week",
     "cancel":                "Cancel",
     "new_workout":           "New Workout",
-    "name":                  "Name"
+    "name":                  "Name",
+    "confirm": {
+      "delete_workout_title": "Delete workout?",
+      "delete_workout_msg":   "This removes the workout template from this program.",
+      "delete_program_title": "Delete program?",
+      "delete_program_msg":   "Deletes the entire program and all of its workouts. This cannot be undone."
+    }
   },
   "exercise_editor": {
     "toast": {
@@ -769,7 +841,11 @@
     "group":                   "Group",
     "icon_url":                "Icon URL",
     "new_name":                "New Name",
-    "leave_empty_ungroup":     "(leave empty to ungroup)"
+    "leave_empty_ungroup":     "(leave empty to ungroup)",
+    "confirm": {
+      "delete_station_title": "Delete station?",
+      "delete_station_msg":   "\"{name}\" will be removed from your stations list."
+    }
   },
   "workout_editor": {
     "toast": {
@@ -796,9 +872,67 @@
     "reps":                "Reps",
     "weight":              "Weight",
     "tempo":               "Tempo",
-    "notes_ph":            "Notes..."
+    "notes_ph":            "Notes...",
+    "week":                 "Week {n}",
+    "copy_week":            "Copy Week {from} into Week {to}",
+    "week_matches":         "Week {to} already matches Week {from}",
+    "copy_week_aria":       "Copy this week into the next week",
+    "ex_count":             "{count} exercises",
+    "load_bilateral":       "Bilateral",
+    "load_paired":          "Per side",
+    "load_unilateral":      "Alternating",
+    "load_hint_bilateral":  "single load — barbell, machine, both arms move one thing",
+    "load_hint_paired":     "both arms work together with separate equal loads",
+    "load_hint_unilateral": "one side at a time",
+    "copy_ex_week":         "Copy this exercise's Week {from} into Week {to}",
+    "copy_ex_week_aria":    "Copy this exercise into Week {to}",
+    "add_set":              "Add set",
+    "reps_ph":              "e.g. 8-12",
+    "weight_ph_lb":         "e.g. 135",
+    "weight_ph_kg":         "e.g. 60",
+    "tempo_ph":             "e.g. 3.1.1",
+    "rest":                 "Rest",
+    "rest_ph":              "e.g. 90",
+    "per_set_link":         "Different weight or reps per set…",
+    "add_exercise":         "Add Exercise"
   },
   "statistics": {
+    "tabs": {
+      "overview": "Overview",
+      "progress": "Exercise Progress",
+      "records":  "Records",
+      "volume":   "Volume",
+      "freq":     "Frequency",
+      "weight":   "Body Weight",
+      "cardio":   "Cardio"
+    },
+    "ranges": {
+      "w1":  "1W",
+      "m1":  "1M",
+      "m3":  "3M",
+      "m6":  "6M",
+      "y1":  "1Y",
+      "all": "All"
+    },
+    "categories": {
+      "chest":     "Chest",
+      "back":      "Back",
+      "shoulders": "Shoulders",
+      "arms":      "Arms",
+      "legs":      "Legs",
+      "core":      "Core",
+      "cardio":    "Cardio",
+      "other":     "Other"
+    },
+    "days": {
+      "sun": "Sun",
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri",
+      "sat": "Sat"
+    },
     "day_streak":        "Day Streak",
     "streak_hint":       "Last 14 days, filled dots are workout days",
     "longest":           "Longest",
@@ -825,7 +959,74 @@
     "body_weight_trend": "Body Weight Trend",
     "history":           "History",
     "choose_exercise":   "Choose Exercise",
-    "search_exercises_ph": "Search exercises…"
+    "search_exercises_ph": "Search exercises…",
+    "loading_stats":        "Loading stats...",
+    "of":                   "of",
+    "this_week":            "this week",
+    "goal_hit":             "Goal hit",
+    "to_go":                "{n} to go",
+    "this_range":           "This {range}",
+    "vs_prior":             "{pct}% vs prior",
+    "avg_week":             "Avg / Week",
+    "kcal_amount":          "~{n} kcal",
+    "burned_this":          "burned this {range}",
+    "est":                  "est",
+    "activity_90d":         "Activity · Last 90 days",
+    "total_workouts":       "{n} total workouts",
+    "no_workouts_yet":      "No workouts logged in this range yet.",
+    "no_records_yet":       "No records yet. Complete a workout to set your first PRs.",
+    "choose_exercise_fallback": "Choose an exercise…",
+    "track_progress_title": "Track any lift's progress",
+    "track_progress_desc":  "Choose an exercise above to see how your top set has changed over time. Useful for checking if you're actually progressing on key lifts like bench press, squat, or deadlift.",
+    "loading_chart":        "Loading chart…",
+    "max_unit":             "Max {unit}",
+    "min_unit":             "Min {unit}",
+    "avg_unit":             "Avg {unit}",
+    "top_set_legend":       "Top set ({unit})",
+    "avg_rpe_legend":       "Avg RPE (5–10)",
+    "n_sets":               "{n} sets",
+    "recent_prs":           "Recent PRs",
+    "est_1rm":              " · Est. 1RM {v}",
+    "total_unit":           "Total {unit}",
+    "muscle_balance_desc":  "Shaded by effective sets, relative to the hardest-worked muscle in this range.",
+    "effective_sets_one":   "{n} effective sets across {m} muscle.",
+    "effective_sets_other": "{n} effective sets across {m} muscles.",
+    "no_volume_range":      "No volume logged in this range.",
+    "most_active":          "Most active: {day}",
+    "no_workouts_in_range": "No workouts in this range.",
+    "no_body_weight":       "No body weight logged yet. Tap the scale icon in the diary to log your weight.",
+    "current_unit":         "Current {unit}",
+    "bw_min":               "Min",
+    "bw_max":               "Max",
+    "no_cardio_range":      "No cardio logged in this range. Add sessions from the Diary.",
+    "total_min":            "Total min",
+    "on_target":            "On target",
+    "weekly_minutes":       "Weekly Minutes",
+    "week_minutes":         "{week}: {n} min",
+    "target_min_week":      "Target: {n} min / week",
+    "no_target_hint":       "Set a weekly target in Settings → Workout to compare against.",
+    "n_min":                "{n} min",
+    "n_bpm":                "{n} bpm",
+    "showing_100_sessions": "Showing the 100 most recent sessions in this range.",
+    "no_exercises_match":   "No exercises match that search.",
+    "no_exercises_library": "No exercises in your library yet.",
+    "load_failed":          "Failed to load stats"
+  },
+  "gym_tools": {
+    "plates":          "Plates",
+    "convert":         "Convert",
+    "target_weight":   "Target weight ({unit})",
+    "weight_ph_lb":    "e.g. 225",
+    "weight_ph_kg":    "e.g. 100",
+    "bar":             "Bar: {weight} {unit}",
+    "each_side":       "Each side:",
+    "remainder":       "{weight} {unit} can't be loaded with available plates",
+    "under_bar":       "Weight equals or is less than the bar ({weight} {unit})",
+    "lbs_to_kg":       "lbs → kg",
+    "kg_to_lbs":       "kg → lbs",
+    "pounds":          "Pounds (lbs)",
+    "kilograms":       "Kilograms (kg)",
+    "weight_ph":       "Enter weight"
   },
   "coaching": {
     "toast": {
@@ -863,7 +1064,20 @@
     "duration":                "Duration",
     "feedback_ph":             "Form, intensity, what to push next…",
     "notes":                   "Notes",
-    "template":                "Workout Template"
+    "template":                "Workout Template",
+    "confirm": {
+      "release_coachee_title":     "Release coachee?",
+      "release_coachee_msg":       "Remove {name} from your coaching roster? Their account stays — you'll just no longer be their coach, and any prescriptions or program assignments you've given them will be removed.",
+      "release_confirm":           "Release",
+      "delete_note_title":         "Delete this note?",
+      "delete_workout_note_msg":   "Your workout-level feedback for this session will be removed.",
+      "delete_exercise_note_msg":  "Your note on this exercise will be removed.",
+      "remove_program_title":      "Remove program?",
+      "remove_program_msg":        "Remove {program} from {name}'s assigned programs?",
+      "remove_confirm":            "Remove",
+      "remove_prescription_title": "Remove prescription?",
+      "remove_prescription_msg":   "The member will no longer see this prescription in their diary."
+    }
   },
   "settings_main": {
     "toast": {

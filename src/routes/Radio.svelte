@@ -325,9 +325,9 @@
   // Now-playing: `streamNowPlaying` store is driven globally by player.js.
   async function deleteStation(s) {
     if (!await confirmDialog({
-      title: 'Delete station?',
-      message: `"${s.name}" will be removed from your stations list.`,
-      confirmText: 'Delete',
+      title: $_('radio.confirm.delete_station_title'),
+      message: $_('radio.confirm.delete_station_msg', { values: { name: s.name } }),
+      confirmText: $_('common.delete'),
       dangerous: true,
     })) return;
     $radioStations = ($radioStations || []).filter(x => x.id !== s.id);

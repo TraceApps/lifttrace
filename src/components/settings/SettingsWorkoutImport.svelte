@@ -83,10 +83,10 @@
     let onDuplicate = 'skip';
     if (importPreview.duplicateDates > 0) {
       const replace = await confirmDialog({
-        title: `${importPreview.duplicateDates} dates already have workouts`,
-        message: 'Skip the imported copies of those days, or replace your existing workouts with the imported ones?',
-        confirmText: 'Replace existing',
-        cancelText: 'Skip duplicates',
+        title: $_('settings_workout_import.confirm.duplicate_dates_title', { values: { count: importPreview.duplicateDates } }),
+        message: $_('settings_workout_import.confirm.duplicate_dates_msg'),
+        confirmText: $_('settings_workout_import.confirm.replace_existing'),
+        cancelText: $_('settings_workout_import.confirm.skip_duplicates'),
         dangerous: true,
       });
       onDuplicate = replace ? 'replace' : 'skip';

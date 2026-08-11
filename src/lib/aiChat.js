@@ -135,27 +135,35 @@ export const AI_PROVIDERS = [
 export const AI_MODELS = {
   claude: [
     { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
-    { value: 'claude-sonnet-5',           label: 'Claude Sonnet (smarter)'    },
-    { value: 'claude-opus-4-8',           label: 'Claude Opus (smartest)'     },
+    { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 (balanced)' },
+    { value: 'claude-opus-5',             label: 'Claude Opus 5'              },
+    { value: 'claude-fable-5',            label: 'Claude Fable 5 (most capable)' },
+    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8 (previous)' },
     { value: '__custom__',                label: 'Custom…'                    },
   ],
   openai: [
-    { value: 'gpt-4o-mini',  label: 'GPT-4o mini (fast, cheap)' },
-    { value: 'gpt-4o',       label: 'GPT-4o (smarter)'          },
-    { value: '__custom__',   label: 'Custom…'                   },
+    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (fast, cheap)' },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'   },
+    { value: 'gpt-5.6',       label: 'GPT-5.6 (smarter)'          },
+    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'     },
+    { value: 'gpt-4o',        label: 'GPT-4o (previous)'          },
+    { value: '__custom__',    label: 'Custom…'                    },
   ],
   gemini: [
-    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (cheapest)' },
-    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (fast, cheap)'   },
-    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (smarter)'         },
+    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (cheapest)' },
+    { value: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash (fast, cheap)'   },
+    { value: 'gemini-3.1-pro',        label: 'Gemini 3.1 Pro (smarter)'         },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (previous)' },
+    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (previous)'      },
+    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (previous)'        },
     { value: '__custom__',            label: 'Custom…'                          },
   ],
 };
 
 export const AI_DEFAULT_MODELS = {
   claude: 'claude-haiku-4-5-20251001',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.5-flash',
+  openai: 'gpt-5.6-luna',
+  gemini: 'gemini-3.6-flash',
 };
 
 // ── Helpers for multimodal content ───────────────────────────────────────────

@@ -9,6 +9,7 @@
   // hard line against device sync in LT.
 
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { LtApi } from '../../lib/api.js';
   import { currentDate } from '../../stores/workout.js';
   import { weightUnit } from '../../stores/settings.js';
@@ -30,6 +31,9 @@
   let f_distance = '';
   let f_hr = '';
   let f_notes = '';
+  // Needed to tell an empty numeric field from one holding unparseable text:
+  // both bind to null, only validity.badInput distinguishes them.
+  let distanceEl, hrEl;
   let saving = false;
 
   $: distanceUnit = $weightUnit === 'lbs' ? 'mi' : 'km';
@@ -68,9 +72,9 @@
         notes: t.notes,
       });
       sessions = [created, ...sessions];
-      showSuccess('Cardio logged');
+      showSuccess($_('diary.cardio.toast.logged'));
     } catch (e) {
-      showError(e?.message || 'Log failed');
+      showError(e?.message || $_('diary.cardio.toast.log_failed'));
     }
   }
 
@@ -79,10 +83,10 @@
     try {
       const updated = await LtApi.toggleCardioTemplate(session.id, next);
       sessions = sessions.map(s => s.id === session.id ? updated : s);
-      showSuccess(next ? 'Pinned as quick-log' : 'Unpinned');
+      showSuccess(next ? $_('diary.cardio.toast.pinned') : $_('diary.cardio.toast.unpinned'));
       loadTemplates();
     } catch (e) {
-      showError(e?.message || 'Update failed');
+      showError(e?.message || $_('diary.cardio.toast.update_failed'));
     }
   }
 
@@ -109,42 +113,51 @@
   async function save() {
     const activity = f_activity.trim();
     const duration = parseInt(f_duration, 10);
-    if (!activity) { showError('Activity required'); return; }
-    if (!Number.isFinite(duration) || duration <= 0) { showError('Duration must be a positive number of minutes'); return; }
+    if (!activity) { showError($_('diary.cardio.toast.activity_required')); return; }
+    if (!Number.isFinite(duration) || duration <= 0) { showError($_('diary.cardio.toast.duration_invalid')); return; }
+    // A number input the browser cannot parse reports its value as empty, so
+    // without this an entry like "11ax" would be dropped silently instead of
+    // telling the user. badInput is the only thing that separates "left blank"
+    // from "typed something that isn't a number".
+    if (distanceEl?.validity?.badInput) { showError($_('diary.cardio.toast.distance_invalid')); return; }
+    if (hrEl?.validity?.badInput) { showError($_('diary.cardio.toast.hr_invalid')); return; }
     saving = true;
     try {
       const payload = {
         date: $currentDate,
         activity,
         duration_min: duration,
-        distance: f_distance.trim() ? Number(f_distance) : null,
+        // Distance and heart rate bind to <input type="number">, so Svelte
+        // replaces the initial '' with a number once the field is touched and
+        // with null once it is cleared. Testing emptiness, not stringness.
+        distance: f_distance == null || f_distance === '' ? null : Number(f_distance),
         distance_unit: distanceUnit,
-        avg_hr: f_hr.trim() ? parseInt(f_hr, 10) : null,
+        avg_hr: f_hr == null || f_hr === '' ? null : parseInt(f_hr, 10),
         notes: f_notes.trim() || null,
       };
       if (editingId != null) {
         const updated = await LtApi.updateCardio(editingId, payload);
         sessions = sessions.map(s => s.id === editingId ? updated : s);
-        showSuccess('Cardio updated');
+        showSuccess($_('diary.cardio.toast.updated'));
       } else {
         const created = await LtApi.createCardio(payload);
         sessions = [created, ...sessions];
-        showSuccess('Cardio logged');
+        showSuccess($_('diary.cardio.toast.logged'));
       }
       showForm = false;
       editingId = null;
     } catch (e) {
-      showError(e?.message || 'Save failed');
+      showError(e?.message || $_('common.errors.save_failed'));
     }
     saving = false;
   }
 
   async function remove(session) {
     const ok = await confirmDialog({
-      title: 'Delete cardio session?',
-      message: `${session.activity} · ${session.duration_min} min`,
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      title: $_('diary.confirm.delete_cardio_title'),
+      message: $_('diary.confirm.delete_cardio_msg', { values: { activity: session.activity, duration: session.duration_min } }),
+      confirmText: $_('common.delete'),
+      cancelText: $_('common.cancel'),
       dangerous: true,
     });
     if (!ok) return;
@@ -152,7 +165,7 @@
       await LtApi.deleteCardio(session.id);
       sessions = sessions.filter(s => s.id !== session.id);
     } catch (e) {
-      showError(e?.message || 'Delete failed');
+      showError(e?.message || $_('common.errors.delete_failed'));
     }
   }
 
@@ -163,22 +176,22 @@
   <header class="cardio-head">
     <div class="cardio-title">
       <span class="material-symbols-rounded cardio-icon">directions_run</span>
-      <span>Cardio</span>
+      <span>{$_('diary.cardio.title')}</span>
       {#if sessions.length > 0}
-        <span class="cardio-total">{totalMinutes} min today</span>
+        <span class="cardio-total">{$_('diary.cardio.total_today', { values: { minutes: totalMinutes } })}</span>
       {/if}
     </div>
     {#if !showForm}
-      <button class="cardio-add" on:click={openForm} aria-label="Add cardio session">
+      <button class="cardio-add" on:click={openForm} aria-label={$_('diary.cardio.add_aria')}>
         <span class="material-symbols-rounded">add</span>
       </button>
     {/if}
   </header>
 
   {#if !showForm && templates.length > 0}
-    <div class="cardio-templates" aria-label="Pinned quick-log templates">
+    <div class="cardio-templates" aria-label={$_('diary.cardio.templates_aria')}>
       {#each templates as t (t.id)}
-        <button class="tpl-chip" on:click={() => logFromTemplate(t)} title="Log now: {t.activity} · {t.duration_min} min">
+        <button class="tpl-chip" on:click={() => logFromTemplate(t)} title={$_('diary.cardio.tpl_title', { values: { activity: t.activity, minutes: t.duration_min } })}>
           <span class="material-symbols-rounded">bolt</span>
           <span class="tpl-label">{t.activity}</span>
           <span class="tpl-meta">{t.duration_min}m</span>
@@ -190,17 +203,17 @@
   {#if showForm}
     <div class="cardio-form">
       <div class="row">
-        <input class="input" placeholder="Activity (e.g. Bike, Run, Row)" bind:value={f_activity} />
-        <input class="input input-narrow" type="number" min="1" placeholder="min" bind:value={f_duration} />
+        <input class="input" placeholder={$_('diary.cardio.activity_placeholder')} bind:value={f_activity} />
+        <input class="input input-narrow" type="number" min="1" placeholder={$_('diary.cardio.duration_placeholder')} bind:value={f_duration} />
       </div>
       <div class="row">
-        <input class="input" type="number" step="0.1" placeholder="Distance ({distanceUnit}, optional)" bind:value={f_distance} />
-        <input class="input input-narrow" type="number" min="30" max="230" placeholder="bpm" bind:value={f_hr} />
+        <input class="input" type="number" step="0.1" placeholder={$_('diary.cardio.distance_placeholder', { values: { distanceUnit } })} bind:this={distanceEl} bind:value={f_distance} />
+        <input class="input input-narrow" type="number" min="30" max="230" placeholder={$_('diary.cardio.hr_placeholder')} bind:this={hrEl} bind:value={f_hr} />
       </div>
-      <input class="input" placeholder="Notes (optional)" bind:value={f_notes} />
+      <input class="input" placeholder={$_('diary.cardio.notes_placeholder')} bind:value={f_notes} />
       <div class="row row-actions">
-        <button class="btn btn-secondary btn-sm" on:click={cancelForm} disabled={saving}>Cancel</button>
-        <button class="btn btn-primary btn-sm" on:click={save} disabled={saving}>{saving ? 'Saving…' : (editingId != null ? 'Save' : 'Log')}</button>
+        <button class="btn btn-secondary btn-sm" on:click={cancelForm} disabled={saving}>{$_('common.cancel')}</button>
+        <button class="btn btn-primary btn-sm" on:click={save} disabled={saving}>{saving ? $_('common.saving') : (editingId != null ? $_('common.save') : $_('diary.cardio.log_submit'))}</button>
       </div>
     </div>
   {/if}
@@ -209,7 +222,7 @@
     <ul class="cardio-list">
       {#each sessions as s (s.id)}
         <li class="cardio-row">
-          <button class="cardio-row-main" on:click={() => openEdit(s)} title="Edit session">
+          <button class="cardio-row-main" on:click={() => openEdit(s)} title={$_('diary.cardio.edit_title')}>
             <span class="cardio-activity">{s.activity}</span>
             <span class="cardio-meta">
               {s.duration_min} min
@@ -224,19 +237,19 @@
             class="cardio-pin"
             class:pinned={s.is_template}
             on:click={() => toggleTemplate(s)}
-            aria-label={s.is_template ? 'Unpin quick-log template' : 'Pin as quick-log template'}
-            title={s.is_template ? 'Unpin quick-log template' : 'Pin as quick-log template'}
+            aria-label={s.is_template ? $_('diary.cardio.unpin_template') : $_('diary.cardio.pin_template')}
+            title={s.is_template ? $_('diary.cardio.unpin_template') : $_('diary.cardio.pin_template')}
           >
             <span class="material-symbols-rounded">{s.is_template ? 'keep' : 'keep_off'}</span>
           </button>
-          <button class="cardio-del" on:click={() => remove(s)} aria-label="Delete cardio session">
+          <button class="cardio-del" on:click={() => remove(s)} aria-label={$_('diary.cardio.delete_aria')}>
             <span class="material-symbols-rounded">close</span>
           </button>
         </li>
       {/each}
     </ul>
   {:else if !loading && !showForm}
-    <p class="cardio-empty">No cardio logged for this day.</p>
+    <p class="cardio-empty">{$_('diary.cardio.empty')}</p>
   {/if}
 </section>
 

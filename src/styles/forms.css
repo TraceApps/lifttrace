@@ -16,6 +16,14 @@
   color: var(--text-3);
 }
 
+/* Unit symbols must survive an uppercasing label: "kg" is kilograms, "KG" is
+   not a unit at all, and the same goes for cm, in, lbs and min. Wrap the
+   symbol in this and it opts out of whatever transform the label applies.
+   Global rather than scoped so it works from inside components too. */
+.unit {
+  text-transform: none;
+}
+
 .input {
   width: 100%;
   height: 48px;

@@ -397,9 +397,9 @@
 
   async function deleteReply(fbId) {
     if (!await confirmDialog({
-      title: 'Delete your reply?',
-      message: 'Your reply to this note will be removed.',
-      confirmText: 'Delete',
+      title: $_('diary.confirm.delete_reply_title'),
+      message: $_('diary.confirm.delete_reply_msg'),
+      confirmText: $_('common.delete'),
       dangerous: true,
     })) return;
     replyDrafts[fbId] = '';
@@ -475,7 +475,7 @@
       showError($_('diary_extra.toast.no_exercises')); return;
     }
     if ($todayLog?.exercises?.length > 0) {
-      if (!await confirmDialog({ title: 'Replace workout?', message: 'Loading the suggested workout will overwrite your current workout for today.', confirmText: 'Replace', dangerous: true })) return;
+      if (!await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_suggested_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
     }
     await loadTemplate({
       exercises: exs,
@@ -658,7 +658,7 @@
     const action = e.detail?.value;
     if (action === 'replace') {
       if (($todayLog?.exercises?.length || 0) > 0
-          && !await confirmDialog({ title: 'Replace workout?', message: 'Picking a new template will overwrite your current workout for today.', confirmText: 'Replace', dangerous: true })) return;
+          && !await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_template_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
       openLoadWorkout();
     } else if (action === 'clear') {
       await saveWorkout($currentDate, { ...($todayLog || {}), name: '', template_id: null, program_id: null, exercises: [], notes: '' });
@@ -885,7 +885,7 @@
       showError($_('diary_extra.toast.no_exercises')); return;
     }
     if ($todayLog?.exercises?.length > 0) {
-      if (!await confirmDialog({ title: 'Replace workout?', message: 'Loading the prescribed workout will overwrite your current workout for today.', confirmText: 'Replace', dangerous: true })) return;
+      if (!await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_prescribed_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
     }
     // Reuse the template-load code path via a synthetic template object
     const syntheticProgram = selectedProgram;
@@ -1283,9 +1283,9 @@
     if ($confirmExerciseRemoval) {
       const name = exercises[idx]?.exercise_name || 'this exercise';
       if (!await confirmDialog({
-        title: 'Remove exercise?',
-        message: `${name} will be removed from today's workout.`,
-        confirmText: 'Remove',
+        title: $_('diary.confirm.remove_exercise_title'),
+        message: $_('diary.confirm.remove_exercise_msg', { values: { name } }),
+        confirmText: $_('diary.confirm.remove_confirm'),
         dangerous: true,
       })) return;
     }
@@ -1464,9 +1464,9 @@
         .filter(Boolean);
       const list = names.length ? names.join(', ') : 'All exercises in this superset';
       if (!await confirmDialog({
-        title: 'Remove superset?',
-        message: `${list} will be removed from today's workout.`,
-        confirmText: 'Remove',
+        title: $_('diary.confirm.remove_superset_title'),
+        message: $_('diary.confirm.remove_superset_msg', { values: { list } }),
+        confirmText: $_('diary.confirm.remove_confirm'),
         dangerous: true,
       })) return;
     }
