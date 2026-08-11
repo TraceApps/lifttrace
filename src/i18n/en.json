@@ -172,6 +172,36 @@
     "errors": {
       "no_workout_yesterday": "No workout found yesterday",
       "copy_failed":          "Failed to copy workout"
+    },
+    "cardio": {
+      "toast": {
+        "logged":             "Cardio logged",
+        "log_failed":         "Log failed",
+        "pinned":             "Pinned as quick-log",
+        "unpinned":           "Unpinned",
+        "update_failed":      "Update failed",
+        "activity_required":  "Activity required",
+        "duration_invalid":   "Duration must be a positive number of minutes",
+        "distance_invalid":   "Distance must be a number",
+        "hr_invalid":         "Heart rate must be a number",
+        "updated":            "Cardio updated"
+      },
+      "title":                 "Cardio",
+      "total_today":           "{minutes} min today",
+      "add_aria":              "Add cardio session",
+      "templates_aria":        "Pinned quick-log templates",
+      "tpl_title":             "Log now: {activity} · {minutes} min",
+      "activity_placeholder":  "Activity (e.g. Bike, Run, Row)",
+      "duration_placeholder":  "min",
+      "distance_placeholder":  "Distance ({distanceUnit}, optional)",
+      "hr_placeholder":        "bpm",
+      "notes_placeholder":     "Notes (optional)",
+      "log_submit":            "Log",
+      "edit_title":            "Edit session",
+      "pin_template":          "Pin as quick-log template",
+      "unpin_template":        "Unpin quick-log template",
+      "delete_aria":           "Delete cardio session",
+      "empty":                 "No cardio logged for this day."
     }
   },
   "trace": {
