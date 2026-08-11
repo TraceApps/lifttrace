@@ -4,6 +4,14 @@ All notable changes to LiftTrace are documented here.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Statistics summary cards and the plate calculator no longer show their units in capitals.** Both use uppercased labels, which took the unit symbol along with the name: the progress and volume cards read `MAX KG` / `TOTAL KG`, the body-weight card `CURRENT KG`, the cardio card `TOTAL MIN`, and the plate calculator `TARGET WEIGHT (KG)` with `POUNDS (LBS)` / `KILOGRAMS (KG)` in the converter. Unit symbols are case-sensitive: `kg` is kilograms, `min` is minutes, and `KG` and `MIN` are not units at all. The symbols now sit in the same `.unit` span that already keeps the body stats sheet and the rest field correct, so the labels read `MAX kg`, `TOTAL min` and `TARGET WEIGHT (kg)`. Names stay uppercase and no wording changes.
+
+---
+
 ## v1.1.2 — 2026-08-11
 
 ### Added

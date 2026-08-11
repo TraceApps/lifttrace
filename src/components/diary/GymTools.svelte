@@ -45,6 +45,9 @@
     return Math.round(val * 2.20462 * 100) / 100;
   })();
 
+  // The unit being converted from, for the input label.
+  $: convertFromUnit = convertDir === 'lbs_to_kg' ? 'lbs' : 'kg';
+
   // Plate colors for visual
   function plateColor(weight) {
     if ($weightUnit === 'kg') {
@@ -86,7 +89,7 @@
       {#if tab === 'plates'}
         <div class="gt-body">
           <div class="gt-input-row">
-            <label class="form-label">{$_('gym_tools.target_weight', { values: { unit: $weightUnit } })}</label>
+            <label class="form-label">{$_('gym_tools.target_weight')} <span class="unit">({$weightUnit})</span></label>
             <input class="input" type="number" step="0.5" bind:value={targetWeight}
                    placeholder={$weightUnit === 'kg' ? $_('gym_tools.weight_ph_kg') : $_('gym_tools.weight_ph_lb')} />
           </div>
@@ -127,7 +130,7 @@
             </select>
           </div>
           <div class="gt-input-row">
-            <label class="form-label">{convertDir === 'lbs_to_kg' ? $_('gym_tools.pounds') : $_('gym_tools.kilograms')}</label>
+            <label class="form-label">{convertDir === 'lbs_to_kg' ? $_('gym_tools.pounds') : $_('gym_tools.kilograms')} <span class="unit">({convertFromUnit})</span></label>
             <input class="input" type="number" step="0.1" bind:value={convertInput} placeholder={$_('gym_tools.weight_ph')} />
           </div>
           {#if convertInput}
