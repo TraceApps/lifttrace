@@ -14,6 +14,7 @@
   import { currentDate, todayLog, activeProgram, saveWorkout } from '../../stores/workout.js';
   import { isPlaying, currentTrack, getAudioForAnalyser } from '../../stores/player.js';
   import { showError } from '../../stores/toast.js';
+  import { confirmDialog } from '../../stores/confirmDialog.js';
   import { parseInput as smartParse, matchExercises, mergeIntoWorkout } from '../../lib/smartLogWorkout.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import TraceFaceMusic from './TraceFaceMusic.svelte';
@@ -670,6 +671,12 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   }
 
   async function clearHistory() {
+    if (!await confirmDialog({
+      title: $_('trace.clear_confirm_title'),
+      message: $_('trace.clear_confirm_message'),
+      confirmText: $_('trace.clear_confirm_ok'),
+      dangerous: true,
+    })) return;
     messages = [];
     fetch('/api/ai/history', { method: 'DELETE', credentials: 'include' }).catch(() => {});
   }
