@@ -686,6 +686,21 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   }
 
   // Render helpers
+  // markdown-it loads lazily (own chunk via dynamic import) the first time
+  // the open panel has an assistant message to show; users who never open
+  // Trace don't pay the bundle cost. Until it resolves, assistant bubbles
+  // fall back to the plain-text branch below, then re-render when `md` lands.
+  // html: false keeps model output from injecting markup through {@html};
+  // breaks: true keeps single newlines as line breaks, like pre-wrap did.
+  let md = null;
+  let mdLoading = null;
+  function loadMd() {
+    if (mdLoading) return;
+    mdLoading = import('markdown-it').then(mod => {
+      md = new mod.default({ html: false, linkify: false, breaks: true });
+    }).catch(() => { mdLoading = null; }); // chunk fetch failed; retry on next trigger
+  }
+  $: if (panelOpen && messages.some(m => m.role === 'assistant' && getText(m.content))) loadMd();
   function getText(content) {
     if (typeof content === 'string') return content;
     return content.filter(p => p.type === 'text').map(p => p.text).join('\n');
@@ -821,7 +836,13 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
                   {#each getImages(msg.content) as img}
                     <img class="lb-msg-img" src={img.dataUrl} alt="attachment" />
                   {/each}
-                  {#if getText(msg.content)}{getText(msg.content)}{/if}
+                  {#if getText(msg.content)}
+                    {#if msg.role === 'assistant' && md}
+                      <div class="lb-md">{@html md.render(getText(msg.content))}</div>
+                    {:else}
+                      {getText(msg.content)}
+                    {/if}
+                  {/if}
                 </div>
                 {#if plan}
                   <button class="lb-plan-apply" on:click={() => useGeneratedPlan(plan)}>
@@ -1176,6 +1197,36 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   .lb-time {
     font-size: 10px; color: var(--text-3);
     padding: 0 4px;
+  }
+  /* Markdown body in assistant bubbles. The HTML comes from {@html}, so the
+     selectors need :global(); white-space resets the bubble's pre-wrap because
+     the rendered HTML carries its own block structure. */
+  .lb-md { white-space: normal; }
+  .lb-md :global(p),
+  .lb-md :global(ul), .lb-md :global(ol),
+  .lb-md :global(pre), .lb-md :global(blockquote),
+  .lb-md :global(table) { margin: 0 0 8px; }
+  .lb-md :global(:last-child) { margin-bottom: 0; }
+  .lb-md :global(ul), .lb-md :global(ol) { padding-left: 20px; }
+  .lb-md :global(h1), .lb-md :global(h2), .lb-md :global(h3),
+  .lb-md :global(h4) { font-size: 14px; margin: 10px 0 6px; }
+  .lb-md :global(code) {
+    font-size: 12.5px; background: var(--surface-3);
+    padding: 1px 5px; border-radius: 6px;
+  }
+  .lb-md :global(pre) {
+    background: var(--surface-3); padding: 8px 10px;
+    border-radius: 10px; overflow-x: auto;
+  }
+  .lb-md :global(pre code) { background: none; padding: 0; }
+  .lb-md :global(a) { color: var(--accent); }
+  .lb-md :global(blockquote) {
+    border-left: 3px solid var(--border);
+    padding-left: 10px; color: var(--text-2);
+  }
+  .lb-md :global(table) { border-collapse: collapse; }
+  .lb-md :global(th), .lb-md :global(td) {
+    border: 1px solid var(--border); padding: 4px 8px; text-align: left;
   }
 
   /* "Use This Workout", appears under any assistant reply whose text
