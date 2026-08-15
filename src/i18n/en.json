@@ -226,7 +226,7 @@
     "ask_placeholder":    "Ask me anything…",
     "clear_conversation": "Clear chat",
     "clear_confirm_title": "Clear this conversation?",
-    "clear_confirm_message": "The messages in this conversation will be deleted. This can't be undone.",
+    "clear_confirm_message": "Messages in this conversation will be deleted. This can't be undone.",
     "clear_confirm_ok": "Clear",
     "attach_image":       "Attach image"
   },
