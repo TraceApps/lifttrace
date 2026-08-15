@@ -6,6 +6,10 @@ All notable changes to LiftTrace are documented here.
 
 ## Unreleased
 
+### Added
+
+- **The coach's replies now render their markdown.** Trace answers with markdown formatting (lists, bold, tables, the occasional code block) and the chat printed all of it raw, asterisks and pipes included. Assistant bubbles now render it through markdown-it with `html: false` (model output cannot inject HTML; the renderer escapes it), `linkify: false`, and `breaks: true` (single newlines stay line breaks, matching how the bubbles wrapped before). User messages stay plain text.
+
 ### Fixed
 
 - **Clearing the AI chat now asks for confirmation.** The clear button in the chat header wiped the whole conversation on a single tap: the message list emptied immediately and the server ran an unconditional `DELETE` on the chat history, which the sync tombstone flow does not cover, so an accidental tap had no way back. The button now goes through the same confirmation dialog the app already uses for its other destructive actions; cancelling leaves the conversation untouched on screen and on the server.
