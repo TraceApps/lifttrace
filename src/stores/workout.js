@@ -123,9 +123,26 @@ let _latestEntry = null;
 // hasn't fired yet when Android kills the app is lost silently.
 let _latestDate = null;
 export function saveWorkout(dateStr, entry) {
-  // Optimistic local update — keeps UI in sync with user input instantly
-  todayLog.set(entry);
-  _latestEntry = entry;
+  // Stamp uuids IMMEDIATELY so `_latestEntry` and `todayLog` hold the
+  // uuid-carrying shape from the start. Without this, `ensureExerciseUuids`
+  // runs again inside `_mergeAndSave` on every save (debounce fire,
+  // flushWorkoutSave on visibilitychange / pause / pagehide) and generates
+  // fresh random uuids for any set that didn't already have one — e.g. sets
+  // just built from a template's set_specs, or sets just added via the "+"
+  // button. On the second save the client sends different uuids for the
+  // same physical sets; if the tombstone diff ever misses (empty snapshot
+  // after a lifecycle roundtrip), the server-side per-uuid merge treats
+  // them as new sets and APPENDS them onto the existing ones. That's what
+  // "every time I opened the app every exercise had 5 or 10 more sets"
+  // was (#XX, 2026-08-15). Stamping once here makes subsequent runs of
+  // `ensureExerciseUuids` a no-op, so every replay of the same entry
+  // sends the same uuids and merges idempotently.
+  const stamped = {
+    ...entry,
+    exercises: ensureExerciseUuids(entry.exercises || []),
+  };
+  todayLog.set(stamped);
+  _latestEntry = stamped;
   _latestDate  = dateStr;
 
   return new Promise((resolve, reject) => {
@@ -137,6 +154,11 @@ export function saveWorkout(dateStr, entry) {
         // Only sync from server if no newer edits are queued
         if (_latestEntry === toSave) {
           todayLog.set(saved.workout);
+          // Clear so lifecycle-driven flushes (App.pause / visibilitychange /
+          // pagehide) don't re-fire the same already-saved entry. A genuine
+          // subsequent edit re-populates via a new `saveWorkout` call.
+          _latestEntry = null;
+          _latestDate  = null;
         }
         resolve(saved.workout);
       } catch (e) { reject(e); }
@@ -154,7 +176,13 @@ export async function flushWorkoutSave(dateStr) {
   const toSave = _latestEntry;
   try {
     const saved = await _mergeAndSave(date, toSave);
-    if (_latestEntry === toSave) todayLog.set(saved.workout);
+    if (_latestEntry === toSave) {
+      todayLog.set(saved.workout);
+      // Clear so re-firing lifecycle handlers can't re-save the same
+      // already-flushed entry. See saveWorkout for the full rationale.
+      _latestEntry = null;
+      _latestDate  = null;
+    }
   } catch {}
 }
 
