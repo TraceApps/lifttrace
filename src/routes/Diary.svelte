@@ -1733,6 +1733,18 @@
   <!-- (The redundant .workout-name-bar used to live here. The editable
        .workout-title below the summary row is the canonical rename spot.) -->
 
+  <!-- Diary body — wraps every in-flow content block (excluding the
+       sticky top-bar, FAB, and modal sheets). At >=1280px on non-forced-
+       mobile viewports this becomes a three-column grid: left column
+       hoists the .summary-bar and .now-strip (session HUD), center is
+       the exercise list + banners + notes + cardio, right column is a
+       program-context rail (Active program, Today's plan, Session stats).
+       On mobile the wrapper is a plain block — DOM order stays intact,
+       .diary-right-rail is display:none. Gated by
+       html:not(.force-mobile-layout) so the desktop opt-out toggle
+       still delivers the mobile flow at any width. -->
+  <div class="diary-body">
+
   <!-- Planning badge when viewing a future date -->
   {#if isFuture}
     <div class="planning-badge">
@@ -2144,6 +2156,76 @@
       <CardioCard />
     </div>
   {/if}
+
+  <!-- Right rail — program context. Only renders visibly at >=1280px
+       (mobile CSS sets display:none). Read-only for phase 1; Load
+       Workout button reopens the existing sheet, so no new modal state.
+       Groups the info a lifter wants mid-session without leaving the
+       diary: which program they're on, what today's template is, and
+       a live session-stats summary. -->
+  <aside class="diary-right-rail" aria-label="Program context">
+    {#if $activeProgram}
+      <div class="rail-card">
+        <div class="rail-card-head">
+          <span class="material-symbols-rounded">event_note</span>
+          <span class="rail-card-title">{$activeProgram.name}</span>
+        </div>
+        {#if $todayLog?.program_week}
+          <div class="rail-card-meta">
+            Week {$todayLog.program_week}{#if $todayLog.program_duration_weeks} of {$todayLog.program_duration_weeks}{/if}
+          </div>
+        {:else if $activeProgram.duration_weeks}
+          <div class="rail-card-meta">
+            {$activeProgram.duration_weeks}-week program
+          </div>
+        {/if}
+      </div>
+    {/if}
+    {#if $todayPrescription}
+      <div class="rail-card">
+        <div class="rail-card-head">
+          <span class="material-symbols-rounded">assignment</span>
+          <span class="rail-card-title">Today's Plan</span>
+        </div>
+        <div class="rail-card-body">
+          <div class="rail-plan-name">{$todayPrescription.template_name || $todayPrescription.name || 'Scheduled workout'}</div>
+          {#if $todayPrescription.day_label}
+            <div class="rail-plan-sub">{$todayPrescription.day_label}</div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+    {#if exercises.length > 0}
+      <div class="rail-card">
+        <div class="rail-card-head">
+          <span class="material-symbols-rounded">bar_chart</span>
+          <span class="rail-card-title">Session</span>
+        </div>
+        <div class="rail-stats">
+          <div class="rail-stat">
+            <span class="rail-stat-val">{stats.completed}<span class="rail-stat-div">/{stats.total}</span></span>
+            <span class="rail-stat-label">Sets</span>
+          </div>
+          <div class="rail-stat">
+            <span class="rail-stat-val">{exercises.length}</span>
+            <span class="rail-stat-label">Exercises</span>
+          </div>
+          {#if stats.volume}
+            <div class="rail-stat">
+              <span class="rail-stat-val">{Math.round(stats.volume).toLocaleString()}</span>
+              <span class="rail-stat-label">Volume</span>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+    <button class="rail-action" on:click={openLoadWorkout}>
+      <span class="material-symbols-rounded">library_books</span>
+      Load Workout
+    </button>
+  </aside>
+
+  </div><!-- /.diary-body -->
 
   <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
        Loading from a program mid-workout lives in the ⋮ menu as "Replace workout". -->
@@ -3401,4 +3483,187 @@
     font-size: 13px; font-weight: 500; color: var(--accent);
   }
   .planning-badge .material-symbols-rounded { font-size: 18px; }
+
+  /* ────────────────────────────────────────────────────────────────
+     Diary large-screen layout (>=1280px, non-forced-mobile).
+
+     Phase 1 shell: three-column grid — session HUD (left, summary +
+     now-strip), main content (center, exercise list + banners +
+     notes + cardio), program context (right, active-program +
+     today's plan + session stats + Load Workout).
+
+     Mobile default: .diary-body is a plain block; the right rail is
+     display:none; DOM order is unchanged so summary-bar / coach-
+     banner / workout-title / now-strip / exercise-list stack exactly
+     as before.
+
+     The whole desktop grid is opt-out via the existing
+     force-mobile-layout toggle (Settings → Appearance → "Force
+     Mobile Layout") so a user on a wide screen can revert to the
+     phone-shaped diary if they prefer it.
+     ──────────────────────────────────────────────────────────────── */
+
+  /* Rail hidden by default on mobile — its content lives only on the
+     desktop shell. Rail-card styles are shared so the same tokens
+     work if we ever expose the rail on tablet later. */
+  .diary-right-rail { display: none; }
+  .rail-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .rail-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-1);
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .rail-card-head .material-symbols-rounded {
+    font-size: 18px;
+    color: var(--accent);
+  }
+  .rail-card-title { flex: 1; min-width: 0; }
+  .rail-card-meta {
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .rail-card-body { display: flex; flex-direction: column; gap: 4px; }
+  .rail-plan-name { font-size: 14px; font-weight: 500; color: var(--text-1); }
+  .rail-plan-sub  { font-size: 12px; color: var(--text-3); }
+  .rail-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .rail-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+  }
+  .rail-stat-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-1);
+    line-height: 1.1;
+  }
+  .rail-stat-div {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-3);
+  }
+  .rail-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+  }
+  .rail-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--dur-fast);
+  }
+  .rail-action:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+  .rail-action .material-symbols-rounded { font-size: 18px; }
+
+  @media (min-width: 1280px) {
+    /* Three-column shell. Only the wrapper is affected; each
+       existing child keeps its own margins/padding, we just re-flow
+       them into columns via grid-column assignments. */
+    :global(html:not(.force-mobile-layout)) .diary-body {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 720px) 340px;
+      gap: 24px;
+      align-items: start;
+      max-width: 1440px;
+      margin: 0 auto;
+      /* Same horizontal breathing room the rest of the page uses so
+         the grid doesn't kiss the viewport edges on 1280px screens. */
+      padding: 0 var(--page-px);
+      box-sizing: border-box;
+    }
+    /* Default column = center. Everything falls into col 2 unless it
+       explicitly opts into 1 or 3 below. */
+    :global(html:not(.force-mobile-layout)) .diary-body > * {
+      grid-column: 2;
+      min-width: 0;
+    }
+    /* Left column — session HUD. summary-bar + now-strip land here.
+       They stay in DOM order relative to the rest of the diary but
+       grid pulls them into col 1. Their per-column margins get
+       zeroed since column gap already provides breathing room. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .summary-bar,
+    :global(html:not(.force-mobile-layout)) .diary-body > .now-strip {
+      grid-column: 1;
+      width: 100%;
+      margin-left: 0;
+      margin-right: 0;
+    }
+    /* Summary-bar restacks vertical in the narrow left column —
+       the horizontal flex layout doesn't fit 280px comfortably. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .summary-bar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+      padding: 14px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .summary-bar > .stat {
+      justify-content: flex-start;
+    }
+    /* Right column — program context rail. Sticky so it stays with
+       the user as the center column scrolls. Same sticky-top math
+       the settings rail uses. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      grid-column: 3;
+      grid-row: 1 / span 999;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    /* Cap the exercise list and its neighbours to the center-column
+       width — they currently use page-px padding, and inside a
+       grid cell that would leave dead space we don't want. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .exercise-list {
+      padding-left: 0;
+      padding-right: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .workout-title-row,
+    :global(html:not(.force-mobile-layout)) .diary-body > .coach-banner,
+    :global(html:not(.force-mobile-layout)) .diary-body > .coach-feedback-banner,
+    :global(html:not(.force-mobile-layout)) .diary-body > .suggested-section,
+    :global(html:not(.force-mobile-layout)) .diary-body > .cardio-slot,
+    :global(html:not(.force-mobile-layout)) .diary-body > .planning-badge {
+      margin-left: 0;
+      margin-right: 0;
+    }
+  }
 </style>
