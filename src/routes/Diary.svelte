@@ -151,6 +151,29 @@
     }
     return count;
   })();
+  // 7-day peek for the desktop right rail. Returns the last 7 dates
+  // (oldest first, today last) with a flag for whether workoutDateSet
+  // has a completed workout that day. Reactive on workoutDateSet so it
+  // updates as new sessions land.
+  $: weekPeekDays = (() => {
+    const out = [];
+    const base = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(base);
+      d.setDate(base.getDate() - i);
+      const key = localDateStr(d);
+      out.push({
+        key,
+        dow: d.toLocaleDateString(undefined, { weekday: 'narrow' }),
+        dom: d.getDate(),
+        done: workoutDateSet.has(key),
+        isToday: i === 0,
+      });
+    }
+    return out;
+  })();
+  $: weekWorkoutCount = weekPeekDays.filter(d => d.done).length;
+
   function calHasWorkout(day) {
     const key = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     return workoutDateSet.has(key);
@@ -910,6 +933,10 @@
     } catch {}
   }
   $: if (!loading && exercises.length === 0) loadRecentWorkouts();
+  // Also load once on mount so the desktop right-rail's Recent
+  // Workouts card has data even during an active session (the
+  // empty-state trigger above doesn't fire when exercises exist).
+  onMount(loadRecentWorkouts);
 
   async function quickLoad(recent) {
     const exs = JSON.parse(recent.exercises || '[]');
@@ -2164,6 +2191,50 @@
        diary: which program they're on, what today's template is, and
        a live session-stats summary. -->
   <aside class="diary-right-rail" aria-label="Program context">
+    <!-- 7-day peek — always visible. Dots colored by whether that
+         date has any completed set in workoutDateSet. Today gets a
+         ring. Clicking a day jumps the diary to that date. -->
+    <div class="rail-card">
+      <div class="rail-card-head">
+        <span class="material-symbols-rounded">calendar_view_week</span>
+        <span class="rail-card-title">This Week</span>
+        <span class="rail-card-count">{weekWorkoutCount}/7</span>
+      </div>
+      <div class="rail-week-strip">
+        {#each weekPeekDays as day (day.key)}
+          <button
+            type="button"
+            class="rail-week-day"
+            class:done={day.done}
+            class:today={day.isToday}
+            on:click={() => currentDate.set(day.key)}
+            title={day.key}>
+            <span class="rail-week-dow">{day.dow}</span>
+            <span class="rail-week-dom">{day.dom}</span>
+            <span class="rail-week-dot" class:on={day.done}></span>
+          </button>
+        {/each}
+      </div>
+      {#if streakCount >= 2}
+        <div class="rail-card-meta">🔥 {streakCount}-day streak</div>
+      {/if}
+    </div>
+    {#if recentWorkouts.length > 0}
+      <div class="rail-card">
+        <div class="rail-card-head">
+          <span class="material-symbols-rounded">history</span>
+          <span class="rail-card-title">Recent</span>
+        </div>
+        <div class="rail-recent-list">
+          {#each recentWorkouts as w (w.date)}
+            <button type="button" class="rail-recent-row" on:click={() => currentDate.set(w.date)}>
+              <span class="rail-recent-date">{new Date(w.date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+              <span class="rail-recent-name">{w.workout_name || 'Untitled workout'}</span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
     {#if $activeProgram}
       <div class="rail-card">
         <div class="rail-card-head">
@@ -3532,6 +3603,84 @@
   .rail-card-meta {
     font-size: 12px;
     color: var(--text-3);
+  }
+  .rail-card-count {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    padding: 2px 6px;
+    background: var(--surface-2);
+    border-radius: 999px;
+  }
+  /* 7-day peek: dow letter on top, day-of-month, then completion dot.
+     Today gets a subtle ring; completed days fill the dot with accent. */
+  .rail-week-strip {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+  .rail-week-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 2px 5px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-2);
+    transition: background var(--dur-fast), border-color var(--dur-fast);
+  }
+  .rail-week-day:hover { background: var(--surface-2); }
+  .rail-week-day.today { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .rail-week-day.done  { color: var(--text-1); }
+  .rail-week-dow {
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .rail-week-dom { font-size: 13px; font-weight: 600; }
+  .rail-week-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .rail-week-dot.on {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  /* Recent workouts list — three most-recent completed sessions. */
+  .rail-recent-list { display: flex; flex-direction: column; gap: 2px; }
+  .rail-recent-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 8px;
+    margin: 0 -8px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--dur-fast);
+  }
+  .rail-recent-row:hover { background: var(--surface-2); }
+  .rail-recent-date {
+    font-size: 11px;
+    color: var(--text-3);
+    min-width: 44px;
+    flex-shrink: 0;
+  }
+  .rail-recent-name {
+    font-size: 13px;
+    color: var(--text-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
   }
   .rail-card-body { display: flex; flex-direction: column; gap: 4px; }
   .rail-plan-name { font-size: 14px; font-weight: 500; color: var(--text-1); }
