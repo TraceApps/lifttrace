@@ -323,15 +323,19 @@
   .set-row:has(.rpe-wrap) {
     grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px auto 32px;
   }
-  /* L/R split mode needs a lot more room in the reps column than a plain
-     single-value input (two <input>s + labels + chain-off button). At the
-     default 1.4fr/0.7fr ratio on a 360dp phone the split cells rendered
-     at ~15px wide and cut off the digits. Rebalance to 1fr/1fr so both
-     inputs can actually show their values. */
-  .set-row:has(.reps-split) {
+  /* Widen the reps column whenever the split-toggle button appears in it.
+     Two cases both trip the same problem:
+       - unilateral + split mode: two <input>s + L/R labels + chain-off
+       - unilateral + non-split:  <input> + 'reps' unit + add-link button
+     Either way the default 0.7fr reps column plus the button eats enough
+     width that a 360dp phone clips digits (~12px left for the actual input
+     in non-split; ~15px per cell in split). Rebalancing to 1fr/1fr when a
+     .split-btn is present covers both. Bilateral / paired stay at
+     1.4fr/0.7fr since they have no split button. */
+  .set-row:has(.split-btn) {
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
   }
-  .set-row:has(.reps-split):has(.rpe-wrap) {
+  .set-row:has(.split-btn):has(.rpe-wrap) {
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
   }
   .set-row.done { opacity: 0.6; }
