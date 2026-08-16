@@ -1,20 +1,35 @@
 # Changelog
 
 All notable changes to LiftTrace are documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Unreleased
+## [Unreleased]
+
+---
+
+## [1.1.3-dev01] - 2026-08-16 (pre-release)
+
+First dev pre-release of the 1.1.3 patch. Workout persistence fix (foreground no longer bloats programs with duplicate sets), Trace chat markdown rendering, catalog re-import history preservation, and clear-chat confirmation.
 
 ### Added
 
-- **The coach's replies now render their markdown.** Trace answers with markdown formatting (lists, bold, tables, the occasional code block) and the chat printed all of it raw, asterisks and pipes included. Assistant bubbles now render it through markdown-it with `html: false` (model output cannot inject HTML; the renderer escapes it), `linkify: false`, and `breaks: true` (single newlines stay line breaks, matching how the bubbles wrapped before). User messages stay plain text.
+- **Trace chat renders markdown properly** ([#52](https://github.com/TraceApps/lifttrace/pull/52), thanks @backmind). Lists, bold, tables, and code blocks in the coach's replies now render instead of showing raw asterisks and pipes. Assistant bubbles only; user messages stay plain text. Renderer loads lazily on first Trace open, so users who never open Trace pay no bundle cost.
 
 ### Fixed
 
-- **Clearing the AI chat now asks for confirmation.** The clear button in the chat header wiped the whole conversation on a single tap: the message list emptied immediately and the server ran an unconditional `DELETE` on the chat history, which the sync tombstone flow does not cover, so an accidental tap had no way back. The button now goes through the same confirmation dialog the app already uses for its other destructive actions; cancelling leaves the conversation untouched on screen and on the server.
+- **Every foreground of the app no longer adds a full extra layer of sets to your program's exercises.** A combination of debounced save + lifecycle handlers (`visibilitychange` / `App.pause` / `pagehide`) was re-firing the same save entry with freshly regenerated set uuids each time; the server-side per-uuid merge treated the fresh uuids as new sets and appended them onto the existing ones. Set counts now stay stable across foreground/background cycles. **Existing workouts already inflated by this bug stay inflated. The fix stops the leak but doesn't clean up prior damage.** Recover by opening the affected day, tapping Clear on the workout, and re-loading the template.
 
-- **Statistics summary cards and the plate calculator no longer show their units in capitals.** Both use uppercased labels, which took the unit symbol along with the name: the progress and volume cards read `MAX KG` / `TOTAL KG`, the body-weight card `CURRENT KG`, the cardio card `TOTAL MIN`, and the plate calculator `TARGET WEIGHT (KG)` with `POUNDS (LBS)` / `KILOGRAMS (KG)` in the converter. Unit symbols are case-sensitive: `kg` is kilograms, `min` is minutes, and `KG` and `MIN` are not units at all. The symbols now sit in the same `.unit` span that already keeps the body stats sheet and the rest field correct, so the labels read `MAX kg`, `TOTAL min` and `TARGET WEIGHT (kg)`. Names stay uppercase and no wording changes.
+- **Exercise catalog clear + re-import no longer silently unlinks workout history** ([#49](https://github.com/TraceApps/lifttrace/issues/49), diagnosed by @backmind). Both clear paths previously did a hard `DELETE`, so the re-import minted new autoincrement ids while every `exercise_id` in `workout_log` / `workout_templates` / `coach_prescriptions` JSON blobs still pointed at the deleted rows. Muscle Balance then bucketed every affected set as "other" and per-exercise Progress returned empty. Clearing now soft-deletes via the existing `deleted_at` column; the next matching re-import resurrects the row in place instead of minting a new one, preserving the id so historical references stay valid.
+
+- **Clearing the Trace chat now asks for confirmation** ([#50](https://github.com/TraceApps/lifttrace/pull/50), thanks @backmind). A single tap on the header button previously wiped the entire conversation with no way back. Also fixes a z-index bug where the confirm dialog opened behind the Trace panel.
+
+- **Statistics summary cards and plate calculator no longer show units in capitals** ([#48](https://github.com/TraceApps/lifttrace/pull/48), thanks @backmind). Follow-up to #42 now that the strings sit in i18n keys. Reads `MAX kg` / `TOTAL min` / `TARGET WEIGHT (kg)` instead of `MAX KG` / `TOTAL MIN` / `TARGET WEIGHT (KG)`. `kg` is kilograms; `KG` is not a unit.
+
+### Security
+
+- No new dependencies. `npm audit` reports 0 vulnerabilities.
 
 ---
 
