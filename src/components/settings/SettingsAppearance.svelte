@@ -2,6 +2,7 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
+  import SettingRow from './SettingRow.svelte';
   import {
     appearance, applyAppearance, accentColor, applyAccentColor,
     navStyle, sidebarPersistent, startPage, disableAnimations,
@@ -96,80 +97,56 @@
             </button>
           </div>
         </div>
-        <div class="setting-divider"></div>
-        <div class="setting-row">
-          <span class="setting-label">{$_('settings_appearance.nav_style')}</span>
+        <SettingRow label={$_('settings_appearance.nav_style')}>
           <select class="form-select-sm" bind:value={$navStyle}>
             <option value="bottom">{$_('settings_appearance.nav_bottom')}</option>
             <option value="sidebar">{$_('settings_appearance.nav_sidebar')}</option>
             <option value="both">{$_('settings_appearance.nav_both')}</option>
           </select>
-        </div>
+        </SettingRow>
         {#if $navStyle !== 'bottom' && _persistentAllowed}
-          <div class="setting-divider"></div>
-          <div class="setting-row">
-            <div class="setting-label-group">
-              <span class="setting-label">{$_('settings_appearance.persistent_sidebar')}</span>
-              <span class="setting-hint">{$_('settings_appearance.persistent_sidebar_desc')}</span>
-            </div>
+          <SettingRow label={$_('settings_appearance.persistent_sidebar')}
+                      desc={$_('settings_appearance.persistent_sidebar_desc')}>
             <Toggle bind:checked={$sidebarPersistent} />
-          </div>
+          </SettingRow>
         {/if}
-        <div class="setting-divider"></div>
-        <div class="setting-row">
-          <span class="setting-label">{$_('settings_appearance.start_page')}</span>
+        <SettingRow label={$_('settings_appearance.start_page')}>
           <select class="form-select-sm" bind:value={$startPage}>
             {#each START_PAGES as sp}
               <option value={sp.value}>{sp.label}</option>
             {/each}
           </select>
-        </div>
-        <div class="setting-divider"></div>
-        <div class="setting-row">
-          <span class="setting-label">{$_('settings_appearance.reduce_motion')}</span>
+        </SettingRow>
+        <SettingRow label={$_('settings_appearance.reduce_motion')}>
           <Toggle bind:checked={$disableAnimations} />
-        </div>
-        <div class="setting-divider"></div>
-        <div class="setting-row">
-          <div class="setting-label-group">
-            <span class="setting-label">{$_('settings_appearance.force_mobile_layout')}</span>
-            <span class="setting-hint">{$_('settings_appearance.force_mobile_layout_desc')}</span>
-          </div>
+        </SettingRow>
+        <SettingRow label={$_('settings_appearance.force_mobile_layout')}
+                    desc={$_('settings_appearance.force_mobile_layout_desc')}>
           <Toggle bind:checked={$forceMobileLayout} />
-        </div>
-        <div class="setting-divider"></div>
-        <div class="setting-row">
-          <div class="setting-label-group">
-            <span class="setting-label">{$_('settings_appearance.goal_celebrations')}</span>
-            <span class="setting-hint">{$_('settings_appearance.goal_celebrations_desc')}</span>
-          </div>
+        </SettingRow>
+        <SettingRow label={$_('settings_appearance.goal_celebrations')}
+                    desc={$_('settings_appearance.goal_celebrations_desc')}>
           <Toggle bind:checked={$goalCelebrations} />
-        </div>
-        <div class="setting-divider"></div>
-        <div class="setting-row">
-          <div class="setting-label-group">
-            <span class="setting-label">{$_('settings_appearance.page_banners')}</span>
-            <span class="setting-hint">{$_('settings_appearance.page_banners_desc')}</span>
-          </div>
+        </SettingRow>
+        <SettingRow label={$_('settings_appearance.page_banners')}
+                    desc={$_('settings_appearance.page_banners_desc')}>
           <select class="form-select-sm" value={$bannerStyle} on:change={e => bannerStyle.set(e.target.value)}>
             <option value="animated">{$_('settings_appearance.banner_animated')}</option>
             <option value="gradient">{$_('settings_appearance.banner_gradient')}</option>
             <option value="off">{$_('settings_appearance.banner_off')}</option>
           </select>
-        </div>
+        </SettingRow>
         {#if $bannerStyle === 'animated'}
-          <div class="setting-row">
-            <div class="setting-label-group">
-              <span class="setting-label">{$_('settings_appearance.anim_style')}</span>
-              <span class="setting-hint">{$_('settings_appearance.anim_style_desc')}</span>
-            </div>
+          <SettingRow divider={false}
+                      label={$_('settings_appearance.anim_style')}
+                      desc={$_('settings_appearance.anim_style_desc')}>
             <select class="form-select-sm" value={$bannerAnimation} on:change={e => bannerAnimation.set(e.target.value)}>
               <option value="shimmer">{$_('settings_appearance.anim_shimmer')}</option>
               <option value="drift">{$_('settings_appearance.anim_drift')}</option>
               <option value="pulse">{$_('settings_appearance.anim_pulse')}</option>
               <option value="aurora">{$_('settings_appearance.anim_aurora')}</option>
             </select>
-          </div>
+          </SettingRow>
         {/if}
       </div>
     </div>
