@@ -4,7 +4,7 @@
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
-  import { accentColor, applyAccentColor, pageBanners, bannerStyle, aiEnabled, appearance as appearanceStore } from '../stores/settings.js';
+  import { accentColor, applyAccentColor, pageBanners, bannerStyle, aiEnabled, appearance as appearanceStore, disableAnimations } from '../stores/settings.js';
   import { activeProgram, loadActiveProgram } from '../stores/workout.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
