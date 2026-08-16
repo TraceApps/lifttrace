@@ -1,5 +1,5 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
   import { slide, fade } from 'svelte/transition';
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -551,6 +551,38 @@
   // would re-force expanded on every Svelte tick while currentSection
   // stays 'profile', making the collapse toggle look broken (chevron
   // rotates but body never leaves).
+  // Rail active-pill: the moving highlight that slides between rail
+  // items on section change. Absolutely positioned inside the rail;
+  // we measure the active button's offsetTop/offsetHeight and drive
+  // CSS transform + height. First measurement is applied without a
+  // transition (via _pillReady flag) so it doesn't jump from 0 on
+  // initial mount.
+  let _railEl;
+  let _pillY = 0;
+  let _pillH = 0;
+  let _pillVisible = false;
+  let _pillReady = false;
+  let _pillRO;
+  function _measurePill() {
+    if (!_railEl) return;
+    const btn = _railEl.querySelector('.rail-btn.active');
+    if (!btn) { _pillVisible = false; return; }
+    const y = btn.offsetTop;
+    const h = btn.offsetHeight;
+    if (_pillVisible && y === _pillY && h === _pillH) return;
+    _pillY = y;
+    _pillH = h;
+    _pillVisible = true;
+    if (!_pillReady) requestAnimationFrame(() => { _pillReady = true; });
+  }
+  afterUpdate(_measurePill);
+  onMount(() => {
+    if (typeof ResizeObserver === 'undefined' || !_railEl) return;
+    _pillRO = new ResizeObserver(_measurePill);
+    _pillRO.observe(_railEl);
+  });
+  onDestroy(() => { _pillRO?.disconnect(); });
+
   let _lastProfileNavKey = null;
   $: {
     const key = String(currentSection || '');
@@ -775,7 +807,16 @@
          the pane takes the remaining space. Matches NutriTrace's
          shell 1:1 so the family stays visually uniform. -->
     <div class="settings-two-pane">
-      <aside class="settings-nav-rail" aria-label="Settings sections">
+      <aside class="settings-nav-rail" aria-label="Settings sections"
+             bind:this={_railEl}>
+        <!-- Sliding highlight pill. Absolutely positioned; its
+             translateY + height animate to the active rail button on
+             every section change. Behind the button text (z-index:0). -->
+        <div class="rail-active-pill"
+             class:visible={_pillVisible}
+             class:ready={_pillReady && !$disableAnimations}
+             style="transform: translateY({_pillY}px); height: {_pillH}px;"
+             aria-hidden="true"></div>
         {@render sectionButtons()}
         {#if _railNoMatches}
           <div class="settings-nav-empty">
@@ -2094,6 +2135,8 @@
       flex-direction: column;
       gap: 2px;
       position: sticky;
+      /* establishes containing block for the abs-positioned pill */
+      isolation: isolate;
       top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
       max-height: calc(100vh
         - var(--page-top, var(--safe-top))
@@ -2126,13 +2169,43 @@
       cursor: pointer;
       text-align: left;
       width: 100%;
+      /* Sit above the sliding pill (z-index:0) so text + icons render
+         on top of the highlight background. */
+      position: relative;
+      z-index: 1;
+      transition: color 160ms ease;
     }
     :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:hover {
       background: var(--surface-2);
     }
     :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn.active {
-      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      /* Background comes from .rail-active-pill (slides in from prior
+         active item). Only the text/icon color flips here. */
+      background: transparent;
       color: var(--accent);
+    }
+    /* Sliding highlight pill — the shared background element that
+       animates its transform + height to the active rail button. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      top: 0;
+      border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 0;
+      will-change: transform, height;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.visible {
+      opacity: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.ready {
+      transition:
+        transform 320ms cubic-bezier(0.32, 0.72, 0, 1),
+        height 260ms cubic-bezier(0.32, 0.72, 0, 1),
+        opacity 180ms ease;
     }
     :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:focus-visible {
       outline: 2px solid var(--accent);
