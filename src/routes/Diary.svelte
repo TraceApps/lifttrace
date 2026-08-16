@@ -151,6 +151,25 @@
     }
     return count;
   })();
+  // Desktop right-rail visibility toggle. 'pinned' = default sticky
+  // sidebar; 'hidden' = rail collapses to a fixed edge-tab so the
+  // center column reclaims that width. Persists per-device so a
+  // heads-down lifter's preference sticks between sessions. Mirrors
+  // NutriTrace's Diary rail pattern (nt:diaryRailMode) — LT-scoped
+  // key. Reactive save writes back on every change.
+  const RAIL_MODE_KEY = 'lt:diaryRailMode';
+  let _railMode = 'pinned';
+  if (typeof localStorage !== 'undefined') {
+    const saved = localStorage.getItem(RAIL_MODE_KEY);
+    if (saved === 'hidden' || saved === 'pinned') _railMode = saved;
+  }
+  $: if (typeof localStorage !== 'undefined') {
+    try { localStorage.setItem(RAIL_MODE_KEY, _railMode); } catch {}
+  }
+  function _toggleRail() {
+    _railMode = _railMode === 'hidden' ? 'pinned' : 'hidden';
+  }
+
   // 7-day peek for the desktop right rail. Returns the last 7 dates
   // (oldest first, today last) with a flag for whether workoutDateSet
   // has a completed workout that day. Reactive on workoutDateSet so it
@@ -1770,7 +1789,7 @@
        .diary-right-rail is display:none. Gated by
        html:not(.force-mobile-layout) so the desktop opt-out toggle
        still delivers the mobile flow at any width. -->
-  <div class="diary-body">
+  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'}>
 
   <!-- Left column wrapper (desktop only via grid; mobile just stacks).
        Groups the session HUD (summary-bar + now-strip) into one grid
@@ -2211,6 +2230,19 @@
        diary: which program they're on, what today's template is, and
        a live session-stats summary. -->
   <aside class="diary-right-rail" aria-label="Program context">
+    <!-- Rail header (desktop only): tiny label + collapse button.
+         Hides the rail into a fixed edge-tab so the center column
+         reclaims the 340px + gap. Persisted via _railMode. -->
+    <div class="rail-title">
+      <span class="rail-title-text">Overview</span>
+      <button type="button"
+              class="rail-ctrl-btn"
+              on:click={_toggleRail}
+              aria-label="Hide side panel"
+              title="Hide side panel">
+        <span class="material-symbols-rounded">chevron_right</span>
+      </button>
+    </div>
     <!-- 7-day peek — always visible. Dots colored by whether that
          date has any completed set in workoutDateSet. Today gets a
          ring. Clicking a day jumps the diary to that date. -->
@@ -2317,6 +2349,20 @@
   </aside>
 
   </div><!-- /.diary-body -->
+
+  <!-- Fixed edge tab — only visible when the desktop rail is hidden.
+       Tap to bring the rail back. Fixed positioning so it sits above
+       the exercise list without shifting layout. Hidden on mobile
+       via CSS (rail is display:none there regardless). -->
+  {#if _railMode === 'hidden'}
+    <button type="button"
+            class="rail-edge-tab"
+            on:click={_toggleRail}
+            aria-label="Show side panel"
+            title="Show side panel">
+      <span class="material-symbols-rounded">chevron_left</span>
+    </button>
+  {/if}
 
   <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
        Loading from a program mid-workout lives in the ⋮ menu as "Replace workout". -->
@@ -3598,6 +3644,8 @@
      desktop shell. Rail-card styles are shared so the same tokens
      work if we ever expose the rail on tablet later. */
   .diary-right-rail { display: none; }
+  .rail-edge-tab    { display: none; }
+  .rail-title       { display: none; }
   .rail-card {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -3818,6 +3866,15 @@
       margin-left: 0;
       margin-right: 0;
     }
+    /* When the rail is hidden via _railMode, drop the third column
+       so the center column reclaims that width. Rail element itself
+       hides below. */
+    :global(html:not(.force-mobile-layout)) .diary-body.rail-hidden {
+      grid-template-columns: 280px minmax(0, 1fr);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body.rail-hidden > .diary-right-rail {
+      display: none;
+    }
     /* Right column — program context rail. Sticky so it stays with
        the user as the center column scrolls. Same sticky-top math
        the settings rail uses. */
@@ -3838,6 +3895,75 @@
       overflow-y: auto;
       scrollbar-width: thin;
       scrollbar-color: var(--border) transparent;
+    }
+    /* Rail title bar — tiny "Overview" label + collapse button that
+       drops the rail into the fixed edge tab. Sits above the first
+       card in the sticky column. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 4px 4px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-title-text {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      color: var(--text-3);
+      cursor: pointer;
+      transition: background var(--dur-fast), color var(--dur-fast);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn:hover {
+      background: var(--surface-2);
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn .material-symbols-rounded {
+      font-size: 18px;
+    }
+    /* Fixed edge tab — appears when the rail is hidden. Half-round
+       chip anchored to the right viewport edge, vertically centered.
+       Same sticky-top math so it sits below the header. */
+    :global(html:not(.force-mobile-layout)) .rail-edge-tab {
+      display: inline-flex;
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 40;
+      width: 28px;
+      height: 56px;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-right: none;
+      border-radius: 12px 0 0 12px;
+      color: var(--text-2);
+      cursor: pointer;
+      box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+      transition: background var(--dur-fast), color var(--dur-fast), width var(--dur-fast);
+    }
+    :global(html:not(.force-mobile-layout)) .rail-edge-tab:hover {
+      background: var(--surface-2);
+      color: var(--accent);
+      width: 32px;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-edge-tab .material-symbols-rounded {
+      font-size: 20px;
     }
   }
 </style>
