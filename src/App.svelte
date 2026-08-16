@@ -596,7 +596,15 @@
   </div>
 {/if}
 
-{#key $location}
+{#key ($location || '').split('/')[1] || ''}
+  <!-- Key on the FIRST url segment ('settings', 'diary', etc.) rather
+       than the full $location. Full-location keying meant any sub-path
+       change (jumping between /settings/appearance <-> /settings/units
+       via the desktop rail) triggered a full route remount + fade-in,
+       which reads as a page load and blows away all local state in the
+       shell (rail scroll, expand states, cross-fade context, etc.).
+       Segment-keyed means only true shell changes animate. Matches
+       NutriTrace's pattern. -->
   <div
     class="page-transition"
     in:fade={{ duration: $disableAnimations ? 0 : 180 }}

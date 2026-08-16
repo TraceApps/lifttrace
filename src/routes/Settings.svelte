@@ -4,7 +4,8 @@
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
-  import { accentColor, applyAccentColor, pageBanners, bannerStyle } from '../stores/settings.js';
+  import { accentColor, applyAccentColor, pageBanners, bannerStyle, aiEnabled, appearance as appearanceStore } from '../stores/settings.js';
+  import { activeProgram, loadActiveProgram } from '../stores/workout.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
   import SettingsUpdates from '../components/settings/SettingsUpdates.svelte';
@@ -546,6 +547,45 @@
   // Auto-expand when the user navigates to /settings/profile from the
   // rail so "Profile from rail" and "Profile as landing" look the same.
   $: if (currentSection === 'profile') _profileHeroExpanded = true;
+
+  // Desktop welcome-hero onboarding cards (mirrors NT). Each card is
+  // state-gated so it disappears once the underlying thing is set up.
+  // Established users see a clean welcome; new users get one-tap
+  // nudges toward the high-value setup steps. Order chosen for LT:
+  // Server (blocks sync) → Program (drives every workout suggestion)
+  // → Trace (the AI coach) → Appearance (personal preference). Users
+  // can also × any card they don't intend to configure — dismissals
+  // persist in localStorage as a comma-separated key list.
+  let _onboardingDismissed = new Set();
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('lt:onboardingDismissed') || '';
+      _onboardingDismissed = new Set(raw.split(',').filter(Boolean));
+    }
+  } catch { /* ignore */ }
+  function _dismissOnboarding(key) {
+    _onboardingDismissed = new Set([..._onboardingDismissed, key]);
+    try {
+      localStorage.setItem('lt:onboardingDismissed', [..._onboardingDismissed].join(','));
+    } catch { /* ignore */ }
+  }
+  onMount(() => { try { loadActiveProgram(); } catch {} });
+  $: _onboardingCards = (() => {
+    const cards = [];
+    if (isNative && !getServerUrl()) {
+      cards.push({ key: 'serverConnection', icon: 'cloud_sync', label: 'Connect a Server', desc: 'Sync your workouts across devices.' });
+    }
+    if (!$activeProgram) {
+      cards.push({ key: 'workout',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.' });
+    }
+    if (!$aiEnabled) {
+      cards.push({ key: 'trace',     icon: 'bolt', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
+    }
+    if ($appearanceStore === 'system') {
+      cards.push({ key: 'appearance', icon: 'contrast', label: 'Choose a Theme', desc: 'Pick a light / dark preference and accent color.' });
+    }
+    return cards.filter(c => !_onboardingDismissed.has(c.key));
+  })();
 </script>
 
 <!-- Rail + mobile-index section list. Same list markup rendered in two
@@ -785,7 +825,38 @@
             <Profile />
           </div>
         {/if}
-        {#if !currentSection}
+        {#if !currentSection && _onboardingCards.length > 0}
+          <!-- Onboarding shortcut grid. Only shown on the desktop
+               welcome pane (not the /settings/profile drill), and
+               only when at least one card is state-relevant. Cards
+               disappear once the underlying thing is configured or
+               the user × dismisses them. Ports NT's shape. -->
+          <div class="settings-onboarding">
+            <p class="settings-onboarding-heading">Get Set Up</p>
+            <div class="settings-onboarding-grid">
+              {#each _onboardingCards as card (card.key)}
+                <div class="settings-onboarding-card-wrap">
+                  <button type="button" class="settings-onboarding-card"
+                    on:click={() => toggleSection(card.key)}>
+                    <span class="material-symbols-rounded">{card.icon}</span>
+                    <div class="settings-onboarding-copy">
+                      <span class="settings-onboarding-label">{card.label}</span>
+                      <span class="settings-onboarding-desc">{card.desc}</span>
+                    </div>
+                  </button>
+                  <button type="button" class="settings-onboarding-dismiss"
+                    on:click|stopPropagation={() => _dismissOnboarding(card.key)}
+                    aria-label="Dismiss {card.label}"
+                    title="Dismiss">
+                    <span class="material-symbols-rounded">close</span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {:else if !currentSection}
+          <!-- Everyone dismissed or configured: fall back to the plain
+               prompt so the pane isn't left with a lone profile card. -->
           <p class="settings-desktop-prompt">{$_('settings_main.pick_a_section')}</p>
         {/if}
       </div>
@@ -2188,6 +2259,100 @@
       background: var(--surface-1);
       border: 1px dashed var(--border);
       border-radius: var(--radius-lg);
+    }
+
+    /* Onboarding shortcut cards under the profile hero. Two per row
+       on typical desktop widths, one per row when the pane gets
+       narrow. Each card is a large tap target with an icon + short
+       label + one-line description. Dismiss button lives in the top-
+       right corner, revealed on hover to keep the resting state
+       clean. */
+    :global(html:not(.force-mobile-layout)) .settings-onboarding {
+      margin-top: 24px;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-heading {
+      margin: 0 0 10px;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 700;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap {
+      position: relative;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      color: var(--text-1);
+      cursor: pointer;
+      text-align: left;
+      transition: background var(--dur-fast, 120ms), border-color var(--dur-fast, 120ms);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:hover {
+      background: var(--surface-2);
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card :global(.material-symbols-rounded) {
+      font-size: 22px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      flex: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-desc {
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.35;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: none;
+      border: none;
+      color: var(--text-3);
+      padding: 6px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity var(--dur-fast, 120ms), color var(--dur-fast, 120ms);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap:hover .settings-onboarding-dismiss,
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:focus-visible {
+      opacity: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:hover {
+      color: var(--text-1);
+      background: var(--surface-3);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss :global(.material-symbols-rounded) {
+      font-size: 14px;
     }
   }
 </style>
