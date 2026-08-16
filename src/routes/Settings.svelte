@@ -838,6 +838,91 @@
     </button>
     {/if}
 
+    {#if currentSection && currentSection !== 'profile'}
+      <!-- Sub-page render (Unit 2C). Only the current section mounts,
+           keyed on currentSection so navigating between sections
+           cross-fades cleanly. Mounts on nav = onMount fires on every
+           section change; accepted trade-off (matches NT) so users see
+           a fresh view + short intro animation per section instead of
+           the always-mounted accordion. The .settings-mobile-index
+           branch below still handles the non-sub-page case (mobile
+           and desktop /settings landing). -->
+      {#key currentSection}
+        <div class="settings-pane-fade"
+             in:fade={{ duration: $disableAnimations ? 0 : 140 }}>
+          {#if currentSection === 'appearance'}
+            <SettingsAppearance visible={true} expanded={true} onToggle={backToIndex} onOpenColorSheet={openColorSheet} />
+          {:else if currentSection === 'units'}
+            <SettingsUnits visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'workout'}
+            <SettingsWorkout visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'statistics'}
+            <SettingsStatistics visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'catalog'}
+            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'trace'}
+            <SettingsTrace visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'radio'}
+            <SettingsRadio visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'federation'}
+            <SettingsFederation visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'notifications'}
+            <SettingsNotifications visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'data'}
+            <SettingsBackup visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'workoutImport'}
+            <SettingsWorkoutImport visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'helpImprove'}
+            <SettingsDiagnostics visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'users'}
+            <SettingsUserManagement visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'authentication'}
+            <SettingsAuth visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'email'}
+            <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'about'}
+            <SettingsAbout visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'updates'}
+            <!-- Updates is a shared TraceApps component without the
+                 visible/expanded/onToggle prop shape; render it in the
+                 same header + body wrapper the mobile-index inline
+                 rendering uses so it looks identical. -->
+            <button class="section-toggle" on:click={backToIndex}>
+              <span class="material-symbols-rounded si">system_update</span>
+              <span class="section-name">{$_('settings.updates.section')}</span>
+              <span class="material-symbols-rounded chevron rotated">expand_more</span>
+            </button>
+            <div class="section-body">
+              <SettingsUpdates />
+            </div>
+          {:else if currentSection === 'serverConnection'}
+            <!-- Server Connection is inline markup, not a component.
+                 Rendered elsewhere in the accordion stack — but for
+                 sub-page mode we intentionally keep the accordion
+                 stack rendering for this ONE section so we don't have
+                 to duplicate ~80 lines of markup here. The stack below
+                 already renders it under the correct visible/expanded
+                 flags; .subpage-view CSS filters the others out. -->
+            <div class="settings-mobile-index">
+              {@render _inlineStack()}
+            </div>
+          {/if}
+        </div>
+      {/key}
+    {:else}
+    <!-- Non-sub-page render: the mobile-index accordion (also serves
+         as the desktop landing before Unit 1's rail gets used). -->
+    <div class="settings-mobile-index">
+    {@render _inlineStack()}
+    </div>
+    {/if}
+
+    <!-- Accordion stack — extracted into a snippet so both the mobile-
+         index branch and the serverConnection sub-page branch can call
+         it without duplication. Inside {@render}, .subpage-view CSS
+         still handles filtering when we're on the serverConnection
+         sub-page (hides everything except that section's body). -->
+    {#snippet _inlineStack()}
     <!-- ═══ DISPLAY ═══════════════════════════════════════════════════════ -->
     <p class="group-label">{$_('settings_main.group_display')}</p>
 
@@ -1081,6 +1166,7 @@
     {/if}
 
     <div style="height:24px"></div>
+    {/snippet}
       </div><!-- /.settings-pane -->
     </div><!-- /.settings-two-pane -->
   </div>
@@ -2056,6 +2142,17 @@
     :global(html:not(.force-mobile-layout)) .settings-content.subpage-view .settings-pane .settings-desktop-hero {
       display: block;
     }
+  }
+
+  /* Sub-page cross-fade wrapper (Unit 2C). Only the current section
+     mounts inside this div, keyed on currentSection. The .subpage-view
+     :global(.section-toggle) rule further above still hides the
+     section's own toggle-row so only its body shows. */
+  .settings-pane-fade {
+    /* No explicit styles needed — the wrapper is transparent, but it
+       gives Svelte's fade transition a stable target that swaps in
+       and out on every section change. Kept as a class so future
+       polish (padding, animation tweaks) has one place to land. */
   }
 
   /* Desktop welcome hero — profile card + expandable inline editor +
