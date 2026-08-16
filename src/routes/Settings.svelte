@@ -544,9 +544,21 @@
   function _toggleProfileHero() {
     _profileHeroExpanded = !_profileHeroExpanded;
   }
-  // Auto-expand when the user navigates to /settings/profile from the
-  // rail so "Profile from rail" and "Profile as landing" look the same.
-  $: if (currentSection === 'profile') _profileHeroExpanded = true;
+  // Auto-expand ONLY on the transition into /settings/profile from
+  // another section (rail-tap flow) so "Profile from rail" and
+  // "Profile as landing" look the same. Tracked via a watch flag —
+  // a plain `$: if (currentSection === 'profile') expanded = true`
+  // would re-force expanded on every Svelte tick while currentSection
+  // stays 'profile', making the collapse toggle look broken (chevron
+  // rotates but body never leaves).
+  let _lastProfileNavKey = null;
+  $: {
+    const key = String(currentSection || '');
+    if (key !== _lastProfileNavKey) {
+      _lastProfileNavKey = key;
+      if (key === 'profile') _profileHeroExpanded = true;
+    }
+  }
 
   // Desktop welcome-hero onboarding cards (mirrors NT). Each card is
   // state-gated so it disappears once the underlying thing is set up.
@@ -919,8 +931,12 @@
            branch below still handles the non-sub-page case (mobile
            and desktop /settings landing). -->
       {#key currentSection}
+        <!-- transition:fade (both in and out) gives a real cross-fade
+             on section swap. `in:fade` alone unmounted the previous
+             section instantly and only faded the incoming — which
+             read as an abrupt swap, not a transition. -->
         <div class="settings-pane-fade"
-             in:fade={{ duration: $disableAnimations ? 0 : 140 }}>
+             transition:fade={{ duration: $disableAnimations ? 0 : 140 }}>
           {#if currentSection === 'appearance'}
             <SettingsAppearance visible={true} expanded={true} onToggle={backToIndex} onOpenColorSheet={openColorSheet} />
           {:else if currentSection === 'units'}
