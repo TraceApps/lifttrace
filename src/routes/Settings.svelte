@@ -1573,6 +1573,15 @@
   .subpage-view :global(.group-label) { display: none; }
   .subpage-view :global(.profile-hero) { display: none; }
   .subpage-view :global(.section-toggle) { display: none; }
+  /* Kill Svelte's transition:slide on section-body when in sub-page
+     view (matches NutriTrace). SettingsX children still declare a
+     slide entry for the accordion pattern in the mobile stack, but
+     on sub-page mount the .settings-pane-fade wrapper already fades
+     in — a simultaneous body-slide reads as a growing/settling
+     effect on top of the fade. Killing `animation` (which is what
+     Svelte's slide compiles to) leaves the wrapper fade as the sole
+     entry motion, so the swap feels identical to NT. */
+  .subpage-view :global(.section-body) { animation: none !important; }
 
   /* Back arrow header button — mirrors NT + CT. */
   .settings-back {
