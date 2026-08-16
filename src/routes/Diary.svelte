@@ -1772,45 +1772,74 @@
        still delivers the mobile flow at any width. -->
   <div class="diary-body">
 
+  <!-- Left column wrapper (desktop only via grid; mobile just stacks).
+       Groups the session HUD (summary-bar + now-strip) into one grid
+       cell so column heights are independent — otherwise grid shares
+       row heights across all columns and the tall stacked summary-bar
+       inflates row 1 in the center column, leaving a big gap between
+       the workout title and the exercise list. -->
+  <div class="diary-hud-col">
+    <!-- Summary bar — single dense row (mobile) / vertical stack
+         (desktop left column). Sets / exercises / volume / timer /
+         wake-lock. -->
+    {#if exercises.length > 0}
+      <div class="summary-bar" class:done={stats.total > 0 && stats.completed === stats.total}>
+        <div class="sb-fill" style:width={`${stats.total > 0 ? Math.round(stats.completed / stats.total * 100) : 0}%`}></div>
+        <div class="stat">
+          <span class="material-symbols-rounded stat-icon">check_circle</span>
+          <span class="stat-val">{stats.completed}/{stats.total}</span>
+          <span class="stat-label">{$_('diary_extra.sets')}</span>
+        </div>
+        <div class="stat">
+          <span class="material-symbols-rounded stat-icon">fitness_center</span>
+          <span class="stat-val">{exercises.length}</span>
+          <span class="stat-label">{$_('diary_extra.exercises')}</span>
+        </div>
+        {#if totalVolume > 0}
+          <div class="stat">
+            <span class="material-symbols-rounded stat-icon">monitoring</span>
+            <span class="stat-val">{totalVolume >= 1000 ? (totalVolume/1000).toFixed(1) + 'k' : Math.round(totalVolume)}</span>
+            <span class="stat-label">{$weightUnit}</span>
+          </div>
+        {/if}
+        {#if !$todayLog?.completed}
+          <WorkoutTimer bind:minutes={durationMin} on:update={e => updateDuration(e.detail)} />
+        {/if}
+        <button class="wake-toggle" class:active={$screenOn} on:click={toggleWakeLock} title={$screenOn ? 'Screen lock on' : 'Screen lock off'}>
+          <span class="material-symbols-rounded">
+            {$screenOn ? 'stay_current_portrait' : 'screen_lock_portrait'}
+          </span>
+        </button>
+      </div>
+    {/if}
+    <!-- "Now doing" pill — moved up from between workout-title-row and
+         exercise-list so it stays adjacent to summary-bar in the left
+         HUD column at wide widths (and appears right below session
+         progress on mobile too, which reads at least as well). -->
+    {#if currentStatus}
+      <button class="now-strip" on:click={scrollToCurrent} title="Jump to this exercise">
+        <span class="material-symbols-rounded now-icon">play_arrow</span>
+        <div class="now-info">
+          <span class="now-label">Now</span>
+          <span class="now-exercise">{currentStatus.label}</span>
+        </div>
+        <span class="now-set">{currentStatus.setInfo}</span>
+        <span class="material-symbols-rounded now-chev">chevron_right</span>
+      </button>
+    {/if}
+  </div>
+
+  <!-- Center column wrapper. On mobile this is just a plain block; on
+       desktop it becomes the single grid cell in column 2, so the
+       content stacks by flex without its row heights being influenced
+       by anything in the HUD or rail columns. -->
+  <div class="diary-main-col">
+
   <!-- Planning badge when viewing a future date -->
   {#if isFuture}
     <div class="planning-badge">
       <span class="material-symbols-rounded">event_note</span>
       Planning ahead — this workout is scheduled for {formatDateHeader($currentDate)}
-    </div>
-  {/if}
-
-  <!-- Summary bar — single dense row with sets / exercises / volume /
-       timer / wake-lock. Replaces the previous summary-bar + redundant
-       progress-strip that duplicated the fill + sets count. -->
-  {#if exercises.length > 0}
-    <div class="summary-bar" class:done={stats.total > 0 && stats.completed === stats.total}>
-      <div class="sb-fill" style:width={`${stats.total > 0 ? Math.round(stats.completed / stats.total * 100) : 0}%`}></div>
-      <div class="stat">
-        <span class="material-symbols-rounded stat-icon">check_circle</span>
-        <span class="stat-val">{stats.completed}/{stats.total}</span>
-        <span class="stat-label">{$_('diary_extra.sets')}</span>
-      </div>
-      <div class="stat">
-        <span class="material-symbols-rounded stat-icon">fitness_center</span>
-        <span class="stat-val">{exercises.length}</span>
-        <span class="stat-label">{$_('diary_extra.exercises')}</span>
-      </div>
-      {#if totalVolume > 0}
-        <div class="stat">
-          <span class="material-symbols-rounded stat-icon">monitoring</span>
-          <span class="stat-val">{totalVolume >= 1000 ? (totalVolume/1000).toFixed(1) + 'k' : Math.round(totalVolume)}</span>
-          <span class="stat-label">{$weightUnit}</span>
-        </div>
-      {/if}
-      {#if !$todayLog?.completed}
-        <WorkoutTimer bind:minutes={durationMin} on:update={e => updateDuration(e.detail)} />
-      {/if}
-      <button class="wake-toggle" class:active={$screenOn} on:click={toggleWakeLock} title={$screenOn ? 'Screen lock on' : 'Screen lock off'}>
-        <span class="material-symbols-rounded">
-          {$screenOn ? 'stay_current_portrait' : 'screen_lock_portrait'}
-        </span>
-      </button>
     </div>
   {/if}
 
@@ -1953,20 +1982,9 @@
        duplicate the fill + sets count, doubling visual weight at the top
        of the diary on every page load.) -->
 
-  <!-- "Now doing" pill — sticky floater that tells the lifter where they
-       are and scrolls to that card on tap. Only renders when there's an
-       incomplete working set somewhere. -->
-  {#if currentStatus}
-    <button class="now-strip" on:click={scrollToCurrent} title="Jump to this exercise">
-      <span class="material-symbols-rounded now-icon">play_arrow</span>
-      <div class="now-info">
-        <span class="now-label">Now</span>
-        <span class="now-exercise">{currentStatus.label}</span>
-      </div>
-      <span class="now-set">{currentStatus.setInfo}</span>
-      <span class="material-symbols-rounded now-chev">chevron_right</span>
-    </button>
-  {/if}
+  <!-- (now-strip lives in .diary-hud-col above — moved so it sits
+       next to summary-bar in the desktop left column, and appears
+       right below session progress on mobile.) -->
 
   <!-- Exercise list -->
   <div class="exercise-list">
@@ -2183,6 +2201,8 @@
       <CardioCard />
     </div>
   {/if}
+
+  </div><!-- /.diary-main-col -->
 
   <!-- Right rail — program context. Only renders visibly at >=1280px
        (mobile CSS sets display:none). Read-only for phase 1; Load
@@ -3733,9 +3753,10 @@
   .rail-action .material-symbols-rounded { font-size: 18px; }
 
   @media (min-width: 1280px) {
-    /* Three-column shell. Only the wrapper is affected; each
-       existing child keeps its own margins/padding, we just re-flow
-       them into columns via grid-column assignments. */
+    /* Three-column shell. Two wrapper divs (.diary-hud-col and
+       .diary-main-col) plus the .diary-right-rail sibling are the
+       three grid children — each is a single cell so heights don't
+       bleed between columns. */
     :global(html:not(.force-mobile-layout)) .diary-body {
       display: grid;
       grid-template-columns: 280px minmax(0, 720px) 340px;
@@ -3743,38 +3764,59 @@
       align-items: start;
       max-width: 1440px;
       margin: 0 auto;
-      /* Same horizontal breathing room the rest of the page uses so
-         the grid doesn't kiss the viewport edges on 1280px screens. */
       padding: 0 var(--page-px);
       box-sizing: border-box;
     }
-    /* Default column = center. Everything falls into col 2 unless it
-       explicitly opts into 1 or 3 below. */
-    :global(html:not(.force-mobile-layout)) .diary-body > * {
-      grid-column: 2;
-      min-width: 0;
-    }
-    /* Left column — session HUD. summary-bar + now-strip land here.
-       They stay in DOM order relative to the rest of the diary but
-       grid pulls them into col 1. Their per-column margins get
-       zeroed since column gap already provides breathing room. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .summary-bar,
-    :global(html:not(.force-mobile-layout)) .diary-body > .now-strip {
+    /* Left column — session HUD wrapper. Sticks with the user as the
+       center column scrolls so the timer + now-doing stay visible. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col {
       grid-column: 1;
-      width: 100%;
-      margin-left: 0;
-      margin-right: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      align-self: start;
     }
-    /* Summary-bar restacks vertical in the narrow left column —
-       the horizontal flex layout doesn't fit 280px comfortably. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .summary-bar {
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar,
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .now-strip {
+      margin: 0;
+      width: 100%;
+    }
+    /* Summary-bar restacks vertical in the narrow left column — the
+       horizontal flex layout doesn't fit 280px comfortably. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar {
       flex-direction: column;
       align-items: stretch;
       gap: 10px;
       padding: 14px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .summary-bar > .stat {
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat {
       justify-content: flex-start;
+    }
+    /* Center column — the actual training content. Plain flex stack. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col {
+      grid-column: 2;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    /* Kill the page-px horizontal padding on center-col children —
+       the grid gap already handles spacing. Otherwise every card
+       is double-padded and drifts right. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .exercise-list {
+      padding-left: 0;
+      padding-right: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .workout-title-row,
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .coach-banner,
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .coach-feedback-banner,
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .suggested-section,
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .cardio-slot,
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .planning-badge {
+      margin-left: 0;
+      margin-right: 0;
     }
     /* Right column — program context rail. Sticky so it stays with
        the user as the center column scrolls. Same sticky-top math
@@ -3784,7 +3826,6 @@
       flex-direction: column;
       gap: 12px;
       grid-column: 3;
-      grid-row: 1 / span 999;
       position: sticky;
       top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
       align-self: start;
@@ -3797,22 +3838,6 @@
       overflow-y: auto;
       scrollbar-width: thin;
       scrollbar-color: var(--border) transparent;
-    }
-    /* Cap the exercise list and its neighbours to the center-column
-       width — they currently use page-px padding, and inside a
-       grid cell that would leave dead space we don't want. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .exercise-list {
-      padding-left: 0;
-      padding-right: 0;
-    }
-    :global(html:not(.force-mobile-layout)) .diary-body > .workout-title-row,
-    :global(html:not(.force-mobile-layout)) .diary-body > .coach-banner,
-    :global(html:not(.force-mobile-layout)) .diary-body > .coach-feedback-banner,
-    :global(html:not(.force-mobile-layout)) .diary-body > .suggested-section,
-    :global(html:not(.force-mobile-layout)) .diary-body > .cardio-slot,
-    :global(html:not(.force-mobile-layout)) .diary-body > .planning-badge {
-      margin-left: 0;
-      margin-right: 0;
     }
   }
 </style>
