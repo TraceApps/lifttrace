@@ -129,6 +129,12 @@ export const navStyle         = createSettingStore('navStyle',         'both');
 export const sidebarPersistent = createSettingStore('sidebarPersistent', false);
 export const startPage        = createSettingStore('startPage',        '/');
 export const disableAnimations = createSettingStore('disableAnimations', false);
+// Desktop opt-out. When true, App.svelte stamps `html.force-mobile-layout`
+// so the desktop-only CSS (Settings two-pane rail, any future ≥1024px
+// layouts) reverts to the mobile stack. Lets desktop users preview the
+// phone layout without resizing the window. Matches NutriTrace's shape
+// so any shared debug tooling recognizes the same class.
+export const forceMobileLayout = createSettingStore('forceMobileLayout', false);
 // bannerStyle is the canonical banner-display setting.
 //   'animated' = tall header with illustrated SVG (original behavior)
 //   'gradient' = tall header filled with the active accent gradient, no SVG

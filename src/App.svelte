@@ -10,7 +10,7 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
-  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation } from './stores/settings.js';
+  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
   import { _, locale } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
   import { portal } from './lib/portal.js';
@@ -289,6 +289,14 @@
 
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('no-animations', !!$disableAnimations);
+  }
+  // Desktop opt-out — when the user turns on Force Mobile Layout in
+  // Settings > Appearance, stamp html.force-mobile-layout so the
+  // desktop-only CSS (Settings two-pane rail, any future >=1024px
+  // layouts) reverts to the mobile stack. Mirrors NutriTrace's shape
+  // exactly so shared debug tooling recognizes the same class.
+  $: if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('force-mobile-layout', !!$forceMobileLayout);
   }
   // Mirror NutriTrace's banner-gradient global class so portaled top-bar
   // action buttons (.diary-topbar-actions) outside the .page-header still

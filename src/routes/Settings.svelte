@@ -360,7 +360,7 @@
 
   const SECTION_KEYWORDS = {
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
-    appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce'],
+    appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce','force mobile','mobile layout','mobile view','phone layout','narrow layout','desktop'],
     workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill'],
     units:          ['units','measurement','measurement system','format','date','time','12h','24h','locale','region','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
@@ -522,7 +522,124 @@
   // Reset to defaults + clear-data + delete-account moved into SettingsBackup.svelte
 
   // Sign-out is handled in the sidebar footer. See Sidebar.svelte.
+
+  // Desktop-only rail: friendly placeholder when the current search query
+  // matches nothing. Mobile drops back to the "no settings match" empty
+  // state below the section stack; the rail rendering is desktop-only.
+  $: _railNoMatches = !!settingsQuery && Object.keys(SECTION_META).every(k => !sectionVisible(settingsQuery, k));
 </script>
+
+<!-- Rail + mobile-index section list. Same list markup rendered in two
+     places (aside.settings-nav-rail on desktop ≥1024px, and inline in
+     the pane on mobile via CSS). Each button routes to /settings/<key>
+     via toggleSection. Sections are laid out to match the group labels
+     already used in the pane. -->
+{#snippet sectionButtons()}
+  <p class="settings-group-label">{$_('settings_main.group_display')}</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'appearance')} class:active={currentSection === 'appearance'} aria-current={currentSection === 'appearance' ? 'page' : undefined} on:click={() => toggleSection('appearance')}>
+    <span class="material-symbols-rounded si">contrast</span>
+    <span>{$_('settings.appearance.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'units')} class:active={currentSection === 'units'} aria-current={currentSection === 'units' ? 'page' : undefined} on:click={() => toggleSection('units')}>
+    <span class="material-symbols-rounded si">straighten</span>
+    <span>{$_('settings.units.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  <p class="settings-group-label">Data &amp; Tracking</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'workout')} class:active={currentSection === 'workout'} aria-current={currentSection === 'workout' ? 'page' : undefined} on:click={() => toggleSection('workout')}>
+    <span class="material-symbols-rounded si">fitness_center</span>
+    <span>{$_('settings.workout.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'statistics')} class:active={currentSection === 'statistics'} aria-current={currentSection === 'statistics' ? 'page' : undefined} on:click={() => toggleSection('statistics')}>
+    <span class="material-symbols-rounded si">bar_chart</span>
+    <span>{$_('settings.statistics.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'catalog')} class:active={currentSection === 'catalog'} aria-current={currentSection === 'catalog' ? 'page' : undefined} on:click={() => toggleSection('catalog')}>
+    <span class="material-symbols-rounded si">library_books</span>
+    <span>{$_('settings.catalog.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'workoutImport')} class:active={currentSection === 'workoutImport'} aria-current={currentSection === 'workoutImport' ? 'page' : undefined} on:click={() => toggleSection('workoutImport')}>
+    <span class="material-symbols-rounded si">upload</span>
+    <span>{$_('settings.workout_import.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  <p class="settings-group-label">{$_('settings_main.group_integrations')}</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'trace')} class:active={currentSection === 'trace'} aria-current={currentSection === 'trace' ? 'page' : undefined} on:click={() => toggleSection('trace')}>
+    <span class="material-symbols-rounded si">bolt</span>
+    <span>{$_('settings.trace.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'radio')} class:active={currentSection === 'radio'} aria-current={currentSection === 'radio' ? 'page' : undefined} on:click={() => toggleSection('radio')}>
+    <span class="material-symbols-rounded si">radio</span>
+    <span>{$_('settings.radio.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'federation')} class:active={currentSection === 'federation'} aria-current={currentSection === 'federation' ? 'page' : undefined} on:click={() => toggleSection('federation')}>
+    <span class="material-symbols-rounded si">link</span>
+    <span>{$_('settings.federation.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  <p class="settings-group-label">App</p>
+  {#if isNative}
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} class:active={currentSection === 'serverConnection'} aria-current={currentSection === 'serverConnection' ? 'page' : undefined} on:click={() => toggleSection('serverConnection')}>
+      <span class="material-symbols-rounded si">cloud</span>
+      <span>{$_('settings.server.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+  {/if}
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'notifications')} class:active={currentSection === 'notifications'} aria-current={currentSection === 'notifications' ? 'page' : undefined} on:click={() => toggleSection('notifications')}>
+    <span class="material-symbols-rounded si">notifications</span>
+    <span>{$_('settings.notifications.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'data')} class:active={currentSection === 'data'} aria-current={currentSection === 'data' ? 'page' : undefined} on:click={() => toggleSection('data')}>
+    <span class="material-symbols-rounded si">archive</span>
+    <span>{$_('settings.backup.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'updates')} class:active={currentSection === 'updates'} aria-current={currentSection === 'updates' ? 'page' : undefined} on:click={() => toggleSection('updates')}>
+    <span class="material-symbols-rounded si">system_update</span>
+    <span>{$_('settings.updates.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'helpImprove')} class:active={currentSection === 'helpImprove'} aria-current={currentSection === 'helpImprove' ? 'page' : undefined} on:click={() => toggleSection('helpImprove')}>
+    <span class="material-symbols-rounded si">troubleshoot</span>
+    <span>{$_('settings.diagnostics.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  {#if $userMgmtActive && $currentUser?.role === 'admin'}
+    <p class="settings-group-label">{$_('settings_main.group_admin')}</p>
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'users')} class:active={currentSection === 'users'} aria-current={currentSection === 'users' ? 'page' : undefined} on:click={() => toggleSection('users')}>
+      <span class="material-symbols-rounded si">group</span>
+      <span>{$_('settings.users.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'authentication')} class:active={currentSection === 'authentication'} aria-current={currentSection === 'authentication' ? 'page' : undefined} on:click={() => toggleSection('authentication')}>
+      <span class="material-symbols-rounded si">shield_person</span>
+      <span>{$_('settings.authentication.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'email')} class:active={currentSection === 'email'} aria-current={currentSection === 'email' ? 'page' : undefined} on:click={() => toggleSection('email')}>
+      <span class="material-symbols-rounded si">mail</span>
+      <span>{$_('settings.email.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+  {/if}
+
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'about')} class:active={currentSection === 'about'} aria-current={currentSection === 'about' ? 'page' : undefined} on:click={() => toggleSection('about')}>
+    <span class="material-symbols-rounded si">info</span>
+    <span>{$_('settings.about.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+{/snippet}
 
 <div class="page">
   <!-- Sticky header + search wrap so the search bar tracks the page header
@@ -551,8 +668,11 @@
       {/if}
     </header>
 
-    {#if !currentSection}
-      <div class="settings-search-bar">
+    <!-- Search bar always in DOM. On mobile the sub-page hides it via
+         CSS (users just backed into a section, they don't need to filter
+         again). On desktop it stays visible so the rail on the left can
+         be filtered while inside any section. -->
+    <div class="settings-search-bar" class:mobile-hide-on-subpage={!!currentSection}>
       <span class="material-symbols-rounded settings-search-icon">search</span>
       <input
         class="settings-search-input"
@@ -565,11 +685,31 @@
           <span class="material-symbols-rounded" style="font-size:18px">close</span>
         </button>
       {/if}
-      </div>
-    {/if}
+    </div>
   </div>
 
-  <div class="content" class:subpage-view={!!currentSection}>
+  <div class="content settings-content" class:subpage-view={!!currentSection}>
+    <!-- Two-pane shell. Below 1024px this is a plain block (rail
+         hidden, pane full-width). At ≥1024px + not force-mobile the
+         rail becomes a sticky 280px column with its own scroll and
+         the pane takes the remaining space. Matches NutriTrace's
+         shell 1:1 so the family stays visually uniform. -->
+    <div class="settings-two-pane">
+      <aside class="settings-nav-rail" aria-label="Settings sections">
+        {@render sectionButtons()}
+        {#if _railNoMatches}
+          <div class="settings-nav-empty">
+            <span class="material-symbols-rounded">search_off</span>
+            <p>No sections match "{settingsSearch}"</p>
+            <button type="button" class="settings-nav-clear"
+              on:click={() => settingsSearch = ''}>
+              Clear search
+            </button>
+          </div>
+        {/if}
+      </aside>
+
+      <div class="settings-pane">
 
     <!-- ── Profile hero — identity card at the top of Settings.
          Avatar + name (nickname → full name → "My Profile" fallback) +
@@ -847,6 +987,8 @@
     {/if}
 
     <div style="height:24px"></div>
+      </div><!-- /.settings-pane -->
+    </div><!-- /.settings-two-pane -->
   </div>
 </div>
 
@@ -1649,5 +1791,164 @@
     height: 100%;
     background: var(--accent);
     transition: width 0.2s ease;
+  }
+
+  /* ── Two-pane desktop shell (Unit 1) ─────────────────────────────────
+     Mobile default: plain block, rail hidden, .settings-mobile-index
+     path is what users see. At >=1024px (unless html.force-mobile-layout
+     is set) the rail becomes a sticky 280px sidebar and the pane takes
+     the remaining space. Mirrors NutriTrace's Settings shell 1:1 so the
+     family stays visually uniform. Rail is desktop-only; on mobile the
+     drill-in stack of the pane keeps working exactly as before. */
+  .settings-two-pane { display: block; }
+  .settings-nav-rail { display: none; }
+
+  /* Mobile-only: hide the search bar once the user drills into a
+     sub-page. They just made a choice; a re-filter isn't useful there.
+     Desktop keeps it visible so the rail on the left stays filterable. */
+  @media (max-width: 1023px) {
+    .settings-search-bar.mobile-hide-on-subpage { display: none; }
+  }
+
+  @media (min-width: 1024px) {
+    :global(html:not(.force-mobile-layout)) .settings-two-pane {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* Left rail — sticky below the header + search bar, own scroll if
+       the section list overflows the viewport. Same offset math NT uses
+       (--page-top + header/search combined height). */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      padding: 10px 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    /* Rail buttons — compact, no big icons, no chevron (that's the
+       accordion affordance from the mobile stack). Focus-visible ring
+       for keyboard nav. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn {
+      background: transparent;
+      border: none;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      gap: 10px;
+      display: flex;
+      align-items: center;
+      color: var(--text-1);
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:hover {
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn.active {
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .si {
+      width: 24px;
+      height: 24px;
+      font-size: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: inherit;
+    }
+    /* Rail buttons use a subtle "current page" indicator, not a chevron
+       (the chevron is the accordion-drill affordance from mobile). */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .chevron {
+      display: none;
+    }
+    /* Group labels inside the rail — smaller, tighter, all-caps. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label) {
+      margin: 12px 4px 4px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 700;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label:first-child) {
+      margin-top: 2px;
+    }
+    /* Empty-search placeholder inside the rail — replaces the section
+       list when every button matches nothing. Clear affordance so the
+       user can escape without reaching for the search input. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 24px 12px;
+      text-align: center;
+      color: var(--text-3);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
+      font-size: 28px;
+      opacity: 0.7;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear {
+      margin-top: 4px;
+      background: var(--surface-2);
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear:hover {
+      background: var(--surface-3);
+    }
+
+    /* Redundant on desktop: the section-toggle stack inside the pane
+       duplicates what the rail already shows. Hide it on desktop index
+       AND when a search query is active but a specific section is being
+       previewed. The SettingsX components' own toggle rows are hidden
+       via .subpage-view :global(.section-toggle) further above on
+       sub-pages; here we handle the desktop-index (no currentSection)
+       case where nothing has been drilled into yet. Unit 2 replaces
+       the resulting blank pane with a proper welcome hero. */
+    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.section-toggle),
+    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.group-label) {
+      display: none;
+    }
+    /* Keep the profile-hero visible on desktop index — it's the identity
+       card users expect to see when they land on /settings. */
+    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.profile-hero) {
+      display: flex;
+    }
   }
 </style>

@@ -5,7 +5,7 @@
   import {
     appearance, applyAppearance, accentColor, applyAccentColor,
     navStyle, sidebarPersistent, startPage, disableAnimations,
-    goalCelebrations, bannerStyle, bannerAnimation,
+    goalCelebrations, bannerStyle, bannerAnimation, forceMobileLayout,
   } from '../../stores/settings.js';
 
   export let expanded = false;
@@ -128,6 +128,14 @@
         <div class="setting-row">
           <span class="setting-label">{$_('settings_appearance.reduce_motion')}</span>
           <Toggle bind:checked={$disableAnimations} />
+        </div>
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <span class="setting-label">{$_('settings_appearance.force_mobile_layout')}</span>
+            <span class="setting-hint">{$_('settings_appearance.force_mobile_layout_desc')}</span>
+          </div>
+          <Toggle bind:checked={$forceMobileLayout} />
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">

@@ -1336,6 +1336,8 @@
     "start_statistics":    "Statistics",
     "start_settings":      "Settings",
     "reduce_motion":       "Reduce Motion",
+    "force_mobile_layout": "Force Mobile Layout",
+    "force_mobile_layout_desc": "Preview the phone layout on desktop. Turns off the two-pane Settings shell and any other wide-screen adaptations.",
     "goal_celebrations":   "Goal Celebrations",
     "goal_celebrations_desc": "Confetti when you hit a milestone",
     "page_banners":        "Page Banners",
