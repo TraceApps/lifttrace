@@ -314,6 +314,7 @@
     }
   },
   "profile": {
+    "title":                 "Profile",
     "personal_info":         "Personal Info",
     "security":              "Security",
     "change_photo":          "Change photo",
@@ -1093,6 +1094,8 @@
     "search_ph":                "Search settings…",
     "clear_search":             "Clear",
     "profile_hero_sub":         "Tap to add your name and photo",
+    "profile_fallback":         "My Profile",
+    "pick_a_section":           "Pick a section from the left to get started.",
     "group_display":            "Display",
     "group_integrations":       "Integrations",
     "group_admin":              "Admin",

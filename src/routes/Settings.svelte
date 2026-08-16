@@ -23,6 +23,11 @@
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
   import SettingsAuth from '../components/settings/SettingsAuth.svelte';
   import SettingsDiagnostics from '../components/settings/SettingsDiagnostics.svelte';
+  // Profile is a route in its own right, but the desktop welcome hero
+  // embeds it inline so users can edit their info without navigating
+  // away from Settings. The Profile route detects the /settings prefix
+  // and strips its own header when embedded (see Profile.svelte).
+  import Profile from './Profile.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
   import { portal } from '../lib/portal.js';
   import {
@@ -394,6 +399,7 @@
   $: currentSection = params?.section || null;
 
   const SECTION_META = {
+    profile:          { titleKey: 'profile.title',                      icon: 'person' },
     appearance:       { titleKey: 'settings.appearance.section',        icon: 'contrast' },
     units:            { titleKey: 'settings.units.section',             icon: 'straighten' },
     workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
@@ -527,6 +533,19 @@
   // matches nothing. Mobile drops back to the "no settings match" empty
   // state below the section stack; the rail rendering is desktop-only.
   $: _railNoMatches = !!settingsQuery && Object.keys(SECTION_META).every(k => !sectionVisible(settingsQuery, k));
+
+  // Desktop welcome-hero: profile card is expandable inline instead of
+  // routing away (matches NT). Chevron rotates + body slides in/out.
+  // Default expanded so the pane is immediately useful. Mobile keeps
+  // routing to /profile via the mobile profile-hero button — no rail
+  // context to preserve there.
+  let _profileHeroExpanded = true;
+  function _toggleProfileHero() {
+    _profileHeroExpanded = !_profileHeroExpanded;
+  }
+  // Auto-expand when the user navigates to /settings/profile from the
+  // rail so "Profile from rail" and "Profile as landing" look the same.
+  $: if (currentSection === 'profile') _profileHeroExpanded = true;
 </script>
 
 <!-- Rail + mobile-index section list. Same list markup rendered in two
@@ -535,6 +554,15 @@
      via toggleSection. Sections are laid out to match the group labels
      already used in the pane. -->
 {#snippet sectionButtons()}
+  <!-- Profile always sits at the top — it's the account-level entry
+       and gets a matching hero card in the desktop welcome pane. From
+       any deep sub-page users can jump straight here via the rail. -->
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'profile')} class:active={currentSection === 'profile'} aria-current={currentSection === 'profile' ? 'page' : undefined} on:click={() => toggleSection('profile')}>
+    <span class="material-symbols-rounded si">person</span>
+    <span>{$_('profile.title')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
   <p class="settings-group-label">{$_('settings_main.group_display')}</p>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'appearance')} class:active={currentSection === 'appearance'} aria-current={currentSection === 'appearance' ? 'page' : undefined} on:click={() => toggleSection('appearance')}>
     <span class="material-symbols-rounded si">contrast</span>
@@ -711,10 +739,76 @@
 
       <div class="settings-pane">
 
-    <!-- ── Profile hero — identity card at the top of Settings.
+    <!-- Desktop welcome hero. Shown only when no section is drilled into
+         (or when the drill target is the Profile section — the hero
+         + inline Profile IS the Profile view on desktop). Below 1024px
+         this whole block hides via CSS; the mobile profile-hero below
+         (which routes to /profile) takes over there. Mirrors NT's
+         desktop-hero pattern 1:1. -->
+    {#if !currentSection || currentSection === 'profile'}
+      {@const _u = $currentUser || {}}
+      {@const _nick = (_u.nickname || '').trim()}
+      {@const _full = (_u.full_name || '').trim()}
+      {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || $_('settings_main.profile_fallback')}
+      {@const _hasName = _displayName !== $_('settings_main.profile_fallback')}
+      {@const _initial = (_displayName[0] || '?').toUpperCase()}
+      <div class="settings-desktop-hero">
+        <button class="profile-hero profile-hero-expander" on:click={_toggleProfileHero}
+          aria-expanded={_profileHeroExpanded}>
+          <div class="profile-hero-avatar">
+            {#if _u.avatar_url}
+              <img src={resolveAssetUrl(_u.avatar_url)} alt="" />
+            {:else if _hasName}
+              <span class="profile-hero-initial">{_initial}</span>
+            {:else}
+              <span class="material-symbols-rounded">person</span>
+            {/if}
+          </div>
+          <div class="profile-hero-info">
+            <span class="profile-hero-name">{_displayName}</span>
+            {#if _hasName && _u.role === 'admin' && $userMgmtActive}
+              <span class="profile-hero-role">admin</span>
+            {:else if !_hasName}
+              <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
+            {/if}
+          </div>
+          <span class="material-symbols-rounded profile-hero-chev profile-hero-chev-toggle"
+            class:profile-hero-chev-open={_profileHeroExpanded}>expand_more</span>
+        </button>
+        {#if _profileHeroExpanded}
+          <!-- Profile editor rendered inline inside the welcome pane.
+               Same <Profile /> route component; it detects the /settings
+               URL prefix and strips its own header when embedded. Slide
+               transition gives the accordion feel NT users are used to. -->
+          <div class="profile-hero-body"
+            transition:slide={{ duration: $disableAnimations ? 0 : 220 }}>
+            <Profile />
+          </div>
+        {/if}
+        {#if !currentSection}
+          <p class="settings-desktop-prompt">{$_('settings_main.pick_a_section')}</p>
+        {/if}
+      </div>
+    {/if}
+
+    {#if currentSection === 'profile'}
+      <!-- Mobile fallback for a direct URL land on /settings/profile.
+           Desktop already shows Profile inline via the welcome hero
+           above (with _profileHeroExpanded), so this block is hidden
+           on desktop via CSS to avoid rendering Profile twice. Mobile
+           has no rail so it wouldn't reach here through normal UX,
+           but URL / back-nav / bookmark still needs to work. -->
+      <div class="mobile-profile-inline">
+        <Profile />
+      </div>
+    {/if}
+
+    <!-- ── Mobile profile hero — identity card at the top of Settings.
          Avatar + name (nickname → full name → "My Profile" fallback) +
-         optional admin pill. Click → /profile. Hidden during search
-         when no profile keyword matches so it doesn't dilute results. -->
+         optional admin pill. Click → /profile (full-page editor). Hidden
+         on desktop via CSS since the welcome hero above owns that
+         surface. Hidden during search when no profile keyword matches
+         so it doesn't dilute results. -->
     {#if sectionVisible(settingsQuery, 'profile')}
     {@const _u = $currentUser || {}}
     {@const _nick = (_u.nickname || '').trim()}
@@ -722,7 +816,7 @@
     {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || 'My Profile'}
     {@const _hasName = _displayName !== 'My Profile'}
     {@const _initial = (_displayName[0] || '?').toUpperCase()}
-    <button class="profile-hero" on:click={() => push('/profile')}>
+    <button class="profile-hero mobile-profile-hero" on:click={() => push('/profile')}>
       <div class="profile-hero-avatar">
         {#if _u.avatar_url}
           <img src={resolveAssetUrl(_u.avatar_url)} alt="" />
@@ -1945,10 +2039,58 @@
     :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.group-label) {
       display: none;
     }
-    /* Keep the profile-hero visible on desktop index — it's the identity
-       card users expect to see when they land on /settings. */
-    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.profile-hero) {
-      display: flex;
+    /* Mobile profile-hero is hidden on desktop — the welcome hero above
+     * owns that surface (with the inline expandable Profile editor). */
+    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-hero {
+      display: none;
+    }
+    /* Mobile-only inline Profile fallback (for direct /settings/profile
+       URL land). Desktop already shows Profile inside the welcome hero
+       up above, so hide the mobile fallback here to avoid rendering it
+       twice. */
+    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-inline {
+      display: none;
+    }
+    /* On sub-pages, the desktop hero is hidden EXCEPT for /settings/profile
+       where it IS the section body. */
+    :global(html:not(.force-mobile-layout)) .settings-content.subpage-view .settings-pane .settings-desktop-hero {
+      display: block;
+    }
+  }
+
+  /* Desktop welcome hero — profile card + expandable inline editor +
+     "Pick a section" prompt. Hidden below 1024px and when force-mobile
+     is on; the mobile profile-hero above takes over there. */
+  .settings-desktop-hero { display: none; }
+  @media (min-width: 1024px) {
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero {
+      display: block;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-expander {
+      cursor: pointer;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-toggle {
+      transition: transform 0.22s ease;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-open {
+      transform: rotate(180deg);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-body {
+      margin-top: 12px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-prompt {
+      margin: 20px 0 0;
+      color: var(--text-3);
+      font-size: 14px;
+      text-align: center;
+      padding: 24px 16px;
+      background: var(--surface-1);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-lg);
     }
   }
 </style>
