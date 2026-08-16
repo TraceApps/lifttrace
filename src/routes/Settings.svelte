@@ -931,12 +931,13 @@
            branch below still handles the non-sub-page case (mobile
            and desktop /settings landing). -->
       {#key currentSection}
-        <!-- transition:fade (both in and out) gives a real cross-fade
-             on section swap. `in:fade` alone unmounted the previous
-             section instantly and only faded the incoming — which
-             read as an abrupt swap, not a transition. -->
+        <!-- in:fade only (matches NutriTrace). transition:fade would
+             cross-fade old + new, but the two divs are in normal flow
+             so they'd stack vertically for the transition duration —
+             visible double-height flash. Old-out-instantly + new-fades-
+             in is what NT does and it reads clean. -->
         <div class="settings-pane-fade"
-             transition:fade={{ duration: $disableAnimations ? 0 : 140 }}>
+             in:fade={{ duration: $disableAnimations ? 0 : 140 }}>
           {#if currentSection === 'appearance'}
             <SettingsAppearance visible={true} expanded={true} onToggle={backToIndex} onOpenColorSheet={openColorSheet} />
           {:else if currentSection === 'units'}
