@@ -1867,6 +1867,27 @@
         </button>
       </div>
     {/if}
+    <!-- Desktop-only Finish button. Duplicate of the .finish-btn
+         that lives at the end of .exercise-list on mobile — sticky
+         at the top of the HUD column so you don't have to scroll
+         to the bottom of an 8-exercise session to end it. Uses the
+         same finishWorkout({auto:false}) handler. Original hidden
+         on desktop via CSS. Guard mirrors the original. -->
+    {#if stats.completed > 0 && !isFuture}
+      <button class="hud-finish-btn"
+              class:reopen={$todayLog?.completed}
+              on:click={() => finishWorkout({ auto: false })}>
+        <span class="material-symbols-rounded">
+          {$todayLog?.completed ? 'task_alt' : 'flag'}
+        </span>
+        <span class="hud-finish-text">
+          {$todayLog?.completed ? 'View summary' : 'Finish workout'}
+        </span>
+        {#if !$todayLog?.completed}
+          <span class="hud-finish-sub">{stats.completed}/{stats.total} sets</span>
+        {/if}
+      </button>
+    {/if}
     <!-- Desktop-only session notes card. Duplicate of the
          .notes-card that lives inside .exercise-list on mobile —
          both bind to the same `notes` variable so state is shared
@@ -3670,6 +3691,7 @@
   .hud-title        { display: none; }
   .hud-empty-card   { display: none; }
   .hud-notes-card   { display: none; }
+  .hud-finish-btn   { display: none; }
   .rail-card {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -4093,10 +4115,54 @@
       color: var(--text-3);
     }
     /* Suppress the in-list day-notes affordances at wide widths so
-       the notes card is single-source (the HUD copy above). */
+       the notes card is single-source (the HUD copy above). Same
+       for the in-list finish button — the HUD copy above is now
+       the desktop entry point so it stays reachable without
+       scrolling past the last exercise. */
     :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.notes-card),
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.notes-trigger) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.notes-trigger),
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.finish-btn) {
       display: none;
+    }
+    /* HUD finish button — accent-tinted CTA that mirrors the mobile
+       .finish-btn's role. Same reopen (task_alt) affordance for
+       already-completed sessions. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 12px 14px;
+      background: var(--accent);
+      color: var(--surface-1);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: filter var(--dur-fast), transform var(--dur-fast);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn:hover {
+      filter: brightness(1.08);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn:active {
+      transform: scale(0.99);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn.reopen {
+      background: transparent;
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn .material-symbols-rounded {
+      font-size: 20px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn > .hud-finish-sub {
+      flex-basis: 100%;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 500;
+      opacity: 0.85;
+      margin-top: -2px;
     }
 
     /* ExerciseCard 2-col split at wide widths. Header + target-info
@@ -4105,17 +4171,23 @@
        the right main column. This is the phase-3 workout-specific
        win: "last time" comparison always at eye level next to the
        fields you're typing into, so progressive overload becomes
-       visible instead of a memory game. */
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card) {
+       visible instead of a memory game.
+
+       Scoped to .ex-card.standalone (the class ExerciseCard sets
+       when NOT inside a superset) so nested ex-cards inside a
+       SupersetCard keep their linear layout — the .ss-connector
+       + narrower nested container makes a 2-col grid there squish
+       badly. */
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone) {
       display: grid;
       grid-template-columns: minmax(200px, 260px) 1fr;
       column-gap: 20px;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .ex-header) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .ex-header) {
       grid-column: 1 / -1;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row) {
       grid-column: 1;
       /* When the row is a standalone card cell, drop the linear-
          gradient background — it was designed to run edge-to-edge
@@ -4131,7 +4203,7 @@
       align-items: stretch;
       gap: 6px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-label) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-label) {
       font-size: 10px;
       color: var(--text-3);
     }
@@ -4139,14 +4211,14 @@
        CSS counter labels each row "Set N" so users can match rows
        one-for-one with the sets grid on the right without any
        markup changes to ExerciseCard. */
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets) {
       display: flex;
       flex-direction: column;
       gap: 3px;
       counter-reset: last-set-counter;
       width: 100%;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets > .last-set) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-set) {
       counter-increment: last-set-counter;
       display: flex;
       justify-content: space-between;
@@ -4154,34 +4226,34 @@
       padding: 2px 0;
       font-variant-numeric: tabular-nums;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets > .last-set::before) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-set::before) {
       content: "Set " counter(last-set-counter);
       color: var(--text-3);
       font-weight: 500;
       font-size: 11px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets > .last-sep) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-sep) {
       display: none;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .vol-delta) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .vol-delta) {
       margin-left: 0;
       align-self: flex-start;
       margin-top: 4px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .sets-wrap) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .sets-wrap) {
       grid-column: 2;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .target-info) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .target-info) {
       grid-column: 1 / -1;
     }
     /* Empty-card fallback: when the card has NO .last-row (fresh
        exercise, no prior history), the grid still reserves col 1 —
        leaving dead space next to a lonely .sets-wrap. Cap the sets
        column so the layout doesn't look weirdly offset. */
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card:not(:has(.last-row))) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone:not(:has(.last-row))) {
       grid-template-columns: 1fr;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card:not(:has(.last-row)) > .sets-wrap) {
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone:not(:has(.last-row)) > .sets-wrap) {
       grid-column: 1;
     }
 
