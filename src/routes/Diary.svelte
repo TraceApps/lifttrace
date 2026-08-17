@@ -1853,6 +1853,40 @@
         <span class="material-symbols-rounded now-chev">chevron_right</span>
       </button>
     {/if}
+    <!-- Desktop-only empty-state card. Renders when there's no
+         active session so the left column reads intentional instead
+         of blank. Hidden on mobile via CSS. -->
+    {#if exercises.length === 0 && !loading && !isFuture}
+      <div class="hud-empty-card">
+        <span class="material-symbols-rounded hud-empty-icon">fitness_center</span>
+        <p class="hud-empty-title">Nothing logged yet</p>
+        <p class="hud-empty-desc">Load a workout from a program or add an exercise to get started.</p>
+        <button type="button" class="rail-action" on:click={openLoadWorkout}>
+          <span class="material-symbols-rounded">library_books</span>
+          Load Workout
+        </button>
+      </div>
+    {/if}
+    <!-- Desktop-only session notes card. Duplicate of the
+         .notes-card that lives inside .exercise-list on mobile —
+         both bind to the same `notes` variable so state is shared
+         and edits from either place stick. Original hidden on
+         desktop via CSS to keep the notes single-source visually. -->
+    {#if exercises.length > 0}
+      <div class="hud-notes-card">
+        <div class="hud-notes-head">
+          <span class="material-symbols-rounded">edit_note</span>
+          <span class="hud-notes-title">Session Notes</span>
+        </div>
+        <textarea
+          class="hud-notes-input"
+          placeholder={$_('diary_extra.notes_ph')}
+          bind:value={notes}
+          on:blur={saveNotes}
+          rows="4"
+        ></textarea>
+      </div>
+    {/if}
   </div>
 
   <!-- Center column wrapper. On mobile this is just a plain block; on
@@ -3634,6 +3668,8 @@
   .rail-edge-tab    { display: none; }
   .rail-title       { display: none; }
   .hud-title        { display: none; }
+  .hud-empty-card   { display: none; }
+  .hud-notes-card   { display: none; }
   .rail-card {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -3983,6 +4019,85 @@
     :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn .material-symbols-rounded {
       font-size: 18px;
     }
+    /* Desktop empty-state card in the left HUD column. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 16px 14px;
+      background: var(--surface-1);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-md);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-icon {
+      font-size: 22px;
+      color: var(--accent);
+      opacity: 0.85;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-desc {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.4;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .rail-action {
+      align-self: stretch;
+      margin-top: 4px;
+    }
+
+    /* Desktop session-notes card in the left HUD column. Mirrors
+       rail-card visual tokens for consistency with the right rail. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px 14px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-head > .material-symbols-rounded {
+      font-size: 18px;
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-input {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      color: var(--text-1);
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.4;
+      resize: vertical;
+      min-height: 72px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-input::placeholder {
+      color: var(--text-3);
+    }
+    /* Suppress the in-list day-notes affordances at wide widths so
+       the notes card is single-source (the HUD copy above). */
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.notes-card),
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.notes-trigger) {
+      display: none;
+    }
+
     /* ExerciseCard 2-col split at wide widths. Header + target-info
        span full width; .last-row (previous session) sits in the left
        context column while .sets-wrap (the actual set entry) takes
@@ -4008,6 +4123,49 @@
       background: none;
       /* Vertical breathing room since it sits alone in a column. */
       padding: 10px 14px 12px;
+      /* Restack the last-row from an inline strip into a compact
+         column so each previous set gets its own line — much more
+         scannable when it sits next to the sets grid. */
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-label) {
+      font-size: 10px;
+      color: var(--text-3);
+    }
+    /* Convert the horizontal .last-sets strip into a per-set list.
+       CSS counter labels each row "Set N" so users can match rows
+       one-for-one with the sets grid on the right without any
+       markup changes to ExerciseCard. */
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets) {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      counter-reset: last-set-counter;
+      width: 100%;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets > .last-set) {
+      counter-increment: last-set-counter;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 2px 0;
+      font-variant-numeric: tabular-nums;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets > .last-set::before) {
+      content: "Set " counter(last-set-counter);
+      color: var(--text-3);
+      font-weight: 500;
+      font-size: 11px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .last-sets > .last-sep) {
+      display: none;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row > .vol-delta) {
+      margin-left: 0;
+      align-self: flex-start;
+      margin-top: 4px;
     }
     :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .sets-wrap) {
       grid-column: 2;
