@@ -3983,6 +3983,49 @@
     :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn .material-symbols-rounded {
       font-size: 18px;
     }
+    /* ExerciseCard 2-col split at wide widths. Header + target-info
+       span full width; .last-row (previous session) sits in the left
+       context column while .sets-wrap (the actual set entry) takes
+       the right main column. This is the phase-3 workout-specific
+       win: "last time" comparison always at eye level next to the
+       fields you're typing into, so progressive overload becomes
+       visible instead of a memory game. */
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card) {
+      display: grid;
+      grid-template-columns: minmax(200px, 260px) 1fr;
+      column-gap: 20px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .ex-header) {
+      grid-column: 1 / -1;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .last-row) {
+      grid-column: 1;
+      /* When the row is a standalone card cell, drop the linear-
+         gradient background — it was designed to run edge-to-edge
+         across a full-width card, looks stripey inside a narrow col.
+         Keep the dashed top border as a divider. */
+      background: none;
+      /* Vertical breathing room since it sits alone in a column. */
+      padding: 10px 14px 12px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .sets-wrap) {
+      grid-column: 2;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card > .target-info) {
+      grid-column: 1 / -1;
+    }
+    /* Empty-card fallback: when the card has NO .last-row (fresh
+       exercise, no prior history), the grid still reserves col 1 —
+       leaving dead space next to a lonely .sets-wrap. Cap the sets
+       column so the layout doesn't look weirdly offset. */
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card:not(:has(.last-row))) {
+      grid-template-columns: 1fr;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card:not(:has(.last-row)) > .sets-wrap) {
+      grid-column: 1;
+    }
+
     /* Fixed edge tab — appears when the rail is hidden. Half-round
        chip anchored to the right viewport edge, vertically centered.
        Same sticky-top math so it sits below the header. */
