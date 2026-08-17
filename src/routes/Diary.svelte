@@ -1798,6 +1798,13 @@
        inflates row 1 in the center column, leaving a big gap between
        the workout title and the exercise list. -->
   <div class="diary-hud-col">
+    <!-- Rail-style header (desktop only). Same "OVERVIEW" pattern
+         the right rail uses so the two columns read as one system.
+         Hidden on mobile via CSS since mobile inlines the summary
+         bar without any header. -->
+    <div class="hud-title">
+      <span class="hud-title-text">Session</span>
+    </div>
     <!-- Summary bar — single dense row (mobile) / vertical stack
          (desktop left column). Sets / exercises / volume / timer /
          wake-lock. -->
@@ -2318,30 +2325,10 @@
         </div>
       </div>
     {/if}
-    {#if exercises.length > 0}
-      <div class="rail-card">
-        <div class="rail-card-head">
-          <span class="material-symbols-rounded">bar_chart</span>
-          <span class="rail-card-title">Session</span>
-        </div>
-        <div class="rail-stats">
-          <div class="rail-stat">
-            <span class="rail-stat-val">{stats.completed}<span class="rail-stat-div">/{stats.total}</span></span>
-            <span class="rail-stat-label">Sets</span>
-          </div>
-          <div class="rail-stat">
-            <span class="rail-stat-val">{exercises.length}</span>
-            <span class="rail-stat-label">Exercises</span>
-          </div>
-          {#if stats.volume}
-            <div class="rail-stat">
-              <span class="rail-stat-val">{Math.round(stats.volume).toLocaleString()}</span>
-              <span class="rail-stat-label">Volume</span>
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
+    <!-- (Session stats card removed — .diary-hud-col in the left
+         column already owns session progress; two Session displays
+         on one screen was redundant. Live stats stay in the summary
+         bar over there.) -->
     <button class="rail-action" on:click={openLoadWorkout}>
       <span class="material-symbols-rounded">library_books</span>
       Load Workout
@@ -3646,6 +3633,7 @@
   .diary-right-rail { display: none; }
   .rail-edge-tab    { display: none; }
   .rail-title       { display: none; }
+  .hud-title        { display: none; }
   .rail-card {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -3807,11 +3795,14 @@
        bleed between columns. */
     :global(html:not(.force-mobile-layout)) .diary-body {
       display: grid;
-      grid-template-columns: 280px minmax(0, 720px) 340px;
+      /* Center takes all remaining width — the earlier max-width:1440px
+         cap centred the grid and left dead margins on wide monitors.
+         Center's own content (exercise-list) still reads well because
+         individual cards inside cap themselves at their component
+         level; letting the column grow just kills the outer margins. */
+      grid-template-columns: 280px minmax(720px, 1fr) 340px;
       gap: 24px;
       align-items: start;
-      max-width: 1440px;
-      margin: 0 auto;
       padding: 0 var(--page-px);
       box-sizing: border-box;
     }
@@ -3831,16 +3822,74 @@
       margin: 0;
       width: 100%;
     }
-    /* Summary-bar restacks vertical in the narrow left column — the
-       horizontal flex layout doesn't fit 280px comfortably. */
+    /* HUD title — mirrors the right rail's .rail-title look so the
+       two columns read as one system. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 4px 4px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-title > .hud-title-text {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+    /* Summary-bar becomes a proper vertical HUD card in the left
+       column — stat grid on top, timer + wake-lock as a footer row.
+       Uses the same surface + border tokens the rail cards use so
+       the left column visually matches the right. */
     :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 10px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-auto-rows: min-content;
+      gap: 14px 12px;
+      align-items: start;
       padding: 14px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .sb-fill {
+      /* Hide the horizontal fill sliver in the vertical HUD layout —
+         the sets stat below already communicates progress. */
+      display: none;
     }
     :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat {
-      justify-content: flex-start;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      min-width: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-icon {
+      display: none;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-val {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.1;
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-3);
+      display: inline;
+    }
+    /* Timer + wake-lock as a footer row spanning both columns. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > :global(.workout-timer) {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .wake-toggle {
+      grid-column: 1 / -1;
+      justify-self: end;
+      margin-top: -32px;
     }
     /* Center column — the actual training content. Plain flex stack. */
     :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col {
