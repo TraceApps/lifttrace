@@ -98,6 +98,12 @@
   // "✓ Added" badge on the row (1.5s). No toast, no counter — the row
   // itself confirms the tap and the picker stays open for more.
   let recentlyAddedIds = new Set();
+  // Persistent per-session tally — every ID the user has added stays
+  // here until the picker closes. Rows carry a quieter styling so a
+  // user scanning the list at wide widths can see at a glance what
+  // they've already logged. Separate from recentlyAddedIds so the
+  // green flash still fades after 1.5s.
+  let addedThisSessionIds = new Set();
 
   onMount(async () => {
     try {
@@ -158,6 +164,8 @@
     if (id == null) return;
     recentlyAddedIds.add(id);
     recentlyAddedIds = recentlyAddedIds;
+    addedThisSessionIds.add(id);
+    addedThisSessionIds = addedThisSessionIds;
     setTimeout(() => {
       recentlyAddedIds.delete(id);
       recentlyAddedIds = recentlyAddedIds;
@@ -239,8 +247,23 @@
         {/if}
         {#each filtered as ex (ex.id)}
           {@const justAdded = recentlyAddedIds.has(ex.id)}
-          <div class="exercise-row" class:just-added={justAdded} class:selected-for-info={_wideMode && _infoSelected?.id === ex.id}>
+          {@const alreadyAdded = addedThisSessionIds.has(ex.id) && !justAdded}
+          <div class="exercise-row"
+               class:just-added={justAdded}
+               class:already-added={alreadyAdded}
+               class:selected-for-info={_wideMode && _infoSelected?.id === ex.id}>
             <button class="exercise-tap" on:click={() => select(ex)}>
+              <!-- Thumbnail (visible only in wide/grid layout via CSS).
+                   Same fallback ladder Exercises.svelte uses: gif → img →
+                   fitness_center icon. Lazy-loaded so a big library
+                   doesn't prefetch every demo. -->
+              <div class="picker-thumb">
+                {#if ex.gif_url || ex.img_url}
+                  <img src={ex.gif_url || ex.img_url} alt="" loading="lazy" />
+                {:else}
+                  <span class="material-symbols-rounded">fitness_center</span>
+                {/if}
+              </div>
               <div class="ex-info">
                 <span class="ex-name">{ex.name}</span>
                 <span class="ex-meta">
@@ -253,6 +276,8 @@
                   <span class="material-symbols-rounded">check_circle</span>
                   Added
                 </span>
+              {:else if alreadyAdded}
+                <span class="material-symbols-rounded already-added-icon" title="Already added this session">check_circle</span>
               {:else}
                 <span class="material-symbols-rounded add-icon">add_circle</span>
               {/if}
@@ -430,6 +455,31 @@
 
   .loading { text-align: center; padding: 32px; color: var(--text-3); }
 
+  /* Thumbnail — only rendered visually at wide widths via CSS below.
+     Kept in mobile DOM so the wide-mode class flip doesn't require a
+     re-mount. Same shape / fallback ladder as Exercises.svelte. */
+  .picker-thumb { display: none; }
+
+  /* Already-added-this-session styling. Persistent across the picker
+     session (unlike the 1.5s .just-added green flash), so a user
+     scanning the list at wide widths knows what they've already
+     logged. Kept subtle: tinted background + solid check-icon in
+     accent, no border tint that would compete with .selected-for-info
+     or .just-added. */
+  .exercise-row.already-added {
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
+  }
+  .exercise-row.already-added:hover {
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-1));
+  }
+  .already-added-icon {
+    font-size: 22px;
+    color: var(--accent);
+    flex-shrink: 0;
+    margin-left: 8px;
+    opacity: 0.7;
+  }
+
   /* Mobile default — .picker-body is a plain flex container so the
      exercise-list scrolls inside it; the inline info pane is hidden
      (info opens in the modal ExerciseInfoSheet on mobile). */
@@ -489,6 +539,34 @@
     }
     :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row {
       margin-bottom: 0;
+    }
+    /* Thumbnail slot at wide widths — 44px square with the same
+       gradient background Exercises.svelte uses so pre-loaded gifs
+       and the icon fallback both land on a neutral surface. */
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--surface-2), var(--surface-1));
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb .material-symbols-rounded {
+      font-size: 22px;
+      color: var(--text-3);
+    }
+    /* Give the tap-button breathing room for the new thumbnail. */
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row > .exercise-tap {
+      gap: 12px;
+      padding: 10px 12px;
     }
     /* Inline info pane — sticky within the sheet body. Same surface
        + border tokens as any other card. */
