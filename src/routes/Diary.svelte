@@ -2423,7 +2423,7 @@
   {/if}
 
   <!-- Exercise picker -->
-  <Sheet open={showPicker} on:close={() => { showPicker = false; replacingIdx = null; pickerTargetSupersetId = null; }} height="full">
+  <Sheet open={showPicker} on:close={() => { showPicker = false; replacingIdx = null; pickerTargetSupersetId = null; }} height="full" wide>
     <ExercisePicker on:select={e => addExercise(e.detail)} />
   </Sheet>
 
