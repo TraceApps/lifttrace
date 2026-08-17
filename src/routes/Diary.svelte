@@ -3938,7 +3938,8 @@
     /* Kill the page-px horizontal padding on center-col children —
        the grid gap already handles spacing. Otherwise every card
        is double-padded and drifts right. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .exercise-list {
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .exercise-list,
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .cardio-slot {
       padding-left: 0;
       padding-right: 0;
     }
