@@ -4,6 +4,13 @@
   import { weightUnit } from '../../stores/settings.js';
 
   export let open = false;
+  /**
+   * When true, render the tools inline (no backdrop / sheet wrapper).
+   * Used by the desktop Diary right rail so Gym Tools appears as a
+   * widget instead of a modal launcher. Mobile flow (open toggle)
+   * still works unchanged.
+   */
+  export let embed = false;
 
   let tab = 'plates'; // 'plates' | 'convert'
 
@@ -67,7 +74,75 @@
   }
 </script>
 
-{#if open}
+{#if embed}
+  <div class="gt-embed">
+    <div class="gt-embed-head">
+      <span class="material-symbols-rounded gt-embed-icon">calculate</span>
+      <span class="gt-embed-title">{$_('diary.actions.gym_tools')}</span>
+    </div>
+    <div class="gt-tabs gt-tabs-embed">
+      <button class="gt-tab" class:active={tab === 'plates'} on:click={() => tab = 'plates'}>
+        <span class="material-symbols-rounded" style="font-size:16px">fitness_center</span> {$_('gym_tools.plates')}
+      </button>
+      <button class="gt-tab" class:active={tab === 'convert'} on:click={() => tab = 'convert'}>
+        <span class="material-symbols-rounded" style="font-size:16px">swap_horiz</span> {$_('gym_tools.convert')}
+      </button>
+    </div>
+    {#if tab === 'plates'}
+      <div class="gt-body gt-body-embed">
+        <div class="gt-input-row">
+          <label class="form-label">{$_('gym_tools.target_weight')} <span class="unit">({$weightUnit})</span></label>
+          <input class="input" type="number" step="0.5" bind:value={targetWeight}
+                 placeholder={$weightUnit === 'kg' ? $_('gym_tools.weight_ph_kg') : $_('gym_tools.weight_ph_lb')} />
+        </div>
+        <div class="gt-bar-info">{$_('gym_tools.bar', { values: { weight: barWeight, unit: $weightUnit } })}</div>
+        {#if perSide.length > 0}
+          <div class="gt-result-label">{$_('gym_tools.each_side')}</div>
+          <div class="gt-plates-visual">
+            <div class="gt-bar-end"></div>
+            {#each perSide as plate}
+              <div class="gt-plate" style="background:{plateColor(plate)};height:{Math.max(24, 18 + plate * ($weightUnit === 'kg' ? 1.0 : 0.4))}px">
+                {plate}
+              </div>
+            {/each}
+          </div>
+          <div class="gt-plate-list">
+            {#each [...new Set(perSide)] as plate}
+              {@const count = perSide.filter(p => p === plate).length}
+              <span class="gt-plate-chip" style="border-color:{plateColor(plate)};color:{plateColor(plate)}">
+                {count} × {plate} {$weightUnit}
+              </span>
+            {/each}
+          </div>
+          {#if remainder > 0.01}
+            <div class="gt-remainder">⚠️ {$_('gym_tools.remainder', { values: { weight: remainder, unit: $weightUnit } })}</div>
+          {/if}
+        {:else if targetWeight}
+          <div class="gt-empty">{$_('gym_tools.under_bar', { values: { weight: barWeight, unit: $weightUnit } })}</div>
+        {/if}
+      </div>
+    {:else}
+      <div class="gt-body gt-body-embed">
+        <div class="gt-convert-row">
+          <select class="gt-convert-select" bind:value={convertDir}>
+            <option value="lbs_to_kg">{$_('gym_tools.lbs_to_kg')}</option>
+            <option value="kg_to_lbs">{$_('gym_tools.kg_to_lbs')}</option>
+          </select>
+        </div>
+        <div class="gt-input-row">
+          <label class="form-label">{convertDir === 'lbs_to_kg' ? $_('gym_tools.pounds') : $_('gym_tools.kilograms')} <span class="unit">({convertFromUnit})</span></label>
+          <input class="input" type="number" step="0.1" bind:value={convertInput} placeholder={$_('gym_tools.weight_ph')} />
+        </div>
+        {#if convertInput}
+          <div class="gt-convert-result">
+            <span class="gt-convert-val">{convertResult}</span>
+            <span class="gt-convert-unit">{convertDir === 'lbs_to_kg' ? 'kg' : 'lbs'}</span>
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+{:else if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div use:portal class="sheet-backdrop" on:click={() => open = false}>
@@ -243,4 +318,47 @@
   }
   .gt-convert-val { font-size: 36px; font-weight: 800; color: var(--accent); }
   .gt-convert-unit { font-size: 18px; color: var(--text-3); font-weight: 600; }
+
+  /* Embed (rail-widget) layout — matches the other rail cards. Tab
+     row + body scale down slightly so the widget doesn't dominate
+     the rail vertically. */
+  .gt-embed {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .gt-embed-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+  }
+  .gt-embed-icon { font-size: 18px; color: var(--accent); flex-shrink: 0; }
+  .gt-embed-title { flex: 1; min-width: 0; }
+  .gt-tabs-embed {
+    padding: 0;
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    gap: 0;
+  }
+  .gt-tabs-embed .gt-tab {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .gt-body-embed { padding: 0; gap: 8px; }
+  .gt-body-embed .form-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+  .gt-body-embed .input { padding: 6px 8px; font-size: 13px; }
+  .gt-body-embed .gt-convert-val { font-size: 28px; }
+  .gt-body-embed .gt-convert-unit { font-size: 15px; }
+  .gt-body-embed .gt-plates-visual { min-height: 40px; }
+  .gt-body-embed .gt-plate { min-width: 24px; padding: 4px 6px; font-size: 11px; }
 </style>

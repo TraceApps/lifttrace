@@ -2297,13 +2297,15 @@
          reclaims the 340px + gap. Persisted via _railMode. -->
     <div class="rail-title">
       <span class="rail-title-text">Overview</span>
-      <button type="button"
-              class="rail-ctrl-btn"
-              on:click={_toggleRail}
-              aria-label="Hide side panel"
-              title="Hide side panel">
-        <span class="material-symbols-rounded">chevron_right</span>
-      </button>
+      <div class="rail-title-actions">
+        <button type="button"
+                class="rail-ctrl-btn"
+                on:click={_toggleRail}
+                aria-label="Hide widget panel"
+                title="Hide widgets (edge tab reopens)">
+          <span class="material-symbols-rounded">right_panel_close</span>
+        </button>
+      </div>
     </div>
     <!-- 7-day peek — always visible. Dots colored by whether that
          date has any completed set in workoutDateSet. Today gets a
@@ -2388,35 +2390,24 @@
       <span class="material-symbols-rounded">library_books</span>
       Load Workout
     </button>
-    <!-- Tools group — hoists the mobile top-right icons (Gym Tools,
-         Body Stats, Workout Actions) into the right rail on desktop
-         so the top of the page isn't cluttered when the rail is
-         already carrying feature parity. Mirrors NT's pattern of
-         hiding .diary-topbar-actions at wide widths. Compact ghost
-         style so they don't compete visually with Load Workout. -->
-    <div class="rail-tools">
-      <button type="button" class="rail-tool-btn"
-              on:click={() => showGymTools = true}
-              aria-label={$_('diary.actions.gym_tools')}
-              title={$_('diary.actions.gym_tools_long')}>
-        <span class="material-symbols-rounded">calculate</span>
-        <span class="rail-tool-label">{$_('diary.actions.gym_tools')}</span>
-      </button>
-      <button type="button" class="rail-tool-btn"
-              on:click={() => showBodyStats = true}
-              aria-label={$_('diary.actions.body_stats')}
-              title={$_('diary.actions.body_stats_long')}>
-        <span class="material-symbols-rounded">scale</span>
-        <span class="rail-tool-label">{$_('diary.actions.body_stats')}</span>
-      </button>
-      <button type="button" class="rail-tool-btn"
-              on:click={() => showWorkoutActions = true}
-              aria-label={$_('diary.actions.workout_actions')}
-              title={$_('diary.actions.workout_options')}>
-        <span class="material-symbols-rounded">more_vert</span>
-        <span class="rail-tool-label">More</span>
-      </button>
-    </div>
+    <!-- Body Stats and Gym Tools as inline widgets (mirrors NT's
+         BodyStatsWidget / WaterWidget pattern). Both components
+         accept an embed prop that skips their modal shell; on
+         mobile the same components still render as sheets from
+         .diary-topbar-actions (hidden on desktop via CSS below). -->
+    <BodyStats embed />
+    <GymTools embed />
+    <!-- Workout Actions ('More' menu) stays as a launcher — it's a
+         short contextual menu (rename, delete, replace) that would
+         be noise as a permanent widget. Ghost-style row so it
+         doesn't compete visually with Load Workout. -->
+    <button type="button" class="rail-tool-btn"
+            on:click={() => showWorkoutActions = true}
+            aria-label={$_('diary.actions.workout_actions')}
+            title={$_('diary.actions.workout_options')}>
+      <span class="material-symbols-rounded">more_vert</span>
+      <span class="rail-tool-label">Workout Actions</span>
+    </button>
   </aside>
 
   </div><!-- /.diary-body -->
@@ -2429,9 +2420,9 @@
     <button type="button"
             class="rail-edge-tab"
             on:click={_toggleRail}
-            aria-label="Show side panel"
-            title="Show side panel">
-      <span class="material-symbols-rounded">chevron_left</span>
+            aria-label="Show widget panel"
+            title="Show widgets">
+      <span class="material-symbols-rounded">right_panel_open</span>
     </button>
   {/if}
 
@@ -4201,24 +4192,17 @@
     :global(html:not(.force-mobile-layout)) :global(.diary-topbar-actions) {
       display: none;
     }
-    /* Rail tools group — three compact ghost buttons stacked below
-       Load Workout in the right rail. Icon + label per row, quieter
-       styling than .rail-action so Load Workout stays the primary
-       CTA. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      margin-top: 4px;
-      padding-top: 10px;
-      border-top: 1px dashed var(--border);
-    }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools > .rail-tool-btn {
+    /* Workout Actions ghost row — the single "More" launcher that
+       stays a modal (contextual menu, not a persistent widget).
+       Quieter styling than .rail-action so Load Workout stays
+       the primary CTA. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tool-btn {
       display: flex;
       align-items: center;
       gap: 10px;
       width: 100%;
       padding: 8px 10px;
+      margin-top: 2px;
       background: transparent;
       border: none;
       border-radius: var(--radius-sm);
@@ -4229,14 +4213,21 @@
       cursor: pointer;
       transition: background var(--dur-fast), color var(--dur-fast);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools > .rail-tool-btn:hover {
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tool-btn:hover {
       background: var(--surface-2);
       color: var(--text-1);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools > .rail-tool-btn .material-symbols-rounded {
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tool-btn .material-symbols-rounded {
       font-size: 20px;
       color: var(--accent);
       flex-shrink: 0;
+    }
+    /* Also style .rail-title-actions container so the pin/hide
+       button aligns cleanly on the right of the Overview label. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-title-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
     }
 
     /* ExerciseCard 2-col split at wide widths. Header + target-info
