@@ -2388,6 +2388,35 @@
       <span class="material-symbols-rounded">library_books</span>
       Load Workout
     </button>
+    <!-- Tools group — hoists the mobile top-right icons (Gym Tools,
+         Body Stats, Workout Actions) into the right rail on desktop
+         so the top of the page isn't cluttered when the rail is
+         already carrying feature parity. Mirrors NT's pattern of
+         hiding .diary-topbar-actions at wide widths. Compact ghost
+         style so they don't compete visually with Load Workout. -->
+    <div class="rail-tools">
+      <button type="button" class="rail-tool-btn"
+              on:click={() => showGymTools = true}
+              aria-label={$_('diary.actions.gym_tools')}
+              title={$_('diary.actions.gym_tools_long')}>
+        <span class="material-symbols-rounded">calculate</span>
+        <span class="rail-tool-label">{$_('diary.actions.gym_tools')}</span>
+      </button>
+      <button type="button" class="rail-tool-btn"
+              on:click={() => showBodyStats = true}
+              aria-label={$_('diary.actions.body_stats')}
+              title={$_('diary.actions.body_stats_long')}>
+        <span class="material-symbols-rounded">scale</span>
+        <span class="rail-tool-label">{$_('diary.actions.body_stats')}</span>
+      </button>
+      <button type="button" class="rail-tool-btn"
+              on:click={() => showWorkoutActions = true}
+              aria-label={$_('diary.actions.workout_actions')}
+              title={$_('diary.actions.workout_options')}>
+        <span class="material-symbols-rounded">more_vert</span>
+        <span class="rail-tool-label">More</span>
+      </button>
+    </div>
   </aside>
 
   </div><!-- /.diary-body -->
@@ -4163,6 +4192,51 @@
       font-weight: 500;
       opacity: 0.85;
       margin-top: -2px;
+    }
+
+    /* Hide the portaled top-right icon strip at wide widths — the
+       right rail's Tools group now carries these three actions
+       (Gym Tools / Body Stats / More). Mirrors NT's diary pattern
+       of dropping mobile top surfaces when the rail owns them. */
+    :global(html:not(.force-mobile-layout)) :global(.diary-topbar-actions) {
+      display: none;
+    }
+    /* Rail tools group — three compact ghost buttons stacked below
+       Load Workout in the right rail. Icon + label per row, quieter
+       styling than .rail-action so Load Workout stays the primary
+       CTA. */
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-top: 4px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools > .rail-tool-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 8px 10px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      color: var(--text-2);
+      font-size: 13px;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--dur-fast), color var(--dur-fast);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools > .rail-tool-btn:hover {
+      background: var(--surface-2);
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tools > .rail-tool-btn .material-symbols-rounded {
+      font-size: 20px;
+      color: var(--accent);
+      flex-shrink: 0;
     }
 
     /* ExerciseCard 2-col split at wide widths. Header + target-info
