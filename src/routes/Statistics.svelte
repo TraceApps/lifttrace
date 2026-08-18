@@ -476,6 +476,12 @@
     {/each}
   </div>
 
+  <!-- Body wrapper — at >=1280px non-forced-mobile becomes a 2-col
+       grid holding the per-metric widgets on the left and a sticky
+       right rail (range picker + prior-period delta KPIs) on the
+       right. On mobile / narrow this is a plain block so nothing
+       changes below phone widths. -->
+  <div class="stats-body">
   {#if loading}
     <div class="loading">{$_('statistics.loading_stats')}</div>
   {:else}
@@ -1006,6 +1012,56 @@
       {/if}
     </div>
   {/if}
+
+  <!-- Sticky right rail (>=1280px only via CSS). Range picker moves
+       here so it stays visible as the user scrolls through the
+       metric's widgets; prior-period delta KPIs surface the existing
+       periodDeltas computation that was buried in a tiny chip. -->
+  <aside class="stats-rail" aria-label="Range + comparison">
+    <div class="rail-card">
+      <div class="rail-card-head">
+        <span class="material-symbols-rounded">date_range</span>
+        <span class="rail-card-title">Range</span>
+      </div>
+      <div class="rail-range-chips">
+        {#each Object.keys(RANGES) as r}
+          <button class="range-chip" class:active={range === r} on:click={() => range = r}>{$_(RANGE_LABEL_KEYS[r])}</button>
+        {/each}
+      </div>
+    </div>
+    {#if periodDeltas}
+      <div class="rail-card">
+        <div class="rail-card-head">
+          <span class="material-symbols-rounded">compare_arrows</span>
+          <span class="rail-card-title">vs Prior {$_(RANGE_LABEL_KEYS[range])}</span>
+        </div>
+        <div class="rail-delta-stats">
+          {#if periodDeltas.volPct != null}
+            <div class="rail-delta">
+              <span class="rail-delta-label">Volume</span>
+              <span class="rail-delta-val"
+                    class:up={periodDeltas.volPct > 0}
+                    class:down={periodDeltas.volPct < 0}>
+                {periodDeltas.volPct > 0 ? '+' : ''}{periodDeltas.volPct}%
+              </span>
+            </div>
+          {/if}
+          {#if periodDeltas.cntPct != null}
+            <div class="rail-delta">
+              <span class="rail-delta-label">Sessions</span>
+              <span class="rail-delta-val"
+                    class:up={periodDeltas.cntPct > 0}
+                    class:down={periodDeltas.cntPct < 0}>
+                {periodDeltas.cntPct > 0 ? '+' : ''}{periodDeltas.cntPct}%
+              </span>
+            </div>
+          {/if}
+        </div>
+        <div class="rail-delta-note">Prior window: {periodDeltas.priorCount} {periodDeltas.priorCount === 1 ? 'session' : 'sessions'}</div>
+      </div>
+    {/if}
+  </aside>
+  </div>
 </div>
 
 <!-- Exercise picker sheet -->
@@ -1364,6 +1420,10 @@
     .summary-row { grid-template-columns: repeat(2, 1fr); }
   }
 
+  /* Mobile default — sticky rail hidden. Range bar at top of page
+     still visible so mobile flow is unchanged. */
+  .stats-rail { display: none; }
+
   /* ────────────────────────────────────────────────────────────
      Statistics Phase 1 — wide-layout correctness + containment.
      Two real problems on wide monitors:
@@ -1381,18 +1441,120 @@
      the rail + per-metric dashboards. Gated by
      html:not(.force-mobile-layout) + >=1280px. */
   @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .content {
-      max-width: 1200px;
+    /* Phase 2 shell — 2-col grid: content on the left, sticky
+       right rail on the right. The Phase 1 cap on .content is
+       superseded here (grid manages width now). */
+    :global(html:not(.force-mobile-layout)) .stats-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 20px;
+      align-items: start;
+      max-width: 1440px;
       margin: 0 auto;
-      width: 100%;
+      padding: 0 var(--page-px);
+      box-sizing: border-box;
     }
-    :global(html:not(.force-mobile-layout)) .metric-bar,
+    :global(html:not(.force-mobile-layout)) .stats-body > .content {
+      max-width: none;
+      margin: 0;
+      padding-left: 0;
+      padding-right: 0;
+      min-width: 0;
+    }
+    /* Top range-bar hidden on wide — the rail owns range now. */
     :global(html:not(.force-mobile-layout)) .range-bar {
+      display: none;
+    }
+    :global(html:not(.force-mobile-layout)) .metric-bar {
       flex-wrap: wrap;
       overflow-x: visible;
-      max-width: 1200px;
+      max-width: 1440px;
       margin-left: auto;
       margin-right: auto;
+      padding-left: var(--page-px);
+      padding-right: var(--page-px);
+      box-sizing: border-box;
+    }
+    /* Sticky rail — same shell math the Diary rail uses. */
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    /* Rail cards — matches the tokens used in Diary rail, Programs
+       preview pane, and ProgramDetail template pane. */
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-card-head > .material-symbols-rounded {
+      font-size: 18px;
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-card-head > .rail-card-title {
+      flex: 1;
+      min-width: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-range-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-range-chips > .range-chip {
+      flex: 0 0 auto;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-delta-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .rail-delta {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .rail-delta-label {
+      font-size: 12px;
+      color: var(--text-3);
+    }
+    .rail-delta-val {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-1);
+      font-variant-numeric: tabular-nums;
+    }
+    .rail-delta-val.up   { color: var(--success); }
+    .rail-delta-val.down { color: var(--danger);  }
+    .rail-delta-note {
+      font-size: 11px;
+      color: var(--text-3);
+      font-style: italic;
     }
     /* Cap line-chart width so preserveAspectRatio="none" can't
        stretch a short data series into a near-flat horizontal
