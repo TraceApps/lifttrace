@@ -114,8 +114,6 @@
   }
   let sortMode = 'alpha';  // 'alpha' | 'used' | 'recent' — persisted across visits
   let loading = true;
-  let viewMode = 'list'; // 'list' | 'grid'
-
   // Restore the last chosen sort so power users don't have to set it every
   // time the route remounts. Persisted in sessionStorage so it survives nav
   // but resets cleanly across app sessions.

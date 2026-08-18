@@ -6,6 +6,7 @@
   import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { currentUser } from '../../stores/auth.js';
+<<<<<<< Updated upstream
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
 
   // Build request headers matching SettingsUserManagement's pattern.
@@ -21,6 +22,8 @@
     }
     return h;
   }
+=======
+>>>>>>> Stashed changes
 
   export let expanded = false;
   export let visible = true;
@@ -109,7 +112,11 @@
   let testDialogInputEl;
 
   function openTestDialog() {
+<<<<<<< Updated upstream
     if (!smtpHost) { smtpTestStatus = 'fail'; showError($_('settings_email.smtp_host_required')); return; }
+=======
+    if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
+>>>>>>> Stashed changes
     testRecipient = $currentUser?.email || '';
     showTestDialog = true;
     tick().then(() => testDialogInputEl?.focus());
@@ -122,7 +129,11 @@
   async function confirmTestSmtp() {
     const to = (testRecipient || '').trim();
     if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+<<<<<<< Updated upstream
       showError($_('settings_email.invalid_email'));
+=======
+      showError('Enter a valid email address');
+>>>>>>> Stashed changes
       return;
     }
     showTestDialog = false;
@@ -138,9 +149,15 @@
         to,
       };
       if (smtpPass && smtpPass !== PASS_MASK) body.smtp_pass = smtpPass;
+<<<<<<< Updated upstream
       const res = await fetch(apiUrl('/api/app-config/test-email'), {
         method: 'POST', credentials: 'include',
         headers: _authHeaders(),
+=======
+      const res = await fetch('/api/app-config/test-email', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+>>>>>>> Stashed changes
         body: JSON.stringify(body),
       });
       if (res.ok) {
@@ -237,7 +254,11 @@
             <input bind:this={smtpPassInputEl}
               class="form-input smtp-pass" class:masked={!smtpShowPass && !passIsStored}
               style="flex:1" type="text" autocomplete="new-password"
+<<<<<<< Updated upstream
               placeholder={$_('settings_email.password_ph')}
+=======
+              placeholder="SMTP password or app password"
+>>>>>>> Stashed changes
               bind:value={smtpPass} disabled={smtpLocked || passIsStored} />
             {#if passIsStored}
               <button type="button" class="btn-icon-toggle change-btn"
@@ -284,15 +305,25 @@
     on:keydown={(e) => e.key === 'Escape' && closeTestDialog()}>
     <div class="test-dialog" role="dialog" aria-labelledby="test-dialog-title"
       on:click|stopPropagation>
+<<<<<<< Updated upstream
       <h3 id="test-dialog-title">{$_('settings_email.send_test_email')}</h3>
+=======
+      <h3 id="test-dialog-title">Send Test Email</h3>
+>>>>>>> Stashed changes
       <p>Where should we send the test?</p>
       <input bind:this={testDialogInputEl} class="form-input" type="email"
         placeholder="you@example.com" bind:value={testRecipient}
         on:keydown={(e) => e.key === 'Enter' && confirmTestSmtp()} />
       <div class="test-dialog-actions">
+<<<<<<< Updated upstream
         <button class="btn btn-ghost" on:click={closeTestDialog}>{$_('settings_email.cancel')}</button>
         <button class="btn btn-primary" on:click={confirmTestSmtp}
           disabled={!testRecipient.trim()}>{$_('settings_email.send')}</button>
+=======
+        <button class="btn btn-ghost" on:click={closeTestDialog}>Cancel</button>
+        <button class="btn btn-primary" on:click={confirmTestSmtp}
+          disabled={!testRecipient.trim()}>Send</button>
+>>>>>>> Stashed changes
       </div>
     </div>
   </div>
