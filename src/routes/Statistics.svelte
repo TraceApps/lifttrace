@@ -34,6 +34,28 @@
   const CARDIO_METRIC = { id: 'cardio', labelKey: 'statistics.tabs.cardio', icon: 'directions_run' };
   $: METRICS = $cardioEnabled ? [...BASE_METRICS, CARDIO_METRIC] : BASE_METRICS;
 
+  // Grouped metric picker for the desktop left rail (>=1280px only).
+  // Same METRICS underneath so the switchMetric handler + sliding
+  // indicator on mobile still work — the rail just organizes them
+  // into scannable buckets that map to how a lifter thinks about
+  // their stats. Cardio joins Trends when enabled.
+  $: METRIC_GROUPS = (() => {
+    const trends = [
+      { id: 'volume', labelKey: 'statistics.tabs.volume', icon: 'fitness_center' },
+      { id: 'freq',   labelKey: 'statistics.tabs.freq',   icon: 'calendar_month' },
+      { id: 'weight', labelKey: 'statistics.tabs.weight', icon: 'monitor_weight' },
+    ];
+    if ($cardioEnabled) trends.push(CARDIO_METRIC);
+    return [
+      { title: 'Summary',  items: [{ id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' }] },
+      { title: 'Progress', items: [
+        { id: 'progress', labelKey: 'statistics.tabs.progress', icon: 'trending_up' },
+        { id: 'records',  labelKey: 'statistics.tabs.records',  icon: 'emoji_events' },
+      ]},
+      { title: 'Trends',   items: trends },
+    ];
+  })();
+
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
   // Rendered chip labels, keyed off the same range identifiers used for logic
   // (RANGES[range] lookups, range === 'All' comparisons, etc). The RANGES
@@ -476,12 +498,31 @@
     {/each}
   </div>
 
-  <!-- Body wrapper — at >=1280px non-forced-mobile becomes a 2-col
-       grid holding the per-metric widgets on the left and a sticky
-       right rail (range picker + prior-period delta KPIs) on the
-       right. On mobile / narrow this is a plain block so nothing
-       changes below phone widths. -->
+  <!-- Body wrapper — at >=1280px non-forced-mobile becomes a 3-col
+       grid: grouped metric picker rail | per-metric widgets |
+       sticky range/comparison rail. On mobile / narrow this is a
+       plain block so nothing changes below phone widths. -->
   <div class="stats-body">
+  <!-- Left metric picker rail (desktop only via CSS). Replaces the
+       horizontal .metric-bar chip scroller with a grouped, always-
+       visible vertical menu that mirrors the Settings rail idiom. -->
+  <nav class="stats-metric-rail" aria-label="Statistics sections">
+    {#each METRIC_GROUPS as group}
+      <div class="mr-group">
+        <span class="mr-group-title">{group.title}</span>
+        {#each group.items as m}
+          <button type="button"
+                  class="mr-btn"
+                  class:active={metric === m.id}
+                  on:click={() => switchMetric(m.id)}
+                  aria-current={metric === m.id ? 'page' : undefined}>
+            <span class="material-symbols-rounded mr-icon">{m.icon}</span>
+            <span class="mr-label">{$_(m.labelKey)}</span>
+          </button>
+        {/each}
+      </div>
+    {/each}
+  </nav>
   {#if loading}
     <div class="loading">{$_('statistics.loading_stats')}</div>
   {:else}
@@ -1434,9 +1475,11 @@
     .summary-row { grid-template-columns: repeat(2, 1fr); }
   }
 
-  /* Mobile default — sticky rail hidden. Range bar at top of page
-     still visible so mobile flow is unchanged. */
+  /* Mobile default — sticky rail + metric picker rail both hidden.
+     Range bar + metric bar at top of page still visible so mobile
+     flow is unchanged. */
   .stats-rail { display: none; }
+  .stats-metric-rail { display: none; }
 
   /* Baseline margins for the Muscle Balance description + effective-
      sets line. Extracted from inline style="" attributes so the
@@ -1462,18 +1505,98 @@
      the rail + per-metric dashboards. Gated by
      html:not(.force-mobile-layout) + >=1280px. */
   @media (min-width: 1280px) {
-    /* Phase 2 shell — 2-col grid: content on the left, sticky
-       right rail on the right. The Phase 1 cap on .content is
-       superseded here (grid manages width now). */
+    /* Phase 4 shell — 3-col grid: metric picker rail | per-metric
+       content | sticky range/comparison rail. Phase 2 was 2-col;
+       adding the metric rail on the left replaces the .metric-bar
+       chip scroller with a grouped always-visible menu. */
     :global(html:not(.force-mobile-layout)) .stats-body {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-columns: 220px minmax(0, 1fr) 320px;
       gap: 20px;
       align-items: start;
-      max-width: 1440px;
+      max-width: 1600px;
       margin: 0 auto;
       padding: 0 var(--page-px);
       box-sizing: border-box;
+    }
+    /* Left metric-picker rail — sticky next to the content so the
+       user always sees which metric they're on. Same sticky-top
+       math the other rails use. */
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-metric-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      padding: 10px 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-group-title {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 600;
+      padding: 4px 8px;
+      margin-top: 8px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-group:first-child .mr-group-title {
+      margin-top: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      background: transparent;
+      border: none;
+      color: var(--text-1);
+      font-size: 13px;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--dur-fast), color var(--dur-fast);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn:hover {
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn.active {
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn.active .mr-icon {
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-icon {
+      width: 20px;
+      height: 20px;
+      font-size: 18px;
+      color: var(--text-3);
+      flex-shrink: 0;
     }
     :global(html:not(.force-mobile-layout)) .stats-body > .content {
       max-width: none;
