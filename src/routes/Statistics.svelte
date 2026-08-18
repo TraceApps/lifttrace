@@ -488,6 +488,12 @@
     <div class="content">
       <!-- ═════════ OVERVIEW ═════════ -->
       {#if metric === 'overview'}
+        <!-- Overview body wrapper — at wide widths becomes a 2-col
+             CSS grid so widgets share rows instead of vertically
+             stacking. Goal ring / summary row / cal strip / empty
+             span both columns; heatmap + MuscleRecovery share row 2;
+             WeeklyVolume + WorkoutFrequency share row 3. -->
+        <div class="overview-body">
         <!-- Weekly goal progress ring — the single most motivating widget
              on a fitness dashboard. Filled arc reflects this week's
              completed workouts vs the user's weekly target. -->
@@ -593,6 +599,7 @@
             <p>{$_('statistics.no_workouts_yet')}</p>
           </div>
         {/if}
+        </div><!-- /.overview-body -->
       {/if}
 
       <!-- ═════════ EXERCISE PROGRESS ═════════ -->
@@ -781,42 +788,49 @@
         {#if muscleLoad && Object.keys(muscleLoad).length > 0}
           {@const rank = rankOf(muscleLoad)}
           {@const totalSets = MUSCLES.reduce((s, m) => s + (muscleLoad[m] || 0), 0)}
-          <div class="chart-card">
+          <div class="chart-card muscle-balance-card">
             <h3 class="chart-title">{$_('statistics.muscle_balance')}</h3>
-            <p class="chart-sub" style="margin-top:-4px;margin-bottom:12px">
+            <p class="chart-sub mb-desc">
               {$_('statistics.muscle_balance_desc')}
             </p>
-            <BodyMap load={muscleLoad} />
-
-            <!-- Shade legend, five steps matching the .bm-m.l0…l4 scale.
-                 Same vocabulary the muscle-heat coloring uses so "more
-                 accent = more training" reads the same everywhere. -->
-            <div class="bm-legend">
-              <span class="bm-legend-label">{$_('statistics.less')}</span>
-              <span class="bm-legend-swatch l0"></span>
-              <span class="bm-legend-swatch l1"></span>
-              <span class="bm-legend-swatch l2"></span>
-              <span class="bm-legend-swatch l3"></span>
-              <span class="bm-legend-swatch l4"></span>
-              <span class="bm-legend-label">{$_('statistics.more')}</span>
+            <!-- Body-map + detail split into 2 cols at wide widths so
+                 the BodyMap becomes a proper hero on the left and the
+                 legend / not-trained chips / effective-set line stack
+                 in a scannable column on the right. -->
+            <div class="mb-body-col">
+              <BodyMap load={muscleLoad} />
             </div>
-
-            {#if rank.missed.length > 0}
-              <div class="bm-missed">
-                <p class="bm-missed-title">{$_('statistics.not_trained')}</p>
-                <div class="bm-chips">
-                  {#each rank.missed as slug}
-                    <span class="bm-chip">{MUSCLE_NAME[slug]}</span>
-                  {/each}
-                </div>
+            <div class="mb-detail-col">
+              <!-- Shade legend, five steps matching the .bm-m.l0…l4 scale.
+                   Same vocabulary the muscle-heat coloring uses so "more
+                   accent = more training" reads the same everywhere. -->
+              <div class="bm-legend">
+                <span class="bm-legend-label">{$_('statistics.less')}</span>
+                <span class="bm-legend-swatch l0"></span>
+                <span class="bm-legend-swatch l1"></span>
+                <span class="bm-legend-swatch l2"></span>
+                <span class="bm-legend-swatch l3"></span>
+                <span class="bm-legend-swatch l4"></span>
+                <span class="bm-legend-label">{$_('statistics.more')}</span>
               </div>
-            {/if}
 
-            <p class="chart-sub" style="margin-top:14px">
-              {rank.worked.length === 1
-                ? $_('statistics.effective_sets_one', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })
-                : $_('statistics.effective_sets_other', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })}
-            </p>
+              {#if rank.missed.length > 0}
+                <div class="bm-missed">
+                  <p class="bm-missed-title">{$_('statistics.not_trained')}</p>
+                  <div class="bm-chips">
+                    {#each rank.missed as slug}
+                      <span class="bm-chip">{MUSCLE_NAME[slug]}</span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              <p class="chart-sub mb-effective">
+                {rank.worked.length === 1
+                  ? $_('statistics.effective_sets_one', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })
+                  : $_('statistics.effective_sets_other', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })}
+              </p>
+            </div>
           </div>
         {/if}
 
@@ -1556,6 +1570,56 @@
       color: var(--text-3);
       font-style: italic;
     }
+
+    /* ── Phase 3: per-metric dashboards ────────────────────────
+       Overview restructures its vertical stack into a 2-col grid
+       so the "am I on track this week?" answer lands in one
+       glance instead of a scroll. Full-width items (goal ring,
+       summary row, cal strip, empty state) span both cols; the
+       remaining widgets pair up. */
+    :global(html:not(.force-mobile-layout)) .overview-body {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 16px;
+      row-gap: 16px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .overview-body > .goal-ring-card,
+    :global(html:not(.force-mobile-layout)) .overview-body > .summary-row,
+    :global(html:not(.force-mobile-layout)) .overview-body > .cal-strip,
+    :global(html:not(.force-mobile-layout)) .overview-body > .empty-state {
+      grid-column: 1 / -1;
+    }
+
+    /* Muscle Balance dashboard — hero the BodyMap on the left,
+       stack the legend / not-trained chips / effective-sets note
+       in a scannable column on the right. Title + description
+       still span the top full width. */
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card {
+      display: grid;
+      grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+      column-gap: 24px;
+      row-gap: 8px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .chart-title,
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .mb-desc {
+      grid-column: 1 / -1;
+    }
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .mb-body-col {
+      grid-column: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .mb-detail-col {
+      grid-column: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+  }
+  /* Below 1280 — muscle-balance columns collapse; explicit rules so
+     the wrapper divs stack cleanly on mobile without any grid. */
+  .mb-desc { margin-top: -4px; margin-bottom: 12px; }
+  .mb-effective { margin-top: 14px; }
     /* Cap line-chart width so preserveAspectRatio="none" can't
        stretch a short data series into a near-flat horizontal
        ribbon at desktop widths. The chart centers within its
