@@ -1438,6 +1438,13 @@
      still visible so mobile flow is unchanged. */
   .stats-rail { display: none; }
 
+  /* Baseline margins for the Muscle Balance description + effective-
+     sets line. Extracted from inline style="" attributes so the
+     wide-layout grid rules can position them cleanly; values match
+     the original inline styles so mobile layout is unchanged. */
+  .mb-desc      { margin-top: -4px; margin-bottom: 12px; }
+  .mb-effective { margin-top: 14px; }
+
   /* ────────────────────────────────────────────────────────────
      Statistics Phase 1 — wide-layout correctness + containment.
      Two real problems on wide monitors:
@@ -1615,11 +1622,6 @@
       flex-direction: column;
       gap: 14px;
     }
-  }
-  /* Below 1280 — muscle-balance columns collapse; explicit rules so
-     the wrapper divs stack cleanly on mobile without any grid. */
-  .mb-desc { margin-top: -4px; margin-bottom: 12px; }
-  .mb-effective { margin-top: 14px; }
     /* Cap line-chart width so preserveAspectRatio="none" can't
        stretch a short data series into a near-flat horizontal
        ribbon at desktop widths. The chart centers within its
