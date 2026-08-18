@@ -1364,6 +1364,64 @@
     .summary-row { grid-template-columns: repeat(2, 1fr); }
   }
 
+  /* ────────────────────────────────────────────────────────────
+     Statistics Phase 1 — wide-layout correctness + containment.
+     Two real problems on wide monitors:
+       (1) SVG line charts use preserveAspectRatio="none" and
+           stretch to full viewport width × 140px tall. On 1600px
+           a real progression slope compresses to a near-flat
+           ribbon — misrepresents the data, not just polish.
+       (2) .content is edge-to-edge; summary cards balloon to
+           400px each with 22px numbers floating in dead space.
+     Phase 1 fixes both without changing the layout structure:
+     cap .content max-width + center it; cap .line-chart max-
+     width so aspect distortion stays contained; wrap the
+     .metric-bar + .range-bar chips to multi-line so nothing
+     scrolls when there's room to lay flat. Later phases add
+     the rail + per-metric dashboards. Gated by
+     html:not(.force-mobile-layout) + >=1280px. */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .content {
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    :global(html:not(.force-mobile-layout)) .metric-bar,
+    :global(html:not(.force-mobile-layout)) .range-bar {
+      flex-wrap: wrap;
+      overflow-x: visible;
+      max-width: 1200px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    /* Cap line-chart width so preserveAspectRatio="none" can't
+       stretch a short data series into a near-flat horizontal
+       ribbon at desktop widths. The chart centers within its
+       card so it still reads as the primary content. */
+    :global(html:not(.force-mobile-layout)) .line-chart {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    /* Same treatment for the SVG-based bar charts inside
+       chart-cards so their bars don't stretch to 100px-wide
+       gaps on ultra-wide monitors. */
+    :global(html:not(.force-mobile-layout)) .chart-card {
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+      width: 100%;
+    }
+    /* Cap summary-row width so each of the 4 tiles stays visually
+       weighted — a 22px number in a 400px empty tile looks like
+       loading skeleton. */
+    :global(html:not(.force-mobile-layout)) .summary-row {
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+      width: 100%;
+    }
+  }
+
   /* Cardio weekly-minutes bars. Same visual language as the frequency
      chart: accent fill grows with training, target-hit weeks flip to
      success green. --target-frac is set inline so the horizontal target
