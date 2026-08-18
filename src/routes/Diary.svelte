@@ -26,6 +26,7 @@
   import SupersetCard from '../components/diary/SupersetCard.svelte';
   import WorkoutTimer from '../components/diary/WorkoutTimer.svelte';
   import CardioCard from '../components/diary/CardioCard.svelte';
+  import BodyStatsWidget from '../components/diary/BodyStatsWidget.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
   import SmartLogModal from '../components/diary/SmartLogModal.svelte';
@@ -2390,12 +2391,14 @@
       <span class="material-symbols-rounded">library_books</span>
       Load Workout
     </button>
-    <!-- Body Stats and Gym Tools as inline widgets (mirrors NT's
-         BodyStatsWidget / WaterWidget pattern). Both components
-         accept an embed prop that skips their modal shell; on
-         mobile the same components still render as sheets from
-         .diary-topbar-actions (hidden on desktop via CSS below). -->
-    <BodyStats embed />
+    <!-- Body Stats — summary widget (weight + measurements +
+         Log CTA) matching NT's BodyStatsWidget pattern. The full
+         entry form still lives in the modal (showBodyStats) which
+         the Log Stats and open-full icon both trigger. -->
+    <BodyStatsWidget onOpen={() => showBodyStats = true} />
+    <!-- Gym Tools — utilities inline (plate calc, converter).
+         Not status data so it stays as-is (no summary view to
+         port from NT — NT doesn't have gym tools). -->
     <GymTools embed />
     <!-- Workout Actions ('More' menu) stays as a launcher — it's a
          short contextual menu (rename, delete, replace) that would

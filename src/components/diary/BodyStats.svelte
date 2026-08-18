@@ -6,13 +6,6 @@
   import { currentDate } from '../../stores/workout.js';
 
   export let open = false;
-  /**
-   * When true, render the body inline (no backdrop / sheet wrapper).
-   * Used by the desktop Diary right rail so BodyStats appears as a
-   * widget instead of a modal launcher. Stats load on mount + on
-   * date change instead of on `open`.
-   */
-  export let embed = false;
 
   // Title case for the label, unit comes from getUnit() so each label
   // renders as e.g. "Weight (lbs)" or "Body Fat (%)". The previous
@@ -53,10 +46,7 @@
   let stats = {};
   let saving = false;
 
-  $: if (open || embed) loadStats();
-  // In embed mode `open` never flips, so also reload when the diary
-  // date changes so the widget's stats stay in sync with the page.
-  $: if (embed && $currentDate) loadStats();
+  $: if (open) loadStats();
 
   async function loadStats() {
     try {
@@ -80,8 +70,12 @@
       });
       if (!res.ok) throw new Error('Save failed');
       showSuccess('Body stats saved');
-      // Only auto-close in modal mode — embedded widget stays open.
-      if (!embed) open = false;
+      // Notify the desktop rail widget so it can reload its summary
+      // view without a page nav.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lt:body-stats-saved'));
+      }
+      open = false;
     } catch(e) {
       showError(e.message);
     }
@@ -89,33 +83,7 @@
   }
 </script>
 
-{#if embed}
-  <!-- Embedded widget layout — no backdrop / sheet shell. Same body
-       markup so mobile modal + desktop widget share styling tokens. -->
-  <div class="bs-embed">
-    <div class="bs-embed-head">
-      <span class="material-symbols-rounded bs-embed-icon">scale</span>
-      <span class="bs-embed-title">Body Stats</span>
-      <span class="bs-embed-date">{_fmtDate($currentDate)}</span>
-    </div>
-    <div class="bs-grid">
-      {#each visibleStats as stat (stat.id)}
-        <div>
-          <label class="form-label">{stat.label} <span class="unit">({getUnit(stat.id)})</span></label>
-          <input class="input" type="number" step="0.1" min="0"
-            bind:value={stats[stat.id]} placeholder="—" />
-        </div>
-      {/each}
-    </div>
-    {#if visibleStats.length === 0}
-      <p class="bs-empty">No measurements enabled. Go to Settings → Workout to choose which stats to track.</p>
-    {:else}
-      <button class="btn btn-primary bs-embed-save" on:click={save} disabled={saving}>
-        {saving ? 'Saving…' : 'Save'}
-      </button>
-    {/if}
-  </div>
-{:else if open}
+{#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div use:portal class="sheet-backdrop" on:click={() => open = false}>
@@ -203,36 +171,4 @@
     grid-column: 1 / -1;
   }
 
-  /* Embed (rail-widget) layout — same look-and-feel as the other
-     rail cards (surface-1 + border + radius) so the widget stack
-     reads uniformly. Grid inputs stay 2-col like the modal so
-     saved values look identical in both entry points. */
-  .bs-embed {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .bs-embed-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-1);
-  }
-  .bs-embed-icon { font-size: 18px; color: var(--accent); flex-shrink: 0; }
-  .bs-embed-title { flex: 1; min-width: 0; }
-  .bs-embed-date { font-size: 11px; color: var(--text-3); font-weight: 500; }
-  .bs-embed .bs-grid { padding: 0; }
-  .bs-embed .form-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
-  .bs-embed .input { padding: 6px 8px; font-size: 13px; }
-  .bs-embed-save {
-    width: 100%;
-    padding: 8px 12px;
-    font-size: 13px;
-  }
 </style>
