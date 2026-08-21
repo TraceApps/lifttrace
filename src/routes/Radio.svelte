@@ -1190,16 +1190,23 @@
 
     <!-- Streaming stations -->
     {:else if tab === 'stations'}
-      <div class="station-sub-tabs" data-active={stationsSubTab}>
-        <span class="sub-tab-pill" aria-hidden="true"></span>
-        <button class="sub-tab" class:active={stationsSubTab === 'my'} on:click={() => stationsSubTab = 'my'}>{$_('radio.my_stations')}</button>
-        <button class="sub-tab" class:active={stationsSubTab === 'browse'} on:click={() => stationsSubTab = 'browse'}>{$_('radio.browse')}</button>
+      <!-- Header row: My/Browse pill + Add station. Stacked on mobile
+           (natural block flow), inline flex row on wide widths so the
+           section chrome doesn't take three vertical bands. -->
+      <div class="stations-header-row">
+        <div class="station-sub-tabs" data-active={stationsSubTab}>
+          <span class="sub-tab-pill" aria-hidden="true"></span>
+          <button class="sub-tab" class:active={stationsSubTab === 'my'} on:click={() => stationsSubTab = 'my'}>{$_('radio.my_stations')}</button>
+          <button class="sub-tab" class:active={stationsSubTab === 'browse'} on:click={() => stationsSubTab = 'browse'}>{$_('radio.browse')}</button>
+        </div>
+        {#if stationsSubTab === 'my'}
+          <button class="btn btn-primary add-station-btn" on:click={openAddStation}>
+            <span class="material-symbols-rounded" style="font-size:18px">add</span> Add station
+          </button>
+        {/if}
       </div>
 
       {#if stationsSubTab === 'my'}
-        <button class="btn btn-primary add-station-btn" on:click={openAddStation}>
-          <span class="material-symbols-rounded" style="font-size:18px">add</span> Add station
-        </button>
         {#each groupedStations as [groupName, stations] (groupName)}
           <!-- svelte-ignore a11y-no-static-element-interactions -->
           <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1219,6 +1226,10 @@
             </button>
           </div>
           {#if !isGroupCollapsed(groupName)}
+          <!-- Station list wrapper — becomes a 2-col grid at wide
+               widths so rows stop stretching to 1000px+ single-line
+               strips. Group header still spans full width above. -->
+          <div class="station-list">
           {#each stations as s (s.id)}
             <!-- svelte-ignore a11y-no-static-element-interactions -->
             <div class="station-row"
@@ -1263,6 +1274,7 @@
               </button>
             </div>
           {/each}
+          </div><!-- /.station-list -->
           {/if}
         {/each}
       {:else}
@@ -2239,6 +2251,34 @@
        destroy. Other routes still get the MiniPlayer. */
     :global(html.lt-route-radio:not(.force-mobile-layout)) :global(.mini-player) {
       display: none;
+    }
+
+    /* Stations header row — sub-tab pill + Add-station button
+       inline instead of stacked, so the tab chrome doesn't take
+       three vertical bands before the first group. */
+    :global(html:not(.force-mobile-layout)) .stations-header-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    :global(html:not(.force-mobile-layout)) .stations-header-row > .add-station-btn {
+      margin: 0;
+      margin-left: auto;
+    }
+    /* Station list becomes a 2-col grid so rows stop stretching
+       into 1000px+ single-line strips. Group header still spans
+       full width above (it's outside .station-list). */
+    :global(html:not(.force-mobile-layout)) .station-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 8px;
+    }
+    /* Also cap the sticky-top page-header on wide so its banner
+       doesn't stretch to the full viewport when there's no tab
+       bar to anchor it — it now just sits above the center col. */
+    :global(html:not(.force-mobile-layout)) .radio-body > .radio-main > .sticky-top {
+      width: 100%;
     }
   }
 </style>
