@@ -4,7 +4,11 @@
   import { _ } from 'svelte-i18n';
   import { radioEnabled, radioUrl, radioStations, radioStationsEnabled } from '../stores/settings.js';
   import { isNative, getServerUrl, resolveAssetUrl } from '../lib/platform.js';
-  import { playTrack, addToQueue, playNext, currentTrack, streamNowPlaying } from '../stores/player.js';
+  import {
+    playTrack, addToQueue, playNext,
+    currentTrack, streamNowPlaying, streamArtwork,
+    isPlaying, togglePlay, next as playerNext, prev as playerPrev,
+  } from '../stores/player.js';
   import { showSuccess } from '../stores/toast.js';
   import { showError } from '../stores/toast.js';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
@@ -474,7 +478,68 @@
   // on every {#key $location} swap) so we always grab the LAST scrollY.
   onDestroy(() => {
     if (typeof window !== 'undefined') _saveRadioState();
+    _wideMq?.removeEventListener?.('change', _syncWide);
+    document.documentElement.classList.remove('lt-route-radio');
   });
+
+  // Wide-mode gate — same pattern the picker + programs + statistics use.
+  // At >=1280px on non-forced-mobile viewports, Radio becomes a 3-col
+  // shell: source rail on the left, current tab content in the center,
+  // Now Playing hero on the right. Also stamps html.lt-route-radio so
+  // the App-level MiniPlayer can hide itself on this route at wide
+  // widths (the hero is a richer replacement).
+  let _wideMode = false;
+  let _wideMq;
+  function _syncWide() {
+    if (typeof document === 'undefined') return;
+    _wideMode = !!_wideMq?.matches
+      && !document.documentElement.classList.contains('force-mobile-layout');
+  }
+  if (typeof window !== 'undefined') {
+    _wideMq = window.matchMedia('(min-width: 1280px)');
+    _syncWide();
+    _wideMq.addEventListener?.('change', _syncWide);
+    document.documentElement.classList.add('lt-route-radio');
+  }
+
+  // Now Playing hero — cover-tinted backdrop reusing FullPlayer's
+  // color-extraction logic verbatim so the two surfaces feel like one
+  // system. Cached per src via window.__LT_BG_CACHE so re-navigating
+  // doesn't reprocess.
+  $: _rnpCoverSrc = resolveAssetUrl($streamArtwork || $currentTrack?.coverUrl || '');
+  let _rnpBg = '';
+  const _rnpBgCache = (typeof window !== 'undefined' && (window.__LT_BG_CACHE ||= {})) || {};
+  async function _rnpExtractColor(src) {
+    if (!src) { _rnpBg = ''; return; }
+    if (_rnpBgCache[src]) { _rnpBg = _rnpBgCache[src]; return; }
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const loaded = new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject();
+      });
+      img.src = src;
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = 32; canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, 32, 32);
+      const data = ctx.getImageData(0, 0, 32, 32).data;
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const R = data[i], G = data[i + 1], B = data[i + 2];
+        const bright = (R + G + B) / 3;
+        if (bright < 20 || bright > 235) continue;
+        r += R; g += G; b += B; n++;
+      }
+      if (n > 0) {
+        _rnpBg = `rgb(${Math.round(r/n)}, ${Math.round(g/n)}, ${Math.round(b/n)})`;
+        _rnpBgCache[src] = _rnpBg;
+      }
+    } catch { /* cross-origin / load fail — leave default */ }
+  }
+  $: if (_rnpCoverSrc) _rnpExtractColor(_rnpCoverSrc);
 
   async function loadTab(t, { force = false } = {}) {
     // Local-first: if the cache already has data for this tab, render it
@@ -716,6 +781,64 @@
 </script>
 
 <div class="page">
+  <!-- Body wrapper — at >=1280px on non-forced-mobile viewports this
+       becomes a 3-col shell: left source-nav rail | center content |
+       right Now Playing hero. On mobile it's a plain block so nothing
+       changes below phone widths. -->
+  <div class="radio-body">
+
+  <!-- Left source-nav rail (desktop only via CSS). Grouped nav
+       replaces the horizontal tab pill row (which is hidden on wide)
+       — mid-workout station changes become one click without
+       scrolling past collapsed group headers. -->
+  <nav class="radio-source-rail" aria-label="Radio sections">
+    {#if musicAvailable}
+      <div class="rsr-group">
+        <span class="rsr-group-title">Music</span>
+        <button type="button" class="rsr-btn" class:active={tab === 'albums'}
+                on:click={() => { tab = 'albums'; loadTab('albums'); }}>
+          <span class="material-symbols-rounded">album</span>
+          <span class="rsr-label">Albums</span>
+        </button>
+        <button type="button" class="rsr-btn" class:active={tab === 'artists'}
+                on:click={() => { tab = 'artists'; loadTab('artists'); }}>
+          <span class="material-symbols-rounded">person</span>
+          <span class="rsr-label">Artists</span>
+        </button>
+        <button type="button" class="rsr-btn" class:active={tab === 'playlists'}
+                on:click={() => { tab = 'playlists'; loadTab('playlists'); }}>
+          <span class="material-symbols-rounded">queue_music</span>
+          <span class="rsr-label">Playlists</span>
+        </button>
+        {#if sub.supportsStarred?.()}
+          <button type="button" class="rsr-btn" class:active={tab === 'starred'}
+                  on:click={() => { tab = 'starred'; loadTab('starred'); }}>
+            <span class="material-symbols-rounded">star</span>
+            <span class="rsr-label">Starred</span>
+          </button>
+        {/if}
+        <button type="button" class="rsr-btn" class:active={tab === 'search'}
+                on:click={() => tab = 'search'}>
+          <span class="material-symbols-rounded">search</span>
+          <span class="rsr-label">Search</span>
+        </button>
+      </div>
+    {/if}
+    {#if $radioStationsEnabled}
+      <div class="rsr-group">
+        <span class="rsr-group-title">Radio</span>
+        <button type="button" class="rsr-btn" class:active={tab === 'stations'}
+                on:click={() => tab = 'stations'}>
+          <span class="material-symbols-rounded">radio</span>
+          <span class="rsr-label">Stations</span>
+        </button>
+      </div>
+    {/if}
+  </nav>
+
+  <!-- Center column — sticky top + tab body. Wrapping so the grid
+       treats them as one grid cell (heights don't bleed cross-column). -->
+  <div class="radio-main">
   <!-- Single sticky stack: header (banner) + tab pill bar + (when search
        is active) the search bar. Pinning everything in one container
        avoids the cumulative-top math that broke the bar's stick when
@@ -1215,6 +1338,54 @@
       {/if}
     {/if}
   </div>
+  </div><!-- /.radio-main -->
+
+  <!-- Now Playing hero (desktop only via CSS). Reuses FullPlayer's
+       cover-tint gradient logic so the two surfaces share visual
+       language. Renders a placeholder card when nothing is playing
+       so the rail stays balanced. -->
+  <aside class="radio-now-playing" style="--rnp-bg: {_rnpBg || 'var(--surface-2)'}">
+    {#if $currentTrack}
+      <div class="rnp-cover-wrap">
+        {#if _rnpCoverSrc}
+          <img class="rnp-cover" src={_rnpCoverSrc} alt="" />
+        {:else}
+          <span class="material-symbols-rounded rnp-cover-fallback">radio</span>
+        {/if}
+      </div>
+      <div class="rnp-meta">
+        <div class="rnp-title" title={$currentTrack.title || $currentTrack.name || ''}>
+          {$streamNowPlaying || $currentTrack.title || $currentTrack.name || 'Now Playing'}
+        </div>
+        {#if $streamNowPlaying && ($currentTrack.title || $currentTrack.name)}
+          <div class="rnp-sub" title={$currentTrack.title || $currentTrack.name}>
+            {$currentTrack.title || $currentTrack.name}
+          </div>
+        {:else if $currentTrack.artist}
+          <div class="rnp-sub">{$currentTrack.artist}</div>
+        {/if}
+      </div>
+      <div class="rnp-controls">
+        <button type="button" class="rnp-btn" on:click={playerPrev} aria-label="Previous">
+          <span class="material-symbols-rounded">skip_previous</span>
+        </button>
+        <button type="button" class="rnp-btn rnp-btn-primary" on:click={togglePlay}
+                aria-label={$isPlaying ? 'Pause' : 'Play'}>
+          <span class="material-symbols-rounded">{$isPlaying ? 'pause' : 'play_arrow'}</span>
+        </button>
+        <button type="button" class="rnp-btn" on:click={playerNext} aria-label="Next">
+          <span class="material-symbols-rounded">skip_next</span>
+        </button>
+      </div>
+    {:else}
+      <div class="rnp-empty">
+        <span class="material-symbols-rounded rnp-empty-icon">headphones</span>
+        <p class="rnp-empty-title">Nothing playing</p>
+        <p class="rnp-empty-desc">Pick a station or track and it'll show here with cover art, live metadata, and quick controls.</p>
+      </div>
+    {/if}
+  </aside>
+  </div><!-- /.radio-body -->
 </div>
 
 <!-- Add / edit station dialog -->
@@ -1825,4 +1996,249 @@
   }
   .ctx-item:hover { background: var(--surface-2); }
   .ctx-item + .ctx-item { border-top: 1px solid var(--border); }
+
+  /* Mobile default — rails hidden. Radio-body is a plain block so
+     the existing sticky-top + radio-content stack is unchanged. */
+  .radio-source-rail { display: none; }
+  .radio-now-playing { display: none; }
+
+  /* ────────────────────────────────────────────────────────────
+     Radio Phase 1 wide layout (>=1280px, non-forced-mobile).
+     Three-column shell — source rail | tab content | Now Playing
+     hero — that turns Radio from "a mobile page shown on a big
+     screen" into a workout-audience surface: rail owns fast
+     navigation, hero always shows what's playing without expanding
+     the MiniPlayer / FullPlayer modal. */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .radio-body {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr) 340px;
+      gap: 20px;
+      align-items: start;
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 0 var(--page-px);
+      box-sizing: border-box;
+    }
+    :global(html:not(.force-mobile-layout)) .radio-body > .radio-main {
+      min-width: 0;
+    }
+    /* Hide the horizontal tab pill row on wide — the left rail owns
+       nav. The action buttons (search icon, Mix/Random) also live in
+       .radio-bar and get hidden with it; the rail's Search button
+       covers search, and Mix/Random get promoted to a rail action
+       below. */
+    :global(html:not(.force-mobile-layout)) .radio-body > .radio-main > .sticky-top > .radio-bar {
+      display: none;
+    }
+    /* Bump album grid density from 140px minmax to 200px so covers
+       stay legible on wide monitors instead of shrinking to 9-10
+       tiny cards per row. */
+    :global(html:not(.force-mobile-layout)) .radio-body :global(.album-grid) {
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    }
+
+    /* Left source rail — same visual language as the Statistics
+       and Settings rails (surface-1 card, sticky). */
+    :global(html:not(.force-mobile-layout)) .radio-body > .radio-source-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      padding: 10px 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .rsr-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .rsr-group-title {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 600;
+      padding: 4px 8px;
+      margin-top: 8px;
+    }
+    .rsr-group:first-child .rsr-group-title { margin-top: 0; }
+    .rsr-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      background: transparent;
+      border: none;
+      color: var(--text-1);
+      font-size: 13px;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--dur-fast), color var(--dur-fast);
+    }
+    .rsr-btn:hover { background: var(--surface-2); }
+    .rsr-btn.active {
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+    }
+    .rsr-btn.active .material-symbols-rounded { color: var(--accent); }
+    .rsr-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: var(--surface-2);
+    }
+    .rsr-btn .material-symbols-rounded {
+      font-size: 18px;
+      color: var(--text-3);
+      flex-shrink: 0;
+    }
+
+    /* Right Now Playing hero — sticky with a cover-tinted backdrop
+       gradient so a lifter mid-set sees what's playing at a glance
+       without opening the FullPlayer modal. --rnp-bg is set inline
+       from the JS extractor. Falls back to surface-2 when nothing
+       is playing so the card still occupies a stable slot. */
+    :global(html:not(.force-mobile-layout)) .radio-body > .radio-now-playing {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 20px 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      color: var(--text-1);
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow: hidden;
+      /* Tinted gradient using the cover's dominant color. When the
+         extractor hasn't run (empty state), --rnp-bg falls back to
+         surface-2 so the card stays legible. */
+      background:
+        linear-gradient(180deg,
+          color-mix(in srgb, var(--rnp-bg) 55%, var(--surface-1)),
+          color-mix(in srgb, var(--rnp-bg) 15%, var(--surface-1)) 60%,
+          var(--surface-1));
+      transition: background 400ms ease;
+    }
+    .rnp-cover-wrap {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .rnp-cover {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .rnp-cover-fallback {
+      font-size: 64px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    .rnp-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .rnp-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-1);
+      line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .rnp-sub {
+      font-size: 13px;
+      color: var(--text-2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .rnp-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .rnp-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text-1);
+      cursor: pointer;
+      transition: background var(--dur-fast), transform var(--dur-fast);
+    }
+    .rnp-btn:hover { background: rgba(255, 255, 255, 0.2); }
+    .rnp-btn:active { transform: scale(0.94); }
+    .rnp-btn .material-symbols-rounded { font-size: 22px; }
+    .rnp-btn-primary {
+      width: 56px;
+      height: 56px;
+      background: var(--accent);
+      color: var(--surface-1);
+      border-color: var(--accent);
+    }
+    .rnp-btn-primary .material-symbols-rounded { font-size: 32px; }
+    .rnp-btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
+    .rnp-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 8px;
+      padding: 40px 12px;
+      color: var(--text-3);
+    }
+    .rnp-empty-icon { font-size: 40px; opacity: 0.6; }
+    .rnp-empty-title { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
+    .rnp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 240px; }
+
+    /* Hide the App-level MiniPlayer on the Radio route at wide
+       widths — the on-page Now Playing hero is a richer replacement
+       and the two would create redundant transport controls. Uses
+       the html.lt-route-radio stamp set on this route's mount/
+       destroy. Other routes still get the MiniPlayer. */
+    :global(html.lt-route-radio:not(.force-mobile-layout)) :global(.mini-player) {
+      display: none;
+    }
+  }
 </style>
