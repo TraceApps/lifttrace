@@ -2280,5 +2280,53 @@
     :global(html:not(.force-mobile-layout)) .radio-body > .radio-main > .sticky-top {
       width: 100%;
     }
+
+    /* ── Phase 2: detail view + list-row polish ─────────────────
+       Detail views (Album / Artist / Playlist) previously centered
+       a 200px cover in an infinite column with track list below —
+       lots of dead space at wide widths. Turn the header into a
+       proper hero row (bigger art left, meta + actions right), and
+       cap track/artist row widths so they don't stretch into
+       1000px+ single-line strips with the action buttons floating
+       far from the row content. */
+    :global(html:not(.force-mobile-layout)) .radio-body .detail-header {
+      flex-direction: row;
+      align-items: flex-end;
+      text-align: left;
+      gap: 20px;
+      padding: 8px 0 20px;
+      flex-wrap: wrap;
+    }
+    :global(html:not(.force-mobile-layout)) .radio-body .detail-art {
+      width: 240px;
+      height: 240px;
+      flex-shrink: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .radio-body .detail-info {
+      flex: 1;
+      min-width: 200px;
+    }
+    :global(html:not(.force-mobile-layout)) .radio-body .detail-title {
+      font-size: 28px;
+      line-height: 1.15;
+    }
+    :global(html:not(.force-mobile-layout)) .radio-body .detail-meta {
+      font-size: 14px;
+      margin-top: 4px;
+    }
+    :global(html:not(.force-mobile-layout)) .radio-body .detail-actions {
+      justify-content: flex-start;
+      flex-shrink: 0;
+    }
+    /* Track + artist list rows: cap at ~800px so the action buttons
+       stay near the row content instead of floating far right. Center
+       the capped list within the center column so long tracklists
+       read like a proper list, not a stretched strip. */
+    :global(html:not(.force-mobile-layout)) .radio-body :global(.track-row),
+    :global(html:not(.force-mobile-layout)) .radio-body :global(.artist-row) {
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+    }
   }
 </style>
