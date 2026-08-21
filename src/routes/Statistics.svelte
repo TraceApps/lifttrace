@@ -1605,19 +1605,15 @@
       padding-right: 0;
       min-width: 0;
     }
-    /* Top range-bar hidden on wide — the rail owns range now. */
-    :global(html:not(.force-mobile-layout)) .range-bar {
-      display: none;
-    }
+    /* Top range-bar + metric-bar both hidden on wide — the left
+       .stats-metric-rail owns metric navigation and the right
+       .stats-rail owns range. Keeping the top chip rows around
+       created double navigation AND its sliding-pill indicator
+       mis-positioned on first paint (visibly overlapping the next
+       pill until you clicked away and back). Rail-only kills both. */
+    :global(html:not(.force-mobile-layout)) .range-bar,
     :global(html:not(.force-mobile-layout)) .metric-bar {
-      flex-wrap: wrap;
-      overflow-x: visible;
-      max-width: 1440px;
-      margin-left: auto;
-      margin-right: auto;
-      padding-left: var(--page-px);
-      padding-right: var(--page-px);
-      box-sizing: border-box;
+      display: none;
     }
     /* Sticky rail — same shell math the Diary rail uses. */
     :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail {
