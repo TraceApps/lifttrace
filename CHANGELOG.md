@@ -9,6 +9,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Spanish translation.** Adds a complete `es` locale and exposes it as `Español` in the Settings → Units language picker.
+
 - **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Units language picker.
 
 ---

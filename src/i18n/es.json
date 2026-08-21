@@ -1,0 +1,1628 @@
+{
+  "nav": {
+    "diary": "Diario",
+    "exercises": "Ejercicios",
+    "programs": "Programas",
+    "statistics": "Stats",
+    "radio": "Radio",
+    "settings": "Ajustes"
+  },
+  "sync": {
+    "retry": "Reintentar",
+    "retrying": "Reintentando…",
+    "dismiss_message": "Descartar el mensaje de sincronización",
+    "error_title": "Error de sincronización",
+    "connection": {
+      "server_fallback": "servidor",
+      "no_network_title": "Sin conexión de red",
+      "cant_reach_title": "No se puede conectar con {host}",
+      "reconnect": "Vuelve a conectarte a internet.",
+      "server_error": "El servidor ha devuelto HTTP {status}. Vuelve a intentarlo en un momento.",
+      "mobile_data": "Estás conectado con datos móviles. Este servidor puede necesitar tu Wi-Fi de casa o la VPN.",
+      "check_connection": "Comprueba tu Wi-Fi, la VPN o el servidor.",
+      "saved_locally": "Tus cambios se guardan en local y se sincronizarán automáticamente."
+    }
+  },
+  "routes": {
+    "diary": {
+      "title": "Diario"
+    },
+    "exercises": {
+      "title": "Ejercicios"
+    },
+    "exercise_detail": {
+      "title": "Ejercicio"
+    },
+    "programs": {
+      "title": "Programas"
+    },
+    "program_detail": {
+      "title": "Programa"
+    },
+    "workout_editor": {
+      "title": "Editor de entrenamiento"
+    },
+    "statistics": {
+      "title": "Estadísticas"
+    },
+    "radio": {
+      "title": "Radio"
+    },
+    "coaching": {
+      "title": "Coaching"
+    },
+    "settings": {
+      "title": "Ajustes"
+    },
+    "profile": {
+      "title": "Perfil"
+    }
+  },
+  "common": {
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "back": "Atrás",
+    "edit": "Editar",
+    "done": "Hecho",
+    "close": "Cerrar",
+    "loading": "Cargando…",
+    "sign_out": "Cerrar sesión",
+    "log_out": "Cerrar sesión",
+    "signing_out": "Cerrando sesión…",
+    "admin": "admin",
+    "hide": "Ocultar",
+    "experimental": "Experimental",
+    "errors": {
+      "cant_reach_server": "No se pudo conectar con el servidor",
+      "failed": "Error",
+      "save_failed": "No se pudo guardar",
+      "delete_failed": "No se pudo eliminar",
+      "name_required": "El nombre es obligatorio",
+      "network_error_upload": "Error de red durante la subida",
+      "voice_unsupported": "Este navegador no admite la entrada por voz",
+      "cant_start_mic": "No se pudo iniciar el micrófono"
+    }
+  },
+  "login": {
+    "subtitle": "Inicia sesión en tu cuenta",
+    "username": "Usuario",
+    "username_placeholder": "Introduce el usuario",
+    "password": "Contraseña",
+    "password_placeholder": "Introduce la contraseña",
+    "sign_in": "Iniciar sesión",
+    "signing_in": "Iniciando sesión…",
+    "forgot_password": "¿Has olvidado la contraseña?",
+    "locked_out": "¿Sin acceso?",
+    "errors": {
+      "failed": "Error al iniciar sesión"
+    },
+    "continue_with": "Continuar con {provider}",
+    "or": "o",
+    "recovery": {
+      "token_missing": "Introduce tu token de recuperación",
+      "explainer": "Si nunca configuraste cuentas de usuario a propósito, puedes desactivar la gestión de usuarios. <strong>Esto eliminará todas las cuentas de usuario.</strong> Tus datos de entrenamiento se conservarán.",
+      "token_prompt": "Introduce el <code>RECOVERY_TOKEN</code> del entorno de tu servidor:",
+      "token_placeholder": "Token de recuperación",
+      "action": "Desactivar la gestión de usuarios y restablecer",
+      "disabling": "Desactivando…",
+      "failed": "La recuperación ha fallado",
+      "success": "Gestión de usuarios desactivada: ahora estás en modo de un solo usuario",
+      "done": "La gestión de usuarios se ha desactivado.<br>Redirigiendo…"
+    },
+    "linked": "Vinculado",
+    "no_saved": "No hay ningún inicio de sesión guardado. Usa tu contraseña una primera vez.",
+    "saved_expired": "Tu inicio de sesión guardado ha caducado. Usa tu contraseña para entrar.",
+    "biometric_failed": "El inicio de sesión biométrico ha fallado. Usa tu contraseña.",
+    "app_name": "LiftTrace",
+    "biometric_signin": "Iniciar sesión con biometría"
+  },
+  "forgot_password": {
+    "title": "Restablecer la contraseña",
+    "intro": "Introduce tu dirección de correo y te enviaremos un enlace para restablecer la contraseña.",
+    "email_label": "Dirección de correo",
+    "send_link": "Enviar enlace",
+    "sending": "Enviando…",
+    "back_to_signin": "Volver al inicio de sesión",
+    "sent": "Si existe una cuenta para <strong>{email}</strong>, se ha enviado un enlace para restablecerla. Revisa tu bandeja de entrada."
+  },
+  "reset_password": {
+    "title": "Nueva contraseña",
+    "verifying": "Verificando el enlace…",
+    "invalid_link": "Este enlace de restablecimiento no es válido o ha caducado.",
+    "request_new": "Solicitar un enlace nuevo",
+    "success": "Contraseña actualizada. Redirigiendo…",
+    "set_for": "Establece una contraseña nueva para <strong>{username}</strong>",
+    "new_password": "Nueva contraseña",
+    "confirm_password": "Confirmar la contraseña",
+    "password_placeholder": "8+ caracteres, mayúscula, minúscula, número, símbolo",
+    "submit": "Establecer la contraseña",
+    "saving": "Guardando…",
+    "errors": {
+      "required": "La contraseña es obligatoria",
+      "mismatch": "Las contraseñas no coinciden",
+      "failed": "No se pudo restablecer"
+    }
+  },
+  "accept_invite": {
+    "title": "Crear una cuenta",
+    "verifying": "Verificando la invitación…",
+    "invalid_link": "Este enlace de invitación no es válido o ha caducado. Pide uno nuevo a tu administrador.",
+    "success": "¡Cuenta creada! Redirigiendo…",
+    "intro": "Te han invitado a LiftTrace. Elige un usuario y una contraseña para empezar.",
+    "intro_with_email": "Te han invitado como <strong>{email}</strong>. Elige un usuario y una contraseña para empezar.",
+    "username_label": "Usuario *",
+    "username_placeholder": "Elige un usuario",
+    "full_name_label": "Nombre completo (opcional)",
+    "full_name_placeholder": "Tu nombre",
+    "password_label": "Contraseña *",
+    "confirm_label": "Confirmar la contraseña *",
+    "submit": "Crear la cuenta",
+    "creating": "Creando la cuenta…",
+    "errors": {
+      "username_required": "El usuario es obligatorio",
+      "failed": "No se pudo crear la cuenta"
+    }
+  },
+  "diary": {
+    "workout_name_placeholder": "Nombre del entrenamiento...",
+    "tap_to_rename": "Toca para renombrar",
+    "nav": {
+      "previous_day": "Día anterior",
+      "next_day": "Día siguiente",
+      "jump_to_date": "Ir a una fecha",
+      "jump_to_today": "Ir a hoy"
+    },
+    "actions": {
+      "gym_tools": "Herramientas de gimnasio",
+      "gym_tools_long": "Herramientas de gimnasio: calculadora de discos y conversor de unidades",
+      "body_stats": "Medidas corporales",
+      "body_stats_long": "Medidas corporales: registra el peso, la grasa corporal y las medidas",
+      "workout_actions": "Acciones del entrenamiento",
+      "workout_options": "Opciones del entrenamiento"
+    },
+    "toast": {
+      "workout_cleared": "Entrenamiento vaciado",
+      "timer_reset": "Temporizador reiniciado",
+      "copied_yesterday": "Entrenamiento de ayer copiado",
+      "superset_created": "Superserie creada",
+      "superset_removed": "Superserie eliminada",
+      "added_to_superset": "Añadido a la superserie",
+      "removed_from_superset": "Quitado de la superserie"
+    },
+    "errors": {
+      "no_workout_yesterday": "No hay ningún entrenamiento de ayer",
+      "copy_failed": "No se pudo copiar el entrenamiento"
+    },
+    "cardio": {
+      "toast": {
+        "logged": "Cardio registrado",
+        "log_failed": "No se pudo registrar",
+        "pinned": "Fijado como registro rápido",
+        "unpinned": "Ya no está fijado",
+        "update_failed": "No se pudo actualizar",
+        "activity_required": "Falta la actividad",
+        "duration_invalid": "La duración debe ser un número positivo de minutos",
+        "distance_invalid": "La distancia debe ser un número",
+        "hr_invalid": "La frecuencia cardiaca debe ser un número",
+        "updated": "Cardio actualizado"
+      },
+      "title": "Cardio",
+      "total_today": "{minutes} min hoy",
+      "add_aria": "Añadir una sesión de cardio",
+      "templates_aria": "Plantillas de registro rápido fijadas",
+      "tpl_title": "Registrar ahora: {activity} · {minutes} min",
+      "activity_placeholder": "Actividad (p. ej. Bici, Correr, Remo)",
+      "duration_placeholder": "min",
+      "distance_placeholder": "Distancia ({distanceUnit}, opcional)",
+      "hr_placeholder": "bpm",
+      "notes_placeholder": "Notas (opcional)",
+      "log_submit": "Registrar",
+      "edit_title": "Editar la sesión",
+      "pin_template": "Fijar como plantilla de registro rápido",
+      "unpin_template": "Quitar la plantilla de registro rápido",
+      "delete_aria": "Eliminar la sesión de cardio",
+      "empty": "No hay cardio registrado para este día."
+    },
+    "confirm": {
+      "delete_cardio_title": "¿Eliminar la sesión de cardio?",
+      "delete_cardio_msg": "{activity} · {duration} min",
+      "delete_reply_title": "¿Eliminar tu respuesta?",
+      "delete_reply_msg": "Tu respuesta a esta nota se eliminará.",
+      "replace_workout_title": "¿Reemplazar el entrenamiento?",
+      "replace_confirm": "Reemplazar",
+      "replace_suggested_msg": "Cargar el entrenamiento sugerido sobrescribirá tu entrenamiento de hoy.",
+      "replace_template_msg": "Elegir una plantilla nueva sobrescribirá tu entrenamiento de hoy.",
+      "replace_prescribed_msg": "Cargar el entrenamiento prescrito sobrescribirá tu entrenamiento de hoy.",
+      "remove_exercise_title": "¿Quitar el ejercicio?",
+      "remove_exercise_msg": "{name} se quitará del entrenamiento de hoy.",
+      "remove_superset_title": "¿Quitar la superserie?",
+      "remove_superset_msg": "{list} se quitará del entrenamiento de hoy.",
+      "remove_confirm": "Quitar"
+    }
+  },
+  "trace": {
+    "fab_label": "Abrir Trace (mantén pulsado para registrar un entrenamiento por voz)",
+    "fab_tooltip": "Toca para chatear · mantén pulsado para registrar por voz",
+    "ask_placeholder": "Pregúntame lo que quieras…",
+    "clear_conversation": "Vaciar el chat",
+    "clear_confirm_title": "¿Vaciar esta conversación?",
+    "clear_confirm_message": "Los mensajes de esta conversación se eliminarán. Esto no se puede deshacer.",
+    "clear_confirm_ok": "Vaciar",
+    "attach_image": "Adjuntar imagen"
+  },
+  "wizard": {
+    "nav": {
+      "back": "Atrás",
+      "next": "Siguiente",
+      "get_started": "Empezar",
+      "skip": "Omitir",
+      "lets_go": "Vamos"
+    },
+    "skip_modal": {
+      "title": "¿Omitir la configuración?",
+      "desc": "Puedes rellenarlo todo más tarde en Ajustes → Mi perfil. La estimación de calorías y otras funciones personalizadas seguirán desactivadas hasta que lo hagas.",
+      "do_later": "Lo haré más tarde",
+      "skip_now": "Omitir ahora",
+      "continue": "Seguir"
+    },
+    "welcome": {
+      "title": "Bienvenido a LiftTrace",
+      "desc": "Registra cada repetición. Tu compañero personal de levantamiento de pesas: privado, autoalojado y hecho para quien se lo toma en serio."
+    },
+    "name": {
+      "title": "¿Cómo quieres que te llamemos?",
+      "desc": "Se usa en los saludos, en el menú lateral y en tu asistente de IA. Puedes cambiarlo más tarde en Ajustes.",
+      "placeholder": "Tu nombre (opcional)"
+    },
+    "profile": {
+      "title": "Sobre ti",
+      "desc": "Unos pocos datos para que LiftTrace pueda estimar las calorías quemadas y ajustar el asistente de IA. Todo es opcional.",
+      "sex": "Sexo",
+      "sex_male": "Hombre",
+      "sex_female": "Mujer",
+      "sex_other": "Otro / prefiero no decirlo",
+      "dob": "Fecha de nacimiento",
+      "height": "Altura",
+      "weight": "Peso actual",
+      "hint": "Con esto funciona la estimación de calorías quemadas (desactivada por defecto; se activa en Ajustes → Entrenamiento). Puedes editarlo todo más tarde en Ajustes → Mi perfil."
+    },
+    "users": {
+      "create_admin_title": "Crear la cuenta de administrador",
+      "multi_user_title": "Varios usuarios (opcional)",
+      "create_admin_desc": "Tu instancia de LiftTrace necesita una cuenta de administrador. Es el primer usuario y tendrá control total sobre la aplicación.",
+      "multi_user_desc": "LiftTrace puede funcionar en modo de un solo usuario (lo predeterminado) o con varios usuarios, con inicios de sesión separados y restablecimiento de contraseña. Siempre puedes activarlo más tarde en Ajustes.",
+      "enable_toggle": "Activar las cuentas de usuario",
+      "username_placeholder": "Usuario (obligatorio)",
+      "fullname_placeholder": "Nombre completo (opcional)",
+      "email_placeholder": "Correo (opcional, para restablecer la contraseña)",
+      "password_placeholder": "Contraseña (8+ caracteres, A-z, 0-9, especial)",
+      "confirm_placeholder": "Confirmar la contraseña",
+      "creating": "Creando…",
+      "errors": {
+        "username_required": "Falta el usuario",
+        "password_mismatch": "Las contraseñas no coinciden"
+      }
+    },
+    "units": {
+      "title": "Sistema de medida",
+      "desc": "¿Cómo mides las cosas?",
+      "metric": "Métrico",
+      "metric_sub": "kg, cm",
+      "imperial": "Imperial",
+      "imperial_sub": "lb, ft, in"
+    },
+    "goals": {
+      "title": "Objetivo semanal",
+      "desc": "¿Cuántos días por semana quieres entrenar?",
+      "days_sub": "días"
+    },
+    "library": {
+      "title": "Biblioteca de ejercicios",
+      "optional": "(Opcional)",
+      "desc": "Elige qué importar. Todas las descargas vienen directamente de las fuentes originales. Puedes añadirlas o quitarlas en cualquier momento desde Ajustes.",
+      "import_n": "Importar ({n})",
+      "importing": "Importando…",
+      "progress": "Importando {id}… ({idx}/{total})",
+      "ready": "Biblioteca lista: {n} fuentes importadas"
+    },
+    "appearance": {
+      "title": "Apariencia",
+      "desc": "Elige tu tema.",
+      "auto": "Automático",
+      "dark": "Oscuro",
+      "light": "Claro"
+    }
+  },
+  "profile": {
+    "title": "Perfil",
+    "personal_info": "Datos personales",
+    "security": "Seguridad",
+    "change_photo": "Cambiar la foto",
+    "full_name": "Nombre completo",
+    "full_name_placeholder": "Tu nombre completo",
+    "email_placeholder": "Se usa para restablecer la contraseña",
+    "nickname": "Apodo / Nombre visible",
+    "nickname_placeholder": "¿Cómo quieres que te llamemos?",
+    "birthday": "Cumpleaños",
+    "gender": "Género",
+    "gender_unset": "Prefiero no decirlo",
+    "change_password": "Cambiar la contraseña",
+    "current_password": "Contraseña actual",
+    "confirm_new_password": "Confirmar la nueva contraseña",
+    "saved": "Perfil guardado",
+    "password_changed": "Contraseña cambiada",
+    "linked_accounts": "Cuentas vinculadas",
+    "no_linked_accounts": "Todavía no hay cuentas vinculadas.",
+    "link_with": "Vincular con",
+    "unlink": "Desvincular",
+    "unlinked": "Desvinculada",
+    "last_signin": "último inicio de sesión {date}",
+    "danger_zone": "Zona de riesgo",
+    "delete_account": "Eliminar mi cuenta",
+    "delete_account_explainer": "Elimina de forma permanente tu cuenta y todos los datos asociados: entrenamientos, medidas corporales, programas y ajustes.",
+    "delete_account_title": "¿Eliminar tu cuenta?",
+    "delete_account_message": "Tus entrenamientos, medidas corporales, programas, ajustes e historial de IA se eliminarán de forma permanente. Esto no se puede deshacer.",
+    "delete_account_confirm": "Eliminar la cuenta",
+    "deleting": "Eliminando…",
+    "account_deleted": "Cuenta eliminada",
+    "errors": {
+      "save_failed": "No se pudo guardar el perfil",
+      "upload_failed": "No se pudo subir",
+      "password_change_failed": "No se pudo cambiar la contraseña",
+      "unlink_failed": "No se pudo desvincular",
+      "delete_account_failed": "No se pudo eliminar la cuenta"
+    },
+    "biometric_cancelled": "La verificación biométrica se canceló o falló.",
+    "server_unreachable": "No se pudo conectar con el servidor",
+    "gender_male": "Hombre",
+    "gender_female": "Mujer",
+    "gender_other": "Otro",
+    "current_password_ph": "Introduce la contraseña actual",
+    "confirm_password_ph": "Vuelve a introducir la nueva contraseña",
+    "biometric_signin": "Iniciar sesión con biometría"
+  },
+  "settings": {
+    "units": {
+      "section": "Unidades",
+      "language": "Idioma"
+    },
+    "appearance": {
+      "section": "Apariencia",
+      "theme": "Tema",
+      "accent": "Color de acento",
+      "navigation": "Navegación"
+    },
+    "workout": {
+      "section": "Entrenamiento"
+    },
+    "statistics": {
+      "section": "Estadísticas"
+    },
+    "trace": {
+      "section": "Asistente de IA"
+    },
+    "radio": {
+      "section": "Radio"
+    },
+    "federation": {
+      "section": "NutriTrace"
+    },
+    "catalog": {
+      "section": "Catálogo de ejercicios"
+    },
+    "backup": {
+      "section": "Copia de seguridad y restauración"
+    },
+    "notifications": {
+      "section": "Notificaciones"
+    },
+    "email": {
+      "section": "Correo (SMTP)"
+    },
+    "authentication": {
+      "section": "Autenticación"
+    },
+    "profile_hero": {
+      "label_fallback": "Mi perfil",
+      "subtitle_empty": "Toca para añadir tu nombre y tu foto"
+    },
+    "users": {
+      "section": "Usuarios",
+      "users_heading": "Usuarios",
+      "add_user": "Añadir usuario directamente",
+      "username": "Usuario",
+      "username_required": "Usuario",
+      "full_name": "Nombre completo (opcional)",
+      "password_required": "Contraseña (8+ caracteres, A-z, 0-9, especial)",
+      "confirm_required": "Confirmar la contraseña",
+      "role": "Rol",
+      "role_admin": "Admin",
+      "role_member": "Miembro",
+      "role_trainer": "Entrenador",
+      "role_self_suffix": "(tú)",
+      "create": "Crear",
+      "creating": "Creando…",
+      "delete_user_title": "¿Eliminar el usuario?",
+      "delete_user_message": "Se eliminarán todos los datos de este usuario. Esto no se puede deshacer.",
+      "delete": "Eliminar",
+      "reset_password": "Restablecer la contraseña",
+      "reset_password_prompt": "Establece una contraseña nueva para {name}\n\n(Debe tener 8+ caracteres con mayúscula, minúscula, número y carácter especial.)",
+      "invite_user": "Invitar a un usuario",
+      "invite_user_explainer": "Envía un enlace de registro para que el usuario elija su propia contraseña. Recomendado.",
+      "email_optional": "Correo (opcional)",
+      "send_invite": "Enviar la invitación",
+      "sending": "Enviando…",
+      "invite_sent": "Invitación enviada a {email}",
+      "invite_sent_to": "Invitación enviada a {email}",
+      "user_fallback": "usuario",
+      "share_link_intro": "Comparte este enlace:",
+      "copy": "Copiar",
+      "add_user_show": "Añadir usuario a mano",
+      "add_user_hide": "Ocultar el añadido manual",
+      "add_user_explainer": "Tú mismo pones el usuario y la contraseña, y luego se los pasas al usuario. Útil cuando SMTP no está configurado o para instalaciones sin conexión.",
+      "create_directly": "Crear usuario",
+      "session_duration": "Duración de la sesión",
+      "save": "Guardar",
+      "disable_um": "Desactivar la gestión de usuarios",
+      "disable_um_subtitle": "Elimina todas las cuentas; la aplicación queda de acceso libre",
+      "disable_um_title": "¿Desactivar la gestión de usuarios?",
+      "disable_um_message": "Esto ELIMINARÁ todas las cuentas de usuario. Cualquiera en tu red podrá acceder a la aplicación sin iniciar sesión.",
+      "disable_um_confirm": "Desactivar",
+      "enable_um": "Activar la gestión de usuarios",
+      "enable_um_subtitle": "Añade varias cuentas de usuario con datos y ajustes separados",
+      "enable_um_setup": "Configurar",
+      "create_admin_account": "Crear la cuenta de administrador",
+      "create_admin_explainer": "Esto activará la gestión de usuarios. La primera cuenta siempre es la de administrador. Todos los datos de entrenamiento existentes se asignarán a esta cuenta.",
+      "enable_create": "Activar y crear administrador",
+      "enabling": "Creando…",
+      "toast_password_reset": "Contraseña restablecida",
+      "toast_role_changed": "{name} ahora es {role}",
+      "toast_um_enabled": "Gestión de usuarios activada",
+      "toast_link_copied": "Enlace copiado",
+      "err_username_required": "Falta el usuario",
+      "err_passwords_mismatch": "Las contraseñas no coinciden",
+      "err_username_password_required": "Faltan el usuario y la contraseña",
+      "err_could_not_reset_password": "No se pudo restablecer la contraseña",
+      "err_could_not_reach_server": "No se pudo conectar con el servidor",
+      "revoke_invite_title": "¿Revocar la invitación?",
+      "revoke_invite_message": "El enlace dejará de funcionar de inmediato. Quien lo recibió no podrá usarlo después de esto.",
+      "revoke_confirm": "Revocar",
+      "err_could_not_revoke": "No se pudo revocar la invitación",
+      "invite_revoked": "Invitación revocada",
+      "trainer_assigned": "Entrenador asignado",
+      "trainer_removed": "Entrenador quitado",
+      "err_invite_email": "Introduce un correo válido o déjalo en blanco para generar un enlace que puedas compartir",
+      "err_failed_create_invite": "No se pudo crear la invitación",
+      "err_could_not_create_invite": "No se pudo crear la invitación",
+      "user_created": "Usuario creado",
+      "err_password_policy_prefix": "No se pudo guardar la política de contraseñas: {msg}. Puede que el servidor necesite un redespliegue.",
+      "err_password_policy": "No se pudo guardar la política de contraseñas: {msg}",
+      "network_error": "error de red",
+      "save_failed_status": "No se pudo guardar ({status})",
+      "role_member_opt": "Miembro",
+      "role_trainer_opt": "Entrenador",
+      "role_admin_opt": "Administrador",
+      "no_trainer": "Sin entrenador",
+      "pending_invites": "Invitaciones pendientes",
+      "strong_passwords": "Exigir contraseñas fuertes",
+      "session_never": "No caduca nunca",
+      "session_8h": "8 horas",
+      "session_1d": "1 día",
+      "session_7d": "7 días",
+      "session_30d": "30 días",
+      "session_90d": "90 días",
+      "session_1y": "1 año",
+      "confirm_password_ph": "Confirmar la contraseña",
+      "cancel": "Cancelar",
+      "hide": "Ocultar",
+      "show": "Mostrar",
+      "disable_um_hint": "Elimina todas las cuentas, la aplicación queda de acceso libre"
+    },
+    "server": {
+      "section": "Conexión con el servidor"
+    },
+    "workout_import": {
+      "section": "Importar entrenamientos"
+    },
+    "diagnostics": {
+      "section": "Diagnóstico"
+    },
+    "updates": {
+      "section": "Actualizaciones"
+    },
+    "about": {
+      "section": "Acerca de"
+    }
+  },
+  "workout_editor_ss": {
+    "add_to_superset": "Añadir a la superserie",
+    "create_superset": "Crear una superserie",
+    "create_hint": "Elige los ejercicios que quieres agrupar con {name}:",
+    "merge_into_superset": "Combinar con una superserie",
+    "join_hint": "Elige a qué superserie unirse:",
+    "create_confirm": "Crear la superserie ({count} ejercicios)",
+    "merge_hint": "Se combinarán todos los ejercicios de las dos superseries:"
+  },
+  "time_picker": {
+    "hour": "Hora",
+    "minute": "Minuto",
+    "cancel": "Cancelar",
+    "set_time": "Establecer la hora"
+  },
+  "settings_about": {
+    "app_name": "LiftTrace",
+    "open_source": "Código abierto",
+    "sister_app_prefix": "Aplicación hermana: ",
+    "sister_app_suffix": ", registro de nutrición",
+    "support_development": "Apoyar el desarrollo"
+  },
+  "template_spec": {
+    "auto": "Auto",
+    "weight": "Peso",
+    "reps": "Reps",
+    "clear": "Borrar"
+  },
+  "exercise_card": {
+    "load_type": "Tipo de carga",
+    "remember_for_exercise": "Recordar para este ejercicio",
+    "weight": "Peso",
+    "reps": "Reps"
+  },
+  "trace_ai": {
+    "voice_error": "Error de voz: {reason}",
+    "voice_unknown": "desconocido",
+    "mic_error": "No se pudo iniciar el micrófono: {reason}",
+    "smart_log_failed": "No se pudo interpretar el registro inteligente: {reason}",
+    "smart_log_unknown": "error desconocido",
+    "ai_coach": "Entrenador de pesas con IA"
+  },
+  "exercises_page": {
+    "all_equipment": "Todo el material",
+    "go_to_settings": "Ir a Ajustes",
+    "custom": "Personalizado"
+  },
+  "coaching_dialogs": {
+    "cancel": "Cancelar"
+  },
+  "workout_frequency_chart": {
+    "title": "Entrenamientos por semana",
+    "this_week": "Esta semana"
+  },
+  "weekly_volume_chart": {
+    "title": "Volumen semanal",
+    "this_week": "Esta semana"
+  },
+  "settings_units": {
+    "weight_unit": "Unidad de peso",
+    "date_format": "Formato de fecha",
+    "time_format": "Formato de hora"
+  },
+  "superset_card": {
+    "superset": "Superserie",
+    "delete": "Eliminar",
+    "cancel": "Cancelar"
+  },
+  "muscle_recovery": {
+    "title": "Recuperación muscular",
+    "fatigued": "Fatigado",
+    "recovering": "Recuperándose",
+    "ready": "Listo",
+    "fresh": "Fresco",
+    "front": "Frontal",
+    "back": "Posterior"
+  },
+  "exercise_info": {
+    "primary_muscles": "Músculos principales",
+    "secondary_muscles": "Músculos secundarios",
+    "how_to_perform": "Cómo se hace",
+    "tips": "Consejos",
+    "personal_record": "Récord personal",
+    "recent_history": "Historial reciente"
+  },
+  "workout_summary": {
+    "sets": "Series",
+    "exercises": "Ejercicios",
+    "duration": "Duración",
+    "custom": "Personalizado",
+    "done": "Hecho"
+  },
+  "exercise_detail": {
+    "deleted": "Ejercicio eliminado",
+    "top_set_over_time": "Mejor serie a lo largo del tiempo",
+    "similar_exercises": "Ejercicios similares",
+    "try_again": "Reintentar",
+    "back_to_exercises": "Volver a Ejercicios",
+    "confirm": {
+      "delete_title": "¿Eliminar \"{name}\"?",
+      "delete_msg": "Esto quita el ejercicio de tu biblioteca. Los entrenamientos que lo registraron conservan su historial; solo se rompe el enlace."
+    }
+  },
+  "settings_federation": {
+    "url_token_required": "Introduce primero una URL y un token de acceso",
+    "enable_federation": "Activar la federación",
+    "instance_url": "URL de la instancia",
+    "access_token": "Token de acceso",
+    "wearable_priority": "Prioridad del wearable"
+  },
+  "settings_diagnostics": {
+    "copy_failed": "No se pudo copiar; selecciona el texto a mano",
+    "logs_cleared": "Registros borrados",
+    "verbose_logging": "Registro de diagnóstico detallado",
+    "view_logs": "Ver los registros de diagnóstico",
+    "github_issue": "issue de GitHub"
+  },
+  "smart_log": {
+    "voice_failed": "La entrada por voz ha fallado: {reason}",
+    "voice_unknown": "desconocido",
+    "title": "Añadir inteligente",
+    "cancel": "Cancelar",
+    "back": "Atrás",
+    "amrap": "AMRAP"
+  },
+  "programs": {
+    "delete_title": "¿Eliminar el programa?",
+    "delete_message": "Elimina el programa y todos sus entrenamientos. Esto no se puede deshacer.",
+    "delete_confirm": "Eliminar",
+    "toast_deleted": "Programa eliminado",
+    "empty_title": "Todavía no hay programas",
+    "create_program": "Crear un programa",
+    "active": "Activo",
+    "new_program": "Nuevo programa",
+    "name": "Nombre",
+    "goal": "Objetivo",
+    "cancel": "Cancelar"
+  },
+  "settings_workout_import": {
+    "experimental": "Experimental",
+    "how_to_export": "Cómo exportar",
+    "import_another_file": "Importar otro fichero",
+    "ready_to_import": "Listo para importar",
+    "cancel": "Cancelar",
+    "confirm": {
+      "duplicate_dates_title": "{count} fechas ya tienen entrenamientos",
+      "duplicate_dates_msg": "¿Omitir las copias importadas de esos días, o reemplazar tus entrenamientos actuales por los importados?",
+      "replace_existing": "Reemplazar existentes",
+      "skip_duplicates": "Omitir duplicados"
+    }
+  },
+  "settings_statistics": {
+    "default_chart_type": "Tipo de gráfica por defecto",
+    "type_bar": "Barras",
+    "type_line": "Líneas",
+    "lock_y_zero": "Fijar el eje Y en cero",
+    "lock_y_zero_hint": "Empieza siempre el eje Y en 0",
+    "show_average": "Mostrar la línea de la media",
+    "show_average_hint": "Línea horizontal en el valor medio",
+    "show_trend": "Mostrar la línea de tendencia",
+    "show_trend_hint": "Superpone una tendencia suavizada en las gráficas"
+  },
+  "settings_catalog": {
+    "deleted": "Eliminado",
+    "rapidapi_key_ph": "Clave de RapidAPI",
+    "offline_library": "Biblioteca de ejercicios sin conexión",
+    "my_exercises": "Mis ejercicios",
+    "custom_catalog": "Catálogo personalizado",
+    "catalog_name": "Nombre del catálogo",
+    "json": "JSON",
+    "json_ph": "Pega aquí el JSON, o elige un fichero .json abajo",
+    "imported_catalogs": "Catálogos importados",
+    "confirm": {
+      "clear_imported_title": "¿Vaciar los ejercicios importados?",
+      "clear_imported_msg": "Esto oculta de tu biblioteca los {count} ejercicios importados de {name}. El historial de entrenamientos conserva sus enlaces; volver a importar la misma fuente más tarde los restaura en su sitio.",
+      "clear_confirm": "Vaciar",
+      "delete_named_title": "¿Eliminar \"{name}\"?",
+      "delete_exercise_msg": "El historial de entrenamientos conserva su registro; solo se rompe el enlace con la biblioteca.",
+      "delete_all_title": "¿Eliminar los {count} ejercicios personalizados?",
+      "delete_all_msg": "Esto no se puede deshacer. El historial de entrenamientos conserva sus registros; solo se rompen los enlaces con la biblioteca.",
+      "delete_all_confirm": "Eliminar todos",
+      "delete_catalog_msg": "Los {count} ejercicios de este catálogo se ocultarán de tu biblioteca. El historial de entrenamientos conserva sus enlaces; volver a importar el mismo catálogo más tarde los restaura en su sitio."
+    }
+  },
+  "settings_radio": {
+    "streaming_stations": "Emisoras de streaming",
+    "provider": "Proveedor",
+    "emby": "Emby",
+    "jellyfin": "Jellyfin",
+    "plex": "Plex",
+    "server_url": "URL del servidor",
+    "crossfade": "Fundido cruzado",
+    "crossfade_hint": "Mezcla las pistas en las transiciones",
+    "off": "Desactivado",
+    "highest_quality": "Reproducción con la máxima calidad"
+  },
+  "settings_email": {
+    "smtp_host_required": "La prueba de SMTP ha fallado: falta el host",
+    "invalid_email": "Introduce una dirección de correo válida",
+    "hint": "Se usa para restablecer contraseñas y para invitar usuarios",
+    "smtp_host": "Host SMTP",
+    "port": "Puerto",
+    "tls": "TLS",
+    "username": "Correo o usuario",
+    "username_ph": "Usuario o correo de SMTP",
+    "password": "Contraseña",
+    "password_ph": "Contraseña de SMTP o contraseña de aplicación",
+    "from_address": "Dirección del remitente",
+    "from_address_ph": "LiftTrace <noreply@example.com>",
+    "send_test_email": "Enviar un correo de prueba",
+    "cancel": "Cancelar",
+    "send": "Enviar"
+  },
+  "program_detail": {
+    "toast": {
+      "settings_saved": "Ajustes del programa guardados",
+      "assigned_to": "Asignado a {name}",
+      "set_active": "Programa marcado como activo",
+      "deactivated": "Programa desactivado",
+      "workout_added": "Entrenamiento añadido",
+      "workout_deleted": "Entrenamiento eliminado",
+      "program_deleted": "Programa eliminado",
+      "duplicated": "Programa duplicado",
+      "member_fallback": "miembro"
+    },
+    "workouts": "Entrenamientos",
+    "add_workout": "Añadir entrenamiento",
+    "assign_hint": "Elige a quién asignar {name}:",
+    "advance_week_by": "Avanzar la semana según",
+    "option_sessions": "Sesiones completadas",
+    "past_final_week": "Al pasar la última semana",
+    "option_hold": "Mantenerse en la última semana",
+    "cancel": "Cancelar",
+    "new_workout": "Nuevo entrenamiento",
+    "name": "Nombre",
+    "confirm": {
+      "delete_workout_title": "¿Eliminar el entrenamiento?",
+      "delete_workout_msg": "Esto quita la plantilla de entrenamiento de este programa.",
+      "delete_program_title": "¿Eliminar el programa?",
+      "delete_program_msg": "Elimina el programa entero y todos sus entrenamientos. Esto no se puede deshacer."
+    }
+  },
+  "exercise_editor": {
+    "toast": {
+      "updated": "Ejercicio actualizado",
+      "added": "Se ha añadido \"{name}\""
+    },
+    "name": "Nombre",
+    "required": "*",
+    "category": "Categoría",
+    "media": "Multimedia",
+    "equipment": "Material",
+    "primary_muscles": "Músculos principales",
+    "primary_hint": "(toca para alternar)",
+    "secondary_muscles": "Músculos secundarios",
+    "instructions": "Instrucciones",
+    "instructions_ph": "Indicaciones de técnica paso a paso, colocación, ejecución…",
+    "tips": "Consejos",
+    "tips_optional": "(opcional)",
+    "tips_ph": "Errores frecuentes, respiración, notas de progresión…",
+    "cancel": "Cancelar"
+  },
+  "diary_extra": {
+    "toast": {
+      "reply_failed": "No se pudo responder",
+      "cant_load_template": "No se pudo cargar la plantilla",
+      "no_exercises": "Esta prescripción no tiene ejercicios",
+      "loaded_named": "Se ha cargado \"{name}\"",
+      "loaded_workout": "Se ha cargado \"{name}\"",
+      "workout_fallback": "entrenamiento",
+      "replaced_with": "Reemplazado por {name}",
+      "nt_sync_failed": "La sincronización con NutriTrace ha fallado ({status})",
+      "cant_reach_nt": "No se pudo conectar con NutriTrace: {error}",
+      "network_error": "error de red"
+    },
+    "sets": "Series",
+    "exercises": "Ejercicios",
+    "reply_ph": "Responde a tu entrenador…",
+    "delete": "Eliminar",
+    "cancel": "Cancelar",
+    "active_program": "Programa activo",
+    "tap_pick_workout": "Toca para elegir un entrenamiento",
+    "coach_pick": "Elección del entrenador",
+    "last_workout": "Último entrenamiento",
+    "notes_ph": "Notas del entrenamiento...",
+    "load_workout": "Cargar el entrenamiento",
+    "auto": "Auto",
+    "mark_all_seen": "Marcar todo como visto"
+  },
+  "native_setup": {
+    "toast": {
+      "server_url_required": "Introduce la URL de tu servidor",
+      "cant_reach": "No se pudo conectar con el servidor",
+      "credentials_required": "Introduce tus credenciales",
+      "connected": "Conectado al servidor",
+      "cant_connect": "No se pudo conectar con el servidor",
+      "cant_open_oidc": "No se pudo abrir el navegador de inicio de sesión",
+      "migration_failed": "La migración ha fallado",
+      "local_cleared": "Datos locales borrados",
+      "cant_clear_local": "No se pudieron borrar los datos locales"
+    },
+    "title": "LiftTrace",
+    "subtitle": "Registra cada repetición",
+    "use_locally": "Usar en local",
+    "connect_server": "Conectar con el servidor",
+    "server_url": "URL del servidor",
+    "back": "Atrás",
+    "username": "Usuario",
+    "username_ph": "Tu usuario",
+    "password": "Contraseña",
+    "password_ph": "Tu contraseña",
+    "migrate_title": "Tienes datos locales en este dispositivo",
+    "upload_to_server": "Subir al servidor",
+    "replace_with_server": "Reemplazar con el servidor",
+    "merge_both": "Combinar ambos",
+    "migration_complete": "Migración completada",
+    "continue": "Continuar"
+  },
+  "radio": {
+    "toast": {
+      "name_url_required": "El nombre y la URL son obligatorios",
+      "station_added": "Emisora añadida",
+      "station_updated": "Emisora actualizada",
+      "renamed_to": "Renombrado a \"{name}\"",
+      "moved_ungrouped": "Emisoras movidas a Sin grupo",
+      "no_metadata": "No se encontraron metadatos de la emisora",
+      "cant_probe": "No se pudo sondear la emisora",
+      "no_icon": "No se encontró icono; prueba a pegar arriba la URL de la página web",
+      "rb_search_failed": "La búsqueda en Radio-Browser ha fallado",
+      "added_named": "Se ha añadido \"{name}\"",
+      "no_artists": "No se encontraron artistas; comprueba la biblioteca de tu servidor multimedia",
+      "cant_update_fav": "No se pudo actualizar el favorito",
+      "add_station_first": "Añade primero una emisora",
+      "added_to_queue": "Añadido a la cola",
+      "playing_next": "Se reproducirá a continuación"
+    },
+    "search_library": "Buscar en la biblioteca",
+    "search": "Buscar",
+    "play_random_station": "Reproduce una emisora al azar de tu lista",
+    "play_random_mix": "Reproduce una mezcla al azar de 50 canciones de tu biblioteca",
+    "search_ph": "Buscar artistas, álbumes, canciones…",
+    "songs": "Canciones",
+    "albums": "Álbumes",
+    "artists": "Artistas",
+    "unstar": "Quitar de favoritos",
+    "my_stations": "Mis emisoras",
+    "browse": "Explorar",
+    "rename_group": "Renombrar el grupo",
+    "drag_reorder": "Arrastra para reordenar",
+    "move_up": "Subir",
+    "move_down": "Bajar",
+    "name": "Nombre",
+    "name_ph": "SomaFM Groove Salad",
+    "stream_url": "URL del stream",
+    "genre": "Género",
+    "optional": "(opcional)",
+    "homepage": "Página web",
+    "for_icon_lookup": "(se usa para buscar el icono)",
+    "group": "Grupo",
+    "icon_url": "URL del icono",
+    "new_name": "Nombre nuevo",
+    "leave_empty_ungroup": "(déjalo vacío para desagrupar)",
+    "confirm": {
+      "delete_station_title": "¿Eliminar la emisora?",
+      "delete_station_msg": "\"{name}\" se quitará de tu lista de emisoras."
+    }
+  },
+  "workout_editor": {
+    "toast": {
+      "removed_from_ss": "Quitado de la superserie",
+      "added_to_ss": "Añadido a la superserie",
+      "ss_created": "Superserie creada",
+      "ss_dissolved": "Superserie deshecha",
+      "replaced_with": "Reemplazado por {name}",
+      "ss_merged": "Superseries combinadas",
+      "saved": "Entrenamiento guardado"
+    },
+    "name_ph": "Nombre del entrenamiento",
+    "empty_hint": "Añade ejercicios a esta plantilla de entrenamiento",
+    "superset": "Superserie",
+    "ss_options": "Opciones de superserie",
+    "move_up": "Subir",
+    "move_down": "Bajar",
+    "load_type": "Tipo de carga",
+    "view_details": "Ver los detalles del ejercicio",
+    "options": "Opciones",
+    "remember_ex": "Recordar para este ejercicio",
+    "use_uniform": "Usar objetivos uniformes",
+    "sets": "Series",
+    "reps": "Reps",
+    "weight": "Peso",
+    "tempo": "Tempo",
+    "notes_ph": "Notas...",
+    "week": "Semana {n}",
+    "copy_week": "Copiar la semana {from} en la semana {to}",
+    "week_matches": "La semana {to} ya coincide con la semana {from}",
+    "copy_week_aria": "Copiar esta semana en la siguiente",
+    "ex_count": "{count} ejercicios",
+    "load_bilateral": "Bilateral",
+    "load_paired": "Por lado",
+    "load_unilateral": "Alterno",
+    "load_hint_bilateral": "una sola carga: barra, máquina, los dos brazos mueven una misma cosa",
+    "load_hint_paired": "los dos brazos trabajan a la vez con cargas iguales por separado",
+    "load_hint_unilateral": "un lado cada vez",
+    "copy_ex_week": "Copiar la semana {from} de este ejercicio en la semana {to}",
+    "copy_ex_week_aria": "Copiar este ejercicio en la semana {to}",
+    "add_set": "Añadir serie",
+    "reps_ph": "p. ej. 8-12",
+    "weight_ph_lb": "p. ej. 135",
+    "weight_ph_kg": "p. ej. 60",
+    "tempo_ph": "p. ej. 3.1.1",
+    "rest": "Descanso",
+    "rest_ph": "p. ej. 90",
+    "per_set_link": "Peso o reps distintos por serie…",
+    "add_exercise": "Añadir ejercicio"
+  },
+  "statistics": {
+    "tabs": {
+      "overview": "Resumen",
+      "progress": "Progreso por ejercicio",
+      "records": "Récords",
+      "volume": "Volumen",
+      "freq": "Frecuencia",
+      "weight": "Peso corporal",
+      "cardio": "Cardio"
+    },
+    "ranges": {
+      "w1": "1S",
+      "m1": "1M",
+      "m3": "3M",
+      "m6": "6M",
+      "y1": "1A",
+      "all": "Todo"
+    },
+    "categories": {
+      "chest": "Pecho",
+      "back": "Espalda",
+      "shoulders": "Hombros",
+      "arms": "Brazos",
+      "legs": "Piernas",
+      "core": "Core",
+      "cardio": "Cardio",
+      "other": "Otros"
+    },
+    "days": {
+      "sun": "Dom",
+      "mon": "Lun",
+      "tue": "Mar",
+      "wed": "Mié",
+      "thu": "Jue",
+      "fri": "Vie",
+      "sat": "Sáb"
+    },
+    "day_streak": "Días seguidos",
+    "streak_hint": "Últimos 14 días; los puntos rellenos son días de entrenamiento",
+    "longest": "Máxima",
+    "wpw_hint": "Entrenamientos por semana, últimas 8 semanas",
+    "cal_hint": "TMB de Mifflin-St Jeor × MET, estimación aproximada, ±25%.",
+    "hm_rest": "Descanso",
+    "hm_workout": "Entrenamiento",
+    "no_sets": "No hay series completadas de {name} en este rango.",
+    "sessions": "Sesiones",
+    "top_set": "Mejor serie a lo largo del tiempo",
+    "session_history": "Historial de sesiones",
+    "open_exercise": "Abrir el ejercicio",
+    "peak_week": "Semana máxima",
+    "weeks": "Semanas",
+    "muscle_balance": "Equilibrio muscular",
+    "less": "Menos",
+    "more": "Más",
+    "not_trained": "No entrenado en este periodo",
+    "workouts": "Entrenamientos",
+    "best_week": "Mejor semana",
+    "streak": "Racha",
+    "weekday_dist": "Distribución por día de la semana",
+    "change": "Cambio",
+    "body_weight_trend": "Tendencia del peso corporal",
+    "history": "Historial",
+    "choose_exercise": "Elegir ejercicio",
+    "search_exercises_ph": "Buscar ejercicios…",
+    "loading_stats": "Cargando estadísticas...",
+    "of": "de",
+    "this_week": "esta semana",
+    "goal_hit": "Objetivo cumplido",
+    "to_go": "quedan {n}",
+    "this_range": "Este {range}",
+    "vs_prior": "{pct}% frente al anterior",
+    "avg_week": "Media / semana",
+    "kcal_amount": "~{n} kcal",
+    "burned_this": "quemadas en este {range}",
+    "est": "est",
+    "activity_90d": "Actividad · Últimos 90 días",
+    "total_workouts": "{n} entrenamientos en total",
+    "no_workouts_yet": "Todavía no hay entrenamientos registrados en este rango.",
+    "no_records_yet": "Todavía no hay récords. Completa un entrenamiento para marcar tus primeros PR.",
+    "choose_exercise_fallback": "Elige un ejercicio…",
+    "track_progress_title": "Sigue el progreso de cualquier levantamiento",
+    "track_progress_desc": "Elige un ejercicio arriba para ver cómo ha cambiado tu mejor serie con el tiempo. Sirve para comprobar si de verdad estás progresando en levantamientos clave como el press de banca, la sentadilla o el peso muerto.",
+    "loading_chart": "Cargando la gráfica…",
+    "max": "Máx",
+    "min": "Mín",
+    "avg": "Med",
+    "top_set_legend": "Mejor serie ({unit})",
+    "avg_rpe_legend": "RPE medio (5–10)",
+    "n_sets": "{n} series",
+    "recent_prs": "PR recientes",
+    "est_1rm": " · 1RM est. {v}",
+    "total": "Total",
+    "muscle_balance_desc": "Sombreado según las series efectivas, en relación con el músculo más trabajado de este rango.",
+    "effective_sets_one": "{n} series efectivas en {m} músculo.",
+    "effective_sets_other": "{n} series efectivas en {m} músculos.",
+    "no_volume_range": "No hay volumen registrado en este rango.",
+    "most_active": "Más activo: {day}",
+    "no_workouts_in_range": "No hay entrenamientos en este rango.",
+    "no_body_weight": "Todavía no hay peso corporal registrado. Toca el icono de la báscula en el diario para registrar tu peso.",
+    "current": "Actual",
+    "no_cardio_range": "No hay cardio registrado en este rango. Añade sesiones desde el Diario.",
+    "on_target": "En objetivo",
+    "weekly_minutes": "Minutos semanales",
+    "week_minutes": "{week}: {n} min",
+    "target_min_week": "Objetivo: {n} min / semana",
+    "no_target_hint": "Fija un objetivo semanal en Ajustes → Entrenamiento para poder comparar.",
+    "n_min": "{n} min",
+    "n_bpm": "{n} bpm",
+    "showing_100_sessions": "Se muestran las 100 sesiones más recientes de este rango.",
+    "no_exercises_match": "Ningún ejercicio coincide con esa búsqueda.",
+    "no_exercises_library": "Todavía no hay ejercicios en tu biblioteca.",
+    "load_failed": "No se pudieron cargar las estadísticas"
+  },
+  "gym_tools": {
+    "plates": "Discos",
+    "convert": "Convertir",
+    "target_weight": "Peso objetivo",
+    "weight_ph_lb": "p. ej. 225",
+    "weight_ph_kg": "p. ej. 100",
+    "bar": "Barra: {weight} {unit}",
+    "each_side": "Cada lado:",
+    "remainder": "No se pueden montar {weight} {unit} con los discos disponibles",
+    "under_bar": "El peso es igual o menor que la barra ({weight} {unit})",
+    "lbs_to_kg": "lbs → kg",
+    "kg_to_lbs": "kg → lbs",
+    "pounds": "Libras",
+    "kilograms": "Kilogramos",
+    "weight_ph": "Introduce el peso"
+  },
+  "coaching": {
+    "toast": {
+      "released": "{name} ya no está en tu lista",
+      "program_active": "{program} es ahora el programa activo de {name}",
+      "feedback_saved": "Comentario guardado",
+      "feedback_removed": "Comentario eliminado",
+      "note_saved": "Nota guardada",
+      "note_removed": "Nota eliminada",
+      "program_removed": "Programa quitado",
+      "pick_template": "Elige una plantilla de entrenamiento",
+      "workout_prescribed": "Entrenamiento prescrito",
+      "pick_program": "Elige un programa",
+      "member_added": "{name} añadido a tu lista",
+      "prescription_updated": "Prescripción actualizada",
+      "prescription_removed": "Prescripción eliminada"
+    },
+    "add_coachee": "Añadir un alumno",
+    "mark_all_seen": "Marcar todo como visto",
+    "no_members": "Todavía no hay miembros",
+    "stat_streak": "Días seguidos",
+    "stat_recent": "Entrenamientos recientes",
+    "stat_active": "Programa activo",
+    "programs": "Programas",
+    "active": "Activo",
+    "prescribed": "Entrenamientos prescritos",
+    "completed": "Completados",
+    "missed": "No realizados",
+    "recent_workouts": "Entrenamientos recientes",
+    "assign_hint": "Elige uno de tus programas para asignárselo a {name}.",
+    "program_label": "Programa",
+    "make_active": "Hacer que sea su programa activo",
+    "cancel": "Cancelar",
+    "date": "Fecha",
+    "duration": "Duración",
+    "feedback_ph": "Técnica, intensidad, qué apretar la próxima vez…",
+    "notes": "Notas",
+    "template": "Plantilla de entrenamiento",
+    "confirm": {
+      "release_coachee_title": "¿Dar de baja al alumno?",
+      "release_coachee_msg": "¿Quitar a {name} de tu lista de alumnos? Su cuenta se mantiene; simplemente dejarás de ser su entrenador, y se eliminarán las prescripciones y las asignaciones de programa que le hayas dado.",
+      "release_confirm": "Dar de baja",
+      "delete_note_title": "¿Eliminar esta nota?",
+      "delete_workout_note_msg": "Tu comentario sobre esta sesión se eliminará.",
+      "delete_exercise_note_msg": "Tu nota sobre este ejercicio se eliminará.",
+      "remove_program_title": "¿Quitar el programa?",
+      "remove_program_msg": "¿Quitar {program} de los programas asignados a {name}?",
+      "remove_confirm": "Quitar",
+      "remove_prescription_title": "¿Quitar la prescripción?",
+      "remove_prescription_msg": "El miembro dejará de ver esta prescripción en su diario."
+    }
+  },
+  "settings_main": {
+    "toast": {
+      "synced": "Sincronizado",
+      "sync_failed": "La sincronización ha fallado",
+      "sync_failed_prefix": "La sincronización ha fallado: {error}",
+      "unknown_error": "Error desconocido",
+      "server_url_required": "Introduce una URL de servidor",
+      "credentials_required": "Introduce las credenciales",
+      "connected": "Conectado al servidor",
+      "disconnected": "Desconectado; se usa el almacenamiento local"
+    },
+    "search_ph": "Buscar en los ajustes…",
+    "clear_search": "Borrar",
+    "profile_hero_sub": "Toca para añadir tu nombre y tu foto",
+    "profile_fallback": "Mi perfil",
+    "pick_a_section": "Elige una sección de la izquierda para empezar.",
+    "group_display": "Pantalla",
+    "group_integrations": "Integraciones",
+    "group_admin": "Administración",
+    "server": {
+      "connected": "Conectado",
+      "last_synced": "Última sincronización",
+      "local_mode": "Modo local",
+      "local_mode_desc": "Todos los datos se guardan solo en este dispositivo",
+      "server_url": "URL del servidor",
+      "username": "Usuario",
+      "username_ph": "Tu usuario",
+      "password": "Contraseña",
+      "password_ph": "Tu contraseña"
+    },
+    "merge": {
+      "title": "Opciones de sincronización",
+      "upload": "Subir el teléfono al servidor",
+      "download": "Bajar el servidor al teléfono",
+      "merge": "Combinar ambos",
+      "cancel": "Cancelar",
+      "continue": "Continuar"
+    },
+    "color": {
+      "title": "Color personalizado",
+      "saturation": "Saturación",
+      "lightness": "Luminosidad",
+      "hex_code": "Código hex",
+      "apply": "Aplicar el color"
+    }
+  },
+  "settings_backup": {
+    "toast": {
+      "save_failed": "No se pudo guardar",
+      "cant_load_backups": "No se pudieron cargar las copias ({status})",
+      "cant_reach_load": "No se pudo conectar con el servidor para cargar las copias",
+      "backup_created": "Copia creada",
+      "settings_reset": "Ajustes restablecidos a los valores predeterminados",
+      "data_cleared": "Se han borrado todos los datos de entrenamiento"
+    },
+    "sections": {
+      "auto_backup": "Copia automática",
+      "full_backup": "Copia completa",
+      "danger_zone": "Zona de riesgo"
+    },
+    "auto": {
+      "schedule": "Programación",
+      "env_lock_title": "Bloqueado por la variable de entorno BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION",
+      "env_lock_pill": "Bloqueado por env",
+      "schedule_off": "Desactivada",
+      "schedule_daily": "Diaria",
+      "schedule_weekly": "Semanal",
+      "schedule_monthly": "Mensual",
+      "time": "Hora",
+      "keep_last": "Conservar las últimas",
+      "last_failed": "La última copia automática falló: {error}",
+      "last_success": "Última copia automática: {when}",
+      "next": "Siguiente: {when}",
+      "next_when_open": "Siguiente: {when} (se dispara cuando la aplicación está abierta)",
+      "retention_note": "Conserva la {n} copia más reciente; los archivos más antiguos se eliminan automáticamente después de cada ejecución.",
+      "retention_note_plural": "Conserva las {n} copias más recientes; los archivos más antiguos se eliminan automáticamente después de cada ejecución.",
+      "retention_note_local": "Conserva la {n} copia automática más reciente; las exportaciones manuales no se eliminan nunca.",
+      "retention_note_local_plural": "Conserva las {n} copias automáticas más recientes; las exportaciones manuales no se eliminan nunca."
+    },
+    "full": {
+      "desc": "Una instantánea completa de todo: los datos de entrenamiento, los programas, los ejercicios, los ajustes y las imágenes subidas. Se guarda en el servidor y se puede descargar o restaurar en cualquier momento.",
+      "working": "Trabajando…",
+      "create": "Crear una copia",
+      "upload_restore": "Subir y restaurar",
+      "col_name": "Nombre",
+      "col_created": "Creada",
+      "col_size": "Tamaño",
+      "download": "Descargar",
+      "restore": "Restaurar",
+      "delete_title": "Eliminar la copia",
+      "empty": "Todavía no hay copias; toca Crear una copia para empezar."
+    },
+    "danger": {
+      "clear_settings": "Restablecer todos los ajustes",
+      "clear_settings_desc": "Devuelve las preferencias a sus valores predeterminados. Los datos de entrenamiento se conservan.",
+      "clear_data": "Borrar todos los datos",
+      "clear_data_desc": "Elimina todos los entrenamientos, los programas, las medidas corporales y el historial del chat. No se puede deshacer."
+    },
+    "dialogs": {
+      "restore_title": "¿Restaurar la copia?",
+      "restore_msg": "Esto reemplazará todos los datos actuales por el contenido de esta copia. Esto no se puede deshacer.",
+      "restore_confirm": "Restaurar",
+      "upload_restore_title": "¿Restaurar desde el fichero subido?",
+      "upload_restore_msg": "Esto reemplazará todos los datos actuales por el contenido de la copia subida. Esto no se puede deshacer.",
+      "delete_backup_title": "¿Eliminar la copia?",
+      "delete_backup_msg": "Este fichero de copia se eliminará del servidor de forma permanente.",
+      "delete_backup_confirm": "Eliminar",
+      "clear_data_title": "¿Borrar todos los datos?",
+      "clear_data_msg": "Esto eliminará de forma permanente todos tus entrenamientos, programas, medidas corporales, récords personales e historial del chat. Los ajustes y los ejercicios se conservarán. Esto no se puede deshacer.",
+      "clear_data_confirm": "Borrar todos los datos",
+      "clear_settings_title": "¿Restablecer todos los ajustes?",
+      "clear_settings_msg": "Esto devolverá todas las preferencias (apariencia, unidades, notificaciones, integraciones) a sus valores predeterminados. Tus datos de entrenamiento no se tocan.",
+      "clear_settings_confirm": "Restablecer todos los ajustes",
+      "cancel": "Cancelar"
+    }
+  },
+  "settings_trace": {
+    "toast": {
+      "connected": "Trace AI conectado; el asistente está listo",
+      "empty_response": "Respuesta vacía de la IA",
+      "test_failed": "La prueba ha fallado",
+      "fill_required": "Rellena primero el proveedor, la clave de API y el modelo"
+    },
+    "provider_env_locked": "Bloqueado por entorno",
+    "provider_claude": "Anthropic Claude",
+    "provider_openai": "OpenAI",
+    "provider_gemini": "Google Gemini",
+    "provider_oai_compat": "Compatible con OpenAI",
+    "labels": {
+      "enable": "Activar el asistente de IA",
+      "enable_desc": "Añade un botón de chat flotante en todas las páginas",
+      "provider": "Proveedor",
+      "base_url": "URL base",
+      "base_url_desc": "Cualquier endpoint /v1/chat/completions compatible con OpenAI: Ollama, LM Studio, LocalAI, vLLM, el servidor de llama.cpp, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. No incluyas la ruta, solo el origen.",
+      "base_url_ph": "http://localhost:11434  o  https://api.deepseek.com",
+      "testing": "Probando…",
+      "save": "Guardar",
+      "model": "Modelo",
+      "model_ph": "llama3.1:8b",
+      "reliability_title": "La fiabilidad de las llamadas a herramientas y de la visión depende del modelo.",
+      "reliability_body": "Llama 3.1+, Mistral y Qwen 2.5+ razonan bien. Los modelos más pequeños o más antiguos pueden atascarse al interpretar el registro inteligente. Si no lo tienes claro, empieza con un modelo que sepas que funciona y comprueba que el chat va antes de depender de él.",
+      "custom_model_id": "ID de modelo personalizado",
+      "custom_hint": "Introduce el ID exacto del modelo que da el proveedor. Úsalo si el desplegable de preajustes no tiene el modelo que quieres.",
+      "api_key": "Clave de API",
+      "api_key_optional": " (opcional)",
+      "key_hint_claude": "Consigue una en",
+      "key_hint_openai": "Consigue una en",
+      "key_hint_gemini": "Consigue una en",
+      "key_hint_oai": "Los endpoints locales (Ollama, LM Studio, etc.) normalmente no necesitan clave. Los proveedores en la nube como DeepSeek o Groq sí; consíguela en su panel.",
+      "key_ph_local": "Déjalo en blanco para endpoints locales",
+      "key_ph_cloud": "Pega aquí tu clave de API",
+      "hide": "Ocultar",
+      "show": "Mostrar",
+      "assistant_name": "Nombre del asistente",
+      "assistant_name_ph": "Trace"
+    }
+  },
+  "settings_auth": {
+    "section": "Autenticación",
+    "toast": {
+      "issuer_client_required": "La URL del emisor y el Client ID son obligatorios",
+      "redirect_required": "Hace falta al menos una URI de redirección",
+      "provider_updated": "Proveedor actualizado",
+      "provider_created": "Proveedor creado",
+      "provider_deleted": "Proveedor eliminado",
+      "need_active_provider": "Añade al menos un proveedor OIDC activo antes de desactivar el inicio de sesión con contraseña.",
+      "password_login_enabled": "Inicio de sesión con contraseña activado",
+      "password_login_disabled": "Inicio de sesión con contraseña desactivado"
+    },
+    "empty": {
+      "user_mgmt_required": "Hace falta la gestión de usuarios",
+      "user_mgmt_required_desc": "El inicio de sesión único va ligado a las cuentas de usuario, así que primero hay que activar la gestión de usuarios. Configúrala en Ajustes → Usuarios y vuelve aquí.",
+      "admin_only": "Solo administradores",
+      "admin_only_desc": "Solo los administradores pueden configurar proveedores de identidad. Si necesitas este acceso, pide al administrador de esta instancia de LiftTrace que ascienda tu cuenta."
+    },
+    "providers": {
+      "section_title": "Proveedores OIDC (inicio de sesión único)",
+      "section_desc": "Authentik, Keycloak, Pocket ID, Authelia, Auth0, Google, etc. Los usuarios inician sesión con el proveedor de identidad que ya usan.",
+      "add_provider": "+ Añadir proveedor",
+      "env_lock_title": "Configurado con variables de entorno; edita tu .env o docker-compose para cambiarlo",
+      "env_lock_pill": "env",
+      "test_title": "Probar el descubrimiento",
+      "readonly_title": "Configurado por entorno, solo lectura",
+      "edit_title": "Editar",
+      "delete_title": "Eliminar",
+      "link_on": "sí",
+      "link_off": "no",
+      "disabled_suffix": " · desactivado",
+      "row_summary": "{issuer} · vinculación {link} · registro {register}{disabled}",
+      "empty": "Todavía no hay proveedores configurados. Pulsa + Añadir proveedor para configurar uno, o defínelos en tu .env con las variables OIDC_* (mira el README).",
+      "discovery_ok": "Descubrimiento correcto",
+      "discovery_failed": "Descubrimiento fallido"
+    },
+    "form": {
+      "provider_type": "Tipo de proveedor",
+      "display_name": "Nombre visible",
+      "display_name_default_ph": "Authentik / Pocket ID / Google",
+      "issuer_url": "URL del emisor *",
+      "client_id": "Client ID *",
+      "client_secret_new": "Client Secret *",
+      "client_secret_edit": "Client Secret (déjalo en blanco para mantener el actual)",
+      "redirect_uris": "URI de redirección *",
+      "add_redirect": "+ Añadir URI de redirección",
+      "redirect_note": "Tiene que coincidir exactamente con lo que tenga configurado tu IdP. La ruta es /api/auth/oidc/callback/<provider-id> bajo la URL base de tu LiftTrace.",
+      "remove_title": "Quitar",
+      "scope": "Scope",
+      "token_auth": "Método de autenticación del endpoint de token",
+      "token_auth_post": "client_secret_post (predeterminado)",
+      "token_auth_basic": "client_secret_basic",
+      "token_auth_none": "none (cliente público solo con PKCE)",
+      "auto_link": "Vincular automáticamente usuarios existentes (correo verificado)",
+      "auto_link_desc": "Cuando el IdP dice email_verified=true y el correo coincide con un usuario existente de LiftTrace, se vinculan sin preguntar en el primer inicio de sesión por SSO. Recomendado activarlo para cualquier IdP en el que confíes para verificar correos.",
+      "auto_register": "Registrar automáticamente usuarios nuevos",
+      "auto_register_desc": "Permite que cualquiera con cuenta en este IdP cree una cuenta nueva de LiftTrace en su primer inicio de sesión. Desactivado = el administrador tiene que invitar primero. Déjalo desactivado para IdP compartidos (Google, el SSO del trabajo) salvo que de verdad quieras dar entrada a todo el mundo.",
+      "provider_active": "Proveedor activo",
+      "provider_active_desc": "Los proveedores inactivos no aparecen en la página de inicio de sesión.",
+      "admin_group_claim": "Claim del grupo de administradores (opcional)",
+      "admin_group_claim_ph": "groups",
+      "admin_group_claim_desc": "Nombre del claim que lista los grupos del usuario. Lo habitual: groups.",
+      "admin_group_value": "Valor del grupo de administradores (opcional)",
+      "admin_group_value_ph": "LiftTraceAdmins",
+      "admin_group_value_desc": "Si el claim groups de un usuario contiene este valor, se le pone como administrador en cada inicio de sesión.",
+      "logo_url": "URL del logotipo (opcional)",
+      "logo_url_ph": "https://…/authentik.png",
+      "cancel": "Cancelar",
+      "saving": "Guardando…",
+      "save_changes": "Guardar los cambios",
+      "create_provider": "Crear el proveedor"
+    },
+    "password_login": {
+      "label": "Permitir el inicio de sesión con contraseña",
+      "desc": "Cuando está desactivado, los usuarios solo inician sesión por OIDC. La recuperación sigue funcionando con la variable de entorno RECOVERY_TOKEN.",
+      "env_locked": "Bloqueado por la variable de entorno OIDC_ENABLE_EMAIL_PASSWORD_LOGIN."
+    },
+    "confirm": {
+      "delete_provider": "¿Eliminar el proveedor \"{name}\"? Los usuarios vinculados perderán esta opción de inicio de sesión.",
+      "disable_password": "¿Desactivar el inicio de sesión con contraseña? Los usuarios sin vínculo OIDC no podrán entrar hasta que lo vuelvas a activar. RECOVERY_TOKEN seguirá funcionando."
+    }
+  },
+  "settings_appearance": {
+    "theme": "Tema",
+    "theme_system": "El del sistema",
+    "theme_dark": "Oscuro",
+    "theme_light": "Claro",
+    "accent_color": "Color de acento",
+    "custom_color": "Color personalizado",
+    "nav_style": "Estilo de navegación",
+    "nav_bottom": "Barra inferior",
+    "nav_sidebar": "Barra lateral",
+    "nav_both": "Ambas",
+    "persistent_sidebar": "Barra lateral fija",
+    "persistent_sidebar_desc": "La barra lateral se queda abierta y desplaza el contenido de la página en lugar de taparlo. Disponible en tablets, plegables y escritorio.",
+    "start_page": "Página de inicio",
+    "start_diary": "Diario",
+    "start_exercises": "Ejercicios",
+    "start_programs": "Programas",
+    "start_statistics": "Estadísticas",
+    "start_settings": "Ajustes",
+    "reduce_motion": "Reducir el movimiento",
+    "force_mobile_layout": "Forzar el diseño móvil",
+    "force_mobile_layout_desc": "Prueba el diseño de móvil en escritorio. Desactiva la vista de dos paneles de Ajustes y el resto de adaptaciones a pantalla ancha.",
+    "goal_celebrations": "Celebrar los objetivos",
+    "goal_celebrations_desc": "Confeti cuando alcanzas un hito",
+    "page_banners": "Cabeceras de página",
+    "page_banners_desc": "Estilo de la cabecera en la parte superior de cada página. Animado es una barra compacta con degradado del color de acento y el movimiento que elijas; Degradado es la misma barra, estática; y Desactivado es una cabecera de cristal lisa.",
+    "banner_animated": "Animado",
+    "banner_gradient": "Degradado",
+    "banner_off": "Desactivado",
+    "anim_style": "Estilo de animación",
+    "anim_style_desc": "Destello es un barrido blanco suave, Deriva es una rotación lenta del tono, Pulso es una respiración suave y Aurora es una nube de luz teñida con el color de acento. Todas respetan Reducir el movimiento.",
+    "anim_shimmer": "Destello",
+    "anim_drift": "Deriva",
+    "anim_pulse": "Pulso",
+    "anim_aurora": "Aurora",
+    "accents": {
+      "orange": "Hierro",
+      "mint": "Menta",
+      "blue": "Azul",
+      "red": "Rojo",
+      "purple": "Morado",
+      "teal": "Turquesa",
+      "yellow": "Oro",
+      "indigo": "Índigo",
+      "pink": "Rosa",
+      "rose": "Rosado",
+      "cyan": "Cian",
+      "lime": "Lima"
+    }
+  },
+  "settings_workout": {
+    "sections": {
+      "goals": "Objetivos y progreso",
+      "logging": "Comportamiento del registro",
+      "rest_timer": "Temporizador de descanso",
+      "body_measurements": "Medidas corporales"
+    },
+    "goals": {
+      "weekly": "Objetivo semanal",
+      "weekly_desc": "Número de días de entrenamiento que quieres a la semana",
+      "weekly_option": "{n} entrenamientos/semana",
+      "keep_awake": "Mantener la pantalla encendida",
+      "keep_awake_desc": "Deja la pantalla encendida durante los entrenamientos",
+      "calorie_est": "Mostrar la estimación de calorías",
+      "calorie_est_desc": "kcal aproximadas por entrenamiento (TMB de Mifflin-St Jeor + MET). Necesita que tengas puestos la altura, el peso, la fecha de nacimiento y el sexo en el perfil. Las estimaciones de entrenamiento de fuerza tienen un margen amplio, de ±25%, y se muestran como una etiqueta \"~est\" en la interfaz, no como un número exacto."
+    },
+    "logging": {
+      "autofill": "Rellenar con los últimos pesos",
+      "autofill_desc": "Rellena de antemano el peso y las reps de tu última sesión",
+      "summary": "Resumen al terminar",
+      "summary_desc": "Muestra un repaso de las cifras cuando terminas todas las series",
+      "auto_collapse": "Plegar los ejercicios completados",
+      "auto_collapse_desc": "Pliega la tarjeta en cuanto marcas todas las series; toca para desplegarla otra vez",
+      "auto_name": "Poner nombre a los entrenamientos",
+      "auto_name_desc": "Nombra los entrenamientos vacíos a partir de las categorías de ejercicio (Día de empuje, Día de tirón, etc.)",
+      "reorder": "Método para reordenar",
+      "reorder_desc": "Cómo reordenar los ejercicios en el diario",
+      "reorder_both": "Arrastrar + botones",
+      "reorder_drag": "Solo arrastrar",
+      "reorder_buttons": "Solo botones",
+      "confirm_remove": "Confirmar antes de quitar",
+      "confirm_remove_desc": "Pregunta antes de quitar un ejercicio o una superserie del diario",
+      "warmups": "Generar series de calentamiento automáticamente",
+      "warmups_desc": "Cuando se carga una plantilla con pesos objetivo, añade delante calentamientos de barra / 50% / 70% / 85%. Siempre puedes añadirlos o quitarlos ejercicio por ejercicio.",
+      "rpe": "Registrar el RPE por serie",
+      "rpe_desc": "Registra el esfuerzo percibido (escala 6–10) en cada serie completada. Útil para programas autorregulados."
+    },
+    "rest": {
+      "enabled": "Temporizador de descanso",
+      "enabled_desc": "Cuenta atrás entre series",
+      "duration": "Duración del descanso",
+      "duration_desc": "Valor por defecto; se recuerda por ejercicio después del primer uso",
+      "duration_seconds": "{s}s",
+      "auto_start": "Iniciar al marcar una serie",
+      "auto_start_desc": "Arranca el temporizador de descanso cuando marcas una serie",
+      "alert": "Avisar al terminar",
+      "alert_desc": "Recibe un aviso cuando el temporizador llega al final",
+      "vibrate": "Vibrar",
+      "vibrate_desc": "Patrón de vibración corto al terminar",
+      "tone": "Reproducir un tono",
+      "tone_desc": "Un pitido breve cuando el temporizador llega a cero",
+      "tone_style": "Tipo de tono",
+      "tone_style_desc": "Toca una fila para elegirla; toca ▶ para escuchar una muestra",
+      "preview": "Escuchar"
+    },
+    "body_stats": {
+      "toggle_desc": "Elige qué medidas aparecen en la hoja de medidas corporales del diario",
+      "weight": "Peso",
+      "body_fat": "% de grasa corporal",
+      "neck": "Cuello",
+      "chest": "Pecho",
+      "waist": "Cintura",
+      "hips": "Caderas",
+      "biceps": "Bíceps",
+      "thighs": "Muslos",
+      "calves": "Pantorrillas"
+    }
+  },
+  "settings_notifications": {
+    "sections": {
+      "delivery": "Envío",
+      "scheduled_reminders": "Recordatorios programados",
+      "alerts": "Avisos y celebraciones",
+      "coaching": "Coaching",
+      "summaries": "Resúmenes"
+    },
+    "toast": {
+      "test_sent": "Prueba enviada; mira tu dispositivo",
+      "test_failed": "La prueba ha fallado"
+    },
+    "push": {
+      "configured": "Configurado",
+      "send_test": "Enviar una prueba",
+      "test_failed_hint": "La prueba de {provider} ha fallado; comprueba la URL y las credenciales de abajo",
+      "device": "Notificaciones del dispositivo",
+      "device_desc_native": "Notificaciones del sistema que Android muestra en la barra de estado y en la pantalla de bloqueo",
+      "device_desc_web": "Avisos de notificación del navegador",
+      "grant": "Conceder",
+      "perm_hint_native": "Android necesita permiso para mostrar notificaciones.",
+      "perm_hint_web": "El navegador necesita permiso para mostrar notificaciones.",
+      "push_service": "Servicio push",
+      "push_service_desc": "Envío push externo (Gotify, ntfy o Apprise)",
+      "option_none": "Ninguno",
+      "option_apprise": "Apprise",
+      "option_gotify": "Gotify",
+      "option_ntfy": "ntfy",
+      "gotify_url": "URL del servidor de Gotify",
+      "gotify_url_ph": "https://gotify.example.com",
+      "gotify_token": "Token de la aplicación",
+      "gotify_token_ph": "Token de aplicación de Gotify",
+      "ntfy_url": "URL del servidor de ntfy",
+      "ntfy_url_ph": "https://ntfy.sh",
+      "ntfy_topic": "Tema",
+      "ntfy_topic_ph": "lifttrace",
+      "ntfy_token": "Token de acceso (opcional)",
+      "ntfy_token_ph": "Bearer token",
+      "apprise_url": "URL del servidor de Apprise",
+      "apprise_url_ph": "http://apprise:8000",
+      "apprise_tag": "Etiqueta (opcional)",
+      "apprise_tag_ph": "lifttrace",
+      "hide": "Ocultar",
+      "show": "Mostrar"
+    },
+    "reminders": {
+      "workout": "Recordatorio de entrenamiento",
+      "workout_desc": "Recordatorio diario para entrenar",
+      "time": "Hora",
+      "rest_day": "Recordatorio de día de descanso",
+      "rest_day_desc": "Te recuerda que descanses después de los días de entrenamiento",
+      "streak": "Aviso de racha",
+      "streak_desc": "Avisa cuando tu racha está en peligro",
+      "alert_time": "Hora del aviso"
+    },
+    "alerts": {
+      "complete": "Entrenamiento completado",
+      "complete_desc": "Celebra cuando terminas todas las series",
+      "prs": "Récords personales",
+      "prs_desc": "Celebra cuando marcas un PR nuevo",
+      "coach_feedback": "Comentarios del entrenador",
+      "coach_feedback_desc": "Avisa cuando tu entrenador deja una nota en un entrenamiento"
+    },
+    "coach": {
+      "member_completes": "El miembro completa el entrenamiento prescrito",
+      "member_completes_desc": "Avisa cuando un miembro termina un entrenamiento que le prescribiste para ese día",
+      "member_missed": "El miembro se ha saltado una prescripción",
+      "member_missed_desc": "Avisa la mañana siguiente a que pase el día de una prescripción con fecha sin que haya un entrenamiento completado",
+      "member_reply": "El miembro ha respondido a un comentario",
+      "member_reply_desc": "Avisa cuando un alumno responde a una de tus notas"
+    },
+    "summaries": {
+      "weekly": "Resumen semanal",
+      "weekly_desc": "Resumen de tu semana de entrenamiento por push y por correo",
+      "delivery_day": "Día de envío",
+      "delivery_time": "Hora de envío",
+      "day_sun": "Domingo",
+      "day_mon": "Lunes",
+      "day_tue": "Martes",
+      "day_wed": "Miércoles",
+      "day_thu": "Jueves",
+      "day_fri": "Viernes",
+      "day_sat": "Sábado"
+    }
+  },
+  "updates": {
+    "current_version": "Versión actual",
+    "channel": {
+      "label": "Canal de actualización",
+      "stable": "Estable",
+      "dev": "Dev",
+      "help": "Estable sigue las versiones etiquetadas. Dev es la compilación de desarrollo continua; espera fallos."
+    },
+    "auto_check": "Buscar actualizaciones automáticamente",
+    "auto_check_desc": "Una vez al día, al abrir la aplicación.",
+    "last_checked": "Última comprobación",
+    "last_checked_never": "Nunca",
+    "check_now": "Buscar ahora",
+    "checking": "Buscando…",
+    "check_failed": "No se pudo buscar actualizaciones. Vuelve a intentarlo en un momento.",
+    "up_to_date": "Tienes la última versión",
+    "available_headline": "{version} está disponible",
+    "released": "Publicada {when}",
+    "release_notes_heading": "Novedades",
+    "no_release_notes": "No se publicaron notas de versión para esta compilación.",
+    "view_on_github": "Ver en GitHub",
+    "download_install": "Descargar e instalar",
+    "downloading": "Descargando… {percent}%",
+    "install_starting": "Abriendo el instalador…",
+    "install_failed": "La instalación ha fallado. Vuelve a intentarlo.",
+    "skip_this_version": "Omitir esta versión",
+    "no_apk_asset": "Esta versión no tiene un APK adjunto.",
+    "banner_cta": "Toca para ver las novedades e instalar.",
+    "banner_view": "Ver",
+    "storage": {
+      "heading": "APK de actualización en caché",
+      "empty": "No hay APK en caché. Las pasadas de limpieza se ejecutaron correctamente.",
+      "clear_now": "Borrar ahora",
+      "clearing": "Borrando…",
+      "cleared": "Caché borrada."
+    },
+    "server": {
+      "heading": "Servidor",
+      "headline": "Actualización del servidor {latest} disponible",
+      "behind_desc": "Actualización disponible: {latest}",
+      "current_desc": "Tienes la última versión",
+      "versions": "El servidor está en {current}. Última versión: {latest}.",
+      "available_chip": "Actualización disponible",
+      "instructions": "Para actualizar el servidor, ejecuta esto en la máquina anfitriona:",
+      "copy_command": "Copiar el comando",
+      "copied": "Copiado al portapapeles.",
+      "copy_failed": "No se pudo copiar. Copia el comando a mano.",
+      "view_notes": "Ver las notas de la versión",
+      "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de imagen en tu docker-compose.yml (:latest, :1.0, :1, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
+    }
+  }
+}
