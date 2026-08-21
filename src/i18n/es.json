@@ -279,10 +279,6 @@
     "profile": {
       "title": "Sobre ti",
       "desc": "Unos pocos datos para que LiftTrace pueda estimar las calorías quemadas y ajustar el asistente de IA. Todo es opcional.",
-      "sex": "Sexo",
-      "sex_male": "Hombre",
-      "sex_female": "Mujer",
-      "sex_other": "Otro / prefiero no decirlo",
       "dob": "Fecha de nacimiento",
       "height": "Altura",
       "weight": "Peso actual",

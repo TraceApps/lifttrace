@@ -257,10 +257,6 @@
     "profile": {
       "title":      "About you",
       "desc":       "A few details so LiftTrace can estimate calories burned and tailor the AI assistant. All optional.",
-      "sex":        "Sex",
-      "sex_male":   "Male",
-      "sex_female": "Female",
-      "sex_other":  "Other / prefer not to say",
       "dob":        "Date of birth",
       "height":     "Height",
       "weight":     "Current weight",
