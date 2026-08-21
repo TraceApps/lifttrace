@@ -16,10 +16,17 @@ import { DB } from './lib/db.js';
 import { installApiFetch } from './lib/apiFetch.js';
 import { initI18n } from './i18n/index.js';
 
-// Initialise i18n with browser-detected locale; the App-level subscription
-// to the `language` store flips it to the user's saved preference once that
-// loads.
-initI18n();
+// Initialise i18n with the user's SAVED language (falling through to the
+// browser locale via pickInitialLocale() only when nothing's saved). Passing
+// the saved locale up-front lets svelte-i18n load that dictionary before
+// App mounts, so the language-store subscription doesn't flip locales mid-
+// mount to a dict that hasn't loaded yet. Prior behavior — initI18n() with
+// no arg — threw '[svelte-i18n] Cannot format a message without first
+// setting the initial locale' inside `new App(...)` when the saved language
+// differed from the navigator, propagated out of DB.init().then(...), and
+// landed on the Database Error screen. See #55.
+// DB.getSetting is pure localStorage, safe before DB.init().
+initI18n(DB.getSetting('language'));
 
 // Install the Capacitor fetch interceptor BEFORE any code calls fetch('/api/...').
 // On web this is a no-op; on native it routes /api/... URLs to either the
