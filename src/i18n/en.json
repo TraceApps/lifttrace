@@ -922,7 +922,7 @@
       "legs":      "Legs",
       "core":      "Core",
       "cardio":    "Cardio",
-      "other":     "Other"
+      "other":     "Uncategorized"
     },
     "days": {
       "sun": "Sun",

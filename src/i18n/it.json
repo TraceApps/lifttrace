@@ -694,7 +694,7 @@
       "legs": "Gambe",
       "core": "Nucleo",
       "cardio": "Cardio",
-      "other": "Altro"
+      "other": "Non categorizzato"
     },
     "hm_workout": "Allenamento",
     "workouts": "Allenamenti",
@@ -739,7 +739,7 @@
     "weeks": "Settimane",
     "muscle_balance": "Equilibrio muscolare",
     "less": "Meno",
-    "more": "Altro",
+    "more": "Di più",
     "not_trained": "Non allenato in questo periodo",
     "best_week": "Settimana migliore",
     "streak": "Striscia",
