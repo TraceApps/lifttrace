@@ -2082,13 +2082,10 @@
     :global(html:not(.force-mobile-layout)) .sticky-top > .radio-bar {
       display: none;
     }
-    /* Cap the sticky-top's banner width so it aligns with the grid
-       below at wide widths instead of running full-viewport. */
-    :global(html:not(.force-mobile-layout)) .page > .sticky-top {
-      max-width: 1600px;
-      margin-left: auto;
-      margin-right: auto;
-    }
+    /* Banner stays full-viewport-width at wide (matches Diary /
+       Settings / Programs pattern). No cap here — the sticky-top
+       is a 'hat' across the whole top; the grid below aligns to
+       its own max-width. */
     /* Bump album grid density from 140px minmax to 200px so covers
        stay legible on wide monitors instead of shrinking to 9-10
        tiny cards per row. */
