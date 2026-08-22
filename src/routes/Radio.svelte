@@ -2100,7 +2100,7 @@
       flex-direction: column;
       gap: 12px;
       position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
       align-self: start;
       max-height: calc(100vh
         - var(--page-top, var(--safe-top))
@@ -2178,7 +2178,7 @@
       border: 1px solid var(--border);
       color: var(--text-1);
       position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
       align-self: start;
       max-height: calc(100vh
         - var(--page-top, var(--safe-top))
