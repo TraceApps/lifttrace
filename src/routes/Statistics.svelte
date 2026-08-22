@@ -1516,7 +1516,7 @@
       align-items: start;
       max-width: 1600px;
       margin: 0 auto;
-      padding: 0 var(--page-px);
+      padding: 16px var(--page-px);
       box-sizing: border-box;
     }
     /* Left metric-picker rail — sticky next to the content so the

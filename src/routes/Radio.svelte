@@ -2069,7 +2069,7 @@
       align-items: start;
       max-width: 1600px;
       margin: 0 auto;
-      padding: 0 var(--page-px);
+      padding: 16px var(--page-px);
       box-sizing: border-box;
     }
     :global(html:not(.force-mobile-layout)) .radio-body > .radio-content {
