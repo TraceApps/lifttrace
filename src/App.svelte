@@ -507,7 +507,7 @@
       // to Settings for the install action.
       import('./lib/notifications.js').then(({ registerUpdateTapListener }) => {
         registerUpdateTapListener(() => {
-          import('svelte-spa-router').then(({ push }) => push('/settings'));
+          import('svelte-spa-router').then(({ push }) => push('/settings/updates'));
         });
       }).catch(() => { /* ignore */ });
 
@@ -515,6 +515,52 @@
       import('./lib/updates.js').then(({ cleanUpdateCache }) => {
         cleanUpdateCache();
       }).catch(() => { /* ignore */ });
+    } else {
+      // PWA: register the service worker via virtual:pwa-register so we
+      // get onNeedRefresh callbacks. Without this, registerType:'prompt'
+      // downloads new bundles but never tells the app they're ready.
+      import('./lib/pwa-update.js').then(({ registerPwaSw }) => registerPwaSw()).catch(() => {});
+    }
+
+    // Visibility-change trigger for BOTH update channels. A user who
+    // leaves the tab open for hours / a laptop that resumes from sleep
+    // gets a re-check the moment the tab regains focus — respecting the
+    // per-user cadence setting (Settings → Updates). The GitHub-tag
+    // check returns cached inside the cadence window; the PWA SW-file
+    // check just forces the browser to compare sw.js against what it
+    // registered (otherwise the browser only bothers every 24h).
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        import('./lib/updates.js').then(({ checkForUpdate, getAutoCheck }) => {
+          if (!getAutoCheck()) return;
+          checkForUpdate({ force: false }).catch(() => {});
+        }).catch(() => {});
+        if (!isNative) {
+          import('./lib/pwa-update.js').then(({ checkForPwaUpdate }) => checkForPwaUpdate()).catch(() => {});
+        }
+      });
+    }
+
+    // Periodic PWA-bundle poll on the same cadence as the GitHub-tag
+    // check, so a tab that stays open all day still surfaces a fresh
+    // deploy without a full reload. Cadence honors the same
+    // updateCheckInterval setting; 0 (manual) disables the poll.
+    if (!isNative && typeof window !== 'undefined') {
+      Promise.all([
+        import('./lib/pwa-update.js'),
+        import('./stores/settings.js'),
+      ]).then(([{ checkForPwaUpdate }, { updateCheckInterval }]) => {
+        let _pwaPollTimer = null;
+        const _resetPoll = (hours) => {
+          if (_pwaPollTimer) clearInterval(_pwaPollTimer);
+          _pwaPollTimer = null;
+          const h = Number(hours) || 0;
+          if (!h) return; // manual only
+          _pwaPollTimer = setInterval(checkForPwaUpdate, h * 60 * 60 * 1000);
+        };
+        updateCheckInterval.subscribe(_resetPoll);
+      }).catch(() => {});
     }
   });
 

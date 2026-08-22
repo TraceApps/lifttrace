@@ -17,7 +17,11 @@ export default defineConfig({
   plugins: [
     svelte(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' downloads new bundles in the background but WAITS for
+      // us to activate them, so UpdateBanner can pop a "Reload" prompt
+      // instead of ripping the page out from under the user mid-session.
+      // Activation is driven by lib/pwa-update.js via virtual:pwa-register.
+      registerType: 'prompt',
       workbox: {
         // Precache the offline fallback page
         globPatterns: ['offline.html'],

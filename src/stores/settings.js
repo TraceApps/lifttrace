@@ -37,6 +37,7 @@ const SERVER_SETTINGS = new Set([
   'bodyStatsVisible', 'exerciseLoadTypes',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
   'radioStationsEnabled',
+  'updateCheckInterval', // hours between checks: 1, 4, 12, 24, or 0 for manual only
 ]);
 
 const _saveQueue = {};
@@ -334,6 +335,12 @@ export const ntFederationEnabled = createSettingStore('ntFederationEnabled', fal
 // Mirrors SettingsTrace's aiKeyVerified pattern. Cleared by any field edit
 // in SettingsFederation; set true by a successful /api/nt/test response.
 export const ntConnectionVerified = createSettingStore('ntConnectionVerified', false);
+
+// In-app update check cadence. Hours between GitHub-tag + PWA-SW checks
+// when the app is open. 0 = manual only (turns off every auto-check —
+// mount, visibility-change, and the periodic PWA poll). Read by
+// _throttleMs() in lib/updates.js and by App.svelte's PWA poll.
+export const updateCheckInterval = createSettingStore('updateCheckInterval', 4);
 
 // Local-mode scheduled backup. Per-device (no server in local mode).
 // JS-side tick in src/lib/local-backup-scheduler.js fires when due.

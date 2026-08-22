@@ -1529,7 +1529,18 @@
       "help":   "Stable tracks tagged releases. Dev is the rolling development build; expect bugs."
     },
     "auto_check":            "Automatically Check for Updates",
-    "auto_check_desc":       "Once per day when you open the app.",
+    "auto_check_desc":       "Check for new releases in the background.",
+    "interval": {
+      "label":       "Check Frequency",
+      "desc":        "How often the app checks for a new release when open. Manual only turns off all auto-checks.",
+      "hourly":      "Every Hour",
+      "every_4h":    "Every 4 Hours",
+      "every_12h":   "Every 12 Hours",
+      "daily":       "Once a Day",
+      "manual":      "Manual Only"
+    },
+    "available_generic":     "A New Version Is Available",
+    "banner_reload":         "Reload",
     "last_checked":          "Last Checked",
     "last_checked_never":    "Never",
     "check_now":             "Check Now",

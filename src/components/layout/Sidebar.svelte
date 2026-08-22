@@ -8,6 +8,8 @@
   import { APP_VERSION } from '../../lib/version.js';
   import { resolveAssetUrl, iconUrl } from '../../lib/platform.js';
   import { radioEnabled, radioUrl, radioStationsEnabled } from '../../stores/settings.js';
+  import { updateAvailable } from '../../lib/updates.js';
+  import { pwaUpdateReady } from '../../lib/pwa-update.js';
 
   export let open = false;
   export let persistent = false;
@@ -82,7 +84,12 @@
           class:active={activePath === item.path || (item.path !== '/' && activePath.startsWith(item.path))}
           on:click={() => go(item.path)}
         >
-          <span class="material-symbols-rounded sidebar-icon">{item.icon}</span>
+          <span class="material-symbols-rounded sidebar-icon">
+            {item.icon}
+            {#if item.path === '/settings' && ($updateAvailable.available || $pwaUpdateReady)}
+              <span class="nav-update-dot" aria-label="Update available"></span>
+            {/if}
+          </span>
           <span class="sidebar-label">{item.label}</span>
           {#if activePath === item.path || (item.path !== '/' && activePath.startsWith(item.path))}
             <div class="active-indicator"></div>
@@ -196,7 +203,19 @@
   .sidebar-item.active { background: var(--accent-dim); color: var(--accent); }
   .sidebar-item:active { transform: scale(0.98); }
 
-  .sidebar-icon { font-size: 22px; flex-shrink: 0; }
+  .sidebar-icon { font-size: 22px; flex-shrink: 0; position: relative; }
+  /* Update-available dot on the Settings nav icon. Same accent tint the
+     banner uses so the two surfaces read as one signal. */
+  .nav-update-dot {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--surface-1);
+  }
   .sidebar-label { flex: 1; }
 
   .active-indicator {
