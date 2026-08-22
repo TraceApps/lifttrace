@@ -1601,9 +1601,20 @@
     :global(html:not(.force-mobile-layout)) .stats-body > .content {
       max-width: none;
       margin: 0;
-      padding-left: 0;
-      padding-right: 0;
+      /* Zero all outer padding so the center col's first widget
+         starts flush with the source rail + comparison rail (all
+         three grid children align at grid-row-1 top). Mobile keeps
+         the base 16px vertical padding. */
+      padding: 0;
       min-width: 0;
+    }
+    /* Cap the full-viewport banner + hidden chip rows to match the
+       stats-body max-width so the header aligns with the grid below
+       instead of sprawling from viewport edge to edge. */
+    :global(html:not(.force-mobile-layout)) .page > .page-header {
+      max-width: 1600px;
+      margin-left: auto;
+      margin-right: auto;
     }
     /* Top range-bar + metric-bar both hidden on wide — the left
        .stats-metric-rail owns metric navigation and the right

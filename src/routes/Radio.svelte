@@ -8,6 +8,7 @@
     playTrack, addToQueue, playNext,
     currentTrack, streamNowPlaying, streamArtwork,
     isPlaying, togglePlay, next as playerNext, prev as playerPrev,
+    queue, queueIndex, removeFromQueue,
   } from '../stores/player.js';
   import { showSuccess } from '../stores/toast.js';
   import { showError } from '../stores/toast.js';
@@ -781,68 +782,12 @@
 </script>
 
 <div class="page">
-  <!-- Body wrapper — at >=1280px on non-forced-mobile viewports this
-       becomes a 3-col shell: left source-nav rail | center content |
-       right Now Playing hero. On mobile it's a plain block so nothing
-       changes below phone widths. -->
-  <div class="radio-body">
-
-  <!-- Left source-nav rail (desktop only via CSS). Grouped nav
-       replaces the horizontal tab pill row (which is hidden on wide)
-       — mid-workout station changes become one click without
-       scrolling past collapsed group headers. -->
-  <nav class="radio-source-rail" aria-label="Radio sections">
-    {#if musicAvailable}
-      <div class="rsr-group">
-        <span class="rsr-group-title">Music</span>
-        <button type="button" class="rsr-btn" class:active={tab === 'albums'}
-                on:click={() => { tab = 'albums'; loadTab('albums'); }}>
-          <span class="material-symbols-rounded">album</span>
-          <span class="rsr-label">Albums</span>
-        </button>
-        <button type="button" class="rsr-btn" class:active={tab === 'artists'}
-                on:click={() => { tab = 'artists'; loadTab('artists'); }}>
-          <span class="material-symbols-rounded">person</span>
-          <span class="rsr-label">Artists</span>
-        </button>
-        <button type="button" class="rsr-btn" class:active={tab === 'playlists'}
-                on:click={() => { tab = 'playlists'; loadTab('playlists'); }}>
-          <span class="material-symbols-rounded">queue_music</span>
-          <span class="rsr-label">Playlists</span>
-        </button>
-        {#if sub.supportsStarred?.()}
-          <button type="button" class="rsr-btn" class:active={tab === 'starred'}
-                  on:click={() => { tab = 'starred'; loadTab('starred'); }}>
-            <span class="material-symbols-rounded">star</span>
-            <span class="rsr-label">Starred</span>
-          </button>
-        {/if}
-        <button type="button" class="rsr-btn" class:active={tab === 'search'}
-                on:click={() => tab = 'search'}>
-          <span class="material-symbols-rounded">search</span>
-          <span class="rsr-label">Search</span>
-        </button>
-      </div>
-    {/if}
-    {#if $radioStationsEnabled}
-      <div class="rsr-group">
-        <span class="rsr-group-title">Radio</span>
-        <button type="button" class="rsr-btn" class:active={tab === 'stations'}
-                on:click={() => tab = 'stations'}>
-          <span class="material-symbols-rounded">radio</span>
-          <span class="rsr-label">Stations</span>
-        </button>
-      </div>
-    {/if}
-  </nav>
-
-  <!-- Center column — sticky top + tab body. Wrapping so the grid
-       treats them as one grid cell (heights don't bleed cross-column). -->
-  <div class="radio-main">
-  <!-- Single sticky stack: header (banner) + tab pill bar + (when search
-       is active) the search bar. Pinning everything in one container
-       avoids the cumulative-top math that broke the bar's stick when
-       the banner illustration was on (taller header → wrong calc). -->
+  <!-- Sticky top — page-header banner + tab pill row + search bar.
+       Lives at PAGE level (not inside the wide grid) so the banner
+       spans full width like Diary / Settings / Programs do, and the
+       3-col grid below aligns properly instead of the banner
+       floating over one column only. Tab pill row is hidden on wide
+       by CSS; the left source rail owns navigation there. -->
   <div class="sticky-top">
     <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
       {#if showBack}
@@ -900,6 +845,61 @@
       {/if}
     {/if}
   </div>
+
+  <!-- Body wrapper — at >=1280px on non-forced-mobile viewports this
+       becomes a 3-col shell: left source-nav rail | center content |
+       right Now Playing hero. On mobile it's a plain block so nothing
+       changes below phone widths. -->
+  <div class="radio-body">
+
+  <!-- Left source-nav rail (desktop only via CSS). Grouped nav
+       replaces the horizontal tab pill row (which is hidden on wide)
+       — mid-workout station changes become one click without
+       scrolling past collapsed group headers. -->
+  <nav class="radio-source-rail" aria-label="Radio sections">
+    {#if musicAvailable}
+      <div class="rsr-group">
+        <span class="rsr-group-title">Music</span>
+        <button type="button" class="rsr-btn" class:active={tab === 'albums'}
+                on:click={() => { tab = 'albums'; loadTab('albums'); }}>
+          <span class="material-symbols-rounded">album</span>
+          <span class="rsr-label">Albums</span>
+        </button>
+        <button type="button" class="rsr-btn" class:active={tab === 'artists'}
+                on:click={() => { tab = 'artists'; loadTab('artists'); }}>
+          <span class="material-symbols-rounded">person</span>
+          <span class="rsr-label">Artists</span>
+        </button>
+        <button type="button" class="rsr-btn" class:active={tab === 'playlists'}
+                on:click={() => { tab = 'playlists'; loadTab('playlists'); }}>
+          <span class="material-symbols-rounded">queue_music</span>
+          <span class="rsr-label">Playlists</span>
+        </button>
+        {#if sub.supportsStarred?.()}
+          <button type="button" class="rsr-btn" class:active={tab === 'starred'}
+                  on:click={() => { tab = 'starred'; loadTab('starred'); }}>
+            <span class="material-symbols-rounded">star</span>
+            <span class="rsr-label">Starred</span>
+          </button>
+        {/if}
+        <button type="button" class="rsr-btn" class:active={tab === 'search'}
+                on:click={() => tab = 'search'}>
+          <span class="material-symbols-rounded">search</span>
+          <span class="rsr-label">Search</span>
+        </button>
+      </div>
+    {/if}
+    {#if $radioStationsEnabled}
+      <div class="rsr-group">
+        <span class="rsr-group-title">Radio</span>
+        <button type="button" class="rsr-btn" class:active={tab === 'stations'}
+                on:click={() => tab = 'stations'}>
+          <span class="material-symbols-rounded">radio</span>
+          <span class="rsr-label">Stations</span>
+        </button>
+      </div>
+    {/if}
+  </nav>
 
   <div class="radio-content">
     {#if loading}
@@ -1350,7 +1350,6 @@
       {/if}
     {/if}
   </div>
-  </div><!-- /.radio-main -->
 
   <!-- Now Playing hero (desktop only via CSS). Reuses FullPlayer's
        cover-tint gradient logic so the two surfaces share visual
@@ -1389,6 +1388,47 @@
           <span class="material-symbols-rounded">skip_next</span>
         </button>
       </div>
+      <!-- Queue — feature parity with the FullPlayer modal (which
+           the wide layout hides the MiniPlayer entry-point for). A
+           lifter on desktop can now see what's coming next + remove
+           tracks from the queue without opening any modal. -->
+      {#if ($queue || []).length > 1}
+        {@const _qi = $queueIndex}
+        {@const _upcoming = ($queue || []).slice(_qi + 1)}
+        {#if _upcoming.length > 0}
+          <div class="rnp-queue">
+            <div class="rnp-queue-head">
+              <span class="material-symbols-rounded">queue_music</span>
+              <span class="rnp-queue-title">Up Next</span>
+              <span class="rnp-queue-count">{_upcoming.length}</span>
+            </div>
+            <ol class="rnp-queue-list">
+              {#each _upcoming as t, i (t.id || (_qi + 1 + i))}
+                <li class="rnp-queue-row">
+                  <button type="button" class="rnp-queue-play"
+                          on:click={() => playTrack(t, $queue, _qi + 1 + i)}
+                          title="Play now">
+                    {#if t.coverUrl}
+                      <img class="rnp-queue-cover" src={resolveAssetUrl(t.coverUrl)} alt="" />
+                    {:else}
+                      <span class="material-symbols-rounded rnp-queue-cover-fallback">music_note</span>
+                    {/if}
+                    <div class="rnp-queue-info">
+                      <span class="rnp-queue-name">{t.title || t.name || 'Track'}</span>
+                      {#if t.artist}<span class="rnp-queue-sub">{t.artist}</span>{/if}
+                    </div>
+                  </button>
+                  <button type="button" class="rnp-queue-remove"
+                          on:click={() => removeFromQueue(_qi + 1 + i)}
+                          aria-label="Remove from queue" title="Remove">
+                    <span class="material-symbols-rounded">close</span>
+                  </button>
+                </li>
+              {/each}
+            </ol>
+          </div>
+        {/if}
+      {/if}
     {:else}
       <div class="rnp-empty">
         <span class="material-symbols-rounded rnp-empty-icon">headphones</span>
@@ -2032,16 +2072,22 @@
       padding: 0 var(--page-px);
       box-sizing: border-box;
     }
-    :global(html:not(.force-mobile-layout)) .radio-body > .radio-main {
+    :global(html:not(.force-mobile-layout)) .radio-body > .radio-content {
       min-width: 0;
     }
     /* Hide the horizontal tab pill row on wide — the left rail owns
-       nav. The action buttons (search icon, Mix/Random) also live in
-       .radio-bar and get hidden with it; the rail's Search button
-       covers search, and Mix/Random get promoted to a rail action
-       below. */
-    :global(html:not(.force-mobile-layout)) .radio-body > .radio-main > .sticky-top > .radio-bar {
+       nav. Same for the radio-bar's action buttons (search, Mix/
+       Random). Search moves to the rail; Mix/Random live in the
+       Now Playing hero controls / accessible via context menu. */
+    :global(html:not(.force-mobile-layout)) .sticky-top > .radio-bar {
       display: none;
+    }
+    /* Cap the sticky-top's banner width so it aligns with the grid
+       below at wide widths instead of running full-viewport. */
+    :global(html:not(.force-mobile-layout)) .page > .sticky-top {
+      max-width: 1600px;
+      margin-left: auto;
+      margin-right: auto;
     }
     /* Bump album grid density from 140px minmax to 200px so covers
        stay legible on wide monitors instead of shrinking to 9-10
@@ -2244,6 +2290,123 @@
     .rnp-empty-title { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
     .rnp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 240px; }
 
+    /* Queue list — feature parity with FullPlayer's queue view,
+       inline in the hero. Compact rows: 32px cover + title/artist
+       stacked, remove-from-queue button on the right. Wrapper
+       scrolls internally so the hero doesn't grow unbounded. */
+    .rnp-queue {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      min-height: 0;
+      overflow: hidden;
+    }
+    .rnp-queue-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    .rnp-queue-head .material-symbols-rounded { font-size: 14px; }
+    .rnp-queue-title { flex: 1; min-width: 0; }
+    .rnp-queue-count {
+      padding: 1px 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      font-size: 10px;
+    }
+    .rnp-queue-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .rnp-queue-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: transparent;
+      border-radius: 6px;
+      transition: background var(--dur-fast);
+    }
+    .rnp-queue-row:hover { background: rgba(255, 255, 255, 0.08); }
+    .rnp-queue-play {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+      padding: 4px 6px;
+      background: transparent;
+      border: none;
+      color: var(--text-1);
+      text-align: left;
+      cursor: pointer;
+    }
+    .rnp-queue-cover {
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .rnp-queue-cover-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .rnp-queue-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+    .rnp-queue-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .rnp-queue-sub {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.6);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .rnp-queue-remove {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.5);
+      border-radius: 4px;
+      cursor: pointer;
+      flex-shrink: 0;
+      opacity: 0;
+      transition: opacity var(--dur-fast), color var(--dur-fast);
+    }
+    .rnp-queue-row:hover .rnp-queue-remove { opacity: 1; }
+    .rnp-queue-remove:hover { color: var(--danger); background: rgba(255, 255, 255, 0.1); }
+    .rnp-queue-remove .material-symbols-rounded { font-size: 16px; }
+
     /* Hide the App-level MiniPlayer on the Radio route at wide
        widths — the on-page Now Playing hero is a richer replacement
        and the two would create redundant transport controls. Uses
@@ -2274,11 +2437,12 @@
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 8px;
     }
-    /* Also cap the sticky-top page-header on wide so its banner
-       doesn't stretch to the full viewport when there's no tab
-       bar to anchor it — it now just sits above the center col. */
-    :global(html:not(.force-mobile-layout)) .radio-body > .radio-main > .sticky-top {
-      width: 100%;
+    /* Zero .radio-content top padding on wide so the tab body
+       starts flush with the source rail + Now Playing hero (all
+       three grid children align at grid-row-1 top). Mobile keeps
+       the 12px top padding from the base .radio-content rule. */
+    :global(html:not(.force-mobile-layout)) .radio-body > .radio-content {
+      padding-top: 0;
     }
 
     /* ── Phase 2: detail view + list-row polish ─────────────────
