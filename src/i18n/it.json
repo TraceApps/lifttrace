@@ -1460,8 +1460,13 @@
     "nickname": "Soprannome/Nome visualizzato",
     "nickname_placeholder": "Come dovremmo chiamarti?",
     "birthday": "Compleanno",
-    "gender": "Sesso",
-    "gender_unset": "Preferisco non dirlo",
+    "gender": {
+      "label": "Sesso",
+      "male": "Maschio",
+      "female": "Femmina",
+      "other": "Altro",
+      "unset": "Preferisco non dirlo"
+    },
     "change_password": "Cambia password",
     "current_password": "Password attuale",
     "confirm_new_password": "Conferma nuova password",
@@ -1490,9 +1495,6 @@
     },
     "biometric_cancelled": "La verifica biometrica è stata annullata o non è riuscita.",
     "server_unreachable": "Impossibile raggiungere il server",
-    "gender_male": "Maschio",
-    "gender_female": "Femmina",
-    "gender_other": "Altro",
     "current_password_ph": "Inserisci la password corrente",
     "confirm_password_ph": "Reinserisci la nuova password",
     "biometric_signin": "Accedi con biometrico"

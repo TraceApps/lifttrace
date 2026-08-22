@@ -342,8 +342,13 @@
     "nickname": "Apodo / Nombre visible",
     "nickname_placeholder": "¿Cómo quieres que te llamemos?",
     "birthday": "Cumpleaños",
-    "gender": "Género",
-    "gender_unset": "Prefiero no decirlo",
+    "gender": {
+      "label": "Género",
+      "male": "Hombre",
+      "female": "Mujer",
+      "other": "Otro",
+      "unset": "Prefiero no decirlo"
+    },
     "change_password": "Cambiar la contraseña",
     "current_password": "Contraseña actual",
     "confirm_new_password": "Confirmar la nueva contraseña",
@@ -372,9 +377,6 @@
     },
     "biometric_cancelled": "La verificación biométrica se canceló o falló.",
     "server_unreachable": "No se pudo conectar con el servidor",
-    "gender_male": "Hombre",
-    "gender_female": "Mujer",
-    "gender_other": "Otro",
     "current_password_ph": "Introduce la contraseña actual",
     "confirm_password_ph": "Vuelve a introducir la nueva contraseña",
     "biometric_signin": "Iniciar sesión con biometría"

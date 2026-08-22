@@ -367,13 +367,13 @@
         <DateInput bind:value={birthday} max={localDateStr()} />
       </div>
       <div class="form-group">
-        <label class="form-label">{$_('profile.gender')}</label>
+        <label class="form-label">{$_('profile.gender.label')}</label>
         <select class="form-select" bind:value={gender}>
-          <option value="">{$_('profile.gender_unset')}</option>
-          <option value="male">{$_('profile.gender_male')}</option>
-          <option value="female">{$_('profile.gender_female')}</option>
+          <option value="">{$_('profile.gender.unset')}</option>
+          <option value="male">{$_('profile.gender.male')}</option>
+          <option value="female">{$_('profile.gender.female')}</option>
           <option value="non-binary">Non-binary</option>
-          <option value="other">{$_('profile.gender_other')}</option>
+          <option value="other">{$_('profile.gender.other')}</option>
         </select>
       </div>
       <div class="form-group">

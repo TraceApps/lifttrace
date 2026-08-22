@@ -320,8 +320,13 @@
     "nickname":              "Nickname / Display Name",
     "nickname_placeholder":  "What should we call you?",
     "birthday":              "Birthday",
-    "gender":                "Gender",
-    "gender_unset":          "Prefer not to say",
+    "gender": {
+      "label":  "Gender",
+      "male":   "Male",
+      "female": "Female",
+      "other":  "Other",
+      "unset":  "Prefer not to say"
+    },
     "change_password":       "Change Password",
     "current_password":      "Current Password",
     "confirm_new_password":  "Confirm New Password",
@@ -350,9 +355,6 @@
     },
     "biometric_cancelled":   "Biometric verification was canceled or failed.",
     "server_unreachable":    "Could not reach server",
-    "gender_male":           "Male",
-    "gender_female":         "Female",
-    "gender_other":          "Other",
     "current_password_ph":   "Enter current password",
     "confirm_password_ph":   "Re-enter new password",
     "biometric_signin":      "Sign In with Biometric"
