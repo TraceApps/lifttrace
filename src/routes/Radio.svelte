@@ -1391,44 +1391,49 @@
       <!-- Queue — feature parity with the FullPlayer modal (which
            the wide layout hides the MiniPlayer entry-point for). A
            lifter on desktop can now see what's coming next + remove
-           tracks from the queue without opening any modal. -->
-      {#if ($queue || []).length > 1}
-        {@const _qi = $queueIndex}
-        {@const _upcoming = ($queue || []).slice(_qi + 1)}
+           tracks from the queue without opening any modal. Always
+           renders when a track is playing so the queue is
+           discoverable, with an 'empty' state when there's nothing
+           upcoming (e.g. a single radio station). -->
+      {@const _qi = $queueIndex}
+      {@const _upcoming = ($queue || []).slice(Math.max(0, _qi) + 1)}
+      <div class="rnp-queue">
+        <div class="rnp-queue-head">
+          <span class="material-symbols-rounded">queue_music</span>
+          <span class="rnp-queue-title">Up Next</span>
+          {#if _upcoming.length > 0}
+            <span class="rnp-queue-count">{_upcoming.length}</span>
+          {/if}
+        </div>
         {#if _upcoming.length > 0}
-          <div class="rnp-queue">
-            <div class="rnp-queue-head">
-              <span class="material-symbols-rounded">queue_music</span>
-              <span class="rnp-queue-title">Up Next</span>
-              <span class="rnp-queue-count">{_upcoming.length}</span>
-            </div>
-            <ol class="rnp-queue-list">
-              {#each _upcoming as t, i (t.id || (_qi + 1 + i))}
-                <li class="rnp-queue-row">
-                  <button type="button" class="rnp-queue-play"
-                          on:click={() => playTrack(t, $queue, _qi + 1 + i)}
-                          title="Play now">
-                    {#if t.coverUrl}
-                      <img class="rnp-queue-cover" src={resolveAssetUrl(t.coverUrl)} alt="" />
-                    {:else}
-                      <span class="material-symbols-rounded rnp-queue-cover-fallback">music_note</span>
-                    {/if}
-                    <div class="rnp-queue-info">
-                      <span class="rnp-queue-name">{t.title || t.name || 'Track'}</span>
-                      {#if t.artist}<span class="rnp-queue-sub">{t.artist}</span>{/if}
-                    </div>
-                  </button>
-                  <button type="button" class="rnp-queue-remove"
-                          on:click={() => removeFromQueue(_qi + 1 + i)}
-                          aria-label="Remove from queue" title="Remove">
-                    <span class="material-symbols-rounded">close</span>
-                  </button>
-                </li>
-              {/each}
-            </ol>
-          </div>
+          <ol class="rnp-queue-list">
+            {#each _upcoming as t, i (t.id || (_qi + 1 + i))}
+              <li class="rnp-queue-row">
+                <button type="button" class="rnp-queue-play"
+                        on:click={() => playTrack(t, $queue, _qi + 1 + i)}
+                        title="Play now">
+                  {#if t.coverUrl}
+                    <img class="rnp-queue-cover" src={resolveAssetUrl(t.coverUrl)} alt="" />
+                  {:else}
+                    <span class="material-symbols-rounded rnp-queue-cover-fallback">music_note</span>
+                  {/if}
+                  <div class="rnp-queue-info">
+                    <span class="rnp-queue-name">{t.title || t.name || 'Track'}</span>
+                    {#if t.artist}<span class="rnp-queue-sub">{t.artist}</span>{/if}
+                  </div>
+                </button>
+                <button type="button" class="rnp-queue-remove"
+                        on:click={() => removeFromQueue(_qi + 1 + i)}
+                        aria-label="Remove from queue" title="Remove">
+                  <span class="material-symbols-rounded">close</span>
+                </button>
+              </li>
+            {/each}
+          </ol>
+        {:else}
+          <p class="rnp-queue-empty">Nothing queued. Right-click any track and pick "Add to queue" to line one up.</p>
         {/if}
-      {/if}
+      </div>
     {:else}
       <div class="rnp-empty">
         <span class="material-symbols-rounded rnp-empty-icon">headphones</span>
@@ -2403,6 +2408,14 @@
     .rnp-queue-row:hover .rnp-queue-remove { opacity: 1; }
     .rnp-queue-remove:hover { color: var(--danger); background: rgba(255, 255, 255, 0.1); }
     .rnp-queue-remove .material-symbols-rounded { font-size: 16px; }
+    .rnp-queue-empty {
+      margin: 4px 0 0;
+      padding: 8px 6px;
+      font-size: 11px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.55);
+      font-style: italic;
+    }
 
     /* Hide the App-level MiniPlayer on the Radio route at wide
        widths — the on-page Now Playing hero is a richer replacement
