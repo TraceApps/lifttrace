@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Units language picker.
 
+### Fixed
+
+- **Settings → Help & Improve showed `â€”` where a dash belonged.** Two visible strings in the diagnostics panel carried a mojibake em-dash from a round-trip through CP1252.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)
