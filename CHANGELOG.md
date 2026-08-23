@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Units language picker.
 
+### Changed
+
+- **Settings → Units is now Settings → Language & Region**, with a globe icon instead of the ruler. The section holds the language picker, date format and time format alongside the weight unit, so three of its four rows were regional settings rather than units.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)

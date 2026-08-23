@@ -402,7 +402,7 @@
   const SECTION_META = {
     profile:          { titleKey: 'profile.title',                      icon: 'person' },
     appearance:       { titleKey: 'settings.appearance.section',        icon: 'contrast' },
-    units:            { titleKey: 'settings.units.section',             icon: 'straighten' },
+    units:            { titleKey: 'settings.units.section',             icon: 'language' },
     workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
     statistics:       { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
     catalog:          { titleKey: 'settings.catalog.section',           icon: 'library_books' },
@@ -654,7 +654,7 @@
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'units')} class:active={currentSection === 'units'} aria-current={currentSection === 'units' ? 'page' : undefined} on:click={() => toggleSection('units')}>
-    <span class="material-symbols-rounded si">straighten</span>
+    <span class="material-symbols-rounded si">language</span>
     <span>{$_('settings.units.section')}</span>
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
