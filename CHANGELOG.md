@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Units language picker.
 
+### Fixed
+
+- **The version no longer reads `vv1.1.3-dev01`.** Settings → About and the desktop sidebar both prefixed a literal `v` onto `APP_VERSION`, which already carries one.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)

@@ -117,7 +117,7 @@
           </button>
         </div>
       {:else}
-        <span class="sidebar-version">LiftTrace v{APP_VERSION}</span>
+        <span class="sidebar-version">LiftTrace {APP_VERSION}</span>
       {/if}
     </div>
   </aside>
