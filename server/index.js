@@ -232,4 +232,20 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-app.listen(PORT, () => logger.info(`LiftTrace running on port ${PORT}`));
+app.listen(PORT, async () => {
+  logger.info(`LiftTrace running on port ${PORT}`);
+
+  // One-time repair for instances that enabled user management on a build
+  // where the handover was incomplete (TraceApps/docs#2). No-op once clean.
+  try {
+    const { repairOrphanedData } = await import('./lib/claim-anonymous-data.js');
+    const r = repairOrphanedData();
+    if (r.ambiguous) {
+      logger.warn(`[claim] ${r.rows} row(s) from single-user mode are unowned, but this instance has more than one account so they cannot be attributed automatically. See https://traceapps.github.io/docs/auth/local-users/`);
+    } else if (r.rows) {
+      logger.info(`[claim] adopted ${r.rows} row(s) left over from single-user mode into user ${r.repaired}`);
+    }
+  } catch (e) {
+    logger.warn(`[claim] orphan repair skipped: ${e.message}`);
+  }
+});

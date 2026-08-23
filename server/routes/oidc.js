@@ -13,6 +13,7 @@ import {
   isPasswordLoginEnabled,
 } from '../lib/oidc.js';
 import db from '../db.js';
+import { claimAnonymousData } from '../lib/claim-anonymous-data.js';
 
 const router = Router();
 
@@ -138,12 +139,10 @@ router.get('/callback/:providerId', wrap(async (req, res) => {
   applyAdminMapping(provider, result.user, claims);
 
   // First-user bootstrap: claim orphaned data (mirrors password /register).
+  // Shares one helper with the password path so the two cannot drift — an
+  // OIDC-first instance has exactly the same single-user data to adopt.
   if (result.created && db.prepare(`SELECT COUNT(*) AS n FROM users`).get().n === 1) {
-    db.prepare('UPDATE workout_log SET user_id = ? WHERE user_id IS NULL').run(result.user.id);
-    db.prepare('UPDATE body_stats_log SET user_id = ? WHERE user_id IS NULL').run(result.user.id);
-    db.prepare('UPDATE programs SET created_by = ? WHERE created_by IS NULL').run(result.user.id);
-    db.prepare('UPDATE user_settings SET user_id = ? WHERE user_id IS NULL').run(result.user.id);
-    db.prepare('UPDATE ai_chat_history SET user_id = ? WHERE user_id IS NULL').run(result.user.id);
+    claimAnonymousData(result.user.id);
     db.prepare(`UPDATE users SET role = 'admin' WHERE id = ?`).run(result.user.id);
     result.user.role = 'admin';
     logger.info(`[oidc] first-user OIDC bootstrap: ${result.user.username} → admin`);

@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Units language picker.
 
+### Fixed
+
+- **Enabling user management no longer strands data written in single-user mode** ([TraceApps/docs#2](https://github.com/TraceApps/docs/issues/2)). An instance running with no accounts writes every row under a placeholder owner. Registering the first account only re-parented the workout log, body stats, programs and Trace chat, so the cardio log, workout tombstones and any custom exercises became invisible to the new admin. All of them are now claimed, in one transaction. The same handover runs whether the first account is created with a password or by the first OIDC sign-in; both paths now share one implementation instead of keeping separate copies that drifted.
+- **Data left behind in single-user mode is adopted on upgrade.** Instances that already enabled user management on an earlier build had their unowned rows stranded for good. Startup now adopts them, once, when exactly one account exists. Zero accounts is ordinary single-user mode and is left alone; two or more is reported in the log rather than guessed at.
+- **Disabling user management no longer makes the workout log disappear.** No LiftTrace table has a foreign key to `users`, so dropping the accounts left every row pointing at an id that single-user mode cannot read, and because account ids never get reused a later re-enable could not reclaim them either. The data was neither deleted nor reachable. With one account its rows are handed back to single-user mode, making disable and re-enable a lossless round trip; with several, where no single owner exists, they are removed instead of being stranded. Same for the `RECOVERY_TOKEN` lockout path.
+- **Deleting an account now removes its cardio log and workout tombstones.** The delete-user handler clears each table by hand and these two were never added to it, so they outlived the account. The shared global exercise catalog is explicitly excluded so it stays available to every user instead of being taken over by whoever registers first. The same incomplete list existed a second time in the OIDC first-login bootstrap, so an instance whose first account arrives via SSO had the identical bug; both paths now share one implementation.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)
