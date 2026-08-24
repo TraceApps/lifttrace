@@ -28,7 +28,7 @@
           <div>
             <div class="about-name">{$_('settings_about.app_name')}</div>
             <div class="about-version">
-              v{APP_VERSION}
+              {APP_VERSION}
               <span class="platform-tag">{isNative ? 'Android' : 'PWA'}</span>
             </div>
           </div>
