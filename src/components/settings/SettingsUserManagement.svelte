@@ -366,7 +366,7 @@
                   <span class="user-row-meta">@{u.username}</span>
                   <div class="user-row-selects">
                     {#if u.id === $currentUser.id}
-                      <span class="user-role-badge">{u.role} (you)</span>
+                      <span class="user-role-badge">{u.role} {$_('settings.users.role_self_suffix')}</span>
                     {:else}
                       <select class="form-select-xs" value={u.role} on:change={e => changeUserRole(u, e.target.value)} title="Role">
                         <option value="member">{$_('settings.users.role_member_opt')}</option>
@@ -378,7 +378,7 @@
                       <select class="form-select-xs" value={u.trainer_id || ''} on:change={e => changeUserTrainer(u, e.target.value)} title="Assigned trainer">
                         <option value="">{$_('settings.users.no_trainer')}</option>
                         {#each trainers as t (t.id)}
-                          <option value={t.id}>Coach {t.full_name || t.username}</option>
+                          <option value={t.id}>{$_('settings.users.coach_option', { values: { name: t.full_name || t.username } })}</option>
                         {/each}
                       </select>
                     {/if}
@@ -388,7 +388,7 @@
                   <button class="btn-icon-danger" on:click={() => resetUserPassword(u)} title="Reset Password" style="color:var(--text-3)">
                     <span class="material-symbols-rounded" style="font-size:20px">lock_reset</span>
                   </button>
-                  <button class="btn-icon-danger" on:click={() => deleteUser(u.id)} title="Delete User">
+                  <button class="btn-icon-danger" on:click={() => deleteUser(u.id)} title={$_('settings.users.delete_user')}>
                     <span class="material-symbols-rounded" style="font-size:20px">delete</span>
                   </button>
                 {/if}
@@ -420,7 +420,7 @@
               </div>
             </div>
             <button class="btn btn-primary" style="height:36px;font-size:13px" on:click={inviteUser} disabled={!_inviteCanSubmit}>
-              {inviting ? $_('settings.users.sending') : (_inviteEmailTrimmed ? $_('settings.users.send_invite') : 'Generate Invite Link')}
+              {inviting ? $_('settings.users.sending') : (_inviteEmailTrimmed ? $_('settings.users.send_invite') : $_('settings.users.generate_invite_link'))}
             </button>
             {#if pendingInvites.length > 0}
               <div class="pending-invites" transition:slide={{ duration: 160 }}>
@@ -500,7 +500,7 @@
           <div class="setting-row">
             <div>
               <span class="setting-label">{$_('settings.users.strong_passwords')}</span>
-              <div class="setting-desc">Reject weak passwords (zxcvbn score below 3) on top of the standard 8-char + mixed-case + number + symbol rules. Affects new sign-ups, invites, and password changes. Existing passwords aren't re-checked.</div>
+              <div class="setting-desc">{$_('settings.users.strong_passwords_desc')}</div>
             </div>
             <Toggle checked={passwordPolicy === 'strong'} on:change={e => savePasswordPolicy(e.detail ? 'strong' : 'standard')} />
           </div>

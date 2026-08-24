@@ -17,6 +17,17 @@
   export let visible = true;
   export let onToggle = () => {};
 
+  // Preset names + descriptions live as data in restTones.js; translate at
+  // the render site, keyed by tone id, falling back to the raw strings for
+  // any preset without a key. Mirrors the BODY_STATS pattern below.
+  $: TONE_LABELS = {
+    classic: { name: $_('settings_workout.rest.tones.classic'), desc: $_('settings_workout.rest.tones.classic_desc') },
+    bells:   { name: $_('settings_workout.rest.tones.bells'),   desc: $_('settings_workout.rest.tones.bells_desc') },
+    beeper:  { name: $_('settings_workout.rest.tones.beeper'),  desc: $_('settings_workout.rest.tones.beeper_desc') },
+    gym:     { name: $_('settings_workout.rest.tones.gym'),     desc: $_('settings_workout.rest.tones.gym_desc') },
+    minimal: { name: $_('settings_workout.rest.tones.minimal'), desc: $_('settings_workout.rest.tones.minimal_desc') },
+  };
+
   $: BODY_STATS = [
     { id: 'weight',  label: $_('settings_workout.body_stats.weight') },
     { id: 'bodyFat', label: $_('settings_workout.body_stats.body_fat') },
@@ -53,8 +64,8 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Track Cardio</span>
-            <span class="setting-hint">Log cardio sessions (bike, run, row, etc.) from the Diary and see weekly minutes on Statistics. Off by default so pure lifters aren't cluttered. Manual entry only; device sync stays in NutriTrace.</span>
+            <span class="setting-label">{$_('settings_workout.goals.track_cardio')}</span>
+            <span class="setting-hint">{$_('settings_workout.goals.track_cardio_desc')}</span>
           </div>
           <Toggle bind:checked={$cardioEnabled} />
         </div>
@@ -209,8 +220,8 @@
                     <div class="tone-row" class:active={$restAlertToneId === tone.id}>
                       <button class="tone-main" on:click={() => $restAlertToneId = tone.id}>
                         <div class="tone-info">
-                          <span class="tone-name">{tone.name}</span>
-                          <span class="tone-desc">{tone.desc}</span>
+                          <span class="tone-name">{(TONE_LABELS[tone.id] || tone).name}</span>
+                          <span class="tone-desc">{(TONE_LABELS[tone.id] || tone).desc}</span>
                         </div>
                         {#if $restAlertToneId === tone.id}
                           <span class="material-symbols-rounded tone-selected">check_circle</span>
