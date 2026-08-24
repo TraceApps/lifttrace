@@ -22,6 +22,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0-dev01] - 2026-08-23 (pre-release)
+
+First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line because the desktop wide-layout pass (Diary, Statistics, Programs, Radio, Exercises, ExercisePicker) is a much larger surface than a patch is meant to carry. Also picks up the Android duplicate-workout fix and the server-side soft-delete filter that made the fix visible to the PWA.
+
+### Added
+
+- **Desktop wide-layout pass across the main routes.** At `min-width: 1280px` (guarded against `.force-mobile-layout`), Diary, Statistics, Programs library + detail, Radio, and Exercises now use a two- or three-column shell instead of the mobile stack; ExercisePicker opens as a wide modal on the same breakpoint. Mobile layouts are unchanged.
+
+### Fixed
+
+- **Android: template loads no longer wipe the local workout row, causing the next re-add to duplicate.** `api-native.js` was soft-deleting the local `workout_log` row whenever the current in-memory snapshot had no completed sets. That path fired on template load, which then made the local-first GET return null, which blanked the UI. Re-adding the template took an empty snapshot into the merge, so `deleted_uuids` was empty and the server-side per-uuid merge stacked the new exercises on top of the old ones instead of replacing them. Removed the auto-delete-empty shortcut; day-level deletion is now solely driven by the explicit `DELETE /api/workout/:date` route, matching the server behavior.
+- **Server GETs now filter soft-deleted workouts.** `SELECT * FROM workout_log` in `/recent`, `/history/:exerciseId`, `/:date`, and the `/:date/feedback` existence check add `AND deleted_at IS NULL`, so a row a client had previously soft-deleted (via sync-push) stops showing up in the PWA the next time that date is opened. `PUT /:date` intentionally does NOT filter — it needs to see the soft-deleted row so the UPDATE resurrects it (`deleted_at = NULL`) instead of hitting the `UNIQUE(user_id, date)` constraint with a duplicate INSERT. Sync-pull queries in `sync.js` are also left unfiltered so tombstoned rows still propagate to other devices.
+
+---
+
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)
 
 First dev pre-release of the 1.1.3 patch. Workout persistence fix (foreground no longer bloats programs with duplicate sets), Trace chat markdown rendering, catalog re-import history preservation, and clear-chat confirmation.
