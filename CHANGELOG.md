@@ -5,13 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.2.0-dev01] - 2026-08-23 (pre-release)
+
+First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line because the desktop wide-layout pass (Diary, Statistics, Programs, Radio, Exercises, ExercisePicker) is a much larger surface than a patch is meant to carry. Also picks up the Spanish + Italian translations, several user-management data-integrity fixes, the Android duplicate-workout fix, and the server-side soft-delete filter that made the fix visible to the PWA.
 
 ### Added
 
-- **Spanish translation.** Adds a complete `es` locale and exposes it as `Español` in the Settings → Units language picker.
-
-- **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Units language picker.
+- **Desktop wide-layout pass across the main routes.** At `min-width: 1280px` (guarded against `.force-mobile-layout`), Diary, Statistics, Programs library + detail, Radio, and Exercises now use a two- or three-column shell instead of the mobile stack; ExercisePicker opens as a wide modal on the same breakpoint. Mobile layouts are unchanged.
+- **Spanish translation.** Adds a complete `es` locale and exposes it as `Español` in the Settings → Language & Region language picker.
+- **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Language & Region language picker.
 
 ### Fixed
 
@@ -19,19 +21,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Data left behind in single-user mode is adopted on upgrade.** Instances that already enabled user management on an earlier build had their unowned rows stranded for good. Startup now adopts them, once, when exactly one account exists. Zero accounts is ordinary single-user mode and is left alone; two or more is reported in the log rather than guessed at.
 - **Disabling user management no longer makes the workout log disappear.** No LiftTrace table has a foreign key to `users`, so dropping the accounts left every row pointing at an id that single-user mode cannot read, and because account ids never get reused a later re-enable could not reclaim them either. The data was neither deleted nor reachable. With one account its rows are handed back to single-user mode, making disable and re-enable a lossless round trip; with several, where no single owner exists, they are removed instead of being stranded. Same for the `RECOVERY_TOKEN` lockout path.
 - **Deleting an account now removes its cardio log and workout tombstones.** The delete-user handler clears each table by hand and these two were never added to it, so they outlived the account. The shared global exercise catalog is explicitly excluded so it stays available to every user instead of being taken over by whoever registers first. The same incomplete list existed a second time in the OIDC first-login bootstrap, so an instance whose first account arrives via SSO had the identical bug; both paths now share one implementation.
-
----
-
-## [1.2.0-dev01] - 2026-08-23 (pre-release)
-
-First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line because the desktop wide-layout pass (Diary, Statistics, Programs, Radio, Exercises, ExercisePicker) is a much larger surface than a patch is meant to carry. Also picks up the Android duplicate-workout fix and the server-side soft-delete filter that made the fix visible to the PWA.
-
-### Added
-
-- **Desktop wide-layout pass across the main routes.** At `min-width: 1280px` (guarded against `.force-mobile-layout`), Diary, Statistics, Programs library + detail, Radio, and Exercises now use a two- or three-column shell instead of the mobile stack; ExercisePicker opens as a wide modal on the same breakpoint. Mobile layouts are unchanged.
-
-### Fixed
-
 - **Android: template loads no longer wipe the local workout row, causing the next re-add to duplicate.** `api-native.js` was soft-deleting the local `workout_log` row whenever the current in-memory snapshot had no completed sets. That path fired on template load, which then made the local-first GET return null, which blanked the UI. Re-adding the template took an empty snapshot into the merge, so `deleted_uuids` was empty and the server-side per-uuid merge stacked the new exercises on top of the old ones instead of replacing them. Removed the auto-delete-empty shortcut; day-level deletion is now solely driven by the explicit `DELETE /api/workout/:date` route, matching the server behavior.
 - **Server GETs now filter soft-deleted workouts.** `SELECT * FROM workout_log` in `/recent`, `/history/:exerciseId`, `/:date`, and the `/:date/feedback` existence check add `AND deleted_at IS NULL`, so a row a client had previously soft-deleted (via sync-push) stops showing up in the PWA the next time that date is opened. `PUT /:date` intentionally does NOT filter — it needs to see the soft-deleted row so the UPDATE resurrects it (`deleted_at = NULL`) instead of hitting the `UNIQUE(user_id, date)` constraint with a duplicate INSERT. Sync-pull queries in `sync.js` are also left unfiltered so tombstoned rows still propagate to other devices.
 
