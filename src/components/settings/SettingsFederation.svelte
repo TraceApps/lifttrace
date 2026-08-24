@@ -166,12 +166,12 @@
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="password"
                 bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
             {/if}
-            <button class="btn-icon-toggle" on:click={() => showToken = !showToken} title={showToken ? 'Hide' : 'Show'}>
+            <button class="btn-icon-toggle" on:click={() => showToken = !showToken} title={showToken ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
               <span class="material-symbols-rounded">{showToken ? 'visibility_off' : 'visibility'}</span>
             </button>
             <button class="btn btn-primary save-btn" on:click={save}
               disabled={testing || !urlDraft.trim() || !tokenDraft.trim()}>
-              {saved ? 'Saved' : (testing ? 'Testing…' : 'Save')}
+              {saved ? 'Saved' : (testing ? 'Testing…' : $_('common.save'))}
             </button>
           </div>
         </div>

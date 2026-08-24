@@ -368,7 +368,7 @@
                     {#if u.id === $currentUser.id}
                       <span class="user-role-badge">{u.role} (you)</span>
                     {:else}
-                      <select class="form-select-xs" value={u.role} on:change={e => changeUserRole(u, e.target.value)} title="Role">
+                      <select class="form-select-xs" value={u.role} on:change={e => changeUserRole(u, e.target.value)} title={$_('settings.users.role')}>
                         <option value="member">{$_('settings.users.role_member_opt')}</option>
                         <option value="trainer">{$_('settings.users.role_trainer_opt')}</option>
                         <option value="admin">{$_('settings.users.role_admin_opt')}</option>
@@ -385,7 +385,7 @@
                   </div>
                 </div>
                 {#if u.id !== $currentUser.id}
-                  <button class="btn-icon-danger" on:click={() => resetUserPassword(u)} title="Reset Password" style="color:var(--text-3)">
+                  <button class="btn-icon-danger" on:click={() => resetUserPassword(u)} title={$_('settings.users.reset_password')} style="color:var(--text-3)">
                     <span class="material-symbols-rounded" style="font-size:20px">lock_reset</span>
                   </button>
                   <button class="btn-icon-danger" on:click={() => deleteUser(u.id)} title="Delete User">
