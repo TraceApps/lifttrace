@@ -15,8 +15,8 @@ router.get('/recent', wrap((req, res) => {
   const limit = parseInt(req.query.limit) || 30;
   const userId = uid(req);
   const rows = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? ORDER BY date DESC LIMIT ?').all(userId, limit)
-    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL ORDER BY date DESC LIMIT ?').all(limit);
+    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT ?').all(userId, limit)
+    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND deleted_at IS NULL ORDER BY date DESC LIMIT ?').all(limit);
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   res.json(rows);
 }));
@@ -26,8 +26,8 @@ router.get('/history/:exerciseId', wrap((req, res) => {
   const exerciseId = parseInt(req.params.exerciseId);
   const userId = uid(req);
   const rows = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? ORDER BY date DESC').all(userId)
-    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL ORDER BY date DESC').all();
+    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(userId)
+    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND deleted_at IS NULL ORDER BY date DESC').all();
 
   const history = [];
   for (const row of rows) {
@@ -51,7 +51,7 @@ router.get('/:date/feedback', wrap((req, res) => {
   const userId = uid(req);
   if (userId == null) return res.json([]);
   const workout = db.prepare(
-    'SELECT id FROM workout_log WHERE date = ? AND user_id = ?'
+    'SELECT id FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL'
   ).get(req.params.date, userId);
   if (!workout) return res.json([]);
   const rows = db.prepare(`
@@ -76,8 +76,8 @@ router.get('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
   const workout = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
-    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
+    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(date, userId)
+    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(date);
 
   if (workout) {
     workout.exercises = JSON.parse(workout.exercises || '[]');
@@ -183,8 +183,12 @@ router.put('/:date', wrap((req, res) => {
 
   db.transaction(() => {
     if (existing) {
+      // Clear deleted_at on save so an explicit UPDATE resurrects a
+      // row that a client had previously soft-deleted (sync-push at
+      // sync.js line 368). Without this, GETs would keep filtering it
+      // out even after the user re-adds a workout on that date.
       db.prepare(
-        `UPDATE workout_log SET template_id=?, program_id=?, name=?, exercises=?, notes=?, duration_min=?, completed=?, program_week=?
+        `UPDATE workout_log SET template_id=?, program_id=?, name=?, exercises=?, notes=?, duration_min=?, completed=?, program_week=?, deleted_at=NULL
          WHERE id=?`
       ).run(template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null, existing.id);
     } else {
