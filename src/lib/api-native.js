@@ -761,15 +761,18 @@ const Workout = {
       }
     }
 
-    // Auto-delete empty entries (matches server behavior)
-    if (!hasAny && !body.notes && !body.duration_min) {
-      await dbRun(
-        `UPDATE workout_log SET deleted_at = ?, sync_state = 'pending'
-         WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
-        [_now(), ME, date]
-      );
-      return { ok: true, deleted: true };
-    }
+    // (Auto-delete-empty-entries shortcut removed — the server dropped
+    // it when Option C landed on 2026-08-11 in workout.js; day-level
+    // deletion now requires an explicit DELETE /api/workout/:date on
+    // both sides. Leaving it here caused a Load Workout on Android
+    // native-server mode to soft-delete the local row (fresh template
+    // sets have completed:false → hasAny was false → row got
+    // soft-deleted locally even though the server preserved it), so
+    // any subsequent load returned null from local-first cache and
+    // the diary UI blanked. The user then re-added, and because the
+    // client snapshot was empty, deleted_uuids came out empty, and
+    // the server merge stacked the new exercises on top of the ones
+    // the server had preserved. See issue-report thread 2026-08-24.)
     const existing = await Workout.byDate(date);
     if (existing) {
       await dbRun(
