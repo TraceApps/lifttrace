@@ -26,6 +26,10 @@ First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line becau
 - **Settings → Help & Improve no longer shows `â€"` where a dash belonged** ([#60](https://github.com/TraceApps/lifttrace/pull/60), thanks @backmind). Two visible strings in the diagnostics panel carried a mojibake em-dash from a round-trip through CP1252. Restored to U+2014.
 - **Version no longer renders as `vv1.2.0-dev01`** ([#61](https://github.com/TraceApps/lifttrace/pull/61), thanks @backmind). `APP_VERSION` already carries the leading `v`, but Settings → About and the desktop sidebar were prefixing a second one. Matched the third call site (SettingsUpdates) that already got it right, so nothing else that reads `APP_VERSION` needed a second look.
 
+### Changed
+
+- **Settings → Units is now Settings → Language & Region** ([#62](https://github.com/TraceApps/lifttrace/pull/62), thanks @backmind). The section holds the language picker, date format, and time format alongside the weight unit, so three of its four rows were regional settings rather than units. Section header + icon (globe instead of ruler) updated across the collapsible view, the desktop rail, and the sub-page header. English, Spanish, and Italian labels updated in the same commit; settings search picks up `language` as a keyword so the section still comes up under its old name too.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)

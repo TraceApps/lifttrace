@@ -11,7 +11,7 @@
 
 {#if visible}
   <button class="section-toggle" on:click={onToggle}>
-    <span class="si"><span class="material-symbols-rounded">straighten</span></span>
+    <span class="si"><span class="material-symbols-rounded">language</span></span>
     <span class="section-name">{$_('settings.units.section')}</span>
     <span class="material-symbols-rounded chevron" class:rotated={expanded}>expand_more</span>
   </button>

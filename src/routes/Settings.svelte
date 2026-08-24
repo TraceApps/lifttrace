@@ -368,7 +368,7 @@
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
     appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce','force mobile','mobile layout','mobile view','phone layout','narrow layout','desktop'],
     workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill'],
-    units:          ['units','measurement','measurement system','format','date','time','12h','24h','locale','region','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
+    units:          ['language','languages','units','measurement','measurement system','format','date','time','12h','24h','locale','region','regional','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
     trace:          ['trace','ai','assistant','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image'],
     radio:          ['radio','music','player','subsonic','navidrome','jellyfin','streaming','audio','playlist'],
@@ -402,7 +402,7 @@
   const SECTION_META = {
     profile:          { titleKey: 'profile.title',                      icon: 'person' },
     appearance:       { titleKey: 'settings.appearance.section',        icon: 'contrast' },
-    units:            { titleKey: 'settings.units.section',             icon: 'straighten' },
+    units:            { titleKey: 'settings.units.section',             icon: 'language' },
     workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
     statistics:       { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
     catalog:          { titleKey: 'settings.catalog.section',           icon: 'library_books' },
@@ -654,7 +654,7 @@
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'units')} class:active={currentSection === 'units'} aria-current={currentSection === 'units' ? 'page' : undefined} on:click={() => toggleSection('units')}>
-    <span class="material-symbols-rounded si">straighten</span>
+    <span class="material-symbols-rounded si">language</span>
     <span>{$_('settings.units.section')}</span>
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
