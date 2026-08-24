@@ -1,6 +1,6 @@
 <script>
   /**
-   * Diagnostics â€” in-app log capture + share.
+   * Diagnostics — in-app log capture + share.
    *
    * Lets users grab the in-memory log buffer (~500 lines), turn on verbose
    * mode while reproducing a bug, and copy/share the result without needing
@@ -61,7 +61,7 @@
         await copyLogs();
       }
     } catch (e) {
-      // User cancelled â€” silent.
+      // User cancelled — silent.
     }
   }
 
@@ -92,7 +92,7 @@
             <span class="setting-label">{$_('settings_diagnostics.verbose_logging')}</span>
             <span class="setting-hint">
               Enables detailed app-internal logs (sync, settings, notifications, SQLite). Off by
-              default â€” turn on while reproducing a bug, then export below.
+              default — turn on while reproducing a bug, then export below.
             </span>
           </div>
           <Toggle checked={verboseOn} on:change={e => toggleVerbose(e.detail)} />
@@ -103,7 +103,7 @@
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
           <span class="setting-label">{$_('settings_diagnostics.view_logs')}</span>
           <p class="setting-hint" style="line-height:1.5;margin:0">
-            Last 500 lines from the app's console. Useful for bug reports â€” copy or share to a
+            Last 500 lines from the app's console. Useful for bug reports — copy or share to a
             <a href="https://github.com/TraceApps/lifttrace/issues" target="_blank" rel="noopener" style="color:var(--accent)">GitHub issue</a>.
             The buffer holds in-memory only; nothing is sent anywhere automatically.
           </p>
