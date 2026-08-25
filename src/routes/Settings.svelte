@@ -575,7 +575,13 @@
     _pillVisible = true;
     if (!_pillReady) requestAnimationFrame(() => { _pillReady = true; });
   }
-  afterUpdate(_measurePill);
+  // Defer one paint frame so any conditional subtrees (the admin
+  // {#if $userMgmtActive && $currentUser?.role === 'admin'} block
+  // holding Users/Authentication/Email) have committed before we
+  // querySelector for .active. Without the rAF, clicking a section
+  // inside that block races past the measurement, comes up empty,
+  // and hides the pill until an unrelated re-render lands.
+  afterUpdate(() => requestAnimationFrame(_measurePill));
   onMount(() => {
     if (typeof ResizeObserver === 'undefined' || !_railEl) return;
     _pillRO = new ResizeObserver(_measurePill);

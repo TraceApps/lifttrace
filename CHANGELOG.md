@@ -34,6 +34,8 @@ First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line becau
 
 - **Four more small spots start showing their already-translated strings** ([#67](https://github.com/TraceApps/lifttrace/pull/67), thanks @backmind). The Programs tab in the coach tabbar, the Save button and token show/hide tooltip in NutriTrace Federation, and the role select and Reset Password tooltip in User Management were all writing English literals whose keys already existed and already had Spanish and Italian translations. No new keys added — just wired the existing ones in.
 
+- **Settings rail highlight pill no longer disappears when jumping to Users, Authentication, or Email** ([#68](https://github.com/TraceApps/lifttrace/issues/68), diagnosed by @backmind). The Administration group's rail buttons live inside a `{#if $userMgmtActive && $currentUser?.role === 'admin'}` block. Every other rail button sits as a flat sibling, so `afterUpdate` measured them synchronously and the pill snapped to the right spot; the admin buttons commit to the DOM one microtask later, so `_measurePill` was running against a rail that briefly held no `.active` button, hiding the pill until an unrelated re-render nudged it back. Deferred the measurement one paint frame (`requestAnimationFrame`) so any conditional subtree has committed before the query runs. The About button right after the group hit the mirror-image case coming back the other way; both are fixed by the same change. Same patch applied to the NutriTrace and CookTrace Settings rails since they share the port.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)
