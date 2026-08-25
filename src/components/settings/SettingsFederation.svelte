@@ -125,7 +125,7 @@
           <div class="setting-label-group">
             <span class="setting-label">{$_('settings_federation.enable_federation')}</span>
             <span class="setting-hint">
-              {$_('settings_federation.enable_federation_hint')}
+              Auto-log each completed workout's estimated calories burned to your NutriTrace diary. Workouts appear in NutriTrace under Settings → Wellness → Workout History.
             </span>
           </div>
           <Toggle bind:checked={$ntFederationEnabled} />
@@ -144,7 +144,7 @@
         <div class="setting-row" style="flex-wrap:wrap;gap:8px">
           <div class="setting-label-group" style="width:100%">
             <span class="setting-label">{$_('settings_federation.instance_url')}</span>
-            <span class="setting-hint">{$_('settings_federation.instance_url_hint')} <code>https://nutritrace.example.com</code></span>
+            <span class="setting-hint">Your NutriTrace server, e.g. <code>https://nutritrace.example.com</code></span>
           </div>
           <input class="form-input-sm" style="flex:1;min-width:0;width:100%" type="url"
             bind:value={urlDraft} placeholder="https://nutritrace.example.com"
@@ -155,7 +155,7 @@
           <div class="setting-label-group" style="width:100%">
             <span class="setting-label">{$_('settings_federation.access_token')}</span>
             <span class="setting-hint">
-              {$_('settings_federation.access_token_hint_prefix')} <code>write:workouts</code> {$_('settings_federation.access_token_hint_suffix')}
+              Generate in NutriTrace under Settings → User Management → API Tokens with the <code>write:workouts</code> scope.
             </span>
           </div>
           <div class="key-row">
@@ -166,12 +166,12 @@
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="password"
                 bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
             {/if}
-            <button class="btn-icon-toggle" on:click={() => showToken = !showToken} title={showToken ? 'Hide' : 'Show'}>
+            <button class="btn-icon-toggle" on:click={() => showToken = !showToken} title={showToken ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
               <span class="material-symbols-rounded">{showToken ? 'visibility_off' : 'visibility'}</span>
             </button>
             <button class="btn btn-primary save-btn" on:click={save}
               disabled={testing || !urlDraft.trim() || !tokenDraft.trim()}>
-              {saved ? 'Saved' : (testing ? 'Testing…' : 'Save')}
+              {saved ? 'Saved' : (testing ? 'Testing…' : $_('common.save'))}
             </button>
           </div>
         </div>
@@ -180,7 +180,7 @@
           <div class="setting-label-group">
             <span class="setting-label">{$_('settings_federation.wearable_priority')}</span>
             <span class="setting-hint">
-              {$_('settings_federation.wearable_priority_hint')}
+              If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → "Prefer Wearable Data Over LiftTrace".
             </span>
           </div>
         </div>

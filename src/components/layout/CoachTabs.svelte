@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import { currentUser } from '../../stores/auth.js';
   import { location, push } from 'svelte-spa-router';
 
@@ -10,7 +11,7 @@
   <div class="coach-tabs">
     <button class="tab" class:active={current === 'programs'} on:click={() => push('/programs')}>
       <span class="material-symbols-rounded icon">calendar_month</span>
-      <span>Programs</span>
+      <span>{$_('nav.programs')}</span>
     </button>
     <button class="tab" class:active={current === 'coaching'} on:click={() => push('/coaching')}>
       <span class="material-symbols-rounded icon">supervisor_account</span>

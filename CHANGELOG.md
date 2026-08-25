@@ -32,6 +32,8 @@ First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line becau
 
 - **Radio, NutriTrace Federation, Diagnostics, About, Workout, and Users sections no longer hard-code English copy** ([#66](https://github.com/TraceApps/lifttrace/pull/66), thanks @backmind). 38 strings that lived as literals in those six components — section hints, the About description and disclaimer, the rest-timer tone names and descriptions, and a handful of labels built in JavaScript — now resolve through the i18n layer, so Weblate can pick them up. Two keys that already existed but were never wired anywhere (`settings_diagnostics.github_issue`, `settings.users.role_self_suffix`) now render their existing Spanish and Italian translations with no round-trip. English output is unchanged.
 
+- **Four more small spots start showing their already-translated strings** ([#67](https://github.com/TraceApps/lifttrace/pull/67), thanks @backmind). The Programs tab in the coach tabbar, the Save button and token show/hide tooltip in NutriTrace Federation, and the role select and Reset Password tooltip in User Management were all writing English literals whose keys already existed and already had Spanish and Italian translations. No new keys added — just wired the existing ones in.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)
