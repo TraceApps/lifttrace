@@ -30,6 +30,8 @@ First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line becau
 
 - **Settings → Units is now Settings → Language & Region** ([#62](https://github.com/TraceApps/lifttrace/pull/62), thanks @backmind). The section holds the language picker, date format, and time format alongside the weight unit, so three of its four rows were regional settings rather than units. Section header + icon (globe instead of ruler) updated across the collapsible view, the desktop rail, and the sub-page header. English, Spanish, and Italian labels updated in the same commit; settings search picks up `language` as a keyword so the section still comes up under its old name too.
 
+- **Radio, NutriTrace Federation, Diagnostics, About, Workout, and Users sections no longer hard-code English copy** ([#66](https://github.com/TraceApps/lifttrace/pull/66), thanks @backmind). 38 strings that lived as literals in those six components — section hints, the About description and disclaimer, the rest-timer tone names and descriptions, and a handful of labels built in JavaScript — now resolve through the i18n layer, so Weblate can pick them up. Two keys that already existed but were never wired anywhere (`settings_diagnostics.github_issue`, `settings.users.role_self_suffix`) now render their existing Spanish and Italian translations with no round-trip. English output is unchanged.
+
 ---
 
 ## [1.1.3-dev01] - 2026-08-16 (pre-release)

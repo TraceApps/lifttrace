@@ -474,7 +474,11 @@
       "cancel":                "Cancel",
       "hide":                  "Hide",
       "show":                  "Show",
-      "disable_um_hint":       "Deletes all accounts, app becomes open access"
+      "disable_um_hint":       "Deletes all accounts, app becomes open access",
+      "generate_invite_link":  "Generate Invite Link",
+      "coach_option":          "Coach {name}",
+      "delete_user":           "Delete User",
+      "strong_passwords_desc": "Reject weak passwords (zxcvbn score below 3) on top of the standard 8-char + mixed-case + number + symbol rules. Affects new sign-ups, invites, and password changes. Existing passwords aren't re-checked."
     },
     "server":          { "section": "Server Connection" },
     "workout_import":  { "section": "Import Workouts" },
@@ -502,7 +506,17 @@
     "open_source":           "Open source",
     "sister_app_prefix":     "Sister app: ",
     "sister_app_suffix":     ", nutrition tracker",
-    "support_development":   "Support Development"
+    "support_development":   "Support Development",
+    "description":           "Track Every Rep — Personal Weightlifting Tracker. LiftTrace is a self-hosted workout tracker built for privacy. Your data lives on your server, not in the cloud. Features workout diary, program builder, multi-source exercise library, AI coaching, statistics, and more.",
+    "feature_self_hosted":   "Self-hosted — your data, your server",
+    "feature_pwa":           "PWA — installable on any device",
+    "feature_privacy":       "No tracking, no ads, no third-party analytics",
+    "kofi":                  "Ko-fi",
+    "donations_note":        "LiftTrace is free to self-host. Donations are appreciated but never required.",
+    "disclaimer_heading":    "Disclaimer.",
+    "disclaimer_medical":    "LiftTrace is not medical, health, or fitness-professional software. It does not provide medical advice, diagnosis, treatment, or personalized training prescriptions. Exercise library content, Trace AI coaching, program templates, rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight trends) are for informational and self-tracking purposes only.",
+    "disclaimer_risk":       "Resistance training carries inherent risk of injury. Exercise selection, load, technique, and progression can interact with medical conditions (heart and cardiovascular conditions, high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis, pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways this app cannot assess. Consult a qualified healthcare professional, certified strength coach, or licensed physical therapist before starting a new training program, returning from injury, or making significant changes to your routine.",
+    "disclaimer_ai":         "Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a substitute for human judgment or professional advice. Exercise library data is sourced from public databases (wger, Free Exercise DB, optionally ExerciseDB via RapidAPI) and may contain inaccuracies. Use at your own risk."
   },
   "template_spec": {
     "auto":                  "Auto",
@@ -588,15 +602,24 @@
   "settings_federation": {
     "url_token_required":    "Enter a URL and access token first",
     "enable_federation":     "Enable Federation",
+    "enable_federation_hint": "Auto-log each completed workout's estimated calories burned to your NutriTrace diary. Workouts appear in NutriTrace under Settings → Wellness → Workout History.",
     "instance_url":          "Instance URL",
+    "instance_url_hint":     "Your NutriTrace server, e.g.",
     "access_token":          "Access Token",
-    "wearable_priority":     "Wearable Priority"
+    "access_token_hint_prefix": "Generate in NutriTrace under Settings → User Management → API Tokens with the",
+    "access_token_hint_suffix": "scope.",
+    "wearable_priority":     "Wearable Priority",
+    "wearable_priority_hint": "If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → \"Prefer Wearable Data Over LiftTrace\"."
   },
   "settings_diagnostics": {
     "copy_failed":           "Copy failed, select the text manually",
     "logs_cleared":          "Logs cleared",
     "verbose_logging":       "Verbose Diagnostic Logging",
+    "verbose_logging_hint":  "Enables detailed app-internal logs (sync, settings, notifications, SQLite). Off by default — turn on while reproducing a bug, then export below.",
     "view_logs":             "View Diagnostic Logs",
+    "view_logs_hint_prefix": "Last 500 lines from the app's console. Useful for bug reports — copy or share to a",
+    "view_logs_hint_suffix": ". The buffer holds in-memory only; nothing is sent anywhere automatically.",
+    "view_logs_button":      "View logs",
     "github_issue":          "GitHub issue"
   },
   "smart_log": {
@@ -667,7 +690,10 @@
     }
   },
   "settings_radio": {
+    "self_hosted":           "Self-Hosted Music",
+    "self_hosted_hint":      "Stream from a Subsonic-compatible server (Navidrome, Jellyfin, Airsonic, etc.)",
     "streaming_stations":    "Streaming Stations",
+    "streaming_stations_hint": "Listen to internet radio. Add stations from the directory or paste a stream URL.",
     "provider":              "Provider",
     "emby":                  "Emby",
     "jellyfin":              "Jellyfin",
@@ -1381,7 +1407,9 @@
       "keep_awake":       "Screen Keep-Awake",
       "keep_awake_desc":  "Keep the screen on during workouts",
       "calorie_est":      "Show Calorie Estimate",
-      "calorie_est_desc": "Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height, weight, date of birth, and sex set in Profile. Resistance-training estimates are loose by ±25%, treated as an \"~est\" badge in the UI, not a hard number."
+      "calorie_est_desc": "Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height, weight, date of birth, and sex set in Profile. Resistance-training estimates are loose by ±25%, treated as an \"~est\" badge in the UI, not a hard number.",
+      "track_cardio":      "Track Cardio",
+      "track_cardio_desc": "Log cardio sessions (bike, run, row, etc.) from the Diary and see weekly minutes on Statistics. Off by default so pure lifters aren't cluttered. Manual entry only; device sync stays in NutriTrace."
     },
     "logging": {
       "autofill":              "Auto-Fill Last Weights",
@@ -1420,7 +1448,19 @@
       "tone_desc":         "Brief chime when the timer hits zero",
       "tone_style":        "Tone Style",
       "tone_style_desc":   "Tap a row to select, tap ▶ to preview",
-      "preview":           "Preview"
+      "preview":           "Preview",
+      "tones": {
+        "classic":         "Classic",
+        "classic_desc":    "880 Hz beeps, higher chirp at 0",
+        "bells":           "Bells",
+        "bells_desc":      "Soft musical chime, major-third finale",
+        "beeper":          "Beeper",
+        "beeper_desc":     "Sharp short square-wave beeps",
+        "gym":             "Gym",
+        "gym_desc":        "Low thud countdown, rising horn at 0",
+        "minimal":         "Minimal",
+        "minimal_desc":    "Single soft click on the 0 mark only"
+      }
     },
     "body_stats": {
       "toggle_desc":       "Toggle which stats appear in the diary body stats sheet",

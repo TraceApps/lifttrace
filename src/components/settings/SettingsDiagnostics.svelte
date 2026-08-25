@@ -91,8 +91,7 @@
           <div class="setting-label-group">
             <span class="setting-label">{$_('settings_diagnostics.verbose_logging')}</span>
             <span class="setting-hint">
-              Enables detailed app-internal logs (sync, settings, notifications, SQLite). Off by
-              default — turn on while reproducing a bug, then export below.
+              {$_('settings_diagnostics.verbose_logging_hint')}
             </span>
           </div>
           <Toggle checked={verboseOn} on:change={e => toggleVerbose(e.detail)} />
@@ -103,13 +102,12 @@
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
           <span class="setting-label">{$_('settings_diagnostics.view_logs')}</span>
           <p class="setting-hint" style="line-height:1.5;margin:0">
-            Last 500 lines from the app's console. Useful for bug reports — copy or share to a
-            <a href="https://github.com/TraceApps/lifttrace/issues" target="_blank" rel="noopener" style="color:var(--accent)">GitHub issue</a>.
-            The buffer holds in-memory only; nothing is sent anywhere automatically.
+            {$_('settings_diagnostics.view_logs_hint_prefix')}
+            <a href="https://github.com/TraceApps/lifttrace/issues" target="_blank" rel="noopener" style="color:var(--accent)">{$_('settings_diagnostics.github_issue')}</a>{$_('settings_diagnostics.view_logs_hint_suffix')}
           </p>
           <button class="btn btn-secondary" style="height:40px;font-size:13px" on:click={openLogsSheet}>
             <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">terminal</span>
-            View logs
+            {$_('settings_diagnostics.view_logs_button')}
           </button>
         </div>
       </div>
