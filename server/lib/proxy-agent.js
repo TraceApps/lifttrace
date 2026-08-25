@@ -4,8 +4,8 @@
  * Node's built-in fetch (undici under the hood) does NOT honor the
  * standard HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment variables
  * by default, so self-hosters routing outbound traffic through a
- * corporate / homelab proxy have no way to steer NutriTrace's OFF,
- * USDA, Withings, Google Health, Mealie, ntfy, and image-fetch calls.
+ * corporate / homelab proxy have no way to steer the app's
+ * outbound HTTP requests.
  *
  * This module installs an undici EnvHttpProxyAgent as the global fetch
  * dispatcher whenever any of the standard proxy env vars is set. When
