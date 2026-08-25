@@ -1,4 +1,10 @@
 import 'dotenv/config';
+// Forward-proxy support (#177). Self-installs an undici
+// EnvHttpProxyAgent as the global fetch dispatcher when
+// HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
+// are set. No-op when unset. Must import right after dotenv/config
+// so any downstream module-init outbound fetch already sees it.
+import './lib/proxy-agent.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
