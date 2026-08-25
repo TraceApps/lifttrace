@@ -5,15 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.2.0-dev01] - 2026-08-23 (pre-release)
+## [1.2.0-dev01] - 2026-08-25 (pre-release)
 
-First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line because the desktop wide-layout pass (Diary, Statistics, Programs, Radio, Exercises, ExercisePicker) is a much larger surface than a patch is meant to carry. Also picks up the Spanish + Italian translations, several user-management data-integrity fixes, the Android duplicate-workout fix, and the server-side soft-delete filter that made the fix visible to the PWA.
+First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line because the desktop wide-layout pass (Diary, Statistics, Programs, Radio, Exercises, ExercisePicker) is a much larger surface than a patch is meant to carry. Also picks up Spanish + Italian translations, in-app updates, server forward-proxy support, several user-management data-integrity fixes, the Android duplicate-workout fix, and the server-side soft-delete filter that made the fix visible to the PWA.
 
 ### Added
 
 - **Desktop wide-layout pass across the main routes.** At `min-width: 1280px` (guarded against `.force-mobile-layout`), Diary, Statistics, Programs library + detail, Radio, and Exercises now use a two- or three-column shell instead of the mobile stack; ExercisePicker opens as a wide modal on the same breakpoint. Mobile layouts are unchanged.
 - **Spanish translation.** Adds a complete `es` locale and exposes it as `Español` in the Settings → Language & Region language picker.
 - **Italian translation.** Adds a complete `it` locale and exposes it as `Italiano` in the Settings → Language & Region language picker.
+- **In-app updates.** A prompt-based service-worker hook, a top-of-page banner, and an OS notification all fire when a new PWA build is available, re-checked on tab-focus; on Android the same hook watches for new GitHub Releases and taps through to the APK download. Check cadence is configurable in Settings → Updates (Hourly / Every 4 hours / Every 12 hours / Daily / Manual), and a red dot appears on the Settings nav icon while an update is pending so a background check surfaces without being noisy.
+- **Forward-proxy support (HTTP_PROXY / HTTPS_PROXY / NO_PROXY).** The server now honors the standard proxy env vars via undici's `EnvHttpProxyAgent`, swapped into `globalThis.fetch` at startup so every outbound request — GitHub release checks, wger / ExerciseDB catalog imports, ntfy / gotify / apprise pushes, SMTP over HTTPS proxies, NutriTrace federation — routes through the configured forward proxy without per-call-site changes. Set the env vars in your compose file the standard way; `NO_PROXY` accepts the standard comma-separated bypass list.
 
 ### Fixed
 
@@ -23,8 +25,11 @@ First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line becau
 - **Deleting an account now removes its cardio log and workout tombstones.** The delete-user handler clears each table by hand and these two were never added to it, so they outlived the account. The shared global exercise catalog is explicitly excluded so it stays available to every user instead of being taken over by whoever registers first. The same incomplete list existed a second time in the OIDC first-login bootstrap, so an instance whose first account arrives via SSO had the identical bug; both paths now share one implementation.
 - **Android: template loads no longer wipe the local workout row, causing the next re-add to duplicate.** `api-native.js` was soft-deleting the local `workout_log` row whenever the current in-memory snapshot had no completed sets. That path fired on template load, which then made the local-first GET return null, which blanked the UI. Re-adding the template took an empty snapshot into the merge, so `deleted_uuids` was empty and the server-side per-uuid merge stacked the new exercises on top of the old ones instead of replacing them. Removed the auto-delete-empty shortcut; day-level deletion is now solely driven by the explicit `DELETE /api/workout/:date` route, matching the server behavior.
 - **Server GETs now filter soft-deleted workouts.** `SELECT * FROM workout_log` in `/recent`, `/history/:exerciseId`, `/:date`, and the `/:date/feedback` existence check add `AND deleted_at IS NULL`, so a row a client had previously soft-deleted (via sync-push) stops showing up in the PWA the next time that date is opened. `PUT /:date` intentionally does NOT filter — it needs to see the soft-deleted row so the UPDATE resurrects it (`deleted_at = NULL`) instead of hitting the `UNIQUE(user_id, date)` constraint with a duplicate INSERT. Sync-pull queries in `sync.js` are also left unfiltered so tombstoned rows still propagate to other devices.
+- **Password-reset links, invite links, and test-email "From" origin now honor `X-Forwarded-Proto`** when the server sits behind a TLS-terminating reverse proxy (Traefik, Caddy, nginx, Cloudflare). Without this, the link builder read `req.protocol` as `http` even though the user hit the app over `https`, so emailed links landed on the wrong scheme and either 400'd or downgraded the browser session. Requires `trust proxy` to be configured on your proxy hop (already documented in the compose example). Ported from CookTrace PR #42, thanks @clifmo.
+- **Android release builds trust user-installed CA certificates** ([#58](https://github.com/TraceApps/lifttrace/issues/58), reported by @orpetor). Self-hosters serving LiftTrace over HTTPS with a private-CA cert (Bitwarden-style internal PKI, homelab step-ca, etc.) were hitting `Trust anchor for certification path not found` on the Android release build because the app's network-security config only trusted the system CA store. Added `<certificates src="user" />` alongside the system entry so any CA the user installed on the device is honored. NutriTrace and CookTrace already had the correct config; LT was the outlier.
 - **Settings → Help & Improve no longer shows `â€"` where a dash belonged** ([#60](https://github.com/TraceApps/lifttrace/pull/60), thanks @backmind). Two visible strings in the diagnostics panel carried a mojibake em-dash from a round-trip through CP1252. Restored to U+2014.
 - **Version no longer renders as `vv1.2.0-dev01`** ([#61](https://github.com/TraceApps/lifttrace/pull/61), thanks @backmind). `APP_VERSION` already carries the leading `v`, but Settings → About and the desktop sidebar were prefixing a second one. Matched the third call site (SettingsUpdates) that already got it right, so nothing else that reads `APP_VERSION` needed a second look.
+- **Settings rail highlight pill no longer disappears when jumping to Users, Authentication, or Email** ([#68](https://github.com/TraceApps/lifttrace/issues/68), diagnosed by @backmind). The Administration group's rail buttons live inside a `{#if $userMgmtActive && $currentUser?.role === 'admin'}` block. Every other rail button sits as a flat sibling, so `afterUpdate` measured them synchronously and the pill snapped to the right spot; the admin buttons commit to the DOM one microtask later, so `_measurePill` was running against a rail that briefly held no `.active` button, hiding the pill until an unrelated re-render nudged it back. Deferred the measurement one paint frame (`requestAnimationFrame`) so any conditional subtree has committed before the query runs. The About button right after the group hit the mirror-image case coming back the other way; both are fixed by the same change. Same patch applied to the NutriTrace and CookTrace Settings rails since they share the port.
 
 ### Changed
 
@@ -34,7 +39,9 @@ First dev pre-release of the 1.2.0 minor. Bumped from the 1.1.3 patch line becau
 
 - **Four more small spots start showing their already-translated strings** ([#67](https://github.com/TraceApps/lifttrace/pull/67), thanks @backmind). The Programs tab in the coach tabbar, the Save button and token show/hide tooltip in NutriTrace Federation, and the role select and Reset Password tooltip in User Management were all writing English literals whose keys already existed and already had Spanish and Italian translations. No new keys added — just wired the existing ones in.
 
-- **Settings rail highlight pill no longer disappears when jumping to Users, Authentication, or Email** ([#68](https://github.com/TraceApps/lifttrace/issues/68), diagnosed by @backmind). The Administration group's rail buttons live inside a `{#if $userMgmtActive && $currentUser?.role === 'admin'}` block. Every other rail button sits as a flat sibling, so `afterUpdate` measured them synchronously and the pill snapped to the right spot; the admin buttons commit to the DOM one microtask later, so `_measurePill` was running against a rail that briefly held no `.active` button, hiding the pill until an unrelated re-render nudged it back. Deferred the measurement one paint frame (`requestAnimationFrame`) so any conditional subtree has committed before the query runs. The About button right after the group hit the mirror-image case coming back the other way; both are fixed by the same change. Same patch applied to the NutriTrace and CookTrace Settings rails since they share the port.
+### Security
+
+- No new dependencies affect the security surface. `npm audit` reports 0 vulnerabilities and there are no open Dependabot alerts.
 
 ---
 
@@ -59,14 +66,6 @@ First dev pre-release of the 1.1.3 patch. Workout persistence fix (foreground no
 ### Security
 
 - No new dependencies. `npm audit` reports 0 vulnerabilities.
-
----
-
-## Unreleased
-
-### Fixed
-
-- **Clearing an exercise catalog and re-importing it no longer silently unlinks your workout history** (#49). Both clear paths (built-in sources + imported catalogs) previously did a hard `DELETE`, so the re-import minted new autoincrement ids while every `exercise_id` stored in `workout_log` / `workout_templates` / `coach_prescriptions` JSON blobs still pointed at the deleted rows. The knock-on effects were largely invisible: Muscle Balance grouped every affected set under `other` because the id-to-muscle lookup fell through to a default bucket (the reporter measured 4830 sets, 100% `other`, on his own instance); per-exercise Progress returned empty for cleared exercises; the Records rows landed on "Exercise not found" when tapped. Clearing a catalog now soft-deletes via the existing `deleted_at` column instead, and the seeders resurrect the matching `(source, external_id)` row in place on the next re-import rather than inserting a fresh row — preserving the id so every historical reference stays valid, with no blob rewriting needed. Reads that enumerate the library for pickers, catalogs, media pre-cache, or workout-import matching now filter `deleted_at IS NULL`; reads that resolve a specific id for stats (Muscle Balance, volume, per-exercise progress, load-type) intentionally keep including soft-deleted rows so historical breakdowns stay honest. Sync differential pulls and full-backup export are unaffected (both must carry soft-deleted rows). Ported the same treatment to standalone Android for schema parity. Users who cleared and re-imported before this landed will keep the orphaned references — no automatic recovery is attempted since matching by name alone is ambiguous (roughly 20% of names collide across the built-in sources and can resolve to different muscle groups). Diagnosed by @backmind.
 
 ---
 
