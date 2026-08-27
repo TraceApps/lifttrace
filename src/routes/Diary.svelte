@@ -1808,20 +1808,6 @@
     </button>
   </div>
 
-  <!-- Desktop-only Add-exercise button in the top-right. Portaled to
-       document.body so it clears the .page-transition transform trap,
-       gated to wide viewports because the mobile FAB stays the primary
-       affordance below 1280px. Hidden entirely mid-empty-state (matches
-       the FAB, which only shows once exercises.length > 0). -->
-  {#if _wideViewport && exercises.length > 0}
-    <button use:portal
-            class="diary-topbar-add btn-icon accent"
-            on:click={handleAddFabClick}
-            aria-label="Add exercise"
-            title="Add exercise">
-      <span class="material-symbols-rounded">add</span>
-    </button>
-  {/if}
 
   <!-- Sticky-top container — keeps the page header AND the date sub-bar
        pinned together as a single block. Without this wrap, both were
@@ -1831,6 +1817,19 @@
   <!-- Page header — same pattern as Exercises/Programs/Statistics/Settings -->
   <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.diary.title')}</h1>
+    <!-- Desktop-only Add-exercise header action — sits in the same
+         header slot the Coach Feedback button uses so it reads with
+         the app's canonical header-action styling. The mobile FAB
+         (position:fixed bottom-right) is the primary affordance
+         below 1280px; hidden here on narrow viewports so mobile
+         users see one clear affordance, not two. -->
+    {#if _wideViewport && exercises.length > 0}
+      <button class="diary-header-action diary-header-add"
+              on:click={handleAddFabClick}
+              title="Add exercise" aria-label="Add exercise">
+        <span class="material-symbols-rounded">add</span>
+      </button>
+    {/if}
     {#if $currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}
               on:click={openCoachInbox}
@@ -3354,6 +3353,15 @@
     display: flex; align-items: center; gap: 4px;
   }
   .diary-header-action:hover { color: var(--accent); border-color: var(--accent); }
+  /* Only the first .diary-header-action needs the margin-left:auto to
+     push the button group to the right; subsequent siblings sit next
+     to it with a small gap. */
+  .diary-header-action ~ .diary-header-action { margin-left: 6px; }
+  /* Accent variant for the Add-exercise header button so it reads as
+     the primary action in the group; the Coach Feedback button stays
+     in its default surface-2 look next to it. */
+  .diary-header-add { color: var(--accent); }
+  .diary-header-add:hover { background: var(--accent-dim); }
   .diary-header-action.dim { opacity: 0.55; }
   .diary-header-action.dim:hover { opacity: 1; }
   .diary-header-badge {
@@ -4394,29 +4402,10 @@
     :global(html:not(.force-mobile-layout)) :global(.diary-topbar-actions) {
       display: none;
     }
-    /* Desktop-only Add-exercise button — fixed at the same top-right
-       slot the mobile actions row uses, matched btn-icon accent
-       styling so it lines up with the header. Kept separate from
-       .diary-topbar-actions so its opposite-viewport gating is
-       trivial. Only visible with the desktop layout on and the
-       viewport actually ≥1280px. */
-    :global(.diary-topbar-add) {
-      display: none;
-    }
-    :global(html:not(.force-mobile-layout)) :global(.diary-topbar-add) {
-      position: fixed;
-      top: calc(var(--safe-top, 0px) + 10px);
-      right: 12px;
-      z-index: 41;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: all;
-    }
-    /* Hide the bottom-right FAB stack on wide viewports — the header
-       add button owns the desktop affordance, and the FAB overlaps
-       the pinned rail column (and gets covered outright by the
-       overlay, which sits at z-index 40). */
+    /* Hide the bottom-right FAB stack on wide viewports — the Add
+       button now lives inline in the page header (.diary-header-add),
+       and the FAB overlaps the pinned rail column (and gets covered
+       outright by the overlay, which sits at z-index 40). */
     :global(html:not(.force-mobile-layout)) .fab-group {
       display: none;
     }
