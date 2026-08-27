@@ -1793,7 +1793,9 @@
 </script>
 
 <div class="page">
-  <!-- Action icons — fixed at top-right, same level as hamburger (NutriTrace pattern) -->
+  <!-- Action icons — fixed at top-right, same level as hamburger (NutriTrace pattern).
+       Mobile-only: hidden at ≥1280px because the desktop rail owns Gym Tools,
+       Body Stats, and the More menu; see .diary-topbar-actions display:none rule. -->
   <div use:portal class="diary-topbar-actions">
     <button class="btn-icon accent" on:click={() => showGymTools = true} aria-label={$_('diary.actions.gym_tools')} title={$_('diary.actions.gym_tools_long')}>
       <span class="material-symbols-rounded">calculate</span>
@@ -1805,6 +1807,21 @@
       <span class="material-symbols-rounded">more_vert</span>
     </button>
   </div>
+
+  <!-- Desktop-only Add-exercise button in the top-right. Portaled to
+       document.body so it clears the .page-transition transform trap,
+       gated to wide viewports because the mobile FAB stays the primary
+       affordance below 1280px. Hidden entirely mid-empty-state (matches
+       the FAB, which only shows once exercises.length > 0). -->
+  {#if _wideViewport && exercises.length > 0}
+    <button use:portal
+            class="diary-topbar-add btn-icon accent"
+            on:click={handleAddFabClick}
+            aria-label="Add exercise"
+            title="Add exercise">
+      <span class="material-symbols-rounded">add</span>
+    </button>
+  {/if}
 
   <!-- Sticky-top container — keeps the page header AND the date sub-bar
        pinned together as a single block. Without this wrap, both were
@@ -4375,6 +4392,32 @@
        (Gym Tools / Body Stats / More). Mirrors NT's diary pattern
        of dropping mobile top surfaces when the rail owns them. */
     :global(html:not(.force-mobile-layout)) :global(.diary-topbar-actions) {
+      display: none;
+    }
+    /* Desktop-only Add-exercise button — fixed at the same top-right
+       slot the mobile actions row uses, matched btn-icon accent
+       styling so it lines up with the header. Kept separate from
+       .diary-topbar-actions so its opposite-viewport gating is
+       trivial. Only visible with the desktop layout on and the
+       viewport actually ≥1280px. */
+    :global(.diary-topbar-add) {
+      display: none;
+    }
+    :global(html:not(.force-mobile-layout)) :global(.diary-topbar-add) {
+      position: fixed;
+      top: calc(var(--safe-top, 0px) + 10px);
+      right: 12px;
+      z-index: 41;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: all;
+    }
+    /* Hide the bottom-right FAB stack on wide viewports — the header
+       add button owns the desktop affordance, and the FAB overlaps
+       the pinned rail column (and gets covered outright by the
+       overlay, which sits at z-index 40). */
+    :global(html:not(.force-mobile-layout)) .fab-group {
       display: none;
     }
     /* Workout Actions ghost row — the single "More" launcher that
