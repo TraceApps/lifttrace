@@ -603,9 +603,13 @@
   // Established users see a clean welcome; new users get one-tap
   // nudges toward the high-value setup steps. Order chosen for LT:
   // Server (blocks sync) → Program (drives every workout suggestion)
-  // → Trace (the AI coach) → Appearance (personal preference). Users
-  // can also × any card they don't intend to configure — dismissals
-  // persist in localStorage as a comma-separated key list.
+  // → Trace (the AI coach). Users can also × any card they don't
+  // intend to configure — dismissals persist in localStorage as a
+  // comma-separated key list.
+  //
+  // A card's `route` overrides the default "open the matching settings
+  // section" behavior. Used for Pick-a-Program, which lives at the
+  // Programs library route, not in a Settings sub-page.
   let _onboardingDismissed = new Set();
   try {
     if (typeof localStorage !== 'undefined') {
@@ -626,13 +630,10 @@
       cards.push({ key: 'serverConnection', icon: 'cloud_sync', label: 'Connect a Server', desc: 'Sync your workouts across devices.' });
     }
     if (!$activeProgram) {
-      cards.push({ key: 'workout',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.' });
+      cards.push({ key: 'program',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.', route: '/programs' });
     }
     if (!$aiEnabled) {
       cards.push({ key: 'trace',     icon: 'bolt', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
-    }
-    if ($appearanceStore === 'system') {
-      cards.push({ key: 'appearance', icon: 'contrast', label: 'Choose a Theme', desc: 'Pick a light / dark preference and accent color.' });
     }
     return cards.filter(c => !_onboardingDismissed.has(c.key));
   })();
@@ -896,7 +897,7 @@
               {#each _onboardingCards as card (card.key)}
                 <div class="settings-onboarding-card-wrap">
                   <button type="button" class="settings-onboarding-card"
-                    on:click={() => toggleSection(card.key)}>
+                    on:click={() => card.route ? push(card.route) : toggleSection(card.key)}>
                     <span class="material-symbols-rounded">{card.icon}</span>
                     <div class="settings-onboarding-copy">
                       <span class="settings-onboarding-label">{card.label}</span>
