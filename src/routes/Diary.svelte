@@ -158,18 +158,80 @@
   // heads-down lifter's preference sticks between sessions. Mirrors
   // NutriTrace's Diary rail pattern (nt:diaryRailMode) — LT-scoped
   // key. Reactive save writes back on every change.
+  // Rail mode + overlay state — ported 1:1 from NT so LT's Diary
+  // right rail behaves identically. Three surfaces:
+  //   pinned — rail sits in the desktop grid (default)
+  //   hidden — rail folded out of the grid; a portaled edge tab
+  //     hovers on the right of the viewport. Clicking it flips
+  //     `_railOverlay` and slides the rail back in as a fixed
+  //     overlay above the page content, without reclaiming the
+  //     grid column.
+  //   hidden + overlay — the overlay carries a pin button that
+  //     returns to 'pinned', and a close button that dismisses
+  //     the overlay while staying in 'hidden'.
+  // `_railMode` persists to localStorage; overlay is transient.
   const RAIL_MODE_KEY = 'lt:diaryRailMode';
   let _railMode = 'pinned';
+  let _railOverlay = false;
   if (typeof localStorage !== 'undefined') {
     const saved = localStorage.getItem(RAIL_MODE_KEY);
     if (saved === 'hidden' || saved === 'pinned') _railMode = saved;
   }
-  $: if (typeof localStorage !== 'undefined') {
-    try { localStorage.setItem(RAIL_MODE_KEY, _railMode); } catch {}
+  function _persistRailMode() {
+    try { localStorage.setItem(RAIL_MODE_KEY, _railMode); } catch { /* ignore */ }
   }
-  function _toggleRail() {
-    _railMode = _railMode === 'hidden' ? 'pinned' : 'hidden';
+  function railPin() {
+    _railMode = 'pinned';
+    _railOverlay = false;
+    _persistRailMode();
   }
+  function railHide() {
+    _railMode = 'hidden';
+    _railOverlay = false;
+    _persistRailMode();
+  }
+  function railToggleOverlay() {
+    if (_railMode !== 'hidden') return;
+    _railOverlay = !_railOverlay;
+  }
+
+  // Viewport-width tracker so the edge tab + overlay only show
+  // where the desktop grid actually rendered. Same media query
+  // the .diary-body layout uses.
+  let _wideViewport = false;
+  function _syncWideViewport() {
+    if (typeof window === 'undefined') return;
+    _wideViewport = window.matchMedia('(min-width: 1280px)').matches;
+  }
+
+  // Rail measurement — the pinned rail is portaled to document.body
+  // so position:fixed resolves against the viewport (not against
+  // .page-transition, which has will-change:transform + is itself
+  // fixed, breaking fixed positioning for descendants). JS reads
+  // the grid's live bounding rect and pushes it into three CSS
+  // variables so the aside sits exactly on top of the reserved
+  // 340px column even though it's now outside the flow.
+  let _railStickyTopPx = 0;   // exposed as --diary-rail-top
+  let _railFixedLeftPx = 0;   // exposed as --diary-rail-left
+  let _railFixedWidthPx = 340; // exposed as --diary-rail-width
+  let _diaryRightRailEl = null;
+  let _diaryBodyEl = null;
+  function _measureRail() {
+    if (!_diaryBodyEl) return;
+    const gridRect = _diaryBodyEl.getBoundingClientRect();
+    const colWidth = _railFixedWidthPx;
+    const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const pad = parseFloat(getComputedStyle(_diaryBodyEl).paddingTop || '0') || 0;
+    const naturalDocTop = gridRect.top + scrollY + pad;
+    const rootCS = getComputedStyle(document.documentElement);
+    const pageTop = parseFloat(rootCS.getPropertyValue('--page-top') || rootCS.getPropertyValue('--safe-top') || '0') || 0;
+    const hamRow  = parseFloat(rootCS.getPropertyValue('--hamburger-row') || '0') || 0;
+    const topPx = Math.max(0, Math.round(naturalDocTop - pageTop - hamRow));
+    if (topPx  !== _railStickyTopPx)  _railStickyTopPx  = topPx;
+    if (leftPx !== _railFixedLeftPx)  _railFixedLeftPx  = leftPx;
+  }
+  let _railResizeObs = null;
 
   // 7-day peek for the desktop right rail. Returns the last 7 dates
   // (oldest first, today last) with a flag for whether workoutDateSet
@@ -957,6 +1019,23 @@
   // Workouts card has data even during an active session (the
   // empty-state trigger above doesn't fire when exercises exist).
   onMount(loadRecentWorkouts);
+
+  // Rail measurement + viewport-width tracking. Kept in its own
+  // onMount/onDestroy pair so the whole port stays self-contained.
+  onMount(() => {
+    _syncWideViewport();
+    requestAnimationFrame(() => requestAnimationFrame(_measureRail));
+    try {
+      _railResizeObs = new ResizeObserver(_measureRail);
+      if (_diaryBodyEl) _railResizeObs.observe(_diaryBodyEl);
+    } catch { /* ResizeObserver unavailable — one-shot measurement stands */ }
+    const onResize = () => { _syncWideViewport(); _measureRail(); };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      try { _railResizeObs?.disconnect(); } catch { /* ignore */ }
+    };
+  });
 
   async function quickLoad(recent) {
     const exs = JSON.parse(recent.exercises || '[]');
@@ -1790,7 +1869,7 @@
        .diary-right-rail is display:none. Gated by
        html:not(.force-mobile-layout) so the desktop opt-out toggle
        still delivers the mobile flow at any width. -->
-  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'}>
+  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'} bind:this={_diaryBodyEl}>
 
   <!-- Left column wrapper (desktop only via grid; mobile just stacks).
        Groups the session HUD (summary-bar + now-strip) into one grid
@@ -2287,31 +2366,98 @@
   </div><!-- /.diary-main-col -->
 
   <!-- Right rail — program context. Only renders visibly at >=1280px
-       (mobile CSS sets display:none). Read-only for phase 1; Load
-       Workout button reopens the existing sheet, so no new modal state.
-       Groups the info a lifter wants mid-session without leaving the
-       diary: which program they're on, what today's template is, and
-       a live session-stats summary. -->
-  <aside class="diary-right-rail" aria-label="Program context">
-    <!-- Rail header (desktop only): tiny label + collapse button.
-         Hides the rail into a fixed edge-tab so the center column
-         reclaims the 340px + gap. Persisted via _railMode. -->
-    <div class="rail-title">
-      <span class="rail-title-text">Overview</span>
-      <div class="rail-title-actions">
-        <button type="button"
-                class="rail-ctrl-btn"
-                on:click={_toggleRail}
-                aria-label="Hide widget panel"
-                title="Hide widgets (edge tab reopens)">
+       (mobile CSS sets display:none). NT-parity: pinned mode portals
+       to document.body so position:fixed resolves against the viewport
+       (not against .page-transition, which has will-change:transform
+       and breaks fixed positioning for descendants). Hidden+overlay
+       mode renders the same {@render railWidgets()} snippet as a
+       fixed overlay outside .diary-body. The snippet itself is
+       defined at outer scope below so both call sites can reach it. -->
+  {#if _railMode === 'pinned'}
+    <aside
+      use:portal
+      class="diary-right-rail"
+      aria-label="Program context"
+      bind:this={_diaryRightRailEl}
+      style="--diary-rail-top:{_railStickyTopPx}px; --diary-rail-left:{_railFixedLeftPx}px; --diary-rail-width:{_railFixedWidthPx}px">
+      {@render railWidgets()}
+    </aside>
+  {/if}
+
+  </div><!-- /.diary-body -->
+
+  <!-- Portaled edge tab: only visible on wide viewports when the rail
+       is hidden. Tap toggles the overlay open/closed. Chevron flips
+       to signal which action the tab performs next. -->
+  {#if _railMode === 'hidden' && _wideViewport}
+    <button
+      use:portal
+      type="button"
+      class="rail-edge-tab"
+      on:click={railToggleOverlay}
+      aria-label={_railOverlay ? 'Close widget panel' : 'Open widget panel'}
+      aria-expanded={_railOverlay}
+      title={_railOverlay ? 'Close widgets' : 'Show widgets'}
+    >
+      <span class="material-symbols-rounded" style="pointer-events:none">
+        {_railOverlay ? 'chevron_right' : 'chevron_left'}
+      </span>
+    </button>
+  {/if}
+
+  <!-- Hidden+overlay: portaled fixed slide-in that reuses the same
+       widget snippet. Only mounts when the overlay is actually open
+       so widgets don't double-instantiate under the pinned aside. -->
+  {#if _railMode === 'hidden' && _railOverlay && _wideViewport}
+    <aside use:portal class="diary-right-rail diary-right-rail-overlay" aria-label="Program context">
+      {@render railWidgets()}
+    </aside>
+  {/if}
+
+{#snippet railWidgets()}
+  <!-- Rail title bar. Always the first row of the widget stack —
+       gives the panel a clear identity and a consistent home for
+       the mode controls (pin/hide/close). Icons match NT so both
+       apps read as one system. -->
+  <header class="rail-title">
+    <span class="rail-title-text">Overview</span>
+    <div class="rail-title-actions">
+      {#if _railMode === 'pinned'}
+        <button
+          type="button"
+          class="rail-ctrl-btn"
+          on:click={railHide}
+          aria-label="Hide widget panel"
+          title="Hide widgets (edge tab reopens)"
+        >
           <span class="material-symbols-rounded">right_panel_close</span>
         </button>
-      </div>
+      {:else}
+        <button
+          type="button"
+          class="rail-ctrl-btn"
+          on:click={railPin}
+          aria-label="Pin widget panel"
+          title="Pin widgets"
+        >
+          <span class="material-symbols-rounded">push_pin</span>
+        </button>
+        <button
+          type="button"
+          class="rail-ctrl-btn"
+          on:click={() => _railOverlay = false}
+          aria-label="Close widget panel"
+          title="Close"
+        >
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      {/if}
     </div>
-    <!-- 7-day peek — always visible. Dots colored by whether that
-         date has any completed set in workoutDateSet. Today gets a
-         ring. Clicking a day jumps the diary to that date. -->
-    <div class="rail-card">
+  </header>
+  <!-- 7-day peek — always visible. Dots colored by whether that
+       date has any completed set in workoutDateSet. Today gets a
+       ring. Clicking a day jumps the diary to that date. -->
+  <div class="rail-card">
       <div class="rail-card-head">
         <span class="material-symbols-rounded">calendar_view_week</span>
         <span class="rail-card-title">This Week</span>
@@ -2411,23 +2557,7 @@
       <span class="material-symbols-rounded">more_vert</span>
       <span class="rail-tool-label">Workout Actions</span>
     </button>
-  </aside>
-
-  </div><!-- /.diary-body -->
-
-  <!-- Fixed edge tab — only visible when the desktop rail is hidden.
-       Tap to bring the rail back. Fixed positioning so it sits above
-       the exercise list without shifting layout. Hidden on mobile
-       via CSS (rail is display:none there regardless). -->
-  {#if _railMode === 'hidden'}
-    <button type="button"
-            class="rail-edge-tab"
-            on:click={_toggleRail}
-            aria-label="Show widget panel"
-            title="Show widgets">
-      <span class="material-symbols-rounded">right_panel_open</span>
-    </button>
-  {/if}
+{/snippet}
 
   <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
        Loading from a program mid-workout lives in the ⋮ menu as "Replace workout". -->
@@ -3998,73 +4128,125 @@
       margin-right: 0;
     }
     /* When the rail is hidden via _railMode, drop the third column
-       so the center column reclaims that width. Rail element itself
-       hides below. */
+       so the center column reclaims that width. The rail aside itself
+       is not rendered in hidden mode. */
     :global(html:not(.force-mobile-layout)) .diary-body.rail-hidden {
       grid-template-columns: 280px minmax(0, 1fr);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body.rail-hidden > .diary-right-rail {
-      display: none;
-    }
-    /* Right column — program context rail. Sticky so it stays with
-       the user as the center column scrolls. Same sticky-top math
-       the settings rail uses. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail {
+    /* Right column — program context rail. Pinned mode is portaled
+       to document.body so position:fixed resolves against the viewport
+       (not against .page-transition, which has will-change:transform
+       and breaks fixed positioning for descendants). JS keeps the
+       aside aligned to the grid column via --diary-rail-top /
+       --diary-rail-left / --diary-rail-width set on the aside itself
+       (custom properties don't inherit across a portal). Grid still
+       reserves the 340px column because its track size is explicit,
+       so the center column doesn't reflow when the aside leaves flow. */
+    :global(html:not(.force-mobile-layout)) .diary-right-rail {
       display: flex;
       flex-direction: column;
       gap: 12px;
-      grid-column: 3;
-      position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
-      align-self: start;
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--diary-rail-top, 130px) + var(--hamburger-row, 0px));
+      left: var(--diary-rail-left, auto);
+      width: var(--diary-rail-width, 340px);
+      z-index: 5;
       max-height: calc(100vh
         - var(--page-top, var(--safe-top))
-        - 150px
+        - var(--diary-rail-top, 130px)
+        - 10px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
       scrollbar-width: thin;
       scrollbar-color: var(--border) transparent;
+      padding-right: 4px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar { width: 8px; }
+    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar-track { background: transparent; }
+    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: var(--radius-full);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+    /* Widgets keep natural size; rail scrolls internally when the
+       stack exceeds max-height. :global(*) because widget component
+       roots (BodyStatsWidget, GymTools) don't carry Diary's scoping
+       hash, so an un-globalized `> *` would miss. */
+    :global(html:not(.force-mobile-layout)) .diary-right-rail > :global(*) { flex-shrink: 0; }
+    /* Overlay variant: same widget stack, positioned as a fixed
+       slide-in on the viewport's right edge instead of tracking the
+       grid column. Sits above page content, doesn't dim the
+       background (widgets are additive, not a modal task). */
+    :global(html:not(.force-mobile-layout)) .diary-right-rail-overlay {
+      top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
+      right: 12px;
+      bottom: 12px;
+      left: auto;
+      width: 380px;
+      max-width: calc(100vw - 24px);
+      z-index: 40;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 20px 50px -20px rgba(0,0,0,0.35);
+      padding: 12px;
+      overflow-y: auto;
+      max-height: none;
+      align-self: auto;
+      animation: rail-slide-in 200ms ease-out;
+    }
+    @keyframes rail-slide-in {
+      from { transform: translateX(24px); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :global(html:not(.force-mobile-layout)) .diary-right-rail-overlay { animation: none; }
     }
     /* Rail title bar — tiny "Overview" label + collapse button that
        drops the rail into the fixed edge tab. Sits above the first
        card in the sticky column. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title {
+    /* Rail title bar — matches NT verbatim so both apps read as one
+       system. Tiny "Overview" label on the left; pin/hide/close
+       controls on the right. */
+    :global(html:not(.force-mobile-layout)) .rail-title {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      padding: 0 4px 4px;
+      padding: 2px 4px 4px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-title-text {
-      font-size: 11px;
+    :global(html:not(.force-mobile-layout)) .rail-title-text {
+      font-size: 12px;
       font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
       color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn {
+    :global(html:not(.force-mobile-layout)) .rail-title-actions {
+      display: flex;
+      gap: 2px;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-full);
+      width: 22px;
+      height: 22px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 24px;
-      height: 24px;
-      padding: 0;
-      background: transparent;
-      border: none;
-      border-radius: 6px;
       color: var(--text-3);
       cursor: pointer;
-      transition: background var(--dur-fast), color var(--dur-fast);
+      padding: 0;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn:hover {
+    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn:hover {
       background: var(--surface-2);
       color: var(--text-1);
+      border-color: var(--border);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-ctrl-btn .material-symbols-rounded {
-      font-size: 18px;
-    }
+    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn .material-symbols-rounded { font-size: 16px; }
     /* Desktop empty-state card in the left HUD column. */
     :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card {
       display: flex;
@@ -4199,7 +4381,7 @@
        stays a modal (contextual menu, not a persistent widget).
        Quieter styling than .rail-action so Load Workout stays
        the primary CTA. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tool-btn {
+    :global(html:not(.force-mobile-layout)) .diary-right-rail > .rail-tool-btn {
       display: flex;
       align-items: center;
       gap: 10px;
@@ -4216,21 +4398,14 @@
       cursor: pointer;
       transition: background var(--dur-fast), color var(--dur-fast);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tool-btn:hover {
+    :global(html:not(.force-mobile-layout)) .diary-right-rail > .rail-tool-btn:hover {
       background: var(--surface-2);
       color: var(--text-1);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-tool-btn .material-symbols-rounded {
+    :global(html:not(.force-mobile-layout)) .diary-right-rail > .rail-tool-btn .material-symbols-rounded {
       font-size: 20px;
       color: var(--accent);
       flex-shrink: 0;
-    }
-    /* Also style .rail-title-actions container so the pin/hide
-       button aligns cleanly on the right of the Overview label. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-right-rail > .rail-title > .rail-title-actions {
-      display: flex;
-      align-items: center;
-      gap: 4px;
     }
 
     /* ExerciseCard 2-col split at wide widths. Header + target-info
@@ -4328,33 +4503,35 @@
     /* Fixed edge tab — appears when the rail is hidden. Half-round
        chip anchored to the right viewport edge, vertically centered.
        Same sticky-top math so it sits below the header. */
+    /* Right-edge tab — small vertical chevron button pinned to the
+       viewport's right side, visible only in hidden mode. Matches NT
+       verbatim so the two apps read as one system. */
     :global(html:not(.force-mobile-layout)) .rail-edge-tab {
-      display: inline-flex;
       position: fixed;
       right: 0;
       top: 50%;
       transform: translateY(-50%);
-      z-index: 40;
-      width: 28px;
+      width: 24px;
       height: 56px;
-      align-items: center;
-      justify-content: center;
-      background: var(--surface-1);
+      background: var(--surface-2);
       border: 1px solid var(--border);
       border-right: none;
-      border-radius: 12px 0 0 12px;
+      border-top-left-radius: var(--radius-md);
+      border-bottom-left-radius: var(--radius-md);
       color: var(--text-2);
       cursor: pointer;
-      box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
-      transition: background var(--dur-fast), color var(--dur-fast), width var(--dur-fast);
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 41;
+      transition: background 120ms ease, color 120ms ease, width 120ms ease;
     }
     :global(html:not(.force-mobile-layout)) .rail-edge-tab:hover {
-      background: var(--surface-2);
-      color: var(--accent);
-      width: 32px;
+      background: var(--surface-3);
+      color: var(--text-1);
+      width: 28px;
     }
-    :global(html:not(.force-mobile-layout)) .rail-edge-tab .material-symbols-rounded {
-      font-size: 20px;
-    }
+    :global(html:not(.force-mobile-layout)) .rail-edge-tab .material-symbols-rounded { font-size: 18px; }
   }
 </style>
