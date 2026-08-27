@@ -402,11 +402,15 @@
 
   // Workout action sheet items (dynamic — includes timer reset when active)
   $: workoutActions = [
-    { label: 'Replace workout', icon: 'swap_horiz', value: 'replace' },
-    { label: 'Copy from yesterday', icon: 'content_copy', value: 'copy_yesterday' },
-    ...($timerState ? [{ label: 'Reset timer', icon: 'timer_off', value: 'reset_timer' }] : []),
-    { label: 'Clear workout', icon: 'delete_sweep', value: 'clear', danger: true },
+    { label: 'Replace Workout', icon: 'swap_horiz', value: 'replace' },
+    { label: 'Copy From Yesterday', icon: 'content_copy', value: 'copy_yesterday' },
+    ...($timerState ? [{ label: 'Reset Timer', icon: 'timer_off', value: 'reset_timer' }] : []),
+    { label: 'Clear Workout', icon: 'delete_sweep', value: 'clear', danger: true },
   ];
+  // Small helper so the inline rail card can trigger the same action
+  // path the mobile ActionSheet uses, without simulating a select event
+  // shape at every call site.
+  const _runWorkoutAction = (value) => handleWorkoutAction({ detail: { value } });
 
   // Undated "anytime" prescriptions from the user's coach. Surfaced as a
   // "Suggested by your coach" card so the member can pick one and start it
@@ -2562,17 +2566,32 @@
          Not status data so it stays as-is (no summary view to
          port from NT — NT doesn't have gym tools). -->
     <GymTools embed />
-    <!-- Workout Actions ('More' menu) stays as a launcher — it's a
-         short contextual menu (rename, delete, replace) that would
-         be noise as a permanent widget. Ghost-style row so it
-         doesn't compete visually with Load Workout. -->
-    <button type="button" class="rail-tool-btn"
-            on:click={() => showWorkoutActions = true}
-            aria-label={$_('diary.actions.workout_actions')}
-            title={$_('diary.actions.workout_options')}>
-      <span class="material-symbols-rounded">more_vert</span>
-      <span class="rail-tool-label">Workout Actions</span>
-    </button>
+    <!-- Workout Actions widget — desktop rail gets the actions
+         inline as a card instead of the tiny hamburger launcher
+         (which read as "half a widget" next to the full cards
+         above it). Mobile still opens the ActionSheet via the
+         top-right ⋮ button; both surfaces share `workoutActions`
+         so the labels stay in sync. Clear row picks up the
+         .danger variant so destruction reads clearly. -->
+    <div class="rail-card rail-actions-card">
+      <div class="rail-card-head">
+        <span class="material-symbols-rounded">tune</span>
+        <span class="rail-card-title">Workout Actions</span>
+      </div>
+      <div class="rail-actions-list">
+        {#each workoutActions as a (a.value)}
+          <button type="button"
+                  class="rail-action-row"
+                  class:danger={a.danger}
+                  on:click={() => _runWorkoutAction(a.value)}
+                  aria-label={a.label}
+                  title={a.label}>
+            <span class="material-symbols-rounded">{a.icon}</span>
+            <span class="rail-action-row-label">{a.label}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
 {/snippet}
 
   <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
@@ -4409,35 +4428,52 @@
     :global(html:not(.force-mobile-layout)) .fab-group {
       display: none;
     }
-    /* Workout Actions ghost row — the single "More" launcher that
-       stays a modal (contextual menu, not a persistent widget).
-       Quieter styling than .rail-action so Load Workout stays
-       the primary CTA. */
-    :global(html:not(.force-mobile-layout)) .diary-right-rail > .rail-tool-btn {
+    /* Workout Actions rail card — inline action rows instead of the
+       old hamburger launcher. Each row is a full-width button that
+       matches .rail-action's visual weight but slimmer, so the card
+       reads as a cluster of secondary actions and doesn't compete
+       with Load Workout above it. */
+    :global(html:not(.force-mobile-layout)) .rail-actions-card { gap: 6px; }
+    :global(html:not(.force-mobile-layout)) .rail-actions-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-action-row {
       display: flex;
       align-items: center;
       gap: 10px;
       width: 100%;
       padding: 8px 10px;
-      margin-top: 2px;
       background: transparent;
-      border: none;
+      border: 1px solid transparent;
       border-radius: var(--radius-sm);
       color: var(--text-2);
       font-size: 13px;
       font-family: inherit;
       text-align: left;
       cursor: pointer;
-      transition: background var(--dur-fast), color var(--dur-fast);
+      transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
     }
-    :global(html:not(.force-mobile-layout)) .diary-right-rail > .rail-tool-btn:hover {
+    :global(html:not(.force-mobile-layout)) .rail-action-row:hover {
       background: var(--surface-2);
       color: var(--text-1);
+      border-color: var(--border);
     }
-    :global(html:not(.force-mobile-layout)) .diary-right-rail > .rail-tool-btn .material-symbols-rounded {
-      font-size: 20px;
+    :global(html:not(.force-mobile-layout)) .rail-action-row .material-symbols-rounded {
+      font-size: 18px;
       color: var(--accent);
       flex-shrink: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-action-row-label { flex: 1; min-width: 0; }
+    /* Danger variant for Clear Workout so destruction reads distinctly
+       from the reversible actions above it. */
+    :global(html:not(.force-mobile-layout)) .rail-action-row.danger { color: var(--danger); }
+    :global(html:not(.force-mobile-layout)) .rail-action-row.danger .material-symbols-rounded { color: var(--danger); }
+    :global(html:not(.force-mobile-layout)) .rail-action-row.danger:hover {
+      background: color-mix(in srgb, var(--danger) 12%, transparent);
+      border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+      color: var(--danger);
     }
 
     /* ExerciseCard 2-col split at wide widths. Header + target-info
