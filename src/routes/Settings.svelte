@@ -623,13 +623,22 @@
       localStorage.setItem('lt:onboardingDismissed', [..._onboardingDismissed].join(','));
     } catch { /* ignore */ }
   }
-  onMount(() => { try { loadActiveProgram(); } catch {} });
+  // `$activeProgram` starts null and gets populated async from the API,
+  // so the Pick-a-Program card would render for the ~200ms round-trip
+  // even on accounts that have a program active — a visible flash on
+  // first-load of Settings. Gate the card on `_activeProgramLoaded` so
+  // it only appears once we've confirmed the load state.
+  let _activeProgramLoaded = false;
+  onMount(async () => {
+    try { await loadActiveProgram(); } catch {}
+    _activeProgramLoaded = true;
+  });
   $: _onboardingCards = (() => {
     const cards = [];
     if (isNative && !getServerUrl()) {
       cards.push({ key: 'serverConnection', icon: 'cloud_sync', label: 'Connect a Server', desc: 'Sync your workouts across devices.' });
     }
-    if (!$activeProgram) {
+    if (_activeProgramLoaded && !$activeProgram) {
       cards.push({ key: 'program',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.', route: '/programs' });
     }
     if (!$aiEnabled) {
