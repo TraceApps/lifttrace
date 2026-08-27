@@ -1,9 +1,11 @@
 <script>
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { LtApi } from '../../lib/api.js';
+  import { weightUnit } from '../../stores/settings.js';
   import { CATEGORIES } from '../../lib/workout.js';
   import { normalizeEquipment, sortByBucket } from '../../lib/equipment.js';
   import ExerciseInfoSheet from './ExerciseInfoSheet.svelte';
+  import ExerciseInfo from './ExerciseInfo.svelte';
   import ExerciseEditor from './ExerciseEditor.svelte';
 
   // Create-custom flow: if the user searches for something that doesn't
@@ -23,10 +25,56 @@
 
   let infoOpen = false;
   let infoExerciseId = null;
+  // Inline info-pane state used at wide widths instead of the modal
+  // ExerciseInfoSheet — two overlapping modals on a spacious desktop
+  // reads like a bug. The pane lives in the picker's own layout.
+  let _infoSelected = null;   // full exercise object
+  let _infoHistory  = [];
+  let _infoLoading  = false;
+  async function _loadInlineInfo(ex) {
+    _infoSelected = ex;
+    _infoLoading = true;
+    try { _infoHistory = await LtApi.getWorkoutHistory(ex.id); }
+    catch { _infoHistory = []; }
+    _infoLoading = false;
+  }
+  // PR derivation matches ExerciseInfoSheet so the inline pane shows
+  // the same top weight/date chip.
+  $: _infoPr = (() => {
+    let max = 0, prDate = '';
+    for (const h of _infoHistory || []) {
+      for (const s of h.sets || []) {
+        if (s.completed && s.weight > max) { max = s.weight; prDate = h.date; }
+      }
+    }
+    return max > 0 ? { weight: max, date: prDate, unit: $weightUnit } : null;
+  })();
+
+  // Wide-mode gate — tracks the same media query the desktop shell
+  // uses (>=1280px + not html.force-mobile-layout). Kept as a reactive
+  // flag so a mid-session viewport rotation flips both the info-mode
+  // choice and the row-cap simultaneously.
+  let _wideMode = false;
+  let _wideMq;
+  function _syncWide() {
+    if (typeof document === 'undefined') return;
+    _wideMode = !!_wideMq?.matches
+      && !document.documentElement.classList.contains('force-mobile-layout');
+  }
+  if (typeof window !== 'undefined') {
+    _wideMq = window.matchMedia('(min-width: 1280px)');
+    _syncWide();
+    _wideMq.addEventListener?.('change', _syncWide);
+  }
+  onDestroy(() => { _wideMq?.removeEventListener?.('change', _syncWide); });
+
   function openInfo(ex) {
-    console.info('[picker] openInfo', ex.id, ex.name);
-    infoExerciseId = ex.id;
-    infoOpen = true;
+    if (_wideMode) {
+      _loadInlineInfo(ex);
+    } else {
+      infoExerciseId = ex.id;
+      infoOpen = true;
+    }
   }
   function handleAddFromInfo(e) {
     // User tapped "Add this exercise" inside the preview sheet
@@ -50,6 +98,12 @@
   // "✓ Added" badge on the row (1.5s). No toast, no counter — the row
   // itself confirms the tap and the picker stays open for more.
   let recentlyAddedIds = new Set();
+  // Persistent per-session tally — every ID the user has added stays
+  // here until the picker closes. Rows carry a quieter styling so a
+  // user scanning the list at wide widths can see at a glance what
+  // they've already logged. Separate from recentlyAddedIds so the
+  // green flash still fades after 1.5s.
+  let addedThisSessionIds = new Set();
 
   onMount(async () => {
     try {
@@ -75,13 +129,17 @@
     selectedEquipment = '';
   }
 
+  // Cap: 100 rows on mobile (perf on cheap phones), 300 at wide
+  // widths where scan density is higher and the 2-col card grid
+  // makes 300 rows one plausible screen of scrolling.
+  $: _rowLimit = _wideMode ? 300 : 100;
   $: filtered = exercises.filter(ex => {
     const matchSearch = !search || ex.name.toLowerCase().includes(search.toLowerCase());
     const matchCat = !selectedCategory || ex.category === selectedCategory;
     const matchEq = !selectedEquipment
       || (ex.equipment || []).some(e => normalizeEquipment(e) === selectedEquipment);
     return matchSearch && matchCat && matchEq;
-  }).slice(0, 100);
+  }).slice(0, _rowLimit);
 
   // Equipment sub-filter options for the current category + search
   $: availableEquipment = (() => {
@@ -106,6 +164,8 @@
     if (id == null) return;
     recentlyAddedIds.add(id);
     recentlyAddedIds = recentlyAddedIds;
+    addedThisSessionIds.add(id);
+    addedThisSessionIds = addedThisSessionIds;
     setTimeout(() => {
       recentlyAddedIds.delete(id);
       recentlyAddedIds = recentlyAddedIds;
@@ -158,55 +218,108 @@
     </div>
   {/if}
 
-  <div class="exercise-list">
-    {#if loading}
-      <div class="loading">Loading exercises...</div>
-    {:else if filtered.length === 0}
-      <div class="empty-picker">
-        <p>No exercises matched{search.trim() ? ` "${search.trim()}"` : ''}.</p>
-        {#if search.trim()}
-          <button class="btn btn-primary" on:click={() => { creatorPrefill = search.trim(); creatorOpen = true; }}>
-            <span class="material-symbols-rounded" style="font-size:16px">add</span>
-            Create "{search.trim()}"
+  <!-- .picker-body wraps the list + inline info pane so at wide widths
+       we can grid-split them (list left, info right) without touching
+       the header/chips above. On mobile this is a plain block. -->
+  <div class="picker-body">
+    <div class="exercise-list">
+      {#if loading}
+        <div class="loading">Loading exercises...</div>
+      {:else if filtered.length === 0}
+        <div class="empty-picker">
+          <p>No exercises matched{search.trim() ? ` "${search.trim()}"` : ''}.</p>
+          {#if search.trim()}
+            <button class="btn btn-primary" on:click={() => { creatorPrefill = search.trim(); creatorOpen = true; }}>
+              <span class="material-symbols-rounded" style="font-size:16px">add</span>
+              Create "{search.trim()}"
+            </button>
+          {/if}
+        </div>
+      {:else}
+        {#if search.trim() && !filtered.some(ex => ex.name.toLowerCase() === search.trim().toLowerCase())}
+          <button class="create-from-search" on:click={() => { creatorPrefill = search.trim(); creatorOpen = true; }}>
+            <span class="material-symbols-rounded">add_circle</span>
+            <div class="cfs-info">
+              <span class="cfs-title">Create "{search.trim()}"</span>
+              <span class="cfs-sub">Not finding it? Add as a custom exercise.</span>
+            </div>
           </button>
         {/if}
-      </div>
-    {:else}
-      {#if search.trim() && !filtered.some(ex => ex.name.toLowerCase() === search.trim().toLowerCase())}
-        <button class="create-from-search" on:click={() => { creatorPrefill = search.trim(); creatorOpen = true; }}>
-          <span class="material-symbols-rounded">add_circle</span>
-          <div class="cfs-info">
-            <span class="cfs-title">Create "{search.trim()}"</span>
-            <span class="cfs-sub">Not finding it? Add as a custom exercise.</span>
+        {#each filtered as ex (ex.id)}
+          {@const justAdded = recentlyAddedIds.has(ex.id)}
+          {@const alreadyAdded = addedThisSessionIds.has(ex.id) && !justAdded}
+          <div class="exercise-row"
+               class:just-added={justAdded}
+               class:already-added={alreadyAdded}
+               class:selected-for-info={_wideMode && _infoSelected?.id === ex.id}>
+            <button class="exercise-tap" on:click={() => select(ex)}>
+              <!-- Thumbnail (visible only in wide/grid layout via CSS).
+                   Same fallback ladder Exercises.svelte uses: gif → img →
+                   fitness_center icon. Lazy-loaded so a big library
+                   doesn't prefetch every demo. -->
+              <div class="picker-thumb">
+                {#if ex.gif_url || ex.img_url}
+                  <img src={ex.gif_url || ex.img_url} alt="" loading="lazy" />
+                {:else}
+                  <span class="material-symbols-rounded">fitness_center</span>
+                {/if}
+              </div>
+              <div class="ex-info">
+                <span class="ex-name">{ex.name}</span>
+                <span class="ex-meta">
+                  {ex.category || 'Uncategorized'}
+                  {#if ex.equipment?.length} · {ex.equipment.join(', ')}{/if}
+                </span>
+              </div>
+              {#if justAdded}
+                <span class="added-badge">
+                  <span class="material-symbols-rounded">check_circle</span>
+                  Added
+                </span>
+              {:else if alreadyAdded}
+                <span class="material-symbols-rounded already-added-icon" title="Already added this session">check_circle</span>
+              {:else}
+                <span class="material-symbols-rounded add-icon">add_circle</span>
+              {/if}
+            </button>
+            <button class="info-btn" on:click|stopPropagation={() => openInfo(ex)} title="View details" aria-label="View details">
+              <span class="material-symbols-rounded">info</span>
+            </button>
           </div>
-        </button>
+        {/each}
       {/if}
-      {#each filtered as ex (ex.id)}
-        {@const justAdded = recentlyAddedIds.has(ex.id)}
-        <div class="exercise-row" class:just-added={justAdded}>
-          <button class="exercise-tap" on:click={() => select(ex)}>
-            <div class="ex-info">
-              <span class="ex-name">{ex.name}</span>
-              <span class="ex-meta">
-                {ex.category || 'Uncategorized'}
-                {#if ex.equipment?.length} · {ex.equipment.join(', ')}{/if}
-              </span>
-            </div>
-            {#if justAdded}
-              <span class="added-badge">
-                <span class="material-symbols-rounded">check_circle</span>
-                Added
-              </span>
-            {:else}
-              <span class="material-symbols-rounded add-icon">add_circle</span>
-            {/if}
-          </button>
-          <button class="info-btn" on:click|stopPropagation={() => openInfo(ex)} title="View details" aria-label="View details">
-            <span class="material-symbols-rounded">info</span>
+    </div>
+
+    <!-- Inline info pane — visible only at wide widths via CSS. Shows
+         the selected exercise's ExerciseInfo (thumbnail, muscles,
+         instructions, history/PR) plus an Add button so the user
+         doesn't have to close the pane to log it. -->
+    <aside class="picker-info-pane">
+      {#if _infoSelected}
+        <div class="pip-head">
+          <h3 class="pip-title">{_infoSelected.name}</h3>
+          <button class="pip-close" on:click={() => { _infoSelected = null; _infoHistory = []; }}
+                  aria-label="Close preview" title="Close preview">
+            <span class="material-symbols-rounded">close</span>
           </button>
         </div>
-      {/each}
-    {/if}
+        {#if _infoLoading}
+          <div class="loading">Loading…</div>
+        {:else}
+          <ExerciseInfo exercise={_infoSelected} pr={_infoPr} history={_infoHistory} />
+          <button class="btn btn-primary pip-add-btn" on:click={() => select(_infoSelected)}>
+            <span class="material-symbols-rounded">add_circle</span>
+            Add to workout
+          </button>
+        {/if}
+      {:else}
+        <div class="pip-empty">
+          <span class="material-symbols-rounded pip-empty-icon">info</span>
+          <p class="pip-empty-title">Preview any exercise</p>
+          <p class="pip-empty-desc">Tap the info icon on any row to see its details, history, and PRs here without closing the picker.</p>
+        </div>
+      {/if}
+    </aside>
   </div>
 </div>
 
@@ -341,4 +454,185 @@
   .info-btn .material-symbols-rounded { font-size: 20px; }
 
   .loading { text-align: center; padding: 32px; color: var(--text-3); }
+
+  /* Thumbnail — only rendered visually at wide widths via CSS below.
+     Kept in mobile DOM so the wide-mode class flip doesn't require a
+     re-mount. Same shape / fallback ladder as Exercises.svelte. */
+  .picker-thumb { display: none; }
+
+  /* Already-added-this-session styling. Persistent across the picker
+     session (unlike the 1.5s .just-added green flash), so a user
+     scanning the list at wide widths knows what they've already
+     logged. Kept subtle: tinted background + solid check-icon in
+     accent, no border tint that would compete with .selected-for-info
+     or .just-added. */
+  .exercise-row.already-added {
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
+  }
+  .exercise-row.already-added:hover {
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-1));
+  }
+  .already-added-icon {
+    font-size: 22px;
+    color: var(--accent);
+    flex-shrink: 0;
+    margin-left: 8px;
+    opacity: 0.7;
+  }
+
+  /* Mobile default — .picker-body is a plain flex container so the
+     exercise-list scrolls inside it; the inline info pane is hidden
+     (info opens in the modal ExerciseInfoSheet on mobile). */
+  .picker-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .picker-info-pane { display: none; }
+
+  /* Wide-layout: three-pane picker.
+       - Header + chip rows: unchanged, span the top full width.
+       - Body: 2-col grid — the exercise list (fluid) + an inline
+         info pane on the right that replaces the stacked
+         ExerciseInfoSheet modal.
+       - Exercise list itself becomes a 2-col card grid so the
+         wider sheet earns its width instead of showing a single
+         column of very-wide rows.
+     Gated by html:not(.force-mobile-layout) + width so mobile is
+     untouched even at large viewport widths. */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .picker-header h3 {
+      font-size: 22px;
+    }
+    :global(html:not(.force-mobile-layout)) .category-chips,
+    :global(html:not(.force-mobile-layout)) .equipment-chips {
+      flex-wrap: wrap;
+      overflow-x: visible;
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 16px;
+      padding: 0 16px 16px;
+      min-height: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list {
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      align-content: start;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    /* The "create from search" affordance spans both columns so it
+       stays as one visually-distinct row above the results. */
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .create-from-search {
+      grid-column: 1 / -1;
+      margin-bottom: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .empty-picker,
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .loading {
+      grid-column: 1 / -1;
+    }
+    /* Selected-for-info row gets an accent border so the user can
+       see which card is being previewed in the right pane. */
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row.selected-for-info {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row {
+      margin-bottom: 0;
+    }
+    /* Thumbnail slot at wide widths — 44px square with the same
+       gradient background Exercises.svelte uses so pre-loaded gifs
+       and the icon fallback both land on a neutral surface. */
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--surface-2), var(--surface-1));
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb .material-symbols-rounded {
+      font-size: 22px;
+      color: var(--text-3);
+    }
+    /* Give the tap-button breathing room for the new thumbnail. */
+    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row > .exercise-tap {
+      gap: 12px;
+      padding: 10px 12px;
+    }
+    /* Inline info pane — sticky within the sheet body. Same surface
+       + border tokens as any other card. */
+    :global(html:not(.force-mobile-layout)) .picker-body > .picker-info-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      align-self: start;
+      max-height: 100%;
+      overflow-y: auto;
+    }
+    .pip-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0 0 4px;
+    }
+    .pip-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+      flex: 1;
+    }
+    .pip-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      color: var(--text-3);
+      cursor: pointer;
+      transition: background var(--dur-fast), color var(--dur-fast);
+    }
+    .pip-close:hover { background: var(--surface-2); color: var(--text-1); }
+    .pip-close .material-symbols-rounded { font-size: 18px; }
+    .pip-add-btn {
+      width: 100%;
+      height: 44px;
+      justify-content: center;
+      margin-top: 6px;
+    }
+    .pip-add-btn .material-symbols-rounded { font-size: 18px; }
+    .pip-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 6px;
+      padding: 40px 16px;
+      color: var(--text-3);
+    }
+    .pip-empty-icon { font-size: 32px; opacity: 0.6; }
+    .pip-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
+    .pip-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
 </style>

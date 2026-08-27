@@ -37,6 +37,7 @@ const SERVER_SETTINGS = new Set([
   'bodyStatsVisible', 'exerciseLoadTypes',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
   'radioStationsEnabled',
+  'updateCheckInterval', // hours between checks: 1, 4, 12, 24, or 0 for manual only
 ]);
 
 const _saveQueue = {};
@@ -129,6 +130,12 @@ export const navStyle         = createSettingStore('navStyle',         'both');
 export const sidebarPersistent = createSettingStore('sidebarPersistent', false);
 export const startPage        = createSettingStore('startPage',        '/');
 export const disableAnimations = createSettingStore('disableAnimations', false);
+// Desktop opt-out. When true, App.svelte stamps `html.force-mobile-layout`
+// so the desktop-only CSS (Settings two-pane rail, any future ≥1024px
+// layouts) reverts to the mobile stack. Lets desktop users preview the
+// phone layout without resizing the window. Matches NutriTrace's shape
+// so any shared debug tooling recognizes the same class.
+export const forceMobileLayout = createSettingStore('forceMobileLayout', false);
 // bannerStyle is the canonical banner-display setting.
 //   'animated' = tall header with illustrated SVG (original behavior)
 //   'gradient' = tall header filled with the active accent gradient, no SVG
@@ -328,6 +335,12 @@ export const ntFederationEnabled = createSettingStore('ntFederationEnabled', fal
 // Mirrors SettingsTrace's aiKeyVerified pattern. Cleared by any field edit
 // in SettingsFederation; set true by a successful /api/nt/test response.
 export const ntConnectionVerified = createSettingStore('ntConnectionVerified', false);
+
+// In-app update check cadence. Hours between GitHub-tag + PWA-SW checks
+// when the app is open. 0 = manual only (turns off every auto-check —
+// mount, visibility-change, and the periodic PWA poll). Read by
+// _throttleMs() in lib/updates.js and by App.svelte's PWA poll.
+export const updateCheckInterval = createSettingStore('updateCheckInterval', 4);
 
 // Local-mode scheduled backup. Per-device (no server in local mode).
 // JS-side tick in src/lib/local-backup-scheduler.js fires when due.

@@ -1,6 +1,14 @@
 <script>
   import { onMount } from 'svelte';
-  import { push } from 'svelte-spa-router';
+  import { push, location } from 'svelte-spa-router';
+
+  // Embedded mode: when Profile renders inside the Settings shell (as
+  // the /settings/profile section OR inline inside the desktop welcome
+  // hero at /settings), the outer Settings chrome already supplies the
+  // title / back button and we shouldn't duplicate them. Matches both
+  // '/settings' and '/settings/profile' via startsWith. Ports NT's
+  // pattern so the family stays uniform.
+  $: _embedded = ($location || '').startsWith('/settings');
   import { _ } from 'svelte-i18n';
   import { get } from 'svelte/store';
   import { currentUser, userMgmtActive, logout as logoutAuth } from '../stores/auth.js';
@@ -294,18 +302,31 @@
   }
 </script>
 
-<div class="page">
-  <header class="page-header">
-    <button class="btn-icon back-btn" on:click={() => push('/settings')}>
-      <span class="material-symbols-rounded">arrow_back</span>
-    </button>
-    <h1>{$_('routes.profile.title')}</h1>
-    <button class="btn btn-primary save-btn" on:click={save} disabled={saving}>
-      {saving ? $_('common.saving') : $_('common.save')}
-    </button>
-  </header>
+<div class="page" class:profile-embedded={_embedded}>
+  {#if !_embedded}
+    <header class="page-header">
+      <button class="btn-icon back-btn" on:click={() => push('/settings')}>
+        <span class="material-symbols-rounded">arrow_back</span>
+      </button>
+      <h1>{$_('routes.profile.title')}</h1>
+      <button class="btn btn-primary save-btn" on:click={save} disabled={saving}>
+        {saving ? $_('common.saving') : $_('common.save')}
+      </button>
+    </header>
+  {/if}
 
   <div class="page-content">
+    {#if _embedded}
+      <!-- Embedded save button. The Settings shell owns the outer header,
+           so this stands in for the standalone header's Save. Sits at the
+           top of the body so it's the first thing the user sees when they
+           want to commit changes. -->
+      <div class="profile-embedded-save">
+        <button class="btn btn-primary" on:click={save} disabled={saving}>
+          {saving ? $_('common.saving') : $_('common.save')}
+        </button>
+      </div>
+    {/if}
     <!-- Avatar -->
     <div class="avatar-section">
       <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -346,13 +367,13 @@
         <DateInput bind:value={birthday} max={localDateStr()} />
       </div>
       <div class="form-group">
-        <label class="form-label">{$_('profile.gender')}</label>
+        <label class="form-label">{$_('profile.gender.label')}</label>
         <select class="form-select" bind:value={gender}>
-          <option value="">{$_('profile.gender_unset')}</option>
-          <option value="male">{$_('profile.gender_male')}</option>
-          <option value="female">{$_('profile.gender_female')}</option>
+          <option value="">{$_('profile.gender.unset')}</option>
+          <option value="male">{$_('profile.gender.male')}</option>
+          <option value="female">{$_('profile.gender.female')}</option>
           <option value="non-binary">Non-binary</option>
-          <option value="other">{$_('profile.gender_other')}</option>
+          <option value="other">{$_('profile.gender.other')}</option>
         </select>
       </div>
       <div class="form-group">
@@ -561,6 +582,15 @@
   .save-btn { height: 36px; font-size: 13px; }
 
   .page-content { padding: 16px var(--page-px); }
+  /* Embedded mode strips the outer chrome — no standalone header, no
+     page-level padding. Settings shell (or the desktop welcome hero
+     inside it) already provides both. */
+  .profile-embedded .page-content { padding: 8px 0 0 0; }
+  .profile-embedded-save {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+  }
 
   /* Avatar */
   .avatar-section { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 20px; }

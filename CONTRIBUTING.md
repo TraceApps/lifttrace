@@ -26,11 +26,19 @@ Thanks for your interest in LiftTrace.
 
 ## Translations
 
-LiftTrace uses [svelte-i18n](https://github.com/kaisermann/svelte-i18n) with one JSON file per locale in `src/i18n/`. The English file at `src/i18n/en.json` is the source of truth. Adding a new language is straightforward and you do not need to touch any other code.
+LiftTrace uses [svelte-i18n](https://github.com/kaisermann/svelte-i18n) with one JSON file per locale in `src/i18n/`. The English file at `src/i18n/en.json` is the source of truth.
 
-### Adding a new language
+### Two ways to contribute (pick either)
 
-1. Copy `src/i18n/en.json` to `src/i18n/<code>.json` where `<code>` is the BCP-47 short code (`fr`, `de`, `nl`, `es`, `pt`, `ja`, etc.).
+**A. Weblate (preferred, no code required).** LiftTrace is hosted at [hosted.weblate.org/projects/lifttrace/](https://hosted.weblate.org/projects/lifttrace/). Pick a language, translate strings in the web UI, and pull requests to `dev` are opened automatically. If your language isn't in the list, click **Add new translation** and it'll be approved. If you already have a completed JSON file, seed the language with **Files → Upload translation → Add as translation** on the language page.
+
+**B. Direct JSON PR.** Follow the steps below. This still works and Weblate will pick up the file on its next sync.
+
+Full guidance for both paths: [traceapps.github.io/docs/contribute/translations/](https://traceapps.github.io/docs/contribute/translations/).
+
+### Adding a new language via direct PR
+
+1. Copy `src/i18n/en.json` to `src/i18n/<code>.json` where `<code>` is a BCP-47 short code (`fr`, `de`, `nl`, `es`, `pt`, `ja`, `zh_Hans`, `zh_Hant`, etc.).
 2. Translate the values. Leave the keys exactly as they are. Keep `{placeholder}` tokens and any HTML tags (`<strong>`, `<code>`, `<br>`) intact and in the right grammatical position for your language.
 3. In `src/i18n/index.js`, register the new locale and add it to `AVAILABLE_LOCALES`:
    ```js
@@ -43,11 +51,15 @@ LiftTrace uses [svelte-i18n](https://github.com/kaisermann/svelte-i18n) with one
    ```
    The label is what shows in the Settings → Regional & Units → Language picker. Use the language's native name (e.g. `Français` not `French`).
 4. Run `npm run i18n:check` to confirm no keys are missing or orphaned.
-5. Open a PR.
+5. Open a PR against `dev`.
+
+Note: the `index.js` step is required whether you go through Weblate or PR directly, because Weblate only touches the JSON file. If Weblate adds a new language, an app-side commit will follow to register it in the picker.
 
 ### Updating an existing language
 
-If new keys land in `en.json` between releases, your locale file will report them as "missing" in `npm run i18n:check`. The app will fall back to English for those strings until you translate them. There is no urgency — translate at your own pace.
+If you translated through Weblate: keep using Weblate. Direct edits to a file that Weblate is watching will be overwritten by the next Weblate sync.
+
+If new keys are added to `en.json` between releases, your locale file will report them as "missing" in `npm run i18n:check`. The app will fall back to English for those strings until you translate them. No urgency, translate at your own pace.
 
 The English source text may also change occasionally without renaming the key. There is no automatic stale-translation detection, so a quick diff of `en.json` against the version you originally translated from is the most reliable way to catch these.
 

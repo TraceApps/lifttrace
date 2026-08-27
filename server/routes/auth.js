@@ -7,6 +7,7 @@ import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } f
 import { isPasswordLoginEnabled, listProviders as oidcListProviders, publicProvider as oidcPublicProvider } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
+import { claimAnonymousData, releaseDataBeforeDisable, purgeUserRows } from '../lib/claim-anonymous-data.js';
 
 const router = Router();
 
@@ -169,14 +170,7 @@ router.post('/register', wrap((req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
   let token = null;
   if (isFirst) {
-    db.prepare('UPDATE workout_log SET user_id = ? WHERE user_id IS NULL').run(user.id);
-    db.prepare('UPDATE body_stats_log SET user_id = ? WHERE user_id IS NULL').run(user.id);
-    db.prepare('UPDATE programs SET created_by = ? WHERE created_by IS NULL').run(user.id);
-    db.prepare('UPDATE user_settings SET user_id = ? WHERE user_id IS NULL').run(user.id);
-    db.prepare('UPDATE ai_chat_history SET user_id = ? WHERE user_id IS NULL').run(user.id);
-    // Clear single_user_mode flag if a prior DELETE /management or
-    // POST /recover set it (re-enabling user management implicitly).
-    db.prepare(`DELETE FROM app_config WHERE key = 'single_user_mode'`).run();
+    claimAnonymousData(user.id);
     token = signToken(user);
     res.cookie('lt_token', token, COOKIE_OPTS);
   }
@@ -235,6 +229,8 @@ router.delete('/me', requireAuth, wrap((req, res) => {
   db.prepare('DELETE FROM ai_chat_history WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(id);
   db.prepare('UPDATE users SET trainer_id = NULL WHERE trainer_id = ?').run(id);
+  // Tables with no FK to users(id) do not cascade — clear this user's rows.
+  purgeUserRows(id);
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   res.clearCookie('lt_token');
   res.json({ ok: true });
@@ -250,6 +246,8 @@ router.delete('/users/:id', requireAuth, requireAdmin, wrap((req, res) => {
   db.prepare('DELETE FROM ai_chat_history WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(id);
   db.prepare('UPDATE users SET trainer_id = NULL WHERE trainer_id = ?').run(id);
+  // Tables with no FK to users(id) do not cascade — clear this user's rows.
+  purgeUserRows(id);
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
@@ -291,6 +289,9 @@ router.put('/users/:id/trainer', requireAuth, requireAdmin, wrap((req, res) => {
 }));
 
 router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
+  // Hand the sole account's data back to single-user mode before dropping
+  // accounts, otherwise it keeps a user id nothing can read again.
+  releaseDataBeforeDisable();
   db.prepare('DELETE FROM users').run();
   // Persist intent: this was an explicit disable, not a fresh install.
   // /status uses this to keep setup_required=false so the client doesn't
@@ -315,6 +316,7 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
     ok = a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch {}
   if (!ok) return res.status(403).json({ error: 'Invalid recovery token' });
+  releaseDataBeforeDisable();
   db.prepare('DELETE FROM users').run();
   // Same single_user_mode flag as DELETE /management — recovery is an
   // intentional disable, not a fresh install.
@@ -344,7 +346,8 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+    const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
     await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
   } catch (e) {
     // Don't surface email-send errors to the client — it would leak existence.
@@ -374,7 +377,8 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
     .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires);
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
   const inviteUrl = `${baseUrl}/#/accept-invite?token=${token}`;
   if (email && isEmailConfigured()) {
     const inviter = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);

@@ -79,8 +79,8 @@
         {/if}
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">Self-Hosted Music</span>
-            <span class="setting-hint">Stream from a Subsonic-compatible server (Navidrome, Jellyfin, Airsonic, etc.)</span>
+            <span class="setting-label">{$_('settings_radio.self_hosted')}</span>
+            <span class="setting-hint">{$_('settings_radio.self_hosted_hint')}</span>
           </div>
           <Toggle bind:checked={$radioEnabled} />
         </div>
@@ -90,7 +90,7 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <span class="setting-label">{$_('settings_radio.streaming_stations')}</span>
-            <span class="setting-hint">Listen to internet radio. Add stations from the directory or paste a stream URL.</span>
+            <span class="setting-hint">{$_('settings_radio.streaming_stations_hint')}</span>
           </div>
           <Toggle bind:checked={$radioStationsEnabled} />
         </div>

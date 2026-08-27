@@ -70,6 +70,11 @@
       });
       if (!res.ok) throw new Error('Save failed');
       showSuccess('Body stats saved');
+      // Notify the desktop rail widget so it can reload its summary
+      // view without a page nav.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lt:body-stats-saved'));
+      }
       open = false;
     } catch(e) {
       showError(e.message);
@@ -165,4 +170,5 @@
     font-size: 13px; color: var(--text-3); line-height: 1.5;
     grid-column: 1 / -1;
   }
+
 </style>

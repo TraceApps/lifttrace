@@ -225,6 +225,9 @@
     "fab_tooltip":        "Tap to chat · hold to voice-log",
     "ask_placeholder":    "Ask me anything…",
     "clear_conversation": "Clear chat",
+    "clear_confirm_title": "Clear this conversation?",
+    "clear_confirm_message": "Messages in this conversation will be deleted. This can't be undone.",
+    "clear_confirm_ok": "Clear",
     "attach_image":       "Attach image"
   },
   "wizard": {
@@ -254,10 +257,6 @@
     "profile": {
       "title":      "About you",
       "desc":       "A few details so LiftTrace can estimate calories burned and tailor the AI assistant. All optional.",
-      "sex":        "Sex",
-      "sex_male":   "Male",
-      "sex_female": "Female",
-      "sex_other":  "Other / prefer not to say",
       "dob":        "Date of birth",
       "height":     "Height",
       "weight":     "Current weight",
@@ -311,6 +310,7 @@
     }
   },
   "profile": {
+    "title":                 "Profile",
     "personal_info":         "Personal Info",
     "security":              "Security",
     "change_photo":          "Change photo",
@@ -320,8 +320,13 @@
     "nickname":              "Nickname / Display Name",
     "nickname_placeholder":  "What should we call you?",
     "birthday":              "Birthday",
-    "gender":                "Gender",
-    "gender_unset":          "Prefer not to say",
+    "gender": {
+      "label":  "Gender",
+      "male":   "Male",
+      "female": "Female",
+      "other":  "Other",
+      "unset":  "Prefer not to say"
+    },
     "change_password":       "Change Password",
     "current_password":      "Current Password",
     "confirm_new_password":  "Confirm New Password",
@@ -333,12 +338,12 @@
     "unlink":                "Unlink",
     "unlinked":              "Unlinked",
     "last_signin":           "last sign-in {date}",
-    "danger_zone":           "Danger zone",
-    "delete_account":        "Delete my account",
+    "danger_zone":           "Danger Zone",
+    "delete_account":        "Delete My Account",
     "delete_account_explainer": "Permanently remove your account and all associated data — workouts, body stats, programs, settings.",
-    "delete_account_title":  "Delete your account?",
+    "delete_account_title":  "Delete Your Account?",
     "delete_account_message": "Your workouts, body stats, programs, settings, and AI history will be permanently removed. This cannot be undone.",
-    "delete_account_confirm": "Delete account",
+    "delete_account_confirm": "Delete Account",
     "deleting":              "Deleting…",
     "account_deleted":       "Account deleted",
     "errors": {
@@ -350,16 +355,13 @@
     },
     "biometric_cancelled":   "Biometric verification was canceled or failed.",
     "server_unreachable":    "Could not reach server",
-    "gender_male":           "Male",
-    "gender_female":         "Female",
-    "gender_other":          "Other",
     "current_password_ph":   "Enter current password",
     "confirm_password_ph":   "Re-enter new password",
     "biometric_signin":      "Sign In with Biometric"
   },
   "settings": {
     "units": {
-      "section":  "Units",
+      "section":  "Language & Region",
       "language": "Language"
     },
     "appearance":      {
@@ -472,7 +474,11 @@
       "cancel":                "Cancel",
       "hide":                  "Hide",
       "show":                  "Show",
-      "disable_um_hint":       "Deletes all accounts, app becomes open access"
+      "disable_um_hint":       "Deletes all accounts, app becomes open access",
+      "generate_invite_link":  "Generate Invite Link",
+      "coach_option":          "Coach {name}",
+      "delete_user":           "Delete User",
+      "strong_passwords_desc": "Reject weak passwords (zxcvbn score below 3) on top of the standard 8-char + mixed-case + number + symbol rules. Affects new sign-ups, invites, and password changes. Existing passwords aren't re-checked."
     },
     "server":          { "section": "Server Connection" },
     "workout_import":  { "section": "Import Workouts" },
@@ -500,7 +506,17 @@
     "open_source":           "Open source",
     "sister_app_prefix":     "Sister app: ",
     "sister_app_suffix":     ", nutrition tracker",
-    "support_development":   "Support Development"
+    "support_development":   "Support Development",
+    "description":           "Track Every Rep — Personal Weightlifting Tracker. LiftTrace is a self-hosted workout tracker built for privacy. Your data lives on your server, not in the cloud. Features workout diary, program builder, multi-source exercise library, AI coaching, statistics, and more.",
+    "feature_self_hosted":   "Self-hosted — your data, your server",
+    "feature_pwa":           "PWA — installable on any device",
+    "feature_privacy":       "No tracking, no ads, no third-party analytics",
+    "kofi":                  "Ko-fi",
+    "donations_note":        "LiftTrace is free to self-host. Donations are appreciated but never required.",
+    "disclaimer_heading":    "Disclaimer.",
+    "disclaimer_medical":    "LiftTrace is not medical, health, or fitness-professional software. It does not provide medical advice, diagnosis, treatment, or personalized training prescriptions. Exercise library content, Trace AI coaching, program templates, rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight trends) are for informational and self-tracking purposes only.",
+    "disclaimer_risk":       "Resistance training carries inherent risk of injury. Exercise selection, load, technique, and progression can interact with medical conditions (heart and cardiovascular conditions, high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis, pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways this app cannot assess. Consult a qualified healthcare professional, certified strength coach, or licensed physical therapist before starting a new training program, returning from injury, or making significant changes to your routine.",
+    "disclaimer_ai":         "Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a substitute for human judgment or professional advice. Exercise library data is sourced from public databases (wger, Free Exercise DB, optionally ExerciseDB via RapidAPI) and may contain inaccuracies. Use at your own risk."
   },
   "template_spec": {
     "auto":                  "Auto",
@@ -586,15 +602,24 @@
   "settings_federation": {
     "url_token_required":    "Enter a URL and access token first",
     "enable_federation":     "Enable Federation",
+    "enable_federation_hint": "Auto-log each completed workout's estimated calories burned to your NutriTrace diary. Workouts appear in NutriTrace under Settings → Wellness → Workout History.",
     "instance_url":          "Instance URL",
+    "instance_url_hint":     "Your NutriTrace server, e.g.",
     "access_token":          "Access Token",
-    "wearable_priority":     "Wearable Priority"
+    "access_token_hint_prefix": "Generate in NutriTrace under Settings → User Management → API Tokens with the",
+    "access_token_hint_suffix": "scope.",
+    "wearable_priority":     "Wearable Priority",
+    "wearable_priority_hint": "If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → \"Prefer Wearable Data Over LiftTrace\"."
   },
   "settings_diagnostics": {
     "copy_failed":           "Copy failed, select the text manually",
     "logs_cleared":          "Logs cleared",
     "verbose_logging":       "Verbose Diagnostic Logging",
+    "verbose_logging_hint":  "Enables detailed app-internal logs (sync, settings, notifications, SQLite). Off by default — turn on while reproducing a bug, then export below.",
     "view_logs":             "View Diagnostic Logs",
+    "view_logs_hint_prefix": "Last 500 lines from the app's console. Useful for bug reports — copy or share to a",
+    "view_logs_hint_suffix": ". The buffer holds in-memory only; nothing is sent anywhere automatically.",
+    "view_logs_button":      "View logs",
     "github_issue":          "GitHub issue"
   },
   "smart_log": {
@@ -654,18 +679,21 @@
     "imported_catalogs":     "Imported Catalogs",
     "confirm": {
       "clear_imported_title": "Clear imported exercises?",
-      "clear_imported_msg":   "This removes all {count} exercises imported from {name}. The source stays listed so you can re-import at any time.",
+      "clear_imported_msg":   "This hides all {count} exercises imported from {name} from your library. Workout history keeps its links — re-importing the same source later restores them in place.",
       "clear_confirm":        "Clear",
       "delete_named_title":   "Delete \"{name}\"?",
       "delete_exercise_msg":  "Workout history keeps its record — only the library link breaks.",
       "delete_all_title":     "Delete all {count} custom exercises?",
       "delete_all_msg":       "This cannot be undone. Workout history keeps its records — only library links break.",
       "delete_all_confirm":   "Delete all",
-      "delete_catalog_msg":   "All {count} exercises from this catalog will be removed."
+      "delete_catalog_msg":   "All {count} exercises from this catalog will be hidden from your library. Workout history keeps its links — re-importing the same catalog later restores them in place."
     }
   },
   "settings_radio": {
+    "self_hosted":           "Self-Hosted Music",
+    "self_hosted_hint":      "Stream from a Subsonic-compatible server (Navidrome, Jellyfin, Airsonic, etc.)",
     "streaming_stations":    "Streaming Stations",
+    "streaming_stations_hint": "Listen to internet radio. Add stations from the directory or paste a stream URL.",
     "provider":              "Provider",
     "emby":                  "Emby",
     "jellyfin":              "Jellyfin",
@@ -922,7 +950,7 @@
       "legs":      "Legs",
       "core":      "Core",
       "cardio":    "Cardio",
-      "other":     "Other"
+      "other":     "Uncategorized"
     },
     "days": {
       "sun": "Sun",
@@ -979,15 +1007,15 @@
     "track_progress_title": "Track any lift's progress",
     "track_progress_desc":  "Choose an exercise above to see how your top set has changed over time. Useful for checking if you're actually progressing on key lifts like bench press, squat, or deadlift.",
     "loading_chart":        "Loading chart…",
-    "max_unit":             "Max {unit}",
-    "min_unit":             "Min {unit}",
-    "avg_unit":             "Avg {unit}",
+    "max":                  "Max",
+    "min":                  "Min",
+    "avg":                  "Avg",
     "top_set_legend":       "Top set ({unit})",
     "avg_rpe_legend":       "Avg RPE (5–10)",
     "n_sets":               "{n} sets",
     "recent_prs":           "Recent PRs",
     "est_1rm":              " · Est. 1RM {v}",
-    "total_unit":           "Total {unit}",
+    "total":                "Total",
     "muscle_balance_desc":  "Shaded by effective sets, relative to the hardest-worked muscle in this range.",
     "effective_sets_one":   "{n} effective sets across {m} muscle.",
     "effective_sets_other": "{n} effective sets across {m} muscles.",
@@ -995,11 +1023,8 @@
     "most_active":          "Most active: {day}",
     "no_workouts_in_range": "No workouts in this range.",
     "no_body_weight":       "No body weight logged yet. Tap the scale icon in the diary to log your weight.",
-    "current_unit":         "Current {unit}",
-    "bw_min":               "Min",
-    "bw_max":               "Max",
+    "current":              "Current",
     "no_cardio_range":      "No cardio logged in this range. Add sessions from the Diary.",
-    "total_min":            "Total min",
     "on_target":            "On target",
     "weekly_minutes":       "Weekly Minutes",
     "week_minutes":         "{week}: {n} min",
@@ -1015,7 +1040,7 @@
   "gym_tools": {
     "plates":          "Plates",
     "convert":         "Convert",
-    "target_weight":   "Target weight ({unit})",
+    "target_weight":   "Target weight",
     "weight_ph_lb":    "e.g. 225",
     "weight_ph_kg":    "e.g. 100",
     "bar":             "Bar: {weight} {unit}",
@@ -1024,8 +1049,8 @@
     "under_bar":       "Weight equals or is less than the bar ({weight} {unit})",
     "lbs_to_kg":       "lbs → kg",
     "kg_to_lbs":       "kg → lbs",
-    "pounds":          "Pounds (lbs)",
-    "kilograms":       "Kilograms (kg)",
+    "pounds":          "Pounds",
+    "kilograms":       "Kilograms",
     "weight_ph":       "Enter weight"
   },
   "coaching": {
@@ -1093,6 +1118,8 @@
     "search_ph":                "Search settings…",
     "clear_search":             "Clear",
     "profile_hero_sub":         "Tap to add your name and photo",
+    "profile_fallback":         "My Profile",
+    "pick_a_section":           "Pick a section from the left to get started.",
     "group_display":            "Display",
     "group_integrations":       "Integrations",
     "group_admin":              "Admin",
@@ -1336,6 +1363,8 @@
     "start_statistics":    "Statistics",
     "start_settings":      "Settings",
     "reduce_motion":       "Reduce Motion",
+    "force_mobile_layout": "Force Mobile Layout",
+    "force_mobile_layout_desc": "Preview the phone layout on desktop. Turns off the two-pane Settings shell and any other wide-screen adaptations.",
     "goal_celebrations":   "Goal Celebrations",
     "goal_celebrations_desc": "Confetti when you hit a milestone",
     "page_banners":        "Page Banners",
@@ -1378,7 +1407,9 @@
       "keep_awake":       "Screen Keep-Awake",
       "keep_awake_desc":  "Keep the screen on during workouts",
       "calorie_est":      "Show Calorie Estimate",
-      "calorie_est_desc": "Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height, weight, date of birth, and sex set in Profile. Resistance-training estimates are loose by ±25%, treated as an \"~est\" badge in the UI, not a hard number."
+      "calorie_est_desc": "Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height, weight, date of birth, and sex set in Profile. Resistance-training estimates are loose by ±25%, treated as an \"~est\" badge in the UI, not a hard number.",
+      "track_cardio":      "Track Cardio",
+      "track_cardio_desc": "Log cardio sessions (bike, run, row, etc.) from the Diary and see weekly minutes on Statistics. Off by default so pure lifters aren't cluttered. Manual entry only; device sync stays in NutriTrace."
     },
     "logging": {
       "autofill":              "Auto-Fill Last Weights",
@@ -1417,7 +1448,19 @@
       "tone_desc":         "Brief chime when the timer hits zero",
       "tone_style":        "Tone Style",
       "tone_style_desc":   "Tap a row to select, tap ▶ to preview",
-      "preview":           "Preview"
+      "preview":           "Preview",
+      "tones": {
+        "classic":         "Classic",
+        "classic_desc":    "880 Hz beeps, higher chirp at 0",
+        "bells":           "Bells",
+        "bells_desc":      "Soft musical chime, major-third finale",
+        "beeper":          "Beeper",
+        "beeper_desc":     "Sharp short square-wave beeps",
+        "gym":             "Gym",
+        "gym_desc":        "Low thud countdown, rising horn at 0",
+        "minimal":         "Minimal",
+        "minimal_desc":    "Single soft click on the 0 mark only"
+      }
     },
     "body_stats": {
       "toggle_desc":       "Toggle which stats appear in the diary body stats sheet",
@@ -1526,7 +1569,18 @@
       "help":   "Stable tracks tagged releases. Dev is the rolling development build; expect bugs."
     },
     "auto_check":            "Automatically Check for Updates",
-    "auto_check_desc":       "Once per day when you open the app.",
+    "auto_check_desc":       "Check for new releases in the background.",
+    "interval": {
+      "label":       "Check Frequency",
+      "desc":        "How often the app checks for a new release when open. Manual only turns off all auto-checks.",
+      "hourly":      "Every Hour",
+      "every_4h":    "Every 4 Hours",
+      "every_12h":   "Every 12 Hours",
+      "daily":       "Once a Day",
+      "manual":      "Manual Only"
+    },
+    "available_generic":     "A New Version Is Available",
+    "banner_reload":         "Reload",
     "last_checked":          "Last Checked",
     "last_checked_never":    "Never",
     "check_now":             "Check Now",

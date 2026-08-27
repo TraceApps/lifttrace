@@ -34,6 +34,28 @@
   const CARDIO_METRIC = { id: 'cardio', labelKey: 'statistics.tabs.cardio', icon: 'directions_run' };
   $: METRICS = $cardioEnabled ? [...BASE_METRICS, CARDIO_METRIC] : BASE_METRICS;
 
+  // Grouped metric picker for the desktop left rail (>=1280px only).
+  // Same METRICS underneath so the switchMetric handler + sliding
+  // indicator on mobile still work — the rail just organizes them
+  // into scannable buckets that map to how a lifter thinks about
+  // their stats. Cardio joins Trends when enabled.
+  $: METRIC_GROUPS = (() => {
+    const trends = [
+      { id: 'volume', labelKey: 'statistics.tabs.volume', icon: 'fitness_center' },
+      { id: 'freq',   labelKey: 'statistics.tabs.freq',   icon: 'calendar_month' },
+      { id: 'weight', labelKey: 'statistics.tabs.weight', icon: 'monitor_weight' },
+    ];
+    if ($cardioEnabled) trends.push(CARDIO_METRIC);
+    return [
+      { title: 'Summary',  items: [{ id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' }] },
+      { title: 'Progress', items: [
+        { id: 'progress', labelKey: 'statistics.tabs.progress', icon: 'trending_up' },
+        { id: 'records',  labelKey: 'statistics.tabs.records',  icon: 'emoji_events' },
+      ]},
+      { title: 'Trends',   items: trends },
+    ];
+  })();
+
   const RANGES = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'All': null };
   // Rendered chip labels, keyed off the same range identifiers used for logic
   // (RANGES[range] lookups, range === 'All' comparisons, etc). The RANGES
@@ -476,12 +498,43 @@
     {/each}
   </div>
 
+  <!-- Body wrapper — at >=1280px non-forced-mobile becomes a 3-col
+       grid: grouped metric picker rail | per-metric widgets |
+       sticky range/comparison rail. On mobile / narrow this is a
+       plain block so nothing changes below phone widths. -->
+  <div class="stats-body">
+  <!-- Left metric picker rail (desktop only via CSS). Replaces the
+       horizontal .metric-bar chip scroller with a grouped, always-
+       visible vertical menu that mirrors the Settings rail idiom. -->
+  <nav class="stats-metric-rail" aria-label="Statistics sections">
+    {#each METRIC_GROUPS as group}
+      <div class="mr-group">
+        <span class="mr-group-title">{group.title}</span>
+        {#each group.items as m}
+          <button type="button"
+                  class="mr-btn"
+                  class:active={metric === m.id}
+                  on:click={() => switchMetric(m.id)}
+                  aria-current={metric === m.id ? 'page' : undefined}>
+            <span class="material-symbols-rounded mr-icon">{m.icon}</span>
+            <span class="mr-label">{$_(m.labelKey)}</span>
+          </button>
+        {/each}
+      </div>
+    {/each}
+  </nav>
   {#if loading}
     <div class="loading">{$_('statistics.loading_stats')}</div>
   {:else}
     <div class="content">
       <!-- ═════════ OVERVIEW ═════════ -->
       {#if metric === 'overview'}
+        <!-- Overview body wrapper — at wide widths becomes a 2-col
+             CSS grid so widgets share rows instead of vertically
+             stacking. Goal ring / summary row / cal strip / empty
+             span both columns; heatmap + MuscleRecovery share row 2;
+             WeeklyVolume + WorkoutFrequency share row 3. -->
+        <div class="overview-body">
         <!-- Weekly goal progress ring — the single most motivating widget
              on a fitness dashboard. Filled arc reflects this week's
              completed workouts vs the user's weekly target. -->
@@ -587,6 +640,7 @@
             <p>{$_('statistics.no_workouts_yet')}</p>
           </div>
         {/if}
+        </div><!-- /.overview-body -->
       {/if}
 
       <!-- ═════════ EXERCISE PROGRESS ═════════ -->
@@ -614,15 +668,15 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.max}</span>
-              <span class="sc-label">{$_('statistics.max_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.max')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.min}</span>
-              <span class="sc-label">{$_('statistics.min_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.min')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.avg}</span>
-              <span class="sc-label">{$_('statistics.avg_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.avg')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.sessions}</span>
@@ -754,7 +808,7 @@
         <div class="summary-row">
           <div class="summary-card">
             <span class="sc-value-sm">{fmtVol(totalVolume)}</span>
-            <span class="sc-label">{$_('statistics.total_unit', { values: { unit: $weightUnit } })}</span>
+            <span class="sc-label">{$_('statistics.total')} <span class="unit">{$weightUnit}</span></span>
           </div>
           <div class="summary-card">
             <span class="sc-value-sm">{fmtVol(maxVolWeek)}</span>
@@ -775,42 +829,49 @@
         {#if muscleLoad && Object.keys(muscleLoad).length > 0}
           {@const rank = rankOf(muscleLoad)}
           {@const totalSets = MUSCLES.reduce((s, m) => s + (muscleLoad[m] || 0), 0)}
-          <div class="chart-card">
+          <div class="chart-card muscle-balance-card">
             <h3 class="chart-title">{$_('statistics.muscle_balance')}</h3>
-            <p class="chart-sub" style="margin-top:-4px;margin-bottom:12px">
+            <p class="chart-sub mb-desc">
               {$_('statistics.muscle_balance_desc')}
             </p>
-            <BodyMap load={muscleLoad} />
-
-            <!-- Shade legend, five steps matching the .bm-m.l0…l4 scale.
-                 Same vocabulary the muscle-heat coloring uses so "more
-                 accent = more training" reads the same everywhere. -->
-            <div class="bm-legend">
-              <span class="bm-legend-label">{$_('statistics.less')}</span>
-              <span class="bm-legend-swatch l0"></span>
-              <span class="bm-legend-swatch l1"></span>
-              <span class="bm-legend-swatch l2"></span>
-              <span class="bm-legend-swatch l3"></span>
-              <span class="bm-legend-swatch l4"></span>
-              <span class="bm-legend-label">{$_('statistics.more')}</span>
+            <!-- Body-map + detail split into 2 cols at wide widths so
+                 the BodyMap becomes a proper hero on the left and the
+                 legend / not-trained chips / effective-set line stack
+                 in a scannable column on the right. -->
+            <div class="mb-body-col">
+              <BodyMap load={muscleLoad} />
             </div>
-
-            {#if rank.missed.length > 0}
-              <div class="bm-missed">
-                <p class="bm-missed-title">{$_('statistics.not_trained')}</p>
-                <div class="bm-chips">
-                  {#each rank.missed as slug}
-                    <span class="bm-chip">{MUSCLE_NAME[slug]}</span>
-                  {/each}
-                </div>
+            <div class="mb-detail-col">
+              <!-- Shade legend, five steps matching the .bm-m.l0…l4 scale.
+                   Same vocabulary the muscle-heat coloring uses so "more
+                   accent = more training" reads the same everywhere. -->
+              <div class="bm-legend">
+                <span class="bm-legend-label">{$_('statistics.less')}</span>
+                <span class="bm-legend-swatch l0"></span>
+                <span class="bm-legend-swatch l1"></span>
+                <span class="bm-legend-swatch l2"></span>
+                <span class="bm-legend-swatch l3"></span>
+                <span class="bm-legend-swatch l4"></span>
+                <span class="bm-legend-label">{$_('statistics.more')}</span>
               </div>
-            {/if}
 
-            <p class="chart-sub" style="margin-top:14px">
-              {rank.worked.length === 1
-                ? $_('statistics.effective_sets_one', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })
-                : $_('statistics.effective_sets_other', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })}
-            </p>
+              {#if rank.missed.length > 0}
+                <div class="bm-missed">
+                  <p class="bm-missed-title">{$_('statistics.not_trained')}</p>
+                  <div class="bm-chips">
+                    {#each rank.missed as slug}
+                      <span class="bm-chip">{MUSCLE_NAME[slug]}</span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              <p class="chart-sub mb-effective">
+                {rank.worked.length === 1
+                  ? $_('statistics.effective_sets_one', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })
+                  : $_('statistics.effective_sets_other', { values: { n: totalSets.toFixed(1), m: rank.worked.length } })}
+              </p>
+            </div>
           </div>
         {/if}
 
@@ -881,15 +942,15 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.current}</span>
-              <span class="sc-label">{$_('statistics.current_unit', { values: { unit: $weightUnit } })}</span>
+              <span class="sc-label">{$_('statistics.current')} <span class="unit">{$weightUnit}</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.min}</span>
-              <span class="sc-label">{$_('statistics.bw_min')}</span>
+              <span class="sc-label">{$_('statistics.min')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{bwStats.max}</span>
-              <span class="sc-label">{$_('statistics.bw_max')}</span>
+              <span class="sc-label">{$_('statistics.max')}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm" class:gain={bwStats.change > 0} class:loss={bwStats.change < 0}>
@@ -941,7 +1002,7 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{cwTotal}</span>
-              <span class="sc-label">{$_('statistics.total_min')}</span>
+              <span class="sc-label">{$_('statistics.total')} <span class="unit">min</span></span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{cwAvg}</span>
@@ -1006,6 +1067,56 @@
       {/if}
     </div>
   {/if}
+
+  <!-- Sticky right rail (>=1280px only via CSS). Range picker moves
+       here so it stays visible as the user scrolls through the
+       metric's widgets; prior-period delta KPIs surface the existing
+       periodDeltas computation that was buried in a tiny chip. -->
+  <aside class="stats-rail" aria-label="Range + comparison">
+    <div class="rail-card">
+      <div class="rail-card-head">
+        <span class="material-symbols-rounded">date_range</span>
+        <span class="rail-card-title">Range</span>
+      </div>
+      <div class="rail-range-chips">
+        {#each Object.keys(RANGES) as r}
+          <button class="range-chip" class:active={range === r} on:click={() => range = r}>{$_(RANGE_LABEL_KEYS[r])}</button>
+        {/each}
+      </div>
+    </div>
+    {#if periodDeltas}
+      <div class="rail-card">
+        <div class="rail-card-head">
+          <span class="material-symbols-rounded">compare_arrows</span>
+          <span class="rail-card-title">vs Prior {$_(RANGE_LABEL_KEYS[range])}</span>
+        </div>
+        <div class="rail-delta-stats">
+          {#if periodDeltas.volPct != null}
+            <div class="rail-delta">
+              <span class="rail-delta-label">Volume</span>
+              <span class="rail-delta-val"
+                    class:up={periodDeltas.volPct > 0}
+                    class:down={periodDeltas.volPct < 0}>
+                {periodDeltas.volPct > 0 ? '+' : ''}{periodDeltas.volPct}%
+              </span>
+            </div>
+          {/if}
+          {#if periodDeltas.cntPct != null}
+            <div class="rail-delta">
+              <span class="rail-delta-label">Sessions</span>
+              <span class="rail-delta-val"
+                    class:up={periodDeltas.cntPct > 0}
+                    class:down={periodDeltas.cntPct < 0}>
+                {periodDeltas.cntPct > 0 ? '+' : ''}{periodDeltas.cntPct}%
+              </span>
+            </div>
+          {/if}
+        </div>
+        <div class="rail-delta-note">Prior window: {periodDeltas.priorCount} {periodDeltas.priorCount === 1 ? 'session' : 'sessions'}</div>
+      </div>
+    {/if}
+  </aside>
+  </div>
 </div>
 
 <!-- Exercise picker sheet -->
@@ -1362,6 +1473,306 @@
 
   @media (max-width: 400px) {
     .summary-row { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* Mobile default — sticky rail + metric picker rail both hidden.
+     Range bar + metric bar at top of page still visible so mobile
+     flow is unchanged. */
+  .stats-rail { display: none; }
+  .stats-metric-rail { display: none; }
+
+  /* Baseline margins for the Muscle Balance description + effective-
+     sets line. Extracted from inline style="" attributes so the
+     wide-layout grid rules can position them cleanly; values match
+     the original inline styles so mobile layout is unchanged. */
+  .mb-desc      { margin-top: -4px; margin-bottom: 12px; }
+  .mb-effective { margin-top: 14px; }
+
+  /* ────────────────────────────────────────────────────────────
+     Statistics Phase 1 — wide-layout correctness + containment.
+     Two real problems on wide monitors:
+       (1) SVG line charts use preserveAspectRatio="none" and
+           stretch to full viewport width × 140px tall. On 1600px
+           a real progression slope compresses to a near-flat
+           ribbon — misrepresents the data, not just polish.
+       (2) .content is edge-to-edge; summary cards balloon to
+           400px each with 22px numbers floating in dead space.
+     Phase 1 fixes both without changing the layout structure:
+     cap .content max-width + center it; cap .line-chart max-
+     width so aspect distortion stays contained; wrap the
+     .metric-bar + .range-bar chips to multi-line so nothing
+     scrolls when there's room to lay flat. Later phases add
+     the rail + per-metric dashboards. Gated by
+     html:not(.force-mobile-layout) + >=1280px. */
+  @media (min-width: 1280px) {
+    /* Phase 4 shell — 3-col grid: metric picker rail | per-metric
+       content | sticky range/comparison rail. Phase 2 was 2-col;
+       adding the metric rail on the left replaces the .metric-bar
+       chip scroller with a grouped always-visible menu. */
+    :global(html:not(.force-mobile-layout)) .stats-body {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr) 320px;
+      gap: 20px;
+      align-items: start;
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 16px var(--page-px);
+      box-sizing: border-box;
+    }
+    /* Left metric-picker rail — sticky next to the content so the
+       user always sees which metric they're on. Same sticky-top
+       math the other rails use. */
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-metric-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      padding: 10px 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-group-title {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 600;
+      padding: 4px 8px;
+      margin-top: 8px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-group:first-child .mr-group-title {
+      margin-top: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      background: transparent;
+      border: none;
+      color: var(--text-1);
+      font-size: 13px;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--dur-fast), color var(--dur-fast);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn:hover {
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn.active {
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn.active .mr-icon {
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-metric-rail .mr-icon {
+      width: 20px;
+      height: 20px;
+      font-size: 18px;
+      color: var(--text-3);
+      flex-shrink: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .content {
+      max-width: none;
+      margin: 0;
+      /* Zero all outer padding so the center col's first widget
+         starts flush with the source rail + comparison rail (all
+         three grid children align at grid-row-1 top). Mobile keeps
+         the base 16px vertical padding. */
+      padding: 0;
+      min-width: 0;
+    }
+    /* Banner stays full-viewport-width at wide (matches Diary /
+       Settings / Programs / Radio pattern). Grid below aligns to
+       its own max-width. */
+    /* Top range-bar + metric-bar both hidden on wide — the left
+       .stats-metric-rail owns metric navigation and the right
+       .stats-rail owns range. Keeping the top chip rows around
+       created double navigation AND its sliding-pill indicator
+       mis-positioned on first paint (visibly overlapping the next
+       pill until you clicked away and back). Rail-only kills both. */
+    :global(html:not(.force-mobile-layout)) .range-bar,
+    :global(html:not(.force-mobile-layout)) .metric-bar {
+      display: none;
+    }
+    /* Sticky rail — same shell math the Diary rail uses. */
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    /* Rail cards — matches the tokens used in Diary rail, Programs
+       preview pane, and ProgramDetail template pane. */
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-card-head > .material-symbols-rounded {
+      font-size: 18px;
+      color: var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-card-head > .rail-card-title {
+      flex: 1;
+      min-width: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-range-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-range-chips > .range-chip {
+      flex: 0 0 auto;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-body > .stats-rail > .rail-card > .rail-delta-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .rail-delta {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .rail-delta-label {
+      font-size: 12px;
+      color: var(--text-3);
+    }
+    .rail-delta-val {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-1);
+      font-variant-numeric: tabular-nums;
+    }
+    .rail-delta-val.up   { color: var(--success); }
+    .rail-delta-val.down { color: var(--danger);  }
+    .rail-delta-note {
+      font-size: 11px;
+      color: var(--text-3);
+      font-style: italic;
+    }
+
+    /* ── Phase 3: per-metric dashboards ────────────────────────
+       Overview restructures its vertical stack into a 2-col grid
+       so the "am I on track this week?" answer lands in one
+       glance instead of a scroll. Full-width items (goal ring,
+       summary row, cal strip, empty state) span both cols; the
+       remaining widgets pair up. */
+    :global(html:not(.force-mobile-layout)) .overview-body {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 16px;
+      row-gap: 16px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .overview-body > .goal-ring-card,
+    :global(html:not(.force-mobile-layout)) .overview-body > .summary-row,
+    :global(html:not(.force-mobile-layout)) .overview-body > .cal-strip,
+    :global(html:not(.force-mobile-layout)) .overview-body > .empty-state {
+      grid-column: 1 / -1;
+    }
+
+    /* Muscle Balance dashboard — hero the BodyMap on the left,
+       stack the legend / not-trained chips / effective-sets note
+       in a scannable column on the right. Title + description
+       still span the top full width. */
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card {
+      display: grid;
+      grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+      column-gap: 24px;
+      row-gap: 8px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .chart-title,
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .mb-desc {
+      grid-column: 1 / -1;
+    }
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .mb-body-col {
+      grid-column: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .muscle-balance-card > .mb-detail-col {
+      grid-column: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    /* Cap line-chart width so preserveAspectRatio="none" can't
+       stretch a short data series into a near-flat horizontal
+       ribbon at desktop widths. The chart centers within its
+       card so it still reads as the primary content. */
+    :global(html:not(.force-mobile-layout)) .line-chart {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    /* Same treatment for the SVG-based bar charts inside
+       chart-cards so their bars don't stretch to 100px-wide
+       gaps on ultra-wide monitors. */
+    :global(html:not(.force-mobile-layout)) .chart-card {
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+      width: 100%;
+    }
+    /* Cap summary-row width so each of the 4 tiles stays visually
+       weighted — a 22px number in a 400px empty tile looks like
+       loading skeleton. */
+    :global(html:not(.force-mobile-layout)) .summary-row {
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+      width: 100%;
+    }
   }
 
   /* Cardio weekly-minutes bars. Same visual language as the frequency

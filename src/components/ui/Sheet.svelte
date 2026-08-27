@@ -8,6 +8,14 @@
   export let open   = false;
   export let title  = '';
   export let height = 'auto';  // 'auto' | 'full' | '60vh' etc.
+  /**
+   * Opt-in wide layout for desktop. Default caps at 720px so most
+   * sheets read as a modal. Setting `wide` lets the panel breathe
+   * up to min(1200px, 92vw) at >=1280px non-forced-mobile — used by
+   * content-heavy sheets like ExercisePicker that want to run a
+   * multi-pane internal layout at wide widths.
+   */
+  export let wide = false;
 
   const dispatch = createEventDispatcher();
   let _locked = false;
@@ -37,6 +45,7 @@
     <div
       class="sheet-panel"
       class:sheet-full={height === 'full'}
+      class:sheet-wide={wide}
       style={height !== 'auto' && height !== 'full' ? `height:${height}` : ''}
       in:fly={{ y: 80, duration: 280, easing: cubicOut }}
       out:fly={{ y: 80, duration: 200 }}
@@ -126,5 +135,15 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 0 20px 20px;
+  }
+
+  /* Wide-layout opt-in — content-heavy sheets that host their own
+     multi-pane internals at desktop widths. Only escapes the 720px
+     cap at >=1280px on non-forced-mobile viewports so mobile keeps
+     the standard modal behavior. */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .sheet-panel.sheet-wide {
+      max-width: min(1200px, 92vw);
+    }
   }
 </style>

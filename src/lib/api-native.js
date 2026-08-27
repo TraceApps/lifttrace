@@ -248,7 +248,11 @@ const Exercises = {
     return rows.map(_exerciseFromRow);
   },
   async get(id) {
-    const rows = await dbQuery(`SELECT * FROM exercises WHERE id = ? AND deleted_at IS NULL`, [id]);
+    // Intentionally does NOT filter deleted_at (mirrors server behavior,
+    // #49). A tap on a Records row for an exercise the user has cleared
+    // from their library should still resolve to that exercise's detail
+    // page rather than a bare 404.
+    const rows = await dbQuery(`SELECT * FROM exercises WHERE id = ?`, [id]);
     return _exerciseFromRow(rows[0]);
   },
   async create(body) {
@@ -341,10 +345,12 @@ const Exercises = {
     if (!meta) throw new Error(`Unknown source: ${sourceId}`);
     if (meta.requiresKey && !apiKey) throw new Error(`${meta.name} requires an API key`);
 
-    // Existing external_ids so a re-import doesn't INSERT-then-IGNORE
-    // (cheap, but also feeds the oss cursor-loop detector).
+    // Live external_ids only — feeds the oss cursor-loop detector and
+    // the no-op skip below. Soft-deleted rows are excluded here so they
+    // fall into the resurrect-in-place branch further down (#49).
     const existing = await dbQuery(
-      `SELECT external_id FROM exercises WHERE source = ? AND external_id IS NOT NULL`,
+      `SELECT external_id FROM exercises
+       WHERE source = ? AND external_id IS NOT NULL AND deleted_at IS NULL`,
       [sourceId]
     );
     const existingIds = new Set(existing.map(r => String(r.external_id)));
@@ -363,15 +369,26 @@ const Exercises = {
       throw new _Unsupported(`${meta.name} imports aren't available offline yet.`);
     }
 
-    // Insert loop. INSERT OR IGNORE using name + source pair as the natural
-    // dedup key (there's no server-assigned id here — external_id can be
-    // null for free-db so we can't rely on it alone).
-    let count = 0;
+    // Insert loop. Three branches per row:
+    //   - live row already present with this (source, external_id | name) → skip
+    //   - soft-deleted row present → resurrect in place (preserves id, so
+    //     past workout_log JSON blobs keep resolving — #49)
+    //   - otherwise → INSERT a fresh row
+    let count = 0, resurrected = 0;
     for (const r of rows) {
       const existsRow = r.external_id
-        ? await dbQuery(`SELECT id FROM exercises WHERE source = ? AND external_id = ? LIMIT 1`, [sourceId, r.external_id])
-        : await dbQuery(`SELECT id FROM exercises WHERE source = ? AND name = ? LIMIT 1`, [sourceId, r.name]);
-      if (existsRow.length > 0) continue;
+        ? await dbQuery(`SELECT id, deleted_at FROM exercises WHERE source = ? AND external_id = ? LIMIT 1`, [sourceId, r.external_id])
+        : await dbQuery(`SELECT id, deleted_at FROM exercises WHERE source = ? AND name = ? LIMIT 1`, [sourceId, r.name]);
+      if (existsRow.length > 0) {
+        if (existsRow[0].deleted_at) {
+          await dbRun(
+            `UPDATE exercises SET deleted_at = NULL, updated_at = ? WHERE id = ?`,
+            [_now(), existsRow[0].id]
+          );
+          resurrected++;
+        }
+        continue;
+      }
       await dbRun(
         `INSERT INTO exercises
          (name, category, primary_muscles, secondary_muscles, equipment,
@@ -392,6 +409,7 @@ const Exercises = {
       );
       count++;
     }
+    count += resurrected;
     return { ok: true, count };
   },
   async sourcesToggle(sourceId, enabled) {
@@ -409,9 +427,14 @@ const Exercises = {
   },
   async sourcesClear(sourceId) {
     if (!sourceId) throw new Error('source required');
+    // Soft-delete so past workout_log references keep resolving; the
+    // next matching re-import resurrects the row in place instead of
+    // minting a new id (#49). Reads elsewhere filter by deleted_at.
     const r = await dbRun(
-      `DELETE FROM exercises WHERE source = ? AND created_by IS NULL`,
-      [sourceId]
+      `UPDATE exercises
+         SET deleted_at = ?, updated_at = ?
+       WHERE source = ? AND created_by IS NULL AND deleted_at IS NULL`,
+      [_now(), _now(), sourceId]
     );
     return { ok: true, cleared: r.changes || 0 };
   },
@@ -705,15 +728,51 @@ const Workout = {
     const hasAny = exercises.some(ex =>
       Array.isArray(ex?.sets) && ex.sets.some(s => s?.completed && !s?.warmup)
     );
-    // Auto-delete empty entries (matches server behavior)
-    if (!hasAny && !body.notes && !body.duration_min) {
-      await dbRun(
-        `UPDATE workout_log SET deleted_at = ?, sync_state = 'pending'
-         WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
-        [_now(), ME, date]
-      );
-      return { ok: true, deleted: true };
+
+    // Option C (2026-08-11): persist any explicit per-entry deletions
+    // as pending tombstones in the local mirror. Sync push includes
+    // these so the server-side merge treats them as deleted rather
+    // than preserving-by-default. Without this, a delete performed
+    // while offline would silently fail to propagate on reconnect.
+    const dr = body.deleted_uuids;
+    if (dr) {
+      const del = dr.exercises || (Array.isArray(dr) ? dr : []);
+      const setsByEx = (dr.sets && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
+      const ts = _now();
+      for (const uuid of del) {
+        if (typeof uuid === 'string' && uuid) {
+          await dbRun(
+            `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
+             VALUES (?, ?, 'exercise', '', ?, ?, 'pending')`,
+            [ME, date, uuid, ts]
+          );
+        }
+      }
+      for (const [exUuid, uuids] of Object.entries(setsByEx)) {
+        for (const uuid of (uuids || [])) {
+          if (typeof uuid === 'string' && uuid) {
+            await dbRun(
+              `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
+               VALUES (?, ?, 'set', ?, ?, ?, 'pending')`,
+              [ME, date, exUuid, uuid, ts]
+            );
+          }
+        }
+      }
     }
+
+    // (Auto-delete-empty-entries shortcut removed — the server dropped
+    // it when Option C landed on 2026-08-11 in workout.js; day-level
+    // deletion now requires an explicit DELETE /api/workout/:date on
+    // both sides. Leaving it here caused a Load Workout on Android
+    // native-server mode to soft-delete the local row (fresh template
+    // sets have completed:false → hasAny was false → row got
+    // soft-deleted locally even though the server preserved it), so
+    // any subsequent load returned null from local-first cache and
+    // the diary UI blanked. The user then re-added, and because the
+    // client snapshot was empty, deleted_uuids came out empty, and
+    // the server merge stacked the new exercises on top of the ones
+    // the server had preserved. See issue-report thread 2026-08-24.)
     const existing = await Workout.byDate(date);
     if (existing) {
       await dbRun(
@@ -1037,6 +1096,10 @@ const Stats = {
     // muscle-group volume chart looking the same on both modes.
     const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet)
       .filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    // Includes soft-deleted rows on purpose (#49): sets logged against an
+    // exercise the user later cleared from their library still need their
+    // muscle group to resolve, otherwise every affected set would fall
+    // through to the 'other' bucket and skew Muscle Balance.
     const exRows = await dbQuery(`SELECT id, primary_muscles, category FROM exercises`, []);
     const exMap = {};
     for (const r of exRows) {

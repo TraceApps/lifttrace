@@ -133,7 +133,13 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
 router.get('/muscle-group-volume', wrap((req, res) => {
   const { start, end } = req.query;
   const rows = getWorkouts(uid(req), start, end);
-  // Build exercise_id → primary muscles[] lookup once
+  // Build exercise_id → primary muscles[] lookup once. Includes soft-
+  // deleted rows on purpose (#49): sets logged against an exercise the
+  // user later cleared from their library still need their muscle group
+  // to resolve, otherwise every affected set would fall through to the
+  // 'other' bucket and skew Muscle Balance. Cleared rows still hold
+  // their `primary_muscles` / `category` — soft delete only hides them
+  // from the picker, not from stats resolvers.
   const exRows = db.prepare('SELECT id, primary_muscles, category, load_type FROM exercises').all();
   const exMap = {};
   for (const ex of exRows) {

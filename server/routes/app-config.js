@@ -87,7 +87,8 @@ router.post('/test-email', requireAuth, requireAdmin, wrap(async (req, res) => {
   const to = (typeof body.to === 'string' && body.to.trim()) || req.user?.email || undefined;
   // Origin lets the email template load the app logo. Recipient name
   // personalizes the greeting.
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const origin = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
   const recipientName = req.user?.full_name || req.user?.nickname || req.user?.username || null;
   try {
     const result = await testSmtp({ overrides, to, origin, recipientName });

@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { onWorkoutCompleted } from '../lib/coach-activity.js';
+import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -14,8 +15,8 @@ router.get('/recent', wrap((req, res) => {
   const limit = parseInt(req.query.limit) || 30;
   const userId = uid(req);
   const rows = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? ORDER BY date DESC LIMIT ?').all(userId, limit)
-    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL ORDER BY date DESC LIMIT ?').all(limit);
+    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT ?').all(userId, limit)
+    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND deleted_at IS NULL ORDER BY date DESC LIMIT ?').all(limit);
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   res.json(rows);
 }));
@@ -25,8 +26,8 @@ router.get('/history/:exerciseId', wrap((req, res) => {
   const exerciseId = parseInt(req.params.exerciseId);
   const userId = uid(req);
   const rows = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? ORDER BY date DESC').all(userId)
-    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL ORDER BY date DESC').all();
+    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(userId)
+    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND deleted_at IS NULL ORDER BY date DESC').all();
 
   const history = [];
   for (const row of rows) {
@@ -50,7 +51,7 @@ router.get('/:date/feedback', wrap((req, res) => {
   const userId = uid(req);
   if (userId == null) return res.json([]);
   const workout = db.prepare(
-    'SELECT id FROM workout_log WHERE date = ? AND user_id = ?'
+    'SELECT id FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL'
   ).get(req.params.date, userId);
   if (!workout) return res.json([]);
   const rows = db.prepare(`
@@ -75,8 +76,8 @@ router.get('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
   const workout = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
-    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
+    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(date, userId)
+    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(date);
 
   if (workout) {
     workout.exercises = JSON.parse(workout.exercises || '[]');
@@ -100,43 +101,107 @@ router.get('/:date', wrap((req, res) => {
   res.json({ workout: workout || null });
 }));
 
+// ── Tombstone helpers (Option C) ─────────────────────────────────────────
+// Loaded here rather than in a shared module to keep this route file
+// self-contained; sync.js has its own copies for the same reason.
+function _tsWhere(u) { return u == null ? 'user_id IS NULL' : 'user_id = ?'; }
+function _loadExerciseTombstoneUuids(u, date) {
+  const where = _tsWhere(u);
+  const stmt = db.prepare(`SELECT uuid FROM workout_tombstones WHERE ${where} AND date = ? AND kind = 'exercise'`);
+  const rows = u == null ? stmt.all(date) : stmt.all(u, date);
+  return rows.map(r => r.uuid);
+}
+function _loadSetTombstoneUuidsByExercise(u, date) {
+  const where = _tsWhere(u);
+  const stmt = db.prepare(`SELECT ex_uuid, uuid FROM workout_tombstones WHERE ${where} AND date = ? AND kind = 'set'`);
+  const rows = u == null ? stmt.all(date) : stmt.all(u, date);
+  const out = {};
+  for (const r of rows) {
+    (out[r.ex_uuid] = out[r.ex_uuid] || []).push(r.uuid);
+  }
+  return out;
+}
+function _loadTombstones(u, date) {
+  const where = _tsWhere(u);
+  const stmt = db.prepare(`SELECT kind, ex_uuid, uuid, deleted_at FROM workout_tombstones WHERE ${where} AND date = ?`);
+  return u == null ? stmt.all(date) : stmt.all(u, date);
+}
+
 // PUT /api/workout/:date — save/update
+//
+// Merge semantics (Option C, 2026-08-11 port from NutriTrace): the
+// exercises array is now merged per-uuid rather than replaced wholesale,
+// and each exercise's sets[] is merged per-uuid too. Prior behavior
+// wiped a full workout session when a stale mobile client PUT an empty
+// exercises array — that DELETE-on-empty shortcut is removed; day-level
+// deletion now requires an explicit `DELETE /api/workout/:date`. See
+// project_traceapps_diary_merge_port for the shared design.
 router.put('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
   const { template_id, program_id, name, exercises, notes, duration_min, completed, program_week } = req.body;
 
+  // Parse per-uuid deletions in either shape (per-kind object or a flat
+  // exercise-only list from an older client).
+  const deletedRaw = req.body.deleted_uuids;
+  const deletedExUuids = Array.isArray(deletedRaw?.exercises) ? deletedRaw.exercises
+    : Array.isArray(deletedRaw) ? deletedRaw
+    : [];
+  const deletedSetsByEx = (deletedRaw && typeof deletedRaw.sets === 'object' && !Array.isArray(deletedRaw.sets))
+    ? deletedRaw.sets
+    : {};
+
   const existing = userId != null
-    ? db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
-    : db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
+    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
+    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
+  const serverExercises = existing ? JSON.parse(existing.exercises || '[]') : [];
 
-  // If exercises array is empty, delete the entry instead of keeping an empty record
-  if ((!exercises || exercises.length === 0) && existing) {
-    db.prepare('DELETE FROM workout_log WHERE id = ?').run(existing.id);
-    return res.json({ workout: null });
-  }
+  const priorExTombstones  = _loadExerciseTombstoneUuids(userId, date);
+  const priorSetTombstones = _loadSetTombstoneUuidsByExercise(userId, date);
 
-  const exercisesJson = JSON.stringify(exercises || []);
+  const {
+    merged: mergedExercises,
+    newTombstoneExerciseUuids: newExTombstones,
+    newTombstoneSetUuidsByExercise: newSetTombstones,
+  } = mergeExercises(
+    serverExercises, ensureExerciseUuids(exercises || []),
+    deletedExUuids, priorExTombstones,
+    deletedSetsByEx, priorSetTombstones
+  );
 
-  // Snapshot the prior completion state — used to decide whether the save
-  // represents a fresh completion (and should fire the coach activity / push).
-  const wasCompleted = existing
-    ? !!db.prepare('SELECT completed FROM workout_log WHERE id = ?').get(existing.id)?.completed
-    : false;
+  // Insert-if-new; otherwise UPDATE. An empty merged list is still a
+  // legitimate state (e.g. new day where the client only pushed
+  // metadata); it no longer triggers row deletion. The explicit
+  // `DELETE /api/workout/:date` route below handles day-level deletion.
+  const wasCompleted = existing ? !!existing.completed : false;
+  const exercisesJson = JSON.stringify(mergedExercises);
 
-  if (existing) {
-    db.prepare(
-      `UPDATE workout_log SET template_id=?, program_id=?, name=?, exercises=?, notes=?, duration_min=?, completed=?, program_week=?
-       WHERE id=?`
-    ).run(template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null, existing.id);
-  } else if (exercises && exercises.length > 0) {
-    db.prepare(
-      `INSERT INTO workout_log (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(userId, date, template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null);
-  } else {
-    return res.json({ workout: null });
-  }
+  const insertTombstone = db.prepare(
+    `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))`
+  );
+
+  db.transaction(() => {
+    if (existing) {
+      // Clear deleted_at on save so an explicit UPDATE resurrects a
+      // row that a client had previously soft-deleted (sync-push at
+      // sync.js line 368). Without this, GETs would keep filtering it
+      // out even after the user re-adds a workout on that date.
+      db.prepare(
+        `UPDATE workout_log SET template_id=?, program_id=?, name=?, exercises=?, notes=?, duration_min=?, completed=?, program_week=?, deleted_at=NULL
+         WHERE id=?`
+      ).run(template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null, existing.id);
+    } else {
+      db.prepare(
+        `INSERT INTO workout_log (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(userId, date, template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null);
+    }
+    for (const uuid of newExTombstones) insertTombstone.run(userId, date, 'exercise', '', uuid);
+    for (const [exUuid, uuids] of Object.entries(newSetTombstones)) {
+      for (const uuid of uuids) insertTombstone.run(userId, date, 'set', exUuid, uuid);
+    }
+  })();
 
   const workout = userId != null
     ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
@@ -151,7 +216,25 @@ router.put('/:date', wrap((req, res) => {
     catch (e) { /* never let a notification failure block the save */ }
   }
 
-  res.json({ workout });
+  res.json({ workout, tombstones: _loadTombstones(userId, date) });
+}));
+
+// DELETE /api/workout/:date — explicit day-level deletion.
+//
+// Replaces the old "empty exercises array on PUT deletes the row"
+// shortcut, which was the shape that let a stale mobile client wipe an
+// entire workout session under the pre-merge behavior. Now day-level
+// deletion is an explicit intent, not something the server can infer
+// from an accidentally-empty payload.
+router.delete('/:date', wrap((req, res) => {
+  const { date } = req.params;
+  const userId = uid(req);
+  const existing = userId != null
+    ? db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
+    : db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
+  if (!existing) return res.json({ ok: true, deleted: false });
+  db.prepare('DELETE FROM workout_log WHERE id = ?').run(existing.id);
+  res.json({ ok: true, deleted: true });
 }));
 
 export default router;

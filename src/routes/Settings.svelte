@@ -1,10 +1,11 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
   import { slide, fade } from 'svelte/transition';
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
-  import { accentColor, applyAccentColor, pageBanners, bannerStyle } from '../stores/settings.js';
+  import { accentColor, applyAccentColor, pageBanners, bannerStyle, aiEnabled, appearance as appearanceStore, disableAnimations } from '../stores/settings.js';
+  import { activeProgram, loadActiveProgram } from '../stores/workout.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
   import SettingsUpdates from '../components/settings/SettingsUpdates.svelte';
@@ -23,6 +24,11 @@
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
   import SettingsAuth from '../components/settings/SettingsAuth.svelte';
   import SettingsDiagnostics from '../components/settings/SettingsDiagnostics.svelte';
+  // Profile is a route in its own right, but the desktop welcome hero
+  // embeds it inline so users can edit their info without navigating
+  // away from Settings. The Profile route detects the /settings prefix
+  // and strips its own header when embedded (see Profile.svelte).
+  import Profile from './Profile.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
   import { portal } from '../lib/portal.js';
   import {
@@ -360,9 +366,9 @@
 
   const SECTION_KEYWORDS = {
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
-    appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce'],
+    appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce','force mobile','mobile layout','mobile view','phone layout','narrow layout','desktop'],
     workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill'],
-    units:          ['units','measurement','measurement system','format','date','time','12h','24h','locale','region','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
+    units:          ['language','languages','units','measurement','measurement system','format','date','time','12h','24h','locale','region','regional','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
     trace:          ['trace','ai','assistant','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image'],
     radio:          ['radio','music','player','subsonic','navidrome','jellyfin','streaming','audio','playlist'],
@@ -375,7 +381,7 @@
     users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
-    updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose'],
+    updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
     about:          ['about','version','lifttrace','license','sister','nutritrace'],
   };
@@ -394,8 +400,9 @@
   $: currentSection = params?.section || null;
 
   const SECTION_META = {
+    profile:          { titleKey: 'profile.title',                      icon: 'person' },
     appearance:       { titleKey: 'settings.appearance.section',        icon: 'contrast' },
-    units:            { titleKey: 'settings.units.section',             icon: 'straighten' },
+    units:            { titleKey: 'settings.units.section',             icon: 'language' },
     workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
     statistics:       { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
     catalog:          { titleKey: 'settings.catalog.section',           icon: 'library_books' },
@@ -522,7 +529,245 @@
   // Reset to defaults + clear-data + delete-account moved into SettingsBackup.svelte
 
   // Sign-out is handled in the sidebar footer. See Sidebar.svelte.
+
+  // Desktop-only rail: friendly placeholder when the current search query
+  // matches nothing. Mobile drops back to the "no settings match" empty
+  // state below the section stack; the rail rendering is desktop-only.
+  $: _railNoMatches = !!settingsQuery && Object.keys(SECTION_META).every(k => !sectionVisible(settingsQuery, k));
+
+  // Desktop welcome-hero: profile card is expandable inline instead of
+  // routing away (matches NT). Chevron rotates + body slides in/out.
+  // Default expanded so the pane is immediately useful. Mobile keeps
+  // routing to /profile via the mobile profile-hero button — no rail
+  // context to preserve there.
+  let _profileHeroExpanded = true;
+  function _toggleProfileHero() {
+    _profileHeroExpanded = !_profileHeroExpanded;
+  }
+  // Auto-expand ONLY on the transition into /settings/profile from
+  // another section (rail-tap flow) so "Profile from rail" and
+  // "Profile as landing" look the same. Tracked via a watch flag —
+  // a plain `$: if (currentSection === 'profile') expanded = true`
+  // would re-force expanded on every Svelte tick while currentSection
+  // stays 'profile', making the collapse toggle look broken (chevron
+  // rotates but body never leaves).
+  // Rail active-pill: the moving highlight that slides between rail
+  // items on section change. Absolutely positioned inside the rail;
+  // we measure the active button's offsetTop/offsetHeight and drive
+  // CSS transform + height. First measurement is applied without a
+  // transition (via _pillReady flag) so it doesn't jump from 0 on
+  // initial mount.
+  let _railEl;
+  let _pillY = 0;
+  let _pillH = 0;
+  let _pillVisible = false;
+  let _pillReady = false;
+  let _pillRO;
+  function _measurePill() {
+    if (!_railEl) return;
+    const btn = _railEl.querySelector('.rail-btn.active');
+    if (!btn) { _pillVisible = false; return; }
+    const y = btn.offsetTop;
+    const h = btn.offsetHeight;
+    if (_pillVisible && y === _pillY && h === _pillH) return;
+    _pillY = y;
+    _pillH = h;
+    _pillVisible = true;
+    if (!_pillReady) requestAnimationFrame(() => { _pillReady = true; });
+  }
+  // Defer one paint frame so any conditional subtrees (the admin
+  // {#if $userMgmtActive && $currentUser?.role === 'admin'} block
+  // holding Users/Authentication/Email) have committed before we
+  // querySelector for .active. Without the rAF, clicking a section
+  // inside that block races past the measurement, comes up empty,
+  // and hides the pill until an unrelated re-render lands.
+  afterUpdate(() => requestAnimationFrame(_measurePill));
+  onMount(() => {
+    if (typeof ResizeObserver === 'undefined' || !_railEl) return;
+    _pillRO = new ResizeObserver(_measurePill);
+    _pillRO.observe(_railEl);
+  });
+  onDestroy(() => { _pillRO?.disconnect(); });
+
+  let _lastProfileNavKey = null;
+  $: {
+    const key = String(currentSection || '');
+    if (key !== _lastProfileNavKey) {
+      _lastProfileNavKey = key;
+      if (key === 'profile') _profileHeroExpanded = true;
+    }
+  }
+
+  // Desktop welcome-hero onboarding cards (mirrors NT). Each card is
+  // state-gated so it disappears once the underlying thing is set up.
+  // Established users see a clean welcome; new users get one-tap
+  // nudges toward the high-value setup steps. Order chosen for LT:
+  // Server (blocks sync) → Program (drives every workout suggestion)
+  // → Trace (the AI coach). Users can also × any card they don't
+  // intend to configure — dismissals persist in localStorage as a
+  // comma-separated key list.
+  //
+  // A card's `route` overrides the default "open the matching settings
+  // section" behavior. Used for Pick-a-Program, which lives at the
+  // Programs library route, not in a Settings sub-page.
+  let _onboardingDismissed = new Set();
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('lt:onboardingDismissed') || '';
+      _onboardingDismissed = new Set(raw.split(',').filter(Boolean));
+    }
+  } catch { /* ignore */ }
+  function _dismissOnboarding(key) {
+    _onboardingDismissed = new Set([..._onboardingDismissed, key]);
+    try {
+      localStorage.setItem('lt:onboardingDismissed', [..._onboardingDismissed].join(','));
+    } catch { /* ignore */ }
+  }
+  // `$activeProgram` starts null and gets populated async from the API,
+  // so the Pick-a-Program card would render for the ~200ms round-trip
+  // even on accounts that have a program active — a visible flash on
+  // first-load of Settings. Gate the card on `_activeProgramLoaded` so
+  // it only appears once we've confirmed the load state.
+  let _activeProgramLoaded = false;
+  onMount(async () => {
+    try { await loadActiveProgram(); } catch {}
+    _activeProgramLoaded = true;
+  });
+  $: _onboardingCards = (() => {
+    const cards = [];
+    if (isNative && !getServerUrl()) {
+      cards.push({ key: 'serverConnection', icon: 'cloud_sync', label: 'Connect a Server', desc: 'Sync your workouts across devices.' });
+    }
+    if (_activeProgramLoaded && !$activeProgram) {
+      cards.push({ key: 'program',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.', route: '/programs' });
+    }
+    if (!$aiEnabled) {
+      cards.push({ key: 'trace',     icon: 'bolt', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
+    }
+    return cards.filter(c => !_onboardingDismissed.has(c.key));
+  })();
 </script>
+
+<!-- Rail + mobile-index section list. Same list markup rendered in two
+     places (aside.settings-nav-rail on desktop ≥1024px, and inline in
+     the pane on mobile via CSS). Each button routes to /settings/<key>
+     via toggleSection. Sections are laid out to match the group labels
+     already used in the pane. -->
+{#snippet sectionButtons()}
+  <!-- Profile always sits at the top — it's the account-level entry
+       and gets a matching hero card in the desktop welcome pane. From
+       any deep sub-page users can jump straight here via the rail. -->
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'profile')} class:active={currentSection === 'profile'} aria-current={currentSection === 'profile' ? 'page' : undefined} on:click={() => toggleSection('profile')}>
+    <span class="material-symbols-rounded si">person</span>
+    <span>{$_('profile.title')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  <p class="settings-group-label">{$_('settings_main.group_display')}</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'appearance')} class:active={currentSection === 'appearance'} aria-current={currentSection === 'appearance' ? 'page' : undefined} on:click={() => toggleSection('appearance')}>
+    <span class="material-symbols-rounded si">contrast</span>
+    <span>{$_('settings.appearance.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'units')} class:active={currentSection === 'units'} aria-current={currentSection === 'units' ? 'page' : undefined} on:click={() => toggleSection('units')}>
+    <span class="material-symbols-rounded si">language</span>
+    <span>{$_('settings.units.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  <p class="settings-group-label">Data &amp; Tracking</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'workout')} class:active={currentSection === 'workout'} aria-current={currentSection === 'workout' ? 'page' : undefined} on:click={() => toggleSection('workout')}>
+    <span class="material-symbols-rounded si">fitness_center</span>
+    <span>{$_('settings.workout.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'statistics')} class:active={currentSection === 'statistics'} aria-current={currentSection === 'statistics' ? 'page' : undefined} on:click={() => toggleSection('statistics')}>
+    <span class="material-symbols-rounded si">bar_chart</span>
+    <span>{$_('settings.statistics.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'catalog')} class:active={currentSection === 'catalog'} aria-current={currentSection === 'catalog' ? 'page' : undefined} on:click={() => toggleSection('catalog')}>
+    <span class="material-symbols-rounded si">library_books</span>
+    <span>{$_('settings.catalog.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'workoutImport')} class:active={currentSection === 'workoutImport'} aria-current={currentSection === 'workoutImport' ? 'page' : undefined} on:click={() => toggleSection('workoutImport')}>
+    <span class="material-symbols-rounded si">upload</span>
+    <span>{$_('settings.workout_import.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  <p class="settings-group-label">{$_('settings_main.group_integrations')}</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'trace')} class:active={currentSection === 'trace'} aria-current={currentSection === 'trace' ? 'page' : undefined} on:click={() => toggleSection('trace')}>
+    <span class="material-symbols-rounded si">bolt</span>
+    <span>{$_('settings.trace.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'radio')} class:active={currentSection === 'radio'} aria-current={currentSection === 'radio' ? 'page' : undefined} on:click={() => toggleSection('radio')}>
+    <span class="material-symbols-rounded si">radio</span>
+    <span>{$_('settings.radio.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'federation')} class:active={currentSection === 'federation'} aria-current={currentSection === 'federation' ? 'page' : undefined} on:click={() => toggleSection('federation')}>
+    <span class="material-symbols-rounded si">link</span>
+    <span>{$_('settings.federation.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  <p class="settings-group-label">App</p>
+  {#if isNative}
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} class:active={currentSection === 'serverConnection'} aria-current={currentSection === 'serverConnection' ? 'page' : undefined} on:click={() => toggleSection('serverConnection')}>
+      <span class="material-symbols-rounded si">cloud</span>
+      <span>{$_('settings.server.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+  {/if}
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'notifications')} class:active={currentSection === 'notifications'} aria-current={currentSection === 'notifications' ? 'page' : undefined} on:click={() => toggleSection('notifications')}>
+    <span class="material-symbols-rounded si">notifications</span>
+    <span>{$_('settings.notifications.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'data')} class:active={currentSection === 'data'} aria-current={currentSection === 'data' ? 'page' : undefined} on:click={() => toggleSection('data')}>
+    <span class="material-symbols-rounded si">archive</span>
+    <span>{$_('settings.backup.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'updates')} class:active={currentSection === 'updates'} aria-current={currentSection === 'updates' ? 'page' : undefined} on:click={() => toggleSection('updates')}>
+    <span class="material-symbols-rounded si">system_update</span>
+    <span>{$_('settings.updates.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'helpImprove')} class:active={currentSection === 'helpImprove'} aria-current={currentSection === 'helpImprove' ? 'page' : undefined} on:click={() => toggleSection('helpImprove')}>
+    <span class="material-symbols-rounded si">troubleshoot</span>
+    <span>{$_('settings.diagnostics.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+
+  {#if $userMgmtActive && $currentUser?.role === 'admin'}
+    <p class="settings-group-label">{$_('settings_main.group_admin')}</p>
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'users')} class:active={currentSection === 'users'} aria-current={currentSection === 'users' ? 'page' : undefined} on:click={() => toggleSection('users')}>
+      <span class="material-symbols-rounded si">group</span>
+      <span>{$_('settings.users.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'authentication')} class:active={currentSection === 'authentication'} aria-current={currentSection === 'authentication' ? 'page' : undefined} on:click={() => toggleSection('authentication')}>
+      <span class="material-symbols-rounded si">shield_person</span>
+      <span>{$_('settings.authentication.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'email')} class:active={currentSection === 'email'} aria-current={currentSection === 'email' ? 'page' : undefined} on:click={() => toggleSection('email')}>
+      <span class="material-symbols-rounded si">mail</span>
+      <span>{$_('settings.email.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+  {/if}
+
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'about')} class:active={currentSection === 'about'} aria-current={currentSection === 'about' ? 'page' : undefined} on:click={() => toggleSection('about')}>
+    <span class="material-symbols-rounded si">info</span>
+    <span>{$_('settings.about.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
+{/snippet}
 
 <div class="page">
   <!-- Sticky header + search wrap so the search bar tracks the page header
@@ -551,8 +796,11 @@
       {/if}
     </header>
 
-    {#if !currentSection}
-      <div class="settings-search-bar">
+    <!-- Search bar always in DOM. On mobile the sub-page hides it via
+         CSS (users just backed into a section, they don't need to filter
+         again). On desktop it stays visible so the rail on the left can
+         be filtered while inside any section. -->
+    <div class="settings-search-bar" class:mobile-hide-on-subpage={!!currentSection}>
       <span class="material-symbols-rounded settings-search-icon">search</span>
       <input
         class="settings-search-input"
@@ -565,16 +813,142 @@
           <span class="material-symbols-rounded" style="font-size:18px">close</span>
         </button>
       {/if}
-      </div>
-    {/if}
+    </div>
   </div>
 
-  <div class="content" class:subpage-view={!!currentSection}>
+  <div class="content settings-content" class:subpage-view={!!currentSection}>
+    <!-- Two-pane shell. Below 1024px this is a plain block (rail
+         hidden, pane full-width). At ≥1024px + not force-mobile the
+         rail becomes a sticky 280px column with its own scroll and
+         the pane takes the remaining space. Matches NutriTrace's
+         shell 1:1 so the family stays visually uniform. -->
+    <div class="settings-two-pane">
+      <aside class="settings-nav-rail" aria-label="Settings sections"
+             bind:this={_railEl}>
+        <!-- Sliding highlight pill. Absolutely positioned; its
+             translateY + height animate to the active rail button on
+             every section change. Behind the button text (z-index:0). -->
+        <div class="rail-active-pill"
+             class:visible={_pillVisible}
+             class:ready={_pillReady && !$disableAnimations}
+             style="transform: translateY({_pillY}px); height: {_pillH}px;"
+             aria-hidden="true"></div>
+        {@render sectionButtons()}
+        {#if _railNoMatches}
+          <div class="settings-nav-empty">
+            <span class="material-symbols-rounded">search_off</span>
+            <p>No sections match "{settingsSearch}"</p>
+            <button type="button" class="settings-nav-clear"
+              on:click={() => settingsSearch = ''}>
+              Clear search
+            </button>
+          </div>
+        {/if}
+      </aside>
 
-    <!-- ── Profile hero — identity card at the top of Settings.
+      <div class="settings-pane">
+
+    <!-- Desktop welcome hero. Shown only when no section is drilled into
+         (or when the drill target is the Profile section — the hero
+         + inline Profile IS the Profile view on desktop). Below 1024px
+         this whole block hides via CSS; the mobile profile-hero below
+         (which routes to /profile) takes over there. Mirrors NT's
+         desktop-hero pattern 1:1. -->
+    {#if !currentSection || currentSection === 'profile'}
+      {@const _u = $currentUser || {}}
+      {@const _nick = (_u.nickname || '').trim()}
+      {@const _full = (_u.full_name || '').trim()}
+      {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || $_('settings_main.profile_fallback')}
+      {@const _hasName = _displayName !== $_('settings_main.profile_fallback')}
+      {@const _initial = (_displayName[0] || '?').toUpperCase()}
+      <div class="settings-desktop-hero">
+        <button class="profile-hero profile-hero-expander" on:click={_toggleProfileHero}
+          aria-expanded={_profileHeroExpanded}>
+          <div class="profile-hero-avatar">
+            {#if _u.avatar_url}
+              <img src={resolveAssetUrl(_u.avatar_url)} alt="" />
+            {:else if _hasName}
+              <span class="profile-hero-initial">{_initial}</span>
+            {:else}
+              <span class="material-symbols-rounded">person</span>
+            {/if}
+          </div>
+          <div class="profile-hero-info">
+            <span class="profile-hero-name">{_displayName}</span>
+            {#if _hasName && _u.role === 'admin' && $userMgmtActive}
+              <span class="profile-hero-role">admin</span>
+            {:else if !_hasName}
+              <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
+            {/if}
+          </div>
+          <span class="material-symbols-rounded profile-hero-chev profile-hero-chev-toggle"
+            class:profile-hero-chev-open={_profileHeroExpanded}>expand_more</span>
+        </button>
+        {#if _profileHeroExpanded}
+          <!-- Profile editor rendered inline inside the welcome pane.
+               Same <Profile /> route component; it detects the /settings
+               URL prefix and strips its own header when embedded. Slide
+               transition gives the accordion feel NT users are used to. -->
+          <div class="profile-hero-body"
+            transition:slide={{ duration: $disableAnimations ? 0 : 220 }}>
+            <Profile />
+          </div>
+        {/if}
+        {#if !currentSection && _onboardingCards.length > 0}
+          <!-- Onboarding shortcut grid. Only shown on the desktop
+               welcome pane (not the /settings/profile drill), and
+               only when at least one card is state-relevant. Cards
+               disappear once the underlying thing is configured or
+               the user × dismisses them. Ports NT's shape. -->
+          <div class="settings-onboarding">
+            <p class="settings-onboarding-heading">Get Set Up</p>
+            <div class="settings-onboarding-grid">
+              {#each _onboardingCards as card (card.key)}
+                <div class="settings-onboarding-card-wrap">
+                  <button type="button" class="settings-onboarding-card"
+                    on:click={() => card.route ? push(card.route) : toggleSection(card.key)}>
+                    <span class="material-symbols-rounded">{card.icon}</span>
+                    <div class="settings-onboarding-copy">
+                      <span class="settings-onboarding-label">{card.label}</span>
+                      <span class="settings-onboarding-desc">{card.desc}</span>
+                    </div>
+                  </button>
+                  <button type="button" class="settings-onboarding-dismiss"
+                    on:click|stopPropagation={() => _dismissOnboarding(card.key)}
+                    aria-label="Dismiss {card.label}"
+                    title="Dismiss">
+                    <span class="material-symbols-rounded">close</span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {:else if !currentSection}
+          <!-- Everyone dismissed or configured: fall back to the plain
+               prompt so the pane isn't left with a lone profile card. -->
+          <p class="settings-desktop-prompt">{$_('settings_main.pick_a_section')}</p>
+        {/if}
+      </div>
+    {/if}
+
+    {#if currentSection === 'profile'}
+      <!-- Mobile fallback for a direct URL land on /settings/profile.
+           Desktop already shows Profile inline via the welcome hero
+           above (with _profileHeroExpanded), so this block is hidden
+           on desktop via CSS to avoid rendering Profile twice. Mobile
+           has no rail so it wouldn't reach here through normal UX,
+           but URL / back-nav / bookmark still needs to work. -->
+      <div class="mobile-profile-inline">
+        <Profile />
+      </div>
+    {/if}
+
+    <!-- ── Mobile profile hero — identity card at the top of Settings.
          Avatar + name (nickname → full name → "My Profile" fallback) +
-         optional admin pill. Click → /profile. Hidden during search
-         when no profile keyword matches so it doesn't dilute results. -->
+         optional admin pill. Click → /profile (full-page editor). Hidden
+         on desktop via CSS since the welcome hero above owns that
+         surface. Hidden during search when no profile keyword matches
+         so it doesn't dilute results. -->
     {#if sectionVisible(settingsQuery, 'profile')}
     {@const _u = $currentUser || {}}
     {@const _nick = (_u.nickname || '').trim()}
@@ -582,7 +956,7 @@
     {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || 'My Profile'}
     {@const _hasName = _displayName !== 'My Profile'}
     {@const _initial = (_displayName[0] || '?').toUpperCase()}
-    <button class="profile-hero" on:click={() => push('/profile')}>
+    <button class="profile-hero mobile-profile-hero" on:click={() => push('/profile')}>
       <div class="profile-hero-avatar">
         {#if _u.avatar_url}
           <img src={resolveAssetUrl(_u.avatar_url)} alt="" />
@@ -604,6 +978,96 @@
     </button>
     {/if}
 
+    {#if currentSection && currentSection !== 'profile'}
+      <!-- Sub-page render (Unit 2C). Only the current section mounts,
+           keyed on currentSection so navigating between sections
+           cross-fades cleanly. Mounts on nav = onMount fires on every
+           section change; accepted trade-off (matches NT) so users see
+           a fresh view + short intro animation per section instead of
+           the always-mounted accordion. The .settings-mobile-index
+           branch below still handles the non-sub-page case (mobile
+           and desktop /settings landing). -->
+      {#key currentSection}
+        <!-- in:fade only (matches NutriTrace). transition:fade would
+             cross-fade old + new, but the two divs are in normal flow
+             so they'd stack vertically for the transition duration —
+             visible double-height flash. Old-out-instantly + new-fades-
+             in is what NT does and it reads clean. -->
+        <div class="settings-pane-fade"
+             in:fade={{ duration: $disableAnimations ? 0 : 140 }}>
+          {#if currentSection === 'appearance'}
+            <SettingsAppearance visible={true} expanded={true} onToggle={backToIndex} onOpenColorSheet={openColorSheet} />
+          {:else if currentSection === 'units'}
+            <SettingsUnits visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'workout'}
+            <SettingsWorkout visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'statistics'}
+            <SettingsStatistics visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'catalog'}
+            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'trace'}
+            <SettingsTrace visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'radio'}
+            <SettingsRadio visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'federation'}
+            <SettingsFederation visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'notifications'}
+            <SettingsNotifications visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'data'}
+            <SettingsBackup visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'workoutImport'}
+            <SettingsWorkoutImport visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'helpImprove'}
+            <SettingsDiagnostics visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'users'}
+            <SettingsUserManagement visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'authentication'}
+            <SettingsAuth visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'email'}
+            <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'about'}
+            <SettingsAbout visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'updates'}
+            <!-- Updates is a shared TraceApps component without the
+                 visible/expanded/onToggle prop shape; render it in the
+                 same header + body wrapper the mobile-index inline
+                 rendering uses so it looks identical. -->
+            <button class="section-toggle" on:click={backToIndex}>
+              <span class="material-symbols-rounded si">system_update</span>
+              <span class="section-name">{$_('settings.updates.section')}</span>
+              <span class="material-symbols-rounded chevron rotated">expand_more</span>
+            </button>
+            <div class="section-body">
+              <SettingsUpdates />
+            </div>
+          {:else if currentSection === 'serverConnection'}
+            <!-- Server Connection is inline markup, not a component.
+                 Rendered elsewhere in the accordion stack — but for
+                 sub-page mode we intentionally keep the accordion
+                 stack rendering for this ONE section so we don't have
+                 to duplicate ~80 lines of markup here. The stack below
+                 already renders it under the correct visible/expanded
+                 flags; .subpage-view CSS filters the others out. -->
+            <div class="settings-mobile-index">
+              {@render _inlineStack()}
+            </div>
+          {/if}
+        </div>
+      {/key}
+    {:else}
+    <!-- Non-sub-page render: the mobile-index accordion (also serves
+         as the desktop landing before Unit 1's rail gets used). -->
+    <div class="settings-mobile-index">
+    {@render _inlineStack()}
+    </div>
+    {/if}
+
+    <!-- Accordion stack — extracted into a snippet so both the mobile-
+         index branch and the serverConnection sub-page branch can call
+         it without duplication. Inside {@render}, .subpage-view CSS
+         still handles filtering when we're on the serverConnection
+         sub-page (hides everything except that section's body). -->
+    {#snippet _inlineStack()}
     <!-- ═══ DISPLAY ═══════════════════════════════════════════════════════ -->
     <p class="group-label">{$_('settings_main.group_display')}</p>
 
@@ -847,6 +1311,9 @@
     {/if}
 
     <div style="height:24px"></div>
+    {/snippet}
+      </div><!-- /.settings-pane -->
+    </div><!-- /.settings-two-pane -->
   </div>
 </div>
 
@@ -1122,6 +1589,15 @@
   .subpage-view :global(.group-label) { display: none; }
   .subpage-view :global(.profile-hero) { display: none; }
   .subpage-view :global(.section-toggle) { display: none; }
+  /* Kill Svelte's transition:slide on section-body when in sub-page
+     view (matches NutriTrace). SettingsX children still declare a
+     slide entry for the accordion pattern in the mobile stack, but
+     on sub-page mount the .settings-pane-fade wrapper already fades
+     in — a simultaneous body-slide reads as a growing/settling
+     effect on top of the fade. Killing `animation` (which is what
+     Svelte's slide compiles to) leaves the wrapper fade as the sole
+     entry motion, so the swap feels identical to NT. */
+  .subpage-view :global(.section-body) { animation: none !important; }
 
   /* Back arrow header button — mirrors NT + CT. */
   .settings-back {
@@ -1649,5 +2125,349 @@
     height: 100%;
     background: var(--accent);
     transition: width 0.2s ease;
+  }
+
+  /* ── Two-pane desktop shell (Unit 1) ─────────────────────────────────
+     Mobile default: plain block, rail hidden, .settings-mobile-index
+     path is what users see. At >=1024px (unless html.force-mobile-layout
+     is set) the rail becomes a sticky 280px sidebar and the pane takes
+     the remaining space. Mirrors NutriTrace's Settings shell 1:1 so the
+     family stays visually uniform. Rail is desktop-only; on mobile the
+     drill-in stack of the pane keeps working exactly as before. */
+  .settings-two-pane { display: block; }
+  .settings-nav-rail { display: none; }
+
+  /* Mobile-only: hide the search bar once the user drills into a
+     sub-page. They just made a choice; a re-filter isn't useful there.
+     Desktop keeps it visible so the rail on the left stays filterable. */
+  @media (max-width: 1023px) {
+    .settings-search-bar.mobile-hide-on-subpage { display: none; }
+  }
+
+  @media (min-width: 1024px) {
+    :global(html:not(.force-mobile-layout)) .settings-two-pane {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* Left rail — sticky below the header + search bar, own scroll if
+       the section list overflows the viewport. Same offset math NT uses
+       (--page-top + header/search combined height). */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      position: sticky;
+      /* establishes containing block for the abs-positioned pill */
+      isolation: isolate;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      padding: 10px 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    /* Rail buttons — compact, no big icons, no chevron (that's the
+       accordion affordance from the mobile stack). Focus-visible ring
+       for keyboard nav. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn {
+      background: transparent;
+      border: none;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      gap: 10px;
+      display: flex;
+      align-items: center;
+      color: var(--text-1);
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      /* Sit above the sliding pill (z-index:0) so text + icons render
+         on top of the highlight background. */
+      position: relative;
+      z-index: 1;
+      transition: color 160ms ease;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:hover {
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn.active {
+      /* Background comes from .rail-active-pill (slides in from prior
+         active item). Only the text/icon color flips here. */
+      background: transparent;
+      color: var(--accent);
+    }
+    /* Sliding highlight pill — the shared background element that
+       animates its transform + height to the active rail button. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      top: 0;
+      border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 0;
+      will-change: transform, height;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.visible {
+      opacity: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.ready {
+      transition:
+        transform 320ms cubic-bezier(0.32, 0.72, 0, 1),
+        height 260ms cubic-bezier(0.32, 0.72, 0, 1),
+        opacity 180ms ease;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: var(--surface-2);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .si {
+      width: 24px;
+      height: 24px;
+      font-size: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: inherit;
+    }
+    /* Rail buttons use a subtle "current page" indicator, not a chevron
+       (the chevron is the accordion-drill affordance from mobile). */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .chevron {
+      display: none;
+    }
+    /* Group labels inside the rail — smaller, tighter, all-caps. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label) {
+      margin: 12px 4px 4px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 700;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label:first-child) {
+      margin-top: 2px;
+    }
+    /* Empty-search placeholder inside the rail — replaces the section
+       list when every button matches nothing. Clear affordance so the
+       user can escape without reaching for the search input. */
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 24px 12px;
+      text-align: center;
+      color: var(--text-3);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
+      font-size: 28px;
+      opacity: 0.7;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear {
+      margin-top: 4px;
+      background: var(--surface-2);
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear:hover {
+      background: var(--surface-3);
+    }
+
+    /* Redundant on desktop: the section-toggle stack inside the pane
+       duplicates what the rail already shows. Hide it on desktop index
+       AND when a search query is active but a specific section is being
+       previewed. The SettingsX components' own toggle rows are hidden
+       via .subpage-view :global(.section-toggle) further above on
+       sub-pages; here we handle the desktop-index (no currentSection)
+       case where nothing has been drilled into yet. Unit 2 replaces
+       the resulting blank pane with a proper welcome hero. */
+    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.section-toggle),
+    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.group-label) {
+      display: none;
+    }
+    /* Mobile profile-hero is hidden on desktop — the welcome hero above
+     * owns that surface (with the inline expandable Profile editor). */
+    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-hero {
+      display: none;
+    }
+    /* Mobile-only inline Profile fallback (for direct /settings/profile
+       URL land). Desktop already shows Profile inside the welcome hero
+       up above, so hide the mobile fallback here to avoid rendering it
+       twice. */
+    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-inline {
+      display: none;
+    }
+    /* On sub-pages, the desktop hero is hidden EXCEPT for /settings/profile
+       where it IS the section body. */
+    :global(html:not(.force-mobile-layout)) .settings-content.subpage-view .settings-pane .settings-desktop-hero {
+      display: block;
+    }
+  }
+
+  /* Sub-page cross-fade wrapper (Unit 2C). Only the current section
+     mounts inside this div, keyed on currentSection. The .subpage-view
+     :global(.section-toggle) rule further above still hides the
+     section's own toggle-row so only its body shows. */
+  .settings-pane-fade {
+    /* No explicit styles needed — the wrapper is transparent, but it
+       gives Svelte's fade transition a stable target that swaps in
+       and out on every section change. Kept as a class so future
+       polish (padding, animation tweaks) has one place to land. */
+  }
+
+  /* Desktop welcome hero — profile card + expandable inline editor +
+     "Pick a section" prompt. Hidden below 1024px and when force-mobile
+     is on; the mobile profile-hero above takes over there. */
+  .settings-desktop-hero { display: none; }
+  @media (min-width: 1024px) {
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero {
+      display: block;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-expander {
+      cursor: pointer;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-toggle {
+      transition: transform 0.22s ease;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-open {
+      transform: rotate(180deg);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-body {
+      margin-top: 12px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-desktop-prompt {
+      margin: 20px 0 0;
+      color: var(--text-3);
+      font-size: 14px;
+      text-align: center;
+      padding: 24px 16px;
+      background: var(--surface-1);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-lg);
+    }
+
+    /* Onboarding shortcut cards under the profile hero. Two per row
+       on typical desktop widths, one per row when the pane gets
+       narrow. Each card is a large tap target with an icon + short
+       label + one-line description. Dismiss button lives in the top-
+       right corner, revealed on hover to keep the resting state
+       clean. */
+    :global(html:not(.force-mobile-layout)) .settings-onboarding {
+      margin-top: 24px;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-heading {
+      margin: 0 0 10px;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 700;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap {
+      position: relative;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      color: var(--text-1);
+      cursor: pointer;
+      text-align: left;
+      transition: background var(--dur-fast, 120ms), border-color var(--dur-fast, 120ms);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:hover {
+      background: var(--surface-2);
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card :global(.material-symbols-rounded) {
+      font-size: 22px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      flex: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-desc {
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.35;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: none;
+      border: none;
+      color: var(--text-3);
+      padding: 6px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity var(--dur-fast, 120ms), color var(--dur-fast, 120ms);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap:hover .settings-onboarding-dismiss,
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:focus-visible {
+      opacity: 1;
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:hover {
+      color: var(--text-1);
+      background: var(--surface-3);
+    }
+    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss :global(.material-symbols-rounded) {
+      font-size: 14px;
+    }
   }
 </style>

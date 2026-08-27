@@ -234,6 +234,28 @@ async function _createSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_workout_log_date ON workout_log(date);
 
+    -- Per-entry deletion tombstones (Option C, 2026-08-11) — local
+    -- mirror of the server workout_tombstones table. Pending rows are
+    -- included in the sync push payload so a delete performed offline
+    -- reaches the server-side merge as an explicit tombstone rather
+    -- than as a preserve-by-default (which is the safe default that
+    -- prevents wipes but silently drops legit offline deletions
+    -- without this table). Server-received tombstones land here with
+    -- sync_state='clean' so they can filter local reads without being
+    -- resent.
+    CREATE TABLE IF NOT EXISTS workout_tombstones (
+      user_id     INTEGER,
+      date        TEXT NOT NULL,
+      kind        TEXT NOT NULL,
+      ex_uuid     TEXT NOT NULL DEFAULT '',
+      uuid        TEXT NOT NULL,
+      deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      sync_state  TEXT DEFAULT 'clean',
+      PRIMARY KEY (user_id, date, kind, ex_uuid, uuid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workout_tombstones_user_date
+      ON workout_tombstones(user_id, date);
+
     -- ── Body Stats ─────────────────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS body_stats_log (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -424,12 +424,12 @@
 
         <div class="bp-grid">
           <div class="bp-row">
-            <label class="bp-label" for="bp-gender">{$_('wizard.profile.sex')}</label>
+            <label class="bp-label" for="bp-gender">{$_('profile.gender.label')}</label>
             <select id="bp-gender" class="bp-input" bind:value={bpGender}>
               <option value="">—</option>
-              <option value="male">{$_('wizard.profile.sex_male')}</option>
-              <option value="female">{$_('wizard.profile.sex_female')}</option>
-              <option value="other">{$_('wizard.profile.sex_other')}</option>
+              <option value="male">{$_('profile.gender.male')}</option>
+              <option value="female">{$_('profile.gender.female')}</option>
+              <option value="other">{$_('profile.gender.other')}</option>
             </select>
           </div>
 

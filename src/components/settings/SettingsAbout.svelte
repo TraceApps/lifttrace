@@ -28,32 +28,29 @@
           <div>
             <div class="about-name">{$_('settings_about.app_name')}</div>
             <div class="about-version">
-              v{APP_VERSION}
+              {APP_VERSION}
               <span class="platform-tag">{isNative ? 'Android' : 'PWA'}</span>
             </div>
           </div>
         </div>
         <div class="setting-divider"></div>
         <div class="about-desc">
-          Track Every Rep — Personal Weightlifting Tracker. LiftTrace is a self-hosted
-          workout tracker built for privacy. Your data lives on your server, not in the cloud.
-          Features workout diary, program builder, multi-source exercise library, AI coaching,
-          statistics, and more.
+          {$_('settings_about.description')}
         </div>
         <div class="setting-divider"></div>
         <div class="about-row">
           <span class="material-symbols-rounded about-feat-icon">database</span>
-          <span>Self-hosted — your data, your server</span>
+          <span>{$_('settings_about.feature_self_hosted')}</span>
         </div>
         <div class="setting-divider"></div>
         <div class="about-row">
           <span class="material-symbols-rounded about-feat-icon">install_mobile</span>
-          <span>PWA — installable on any device</span>
+          <span>{$_('settings_about.feature_pwa')}</span>
         </div>
         <div class="setting-divider"></div>
         <div class="about-row">
           <span class="material-symbols-rounded about-feat-icon">lock</span>
-          <span>No tracking, no ads, no third-party analytics</span>
+          <span>{$_('settings_about.feature_privacy')}</span>
         </div>
         <div class="setting-divider"></div>
         <div class="about-row">
@@ -79,31 +76,18 @@
             </a>
             -->
             <a href="https://ko-fi.com/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
-              <span class="material-symbols-rounded" style="font-size:14px">coffee</span> Ko-fi
+              <span class="material-symbols-rounded" style="font-size:14px">coffee</span> {$_('settings_about.kofi')}
             </a>
           </div>
-          <div class="setting-desc" style="padding-left:30px;font-size:11px">LiftTrace is free to self-host. Donations are appreciated but never required.</div>
+          <div class="setting-desc" style="padding-left:30px;font-size:11px">{$_('settings_about.donations_note')}</div>
         </div>
         <div class="setting-divider"></div>
         <div class="about-desc" style="font-size:11px;color:var(--text-3);line-height:1.5">
-          <strong>Disclaimer.</strong> LiftTrace is not medical, health, or fitness-professional
-          software. It does not provide medical advice, diagnosis, treatment, or personalized
-          training prescriptions. Exercise library content, Trace AI coaching, program templates,
-          rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight
-          trends) are for informational and self-tracking purposes only.
+          <strong>{$_('settings_about.disclaimer_heading')}</strong> {$_('settings_about.disclaimer_medical')}
           <br /><br />
-          Resistance training carries inherent risk of injury. Exercise selection, load, technique,
-          and progression can interact with medical conditions (heart and cardiovascular conditions,
-          high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis,
-          pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways
-          this app cannot assess. Consult a qualified healthcare professional, certified strength
-          coach, or licensed physical therapist before starting a new training program, returning
-          from injury, or making significant changes to your routine.
+          {$_('settings_about.disclaimer_risk')}
           <br /><br />
-          Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a
-          substitute for human judgment or professional advice. Exercise library data is sourced
-          from public databases (wger, Free Exercise DB, optionally ExerciseDB via RapidAPI) and
-          may contain inaccuracies. Use at your own risk.
+          {$_('settings_about.disclaimer_ai')}
         </div>
       </div>
     </div>

@@ -10,7 +10,8 @@
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
   import Dialog from '../components/ui/Dialog.svelte';
-  import { pageBanners, bannerStyle, favoriteExercises, customEquipment } from '../stores/settings.js';
+  import { pageBanners, bannerStyle, favoriteExercises, customEquipment, weightUnit } from '../stores/settings.js';
+  import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
   import { readSharedExerciseFile, fetchSharedExerciseUrl, importSharedExercise } from '../lib/exerciseShare.js';
 
   let showEditor = false;
@@ -113,8 +114,6 @@
   }
   let sortMode = 'alpha';  // 'alpha' | 'used' | 'recent' — persisted across visits
   let loading = true;
-  let viewMode = 'list'; // 'list' | 'grid'
-
   // Restore the last chosen sort so power users don't have to set it every
   // time the route remounts. Persisted in sessionStorage so it survives nav
   // but resets cleanly across app sessions.
@@ -169,7 +168,51 @@
   });
   onDestroy(() => {
     if (_onSyncComplete) window.removeEventListener('lt:sync-complete', _onSyncComplete);
+    _wideMq?.removeEventListener?.('change', _syncWide);
   });
+
+  // Wide-mode gate (same pattern the picker uses). At >=1280px on
+  // non-forced-mobile viewports, the row-tap loads an inline detail
+  // pane on the right instead of pushing to /exercise/:id — keeps
+  // the browse flow intact for library curation.
+  let _wideMode = false;
+  let _wideMq;
+  function _syncWide() {
+    if (typeof document === 'undefined') return;
+    _wideMode = !!_wideMq?.matches
+      && !document.documentElement.classList.contains('force-mobile-layout');
+  }
+  if (typeof window !== 'undefined') {
+    _wideMq = window.matchMedia('(min-width: 1280px)');
+    _syncWide();
+    _wideMq.addEventListener?.('change', _syncWide);
+  }
+
+  // Inline detail pane state — mirrors the picker's info-pane setup
+  // so the two surfaces feel like one system.
+  let _detailSelected = null;
+  let _detailHistory = [];
+  let _detailLoading = false;
+  async function _loadDetail(ex) {
+    _detailSelected = ex;
+    _detailLoading = true;
+    try { _detailHistory = await LtApi.getWorkoutHistory(ex.id); }
+    catch { _detailHistory = []; }
+    _detailLoading = false;
+  }
+  $: _detailPr = (() => {
+    let max = 0, prDate = '';
+    for (const h of _detailHistory || []) {
+      for (const s of h.sets || []) {
+        if (s.completed && s.weight > max) { max = s.weight; prDate = h.date; }
+      }
+    }
+    return max > 0 ? { weight: max, date: prDate, unit: $weightUnit } : null;
+  })();
+  function _openExercise(ex) {
+    if (_wideMode) _loadDetail(ex);
+    else push(`/exercise/${ex.id}`);
+  }
 
   // Count exercises per category. Filters stack: selecting equipment narrows
   // the visible categories, and search further narrows both. Matches the
@@ -396,6 +439,9 @@
   </div>
 
   <div class="content">
+    <!-- Center list column — at wide widths sits alongside the inline
+         detail pane in the grid. On mobile this is a plain block. -->
+    <div class="ex-list-col">
     {#if loading}
       <div class="loading">Loading exercises...</div>
     {:else if filtered.length === 0}
@@ -419,11 +465,11 @@
           <div class="group-list">
             {#each exs.sort(_sortFn()) as ex}
               {@const u = usage[ex.id]}
-              <div class="exercise-row">
+              <div class="exercise-row" class:selected-for-detail={_wideMode && _detailSelected?.id === ex.id}>
                 <button class="fav-btn" on:click|stopPropagation={() => toggleFavorite(ex.id)} title={isFav(ex.id) ? 'Remove from Favorites' : 'Add to Favorites'}>
                   <span class="material-symbols-rounded" class:fav-active={isFav(ex.id)}>{isFav(ex.id) ? 'star' : 'star_outline'}</span>
                 </button>
-                <button class="ex-row-main" on:click={() => push(`/exercise/${ex.id}`)}>
+                <button class="ex-row-main" on:click={() => _openExercise(ex)}>
                   <!-- Thumbnail: gif preferred (animated form demo), falls back
                        to img, then to a fitness_center icon. lazy-loaded so a
                        1500-exercise library doesn't pre-fetch every demo. -->
@@ -455,6 +501,40 @@
         </div>
       {/each}
     {/if}
+    </div>
+
+    <!-- Inline detail pane — visible only at wide widths. Shows the
+         tapped exercise's ExerciseInfo (thumbnail, muscles,
+         instructions, history/PR) alongside a Full Details button
+         that jumps to the /exercise/:id route for deeper analytics
+         (charts, per-session breakdown). Mirrors the picker's info
+         pane so the two surfaces feel like one system. -->
+    <aside class="ex-detail-pane">
+      {#if _detailSelected}
+        <div class="edp-head">
+          <h3 class="edp-title">{_detailSelected.name}</h3>
+          <button class="edp-close" on:click={() => { _detailSelected = null; _detailHistory = []; }}
+                  aria-label="Close preview" title="Close preview">
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
+        {#if _detailLoading}
+          <div class="loading">Loading…</div>
+        {:else}
+          <ExerciseInfo exercise={_detailSelected} pr={_detailPr} history={_detailHistory} />
+          <button class="btn btn-primary edp-full-btn" on:click={() => push(`/exercise/${_detailSelected.id}`)}>
+            <span class="material-symbols-rounded">open_in_new</span>
+            Full details
+          </button>
+        {/if}
+      {:else}
+        <div class="edp-empty">
+          <span class="material-symbols-rounded edp-empty-icon">info</span>
+          <p class="edp-empty-title">Preview any exercise</p>
+          <p class="edp-empty-desc">Tap any row to see its thumbnail, muscles, and history here without leaving the library.</p>
+        </div>
+      {/if}
+    </aside>
   </div>
 </div>
 
@@ -687,4 +767,137 @@
     outline: none;
   }
   .url-input:focus { border-color: var(--accent); }
+
+  /* Mobile default — the inline detail pane is hidden; tapping a row
+     still route-pushes to /exercise/:id. Kept in DOM so a viewport
+     resize doesn't require a re-mount. */
+  .ex-detail-pane { display: none; }
+
+  /* ────────────────────────────────────────────────────────────
+     Wide-layout Exercises library. Same shape as the ExercisePicker
+     wide layout so the two surfaces feel like one system:
+       - Category + equipment chip rows wrap to multi-line (all
+         chips visible at once).
+       - Content splits into a 2-col grid — left is the existing
+         grouped exercise list (each group's rows becoming a 2-col
+         card grid), right is a sticky detail pane that shows
+         ExerciseInfo for the selected row instead of route-pushing.
+     Everything gated by html:not(.force-mobile-layout) so the
+     desktop opt-out toggle delivers the phone-shaped library at
+     any width. */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .category-chips {
+      flex-wrap: wrap;
+      overflow-x: visible;
+    }
+    :global(html:not(.force-mobile-layout)) .equipment-chips-wrap {
+      overflow-x: visible;
+    }
+    :global(html:not(.force-mobile-layout)) .equipment-chips-wrap::before,
+    :global(html:not(.force-mobile-layout)) .equipment-chips-wrap::after {
+      display: none;
+    }
+    :global(html:not(.force-mobile-layout)) .equipment-chips {
+      flex-wrap: wrap;
+      overflow-x: visible;
+    }
+    :global(html:not(.force-mobile-layout)) .content {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 24px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .content > .ex-list-col {
+      min-width: 0;
+    }
+    /* Each category group's list becomes a 2-col card grid so the
+       wide screen shows twice as many rows without scrolling. Group
+       title still spans full width above its own grid. */
+    :global(html:not(.force-mobile-layout)) .content > .ex-list-col :global(.group-list) {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    :global(html:not(.force-mobile-layout)) .content > .ex-list-col :global(.exercise-row) {
+      margin-bottom: 0;
+    }
+    /* Selected-for-detail row gets an accent border so the user
+       tracks which card the right pane is previewing. */
+    :global(html:not(.force-mobile-layout)) .content > .ex-list-col :global(.exercise-row.selected-for-detail) {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
+    }
+    /* Right detail pane — sticky below the sticky filter chrome. */
+    :global(html:not(.force-mobile-layout)) .content > .ex-detail-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 220px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 240px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+    }
+    .edp-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0 0 4px;
+    }
+    .edp-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+      flex: 1;
+    }
+    .edp-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      color: var(--text-3);
+      cursor: pointer;
+      transition: background var(--dur-fast), color var(--dur-fast);
+    }
+    .edp-close:hover { background: var(--surface-2); color: var(--text-1); }
+    .edp-close .material-symbols-rounded { font-size: 18px; }
+    .edp-full-btn {
+      width: 100%;
+      height: 40px;
+      justify-content: center;
+      margin-top: 6px;
+    }
+    .edp-full-btn .material-symbols-rounded { font-size: 18px; }
+    .edp-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 6px;
+      padding: 40px 16px;
+      color: var(--text-3);
+    }
+    .edp-empty-icon { font-size: 32px; opacity: 0.6; }
+    .edp-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
+    .edp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
 </style>

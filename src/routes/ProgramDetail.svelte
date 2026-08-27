@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -93,6 +93,37 @@
   function openTemplate(templateId) {
     sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
     push(`/programs/${params.id}/template/${templateId}`);
+  }
+
+  // Wide-mode gate — same pattern the picker / exercises / programs
+  // list use. At >=1280px on non-forced-mobile viewports, tapping a
+  // template card previews its exercises in the right pane instead
+  // of route-pushing to the workout editor. Editing / adding sets
+  // still routes through the pane's "Edit" button.
+  let _wideMode = false;
+  let _wideMq;
+  function _syncWide() {
+    if (typeof document === 'undefined') return;
+    _wideMode = !!_wideMq?.matches
+      && !document.documentElement.classList.contains('force-mobile-layout');
+  }
+  if (typeof window !== 'undefined') {
+    _wideMq = window.matchMedia('(min-width: 1280px)');
+    _syncWide();
+    _wideMq.addEventListener?.('change', _syncWide);
+  }
+  onDestroy(() => { _wideMq?.removeEventListener?.('change', _syncWide); });
+
+  let _previewTemplateId = null;
+  $: _previewTemplate = program?.templates?.find(t => t.id === _previewTemplateId) || null;
+  // Auto-pick the first template as the initial preview on wide once
+  // the program loads, so the pane never sits empty on land.
+  $: if (_wideMode && !_previewTemplateId && program?.templates?.length) {
+    _previewTemplateId = program.templates[0].id;
+  }
+  function _tapTemplate(t) {
+    if (_wideMode) _previewTemplateId = t.id;
+    else openTemplate(t.id);
   }
 
   async function activate() {
@@ -356,6 +387,11 @@
           </button>
         </div>
 
+        <!-- .pd-body — plain block on mobile; at >=1280px becomes a
+             2-col grid so the template list sits alongside an inline
+             exercise-preview pane on the right. -->
+        <div class="pd-body">
+
         {#if program.templates?.length}
           <div class="template-list">
             {#each program.templates as t, idx (t.id)}
@@ -370,7 +406,11 @@
                 on:dragend={onTplDragEnd}
               >
                 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                <div class="template-card" on:click={() => openTemplate(t.id)} role="button" tabindex="0">
+                <div class="template-card"
+                     class:selected-for-preview={_wideMode && _previewTemplateId === t.id}
+                     on:click={() => _tapTemplate(t)}
+                     role="button"
+                     tabindex="0">
                   <div class="tpl-left">
                     <span class="material-symbols-rounded tpl-drag-handle" title="Drag to reorder">drag_indicator</span>
                     <span class="tpl-num">{idx + 1}</span>
@@ -396,6 +436,54 @@
             <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>{$_('program_detail.add_workout')}</button>
           </div>
         {/if}
+
+        <!-- Inline template exercise-preview pane — visible only at
+             wide widths (CSS-gated). Shows the selected template's
+             exercises so a lifter can see what's in each day
+             without route-pushing into the WorkoutEditor. "Edit"
+             still opens the full editor for changing sets/reps. -->
+        <aside class="pd-template-pane">
+          {#if _previewTemplate}
+            {@const t = _previewTemplate}
+            <div class="ptp-head">
+              <div class="ptp-title-block">
+                <h3 class="ptp-title">{t.name}</h3>
+                <span class="ptp-meta">{(t.exercises || []).length} {(t.exercises || []).length === 1 ? 'exercise' : 'exercises'}</span>
+              </div>
+            </div>
+            {#if !(t.exercises || []).length}
+              <div class="ptp-empty-body">This workout has no exercises yet.</div>
+            {:else}
+              <ol class="ptp-exercises">
+                {#each t.exercises as ex, i (ex.id || i)}
+                  <li class="ptp-exercise">
+                    <span class="ptp-ex-num">{i + 1}</span>
+                    <div class="ptp-ex-body">
+                      <span class="ptp-ex-name">{ex.name || ex.exercise_name || 'Exercise'}</span>
+                      {#if ex.target_sets || ex.target_reps || ex.target_weight}
+                        <span class="ptp-ex-spec">
+                          {#if ex.target_sets}{ex.target_sets} × {/if}{#if ex.target_reps}{ex.target_reps}{/if}{#if ex.target_weight}{' @ '}{ex.target_weight}{/if}
+                        </span>
+                      {/if}
+                    </div>
+                  </li>
+                {/each}
+              </ol>
+            {/if}
+            <button class="btn btn-primary ptp-edit-btn" on:click={() => openTemplate(t.id)}>
+              <span class="material-symbols-rounded">edit</span>
+              Edit workout
+            </button>
+          {:else}
+            <div class="ptp-empty">
+              <span class="material-symbols-rounded ptp-empty-icon">list_alt</span>
+              <p class="ptp-empty-title">Select a workout</p>
+              <p class="ptp-empty-desc">Tap any workout on the left to see its exercises here.</p>
+            </div>
+          {/if}
+        </aside>
+
+        </div>
       </div>
     </div>
   {/if}
@@ -637,4 +725,129 @@
     height: 40px;
   }
   .name-input:disabled { opacity: 0.6; }
+
+  /* Mobile default — preview pane hidden. Template list still routes
+     to /programs/:id/template/:tid on tap. */
+  .pd-template-pane { display: none; }
+
+  /* Wide-layout: template list + inline exercise preview pane.
+     Section header + description stay above the split. The .pd-body
+     wrapper becomes a 2-col grid at >=1280px on non-forced-mobile
+     viewports so a lifter can scan the whole program's day-by-day
+     structure without opening WorkoutEditor for each day. */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .pd-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 400px;
+      gap: 20px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .pd-body > .template-list {
+      min-width: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .pd-body :global(.template-card.selected-for-preview) {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    :global(html:not(.force-mobile-layout)) .pd-body > .pd-template-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
+      align-self: start;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - 150px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .ptp-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .ptp-title-block { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .ptp-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-1);
+      line-height: 1.25;
+    }
+    .ptp-meta { font-size: 12px; color: var(--text-3); }
+    .ptp-exercises {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .ptp-exercise {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: var(--surface-2);
+      border-radius: var(--radius-sm);
+    }
+    .ptp-ex-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .ptp-ex-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+    .ptp-ex-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ptp-ex-spec { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+    .ptp-edit-btn {
+      width: 100%;
+      padding: 8px 12px;
+      justify-content: center;
+      margin-top: 6px;
+    }
+    .ptp-edit-btn .material-symbols-rounded { font-size: 18px; }
+    .ptp-empty-body {
+      font-size: 12px;
+      color: var(--text-3);
+      font-style: italic;
+      padding: 8px 2px;
+    }
+    .ptp-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 6px;
+      padding: 40px 16px;
+      color: var(--text-3);
+    }
+    .ptp-empty-icon { font-size: 32px; opacity: 0.6; }
+    .ptp-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
+    .ptp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
 </style>
