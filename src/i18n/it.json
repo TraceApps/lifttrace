@@ -340,7 +340,11 @@
       "session_90d": "90 giorni",
       "session_1y": "1 anno",
       "show": "Mostra",
-      "disable_um_hint": "Elimina tutti gli account, l'app diventa ad accesso aperto"
+      "disable_um_hint": "Elimina tutti gli account, l'app diventa ad accesso aperto",
+      "strong_passwords_desc": "",
+      "generate_invite_link": "",
+      "coach_option": "",
+      "delete_user": ""
     },
     "trace": {
       "section": "Assistente IA"
@@ -463,7 +467,10 @@
     "server_url": "URL del server",
     "crossfade": "Dissolvenza incrociata",
     "crossfade_hint": "Unisci le tracce durante le transizioni",
-    "highest_quality": "Riproduzione di altissima qualità"
+    "highest_quality": "Riproduzione di altissima qualità",
+    "streaming_stations_hint": "",
+    "self_hosted": "",
+    "self_hosted_hint": ""
   },
   "settings_email": {
     "password": "Password",
@@ -1165,7 +1172,9 @@
       "keep_awake": "Schermo Keep-Awake",
       "keep_awake_desc": "Mantieni lo schermo acceso durante gli allenamenti",
       "calorie_est": "Mostra stima delle calorie",
-      "calorie_est_desc": "Kcal approssimative per allenamento (BMR Mifflin-St Jeor + MET). Richiede altezza, peso, data di nascita e sesso nel profilo. Le stime per l'allenamento con i pesi sono approssimative del ±25%: trattale come un badge \"~stima\" nell'interfaccia, non come un numero preciso."
+      "calorie_est_desc": "Kcal approssimative per allenamento (BMR Mifflin-St Jeor + MET). Richiede altezza, peso, data di nascita e sesso nel profilo. Le stime per l'allenamento con i pesi sono approssimative del ±25%: trattale come un badge \"~stima\" nell'interfaccia, non come un numero preciso.",
+      "track_cardio_desc": "",
+      "track_cardio": ""
     },
     "logging": {
       "autofill": "Compila automaticamente gli ultimi pesi",
@@ -1204,7 +1213,19 @@
       "tone_desc": "Breve segnale acustico quando il timer raggiunge lo zero",
       "tone_style": "Stile tono",
       "tone_style_desc": "Tocca una riga per selezionarla, poi tocca ▶ per ascoltare l'anteprima",
-      "preview": "Anteprima"
+      "preview": "Anteprima",
+      "tones": {
+        "beeper": "",
+        "classic_desc": "",
+        "minimal": "",
+        "beeper_desc": "",
+        "bells": "",
+        "classic": "",
+        "bells_desc": "",
+        "minimal_desc": "",
+        "gym": "",
+        "gym_desc": ""
+      }
     }
   },
   "settings_notifications": {
@@ -1341,6 +1362,17 @@
       "copy_failed": "Copia non riuscita. Copia il comando manualmente.",
       "view_notes": "Visualizza le note sulla versione",
       "channel_note": "Per cambiare canale server, modifica il tag dell'immagine in docker-compose.yml (:latest, :1.0, :1, :dev) ed esegui di nuovo docker-compose pull && docker-compose up -d."
+    },
+    "banner_reload": "",
+    "available_generic": "",
+    "interval": {
+      "every_4h": "",
+      "label": "",
+      "daily": "",
+      "manual": "",
+      "hourly": "",
+      "every_12h": "",
+      "desc": ""
     }
   },
   "accept_invite": {
@@ -1514,7 +1546,17 @@
     "open_source": "Sorgente aperta",
     "sister_app_prefix": "App sorella:",
     "sister_app_suffix": ", monitoraggio nutrizionale",
-    "support_development": "Supporto allo sviluppo"
+    "support_development": "Supporto allo sviluppo",
+    "disclaimer_medical": "",
+    "donations_note": "",
+    "disclaimer_risk": "",
+    "disclaimer_heading": "",
+    "feature_privacy": "",
+    "feature_pwa": "",
+    "disclaimer_ai": "",
+    "description": "",
+    "kofi": "",
+    "feature_self_hosted": ""
   },
   "trace_ai": {
     "voice_error": "Errore vocale: {reason}",
@@ -1566,14 +1608,23 @@
     "enable_federation": "Abilita federazione",
     "instance_url": "URL dell'istanza",
     "access_token": "Token di accesso",
-    "wearable_priority": "Priorità indossabile"
+    "wearable_priority": "Priorità indossabile",
+    "wearable_priority_hint": "",
+    "access_token_hint_suffix": "",
+    "instance_url_hint": "",
+    "access_token_hint_prefix": "",
+    "enable_federation_hint": ""
   },
   "settings_diagnostics": {
     "copy_failed": "Copia non riuscita; seleziona il testo manualmente",
     "logs_cleared": "Registri cancellati",
     "verbose_logging": "Registrazione diagnostica dettagliata",
     "view_logs": "Visualizza i registri diagnostici",
-    "github_issue": "Problema su GitHub"
+    "github_issue": "Problema su GitHub",
+    "view_logs_hint_prefix": "",
+    "view_logs_button": "",
+    "view_logs_hint_suffix": "",
+    "verbose_logging_hint": ""
   },
   "settings_statistics": {
     "default_chart_type": "Tipo di grafico predefinito",
