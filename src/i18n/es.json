@@ -516,7 +516,11 @@
       "cancel": "Cancelar",
       "hide": "Ocultar",
       "show": "Mostrar",
-      "disable_um_hint": "Elimina todas las cuentas, la aplicación queda de acceso libre"
+      "disable_um_hint": "Elimina todas las cuentas, la aplicación queda de acceso libre",
+      "strong_passwords_desc": "",
+      "generate_invite_link": "",
+      "coach_option": "",
+      "delete_user": ""
     },
     "server": {
       "section": "Conexión con el servidor"
@@ -554,7 +558,17 @@
     "open_source": "Código abierto",
     "sister_app_prefix": "Aplicación hermana: ",
     "sister_app_suffix": ", registro de nutrición",
-    "support_development": "Apoyar el desarrollo"
+    "support_development": "Apoyar el desarrollo",
+    "disclaimer_medical": "",
+    "donations_note": "",
+    "disclaimer_risk": "",
+    "disclaimer_heading": "",
+    "feature_privacy": "",
+    "feature_pwa": "",
+    "disclaimer_ai": "",
+    "description": "",
+    "kofi": "",
+    "feature_self_hosted": ""
   },
   "template_spec": {
     "auto": "Auto",
@@ -642,14 +656,23 @@
     "enable_federation": "Activar la federación",
     "instance_url": "URL de la instancia",
     "access_token": "Token de acceso",
-    "wearable_priority": "Prioridad del wearable"
+    "wearable_priority": "Prioridad del wearable",
+    "wearable_priority_hint": "",
+    "access_token_hint_suffix": "",
+    "instance_url_hint": "",
+    "access_token_hint_prefix": "",
+    "enable_federation_hint": ""
   },
   "settings_diagnostics": {
     "copy_failed": "No se pudo copiar; selecciona el texto a mano",
     "logs_cleared": "Registros borrados",
     "verbose_logging": "Registro de diagnóstico detallado",
     "view_logs": "Ver los registros de diagnóstico",
-    "github_issue": "issue de GitHub"
+    "github_issue": "issue de GitHub",
+    "view_logs_hint_prefix": "",
+    "view_logs_button": "",
+    "view_logs_hint_suffix": "",
+    "verbose_logging_hint": ""
   },
   "smart_log": {
     "voice_failed": "La entrada por voz ha fallado: {reason}",
@@ -689,7 +712,9 @@
     "default_chart_type": "Tipo de gráfica por defecto",
     "type_bar": "Barras",
     "type_line": "Líneas",
-    "lock_y_zero": "Fijar el eje Y en cero",
+    "lock_y_one": "",
+    "lock_y_many": "",
+    "lock_y_other": "",
     "lock_y_zero_hint": "Empieza siempre el eje Y en 0",
     "show_average": "Mostrar la línea de la media",
     "show_average_hint": "Línea horizontal en el valor medio",
@@ -728,7 +753,10 @@
     "crossfade": "Fundido cruzado",
     "crossfade_hint": "Mezcla las pistas en las transiciones",
     "off": "Desactivado",
-    "highest_quality": "Reproducción con la máxima calidad"
+    "highest_quality": "Reproducción con la máxima calidad",
+    "streaming_stations_hint": "",
+    "self_hosted": "",
+    "self_hosted_hint": ""
   },
   "settings_email": {
     "smtp_host_required": "La prueba de SMTP ha fallado: falta el host",
@@ -1044,6 +1072,7 @@
     "total": "Total",
     "muscle_balance_desc": "Sombreado según las series efectivas, en relación con el músculo más trabajado de este rango.",
     "effective_sets_one": "{n} series efectivas en {m} músculo.",
+    "effective_sets_many": "",
     "effective_sets_other": "{n} series efectivas en {m} músculos.",
     "no_volume_range": "No hay volumen registrado en este rango.",
     "most_active": "Más activo: {day}",
@@ -1433,7 +1462,9 @@
       "keep_awake": "Mantener la pantalla encendida",
       "keep_awake_desc": "Deja la pantalla encendida durante los entrenamientos",
       "calorie_est": "Mostrar la estimación de calorías",
-      "calorie_est_desc": "kcal aproximadas por entrenamiento (TMB de Mifflin-St Jeor + MET). Necesita que tengas puestos la altura, el peso, la fecha de nacimiento y el sexo en el perfil. Las estimaciones de entrenamiento de fuerza tienen un margen amplio, de ±25%, y se muestran como una etiqueta \"~est\" en la interfaz, no como un número exacto."
+      "calorie_est_desc": "kcal aproximadas por entrenamiento (TMB de Mifflin-St Jeor + MET). Necesita que tengas puestos la altura, el peso, la fecha de nacimiento y el sexo en el perfil. Las estimaciones de entrenamiento de fuerza tienen un margen amplio, de ±25%, y se muestran como una etiqueta \"~est\" en la interfaz, no como un número exacto.",
+      "track_cardio_desc": "",
+      "track_cardio": ""
     },
     "logging": {
       "autofill": "Rellenar con los últimos pesos",
@@ -1472,7 +1503,19 @@
       "tone_desc": "Un pitido breve cuando el temporizador llega a cero",
       "tone_style": "Tipo de tono",
       "tone_style_desc": "Toca una fila para elegirla; toca ▶ para escuchar una muestra",
-      "preview": "Escuchar"
+      "preview": "Escuchar",
+      "tones": {
+        "beeper": "",
+        "classic_desc": "",
+        "minimal": "",
+        "beeper_desc": "",
+        "bells": "",
+        "classic": "",
+        "bells_desc": "",
+        "minimal_desc": "",
+        "gym": "",
+        "gym_desc": ""
+      }
     },
     "body_stats": {
       "toggle_desc": "Elige qué medidas aparecen en la hoja de medidas corporales del diario",
@@ -1621,6 +1664,17 @@
       "copy_failed": "No se pudo copiar. Copia el comando a mano.",
       "view_notes": "Ver las notas de la versión",
       "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de imagen en tu docker-compose.yml (:latest, :1.0, :1, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
+    },
+    "banner_reload": "",
+    "available_generic": "",
+    "interval": {
+      "every_4h": "",
+      "label": "",
+      "daily": "",
+      "manual": "",
+      "hourly": "",
+      "every_12h": "",
+      "desc": ""
     }
   }
 }
