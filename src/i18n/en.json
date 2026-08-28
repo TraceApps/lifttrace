@@ -931,7 +931,7 @@
       "records":  "Records",
       "volume":   "Volume",
       "freq":     "Frequency",
-      "weight":   "Body Weight",
+      "weight":   "Body Measurements",
       "cardio":   "Cardio"
     },
     "ranges": {
@@ -984,7 +984,8 @@
     "streak":            "Streak",
     "weekday_dist":      "Weekday Distribution",
     "change":            "Change",
-    "body_weight_trend": "Body Weight Trend",
+    "body_weight_trend": "Body Measurements",
+    "overlay_none":      "None",
     "history":           "History",
     "choose_exercise":   "Choose Exercise",
     "search_exercises_ph": "Search exercises…",

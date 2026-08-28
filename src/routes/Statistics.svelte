@@ -3,7 +3,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
-  import { weightUnit, pageBanners, bannerStyle } from '../stores/settings.js';
+  import { weightUnit, pageBanners, bannerStyle, bodyStatsVisible } from '../stores/settings.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import WeeklyVolumeChart from '../components/statistics/WeeklyVolumeChart.svelte';
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
@@ -99,6 +99,32 @@
 
   // ── Body weight state ────────────────────────────────────────────────
   let bodyWeights = [];
+
+  // Overlay: one extra body measurement on the weight chart (issue #65).
+  // Labels reuse settings_workout.body_stats.* — the ids are camelCase but
+  // those keys are snake_case, hence the explicit labelKey map.
+  const OVERLAY_METRICS = [
+    { id: 'bodyFat', labelKey: 'settings_workout.body_stats.body_fat', kind: 'percent' },
+    { id: 'neck',    labelKey: 'settings_workout.body_stats.neck',     kind: 'length' },
+    { id: 'chest',   labelKey: 'settings_workout.body_stats.chest',    kind: 'length' },
+    { id: 'waist',   labelKey: 'settings_workout.body_stats.waist',    kind: 'length' },
+    { id: 'hips',    labelKey: 'settings_workout.body_stats.hips',     kind: 'length' },
+    { id: 'biceps',  labelKey: 'settings_workout.body_stats.biceps',   kind: 'length' },
+    { id: 'thighs',  labelKey: 'settings_workout.body_stats.thighs',   kind: 'length' },
+    { id: 'calves',  labelKey: 'settings_workout.body_stats.calves',   kind: 'length' },
+  ];
+  let overlayId = null;
+  let bodyRows = [];
+  $: overlayLengthUnit = $weightUnit === 'kg' ? 'cm' : 'in';
+  $: overlayChoices = OVERLAY_METRICS.filter(m => ($bodyStatsVisible || []).includes(m.id) && bodyRows.some(r => Number.isFinite(parseFloat(r.stats?.[m.id]))));
+  $: if (overlayId && !overlayChoices.some(m => m.id === overlayId)) overlayId = null;
+  $: overlayMetric = overlayId ? OVERLAY_METRICS.find(m => m.id === overlayId) : null;
+  $: overlayData = overlayMetric
+    ? bodyRows
+        .map(r => ({ date: r.date, v: parseFloat(r.stats?.[overlayMetric.id]) }))
+        .filter(p => Number.isFinite(p.v))
+    : [];
+  $: bwChartW = Math.max(bodyWeights.length * 20, 200);
 
   // ── Scroll restore per metric ────────────────────────────────────────
   // sessionStorage key per-metric so switching "Volume → Frequency → Volume"
@@ -224,11 +250,13 @@
       // that startDate already falls back to when there are no workouts.
       const from = range === 'All' ? '2000-01-01' : startDate;
       const rows = await LtApi.getBodyStatsRange(from, endDate);
-      bodyWeights = (rows || [])
-        .map(r => ({ date: r.date, weight: parseFloat(r.stats?.weight) }))
-        .filter(p => Number.isFinite(p.weight))
+      bodyRows = (rows || [])
+        .map(r => ({ date: r.date, stats: r.stats || {} }))
         .sort((a, b) => a.date.localeCompare(b.date));
-    } catch { bodyWeights = []; }
+      bodyWeights = bodyRows
+        .map(r => ({ date: r.date, weight: parseFloat(r.stats?.weight) }))
+        .filter(p => Number.isFinite(p.weight));
+    } catch { bodyWeights = []; bodyRows = []; }
   }
 
   async function loadProgress() {
@@ -473,6 +501,48 @@
     const rng = Math.max(1, max - min + 4);
     return data.map((b, i) => ({ x: i * 20 + 10, y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
   }
+
+  // Overlay series: proportional 5% padding so any metric fills the band
+  // the same way, while the weight line keeps its own absolute padding; the
+  // x positions spread by index fraction over the weight chart's width — the
+  // two series can have different row counts and the chart is index-spaced,
+  // not time-scaled.
+  function _overlayPointObjs(data, width) {
+    if (!data.length) return [];
+    const vals = data.map(p => p.v);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const d = max - min;
+    const pad = d > 0 ? d * 0.05 : 2;
+    const rng = d + 2 * pad;
+    const n = data.length;
+    return data.map((p, i) => ({
+      x: n === 1 ? width / 2 : 10 + i * (width - 20) / (n - 1),
+      y: 110 - ((p.v - min + pad) / rng * 90 + 10),
+    }));
+  }
+  function _overlayBounds(data) {
+    if (!data.length) return null;
+    const vals = data.map(p => p.v);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    return { min, max };
+  }
+  $: overlayPts = _overlayPointObjs(overlayData, bwChartW);
+  $: overlayBounds = _overlayBounds(overlayData);
+  $: weightMarks = (() => {
+    if (!overlayMetric || !bodyWeights.length) return null;
+    const ws = bodyWeights.map(b => b.weight);
+    const min = Math.min(...ws);
+    const max = Math.max(...ws);
+    const rng = Math.max(1, max - min + 4);
+    return {
+      min,
+      max,
+      yMax: 110 - ((max - min + 2) / rng * 90 + 10),
+      yMin: 110 - (2 / rng * 90 + 10),
+    };
+  })();
 </script>
 
 <div class="page">
@@ -961,15 +1031,57 @@
           </div>
 
           <div class="chart-card">
-            <h3 class="chart-title">{$_('statistics.body_weight_trend')}</h3>
-            <svg class="line-chart" viewBox="0 0 {Math.max(bodyWeights.length * 20, 200)} 120" preserveAspectRatio="none">
-              <polyline fill="none" stroke="var(--accent)" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"
-                points={_bwPoints(bodyWeights).join(' ')} />
-              {#each _bwPointObjs(bodyWeights) as pt}
-                <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
-              {/each}
-            </svg>
+            <div class="chart-title-row">
+              <h3 class="chart-title">{$_('statistics.body_weight_trend')}</h3>
+              {#if overlayMetric}
+                <div class="chart-legend">
+                  <span class="legend-item"><span class="legend-swatch accent"></span>{$_('settings_workout.body_stats.weight')} ({$weightUnit})</span>
+                  <span class="legend-item"><span class="legend-swatch overlay"></span>{$_(overlayMetric.labelKey)}{overlayMetric.kind === 'length' ? ` (${overlayLengthUnit})` : ''}</span>
+                </div>
+              {/if}
+            </div>
+            {#if overlayChoices.length}
+              <div class="overlay-chips">
+                <button class="overlay-chip" class:active={!overlayId} on:click={() => overlayId = null}>{$_('statistics.overlay_none')}</button>
+                {#each overlayChoices as m}
+                  <button class="overlay-chip" class:active={overlayId === m.id} on:click={() => overlayId = m.id}>{$_(m.labelKey)}</button>
+                {/each}
+              </div>
+            {/if}
+            <div class="chart-wrap">
+              <svg class="line-chart" viewBox="0 0 {bwChartW} 120" preserveAspectRatio="none">
+                <polyline fill="none" stroke="var(--accent)" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round"
+                  points={_bwPoints(bodyWeights).join(' ')} />
+                {#each _bwPointObjs(bodyWeights) as pt}
+                  <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
+                {/each}
+                {#if overlayPts.length >= 2}
+                  <polyline fill="none" stroke="var(--warning, #FFB020)" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3"
+                    points={overlayPts.map(p => `${p.x},${p.y}`).join(' ')} />
+                {/if}
+                {#each overlayPts as pt}
+                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="var(--warning, #FFB020)" />
+                {/each}
+              </svg>
+              {#if overlayBounds}
+                <div class="overlay-axis" aria-hidden="true">
+                  {#if weightMarks}
+                    <span class="w" style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
+                    {#if weightMarks.yMin - weightMarks.yMax >= 12}
+                      <span class="w" style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
+                    {/if}
+                  {/if}
+                  {#if overlayBounds.max !== overlayBounds.min}
+                    <span class="mark-max">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                    <span class="mark-min">{parseFloat(overlayBounds.min.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                  {:else}
+                    <span class="mark-solo">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
             <div class="chart-footer">
               <span>{bodyWeights[0]?.date}</span>
               <span>{bodyWeights[bodyWeights.length - 1]?.date}</span>
@@ -1296,7 +1408,18 @@
   }
   .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
   .legend-swatch.accent { background: var(--accent); }
-  .legend-swatch.rpe    { background: var(--warning, #FFB020); }
+  .legend-swatch.rpe, .legend-swatch.overlay { background: var(--warning, #FFB020); }
+  .overlay-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: none; }
+  .overlay-chips::-webkit-scrollbar { display: none; }
+  .overlay-chip { flex: 0 0 auto; padding: 4px 10px; border-radius: var(--radius-full); border: 1px solid var(--border); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap; transition: all var(--dur-fast); }
+  .overlay-chip.active { border-color: var(--warning, #FFB020); color: var(--warning, #FFB020); }
+  .chart-wrap { position: relative; }
+  .overlay-axis { position: absolute; inset: 0; pointer-events: none; }
+  .overlay-axis span { position: absolute; right: 2px; transform: translateY(-50%); font-size: 11px; line-height: 1; color: var(--warning, #FFB020); padding: 1px 5px; border-radius: 4px; background: var(--surface-1); }
+  .overlay-axis span.w { left: 2px; right: auto; color: var(--accent); }
+  .overlay-axis .mark-max { top: 8.3%; }  /* band top edge, y=10 of the 120 viewBox */
+  .overlay-axis .mark-min { top: 83.3%; } /* band bottom edge, y=100 */
+  .overlay-axis .mark-solo { top: 45.8%; } /* flat series: the single point renders mid-band, y=55 */
   .chart-sub { font-size: 12px; color: var(--text-3); margin: 10px 0 0; text-align: center; }
   .chart-desc { font-size: 12px; color: var(--text-3); margin: -8px 0 12px; line-height: 1.4; }
   .chart-footer { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-top: 6px; }
@@ -1752,6 +1875,13 @@
        ribbon at desktop widths. The chart centers within its
        card so it still reads as the primary content. */
     :global(html:not(.force-mobile-layout)) .line-chart {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    /* .chart-wrap must match .line-chart's rendered box, or the
+       overlay-axis marks (absolutely positioned against .chart-wrap)
+       drift away from the chart once .chart-card exceeds 900px. */
+    :global(html:not(.force-mobile-layout)) .chart-wrap {
       max-width: 900px;
       margin: 0 auto;
     }

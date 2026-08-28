@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Statistics: overlay a second body measurement on the Body Weight chart.** Pick any measurement tracked in the diary (waist, body fat, ...) as a dashed second series with its own normalized scale; min/max marks keep the two scales honest on both edges (weight on the left, the overlay on the right). The picker only offers measurements enabled under Settings → Workout → Body Measurements that have data in the visible range, and the tab and chart are now titled "Body Measurements".
+
 ## [1.2.0] - 2026-08-27
 
 Minor release. Headline is the desktop wide-layout pass across the main routes (Diary, Statistics, Programs, Radio, Exercises, Settings, ExercisePicker), which is why we bumped from the 1.1.3 patch line to 1.2.0. Also lands Spanish + Italian translations, a per-entry uuid + tombstone merge for the workout log (no more last-writer-wins across devices), server forward-proxy support, X-Forwarded-Proto for reverse-proxied deployments, a wave of user-management data-integrity fixes, and a run of polish from community PRs.
