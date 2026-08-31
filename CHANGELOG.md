@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Statistics: overlay a second body measurement on the Body Weight chart.** Pick any measurement tracked in the diary (waist, body fat, ...) as a dashed second series with its own normalized scale; min/max marks keep the two scales honest on both edges (weight on the left, the overlay on the right). The picker only offers measurements enabled under Settings → Workout → Body Measurements that have data in the visible range, and the tab and chart are now titled "Body Measurements".
 
+### Fixed
+
+- **Settings → Statistics: the "Lock Y-Axis to Zero" label renders in English in every translated locale.** The key was named `lock_y_zero`, and `zero` is a CLDR plural category, so Weblate reads it as one plural form of a `lock_y` key. Every sync drops `lock_y_zero` from the translated files and writes empty `lock_y_one` / `lock_y_many` / `lock_y_other` in its place, so the label falls back to English while the hint right below it still renders translated. Renamed to `lock_y_axis` (and `lock_y_axis_hint`), which no longer collides with a plural category. Actual plurals in the file, like `statistics.effective_sets_one` / `_other`, are read correctly and are untouched.
+
 ## [1.2.0] - 2026-08-27
 
 Minor release. Headline is the desktop wide-layout pass across the main routes (Diary, Statistics, Programs, Radio, Exercises, Settings, ExercisePicker), which is why we bumped from the 1.1.3 patch line to 1.2.0. Also lands Spanish + Italian translations, a per-entry uuid + tombstone merge for the workout log (no more last-writer-wins across devices), server forward-proxy support, X-Forwarded-Proto for reverse-proxied deployments, a wave of user-management data-integrity fixes, and a run of polish from community PRs.
