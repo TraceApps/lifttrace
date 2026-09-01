@@ -205,3 +205,14 @@ test('mergeExercises: server-only concurrent addition is appended after client o
   const { merged } = mergeExercises(server, client, [], [], {}, {});
   assert.deepEqual(merged.map(e => e.uuid), ['b', 'a', 'c']);
 });
+
+test('mergeEntries: duplicate uuid in client list de-dupes to one slot at its first position', () => {
+  const server = [];
+  const client = [
+    { uuid: 'a', name: 'first',  updatedAt: '2026-08-10T10:00Z' },
+    { uuid: 'a', name: 'second', updatedAt: '2026-08-10T11:00Z' },
+  ];
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].name, 'second');
+});

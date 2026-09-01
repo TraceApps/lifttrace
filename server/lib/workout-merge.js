@@ -73,7 +73,14 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
   // updated but the position snapped back to wherever the server had
   // it. Symptom in the app: a reorder visibly applies for a moment,
   // then reverts once the debounced save round-trips.
-  const clientUuids = new Set();
+  // posByUuid tracks each uuid's slot in `ordered` so a duplicate uuid
+  // within the client's own array (legacy client bug, or a race that
+  // sent the same entry twice) collapses to one slot at its FIRST
+  // occurrence, with later duplicates only allowed to overwrite the
+  // value there if they win on timestamp — matching what the old
+  // Map-based version did for client-side duplicates (a second
+  // `.set()` on the same key updates the value without moving it).
+  const posByUuid = new Map();
   const ordered = [];
   for (let entry of client) {
     if (!entry || typeof entry !== 'object') continue;
@@ -81,9 +88,14 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
       entry = { ...entry, uuid: randomUUID() };
     }
     if (tombstoneSet.has(entry.uuid)) continue;
-    clientUuids.add(entry.uuid);
+    const priorIdx = posByUuid.get(entry.uuid);
+    if (priorIdx !== undefined) {
+      if (_tsOf(entry) >= _tsOf(ordered[priorIdx])) ordered[priorIdx] = entry;
+      continue;
+    }
     const existing = serverByUuid.get(entry.uuid);
     const winner = (!existing || _tsOf(entry) >= _tsOf(existing)) ? entry : existing;
+    posByUuid.set(entry.uuid, ordered.length);
     ordered.push(winner);
   }
   // Server-only entries — concurrent additions from another device that
@@ -91,7 +103,7 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
   // merges instead of blob-replacing). Appended after the client's own
   // ordering, in their original server-relative order.
   for (const [uuid, entry] of serverByUuid) {
-    if (!clientUuids.has(uuid)) ordered.push(entry);
+    if (!posByUuid.has(uuid)) ordered.push(entry);
   }
 
   return {
