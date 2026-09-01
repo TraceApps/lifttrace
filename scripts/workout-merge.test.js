@@ -157,3 +157,51 @@ test('ensureUuids assigns uuids only to entries missing one', () => {
   assert.equal(out[0].uuid, 'a');
   assert.ok(out[1].uuid);
 });
+
+// Regression for the "reorder visibly applies then snaps back" bug
+// (#71-class, diagnosed 2026-08-31): a JS Map does not move an existing
+// key on re-.set(), so seeding the merge from server order and only
+// overwriting values silently discarded every client-side reorder.
+// Order must follow the CLIENT's array — it's the authoritative full
+// list on every save, not an incremental diff.
+test('mergeExercises follows client order when the client reorders two existing exercises', () => {
+  const server = [_ex('a'), _ex('b'), _ex('c')];
+  const client = [_ex('c'), _ex('a'), _ex('b')]; // c moved to the front
+  const { merged } = mergeExercises(server, client, [], [], {}, {});
+  assert.deepEqual(merged.map(e => e.uuid), ['c', 'a', 'b']);
+});
+
+test('mergeEntries (the flat helper) follows client order on a plain swap', () => {
+  const server = [{ uuid: 'a' }, { uuid: 'b' }];
+  const client = [{ uuid: 'b' }, { uuid: 'a' }];
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.deepEqual(merged.map(e => e.uuid), ['b', 'a']);
+});
+
+test('mergeExercises: joining a superset moves the exercise adjacent to its new siblings', () => {
+  // Mirrors joinSuperset() in Diary.svelte: the exercise's array
+  // position moves next to the target group, and its superset_id is
+  // set to match. Both the content change AND the position change
+  // must survive the merge for the client's consecutive-run superset
+  // grouping (Diary.svelte's supersetGroups) to render it correctly.
+  const server = [
+    _ex('x', { superset_id: 'ss1', superset_size: 2 }),
+    _ex('y', { superset_id: 'ss1', superset_size: 2 }),
+    _ex('a'), // the exercise being joined into the superset
+  ];
+  const client = [
+    _ex('x', { superset_id: 'ss1', superset_size: 3 }),
+    _ex('y', { superset_id: 'ss1', superset_size: 3 }),
+    _ex('a', { superset_id: 'ss1', superset_size: 3 }), // moved + relabeled
+  ];
+  const { merged } = mergeExercises(server, client, [], [], {}, {});
+  assert.deepEqual(merged.map(e => e.uuid), ['x', 'y', 'a']);
+  assert.equal(merged[2].superset_id, 'ss1');
+});
+
+test('mergeExercises: server-only concurrent addition is appended after client order, not interleaved', () => {
+  const server = [_ex('a'), _ex('b'), _ex('c')]; // 'c' was added by another device
+  const client = [_ex('b'), _ex('a')]; // this client only knows about a/b, and reordered them
+  const { merged } = mergeExercises(server, client, [], [], {}, {});
+  assert.deepEqual(merged.map(e => e.uuid), ['b', 'a', 'c']);
+});

@@ -61,20 +61,41 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
   const serverDeduped = _dedupe(server, tombstoneSet);
   const serverByUuid = new Map(serverDeduped.map(e => [e.uuid, e]));
 
+  // Order follows the CLIENT's array, not the server's. The client
+  // always resends its complete list on every save (see saveWorkout in
+  // stores/workout.js), so it's the authoritative ordering for
+  // whatever the user is actively arranging this session — reordering
+  // within a superset, moving an exercise into/out of one, or the
+  // plain ↑/↓ reorder buttons. A JS Map does NOT move an existing key
+  // when .set() is called again on it, so building the merged array
+  // from server-insertion order and only overwriting values (the old
+  // approach) silently discarded every client-side reorder: the value
+  // updated but the position snapped back to wherever the server had
+  // it. Symptom in the app: a reorder visibly applies for a moment,
+  // then reverts once the debounced save round-trips.
+  const clientUuids = new Set();
+  const ordered = [];
   for (let entry of client) {
     if (!entry || typeof entry !== 'object') continue;
     if (!entry.uuid || typeof entry.uuid !== 'string') {
       entry = { ...entry, uuid: randomUUID() };
     }
     if (tombstoneSet.has(entry.uuid)) continue;
+    clientUuids.add(entry.uuid);
     const existing = serverByUuid.get(entry.uuid);
-    if (!existing || _tsOf(entry) >= _tsOf(existing)) {
-      serverByUuid.set(entry.uuid, entry);
-    }
+    const winner = (!existing || _tsOf(entry) >= _tsOf(existing)) ? entry : existing;
+    ordered.push(winner);
+  }
+  // Server-only entries — concurrent additions from another device that
+  // this client's payload never included (the actual reason Option C
+  // merges instead of blob-replacing). Appended after the client's own
+  // ordering, in their original server-relative order.
+  for (const [uuid, entry] of serverByUuid) {
+    if (!clientUuids.has(uuid)) ordered.push(entry);
   }
 
   return {
-    merged: Array.from(serverByUuid.values()),
+    merged: ordered,
     newTombstoneUuids: deleted.filter(u => !priorTombstones.includes(u)),
   };
 }
