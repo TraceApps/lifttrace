@@ -712,10 +712,6 @@
     "default_chart_type": "Tipo de gráfica por defecto",
     "type_bar": "Barras",
     "type_line": "Líneas",
-    "lock_y_one": "",
-    "lock_y_many": "",
-    "lock_y_other": "",
-    "lock_y_zero_hint": "Empieza siempre el eje Y en 0",
     "show_average": "Mostrar la línea de la media",
     "show_average_hint": "Línea horizontal en el valor medio",
     "show_trend": "Mostrar la línea de tendencia",
@@ -985,7 +981,7 @@
       "records": "Récords",
       "volume": "Volumen",
       "freq": "Frecuencia",
-      "weight": "Peso corporal",
+      "weight": "Medidas corporales",
       "cardio": "Cardio"
     },
     "ranges": {
@@ -1038,7 +1034,7 @@
     "streak": "Racha",
     "weekday_dist": "Distribución por día de la semana",
     "change": "Cambio",
-    "body_weight_trend": "Tendencia del peso corporal",
+    "body_weight_trend": "Medidas corporales",
     "history": "Historial",
     "choose_exercise": "Elegir ejercicio",
     "search_exercises_ph": "Buscar ejercicios…",
@@ -1090,7 +1086,8 @@
     "showing_100_sessions": "Se muestran las 100 sesiones más recientes de este rango.",
     "no_exercises_match": "Ningún ejercicio coincide con esa búsqueda.",
     "no_exercises_library": "Todavía no hay ejercicios en tu biblioteca.",
-    "load_failed": "No se pudieron cargar las estadísticas"
+    "load_failed": "No se pudieron cargar las estadísticas",
+    "overlay_none": "Ninguna"
   },
   "gym_tools": {
     "plates": "Discos",
