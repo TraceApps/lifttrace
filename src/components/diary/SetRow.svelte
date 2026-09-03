@@ -258,7 +258,13 @@
         placeholder="0"
         inputmode="numeric"
       />
-      <span class="set-unit">reps</span>
+      <!-- No "reps" unit label here — the sets-header column above
+           every SetRow already reads REPS (ExerciseCard.svelte), so
+           the per-row label was purely redundant. Removing it matters
+           in practice: at narrow phone widths with RPE tracking on,
+           the reps input's flex track has almost no slack left after
+           the RPE chip's auto column, and the label's own width +
+           gap was routinely eating the entire input (issue #75). -->
       {#if loadType === 'unilateral'}
         <button class="split-btn" on:click={toggleSplit} title="Split L/R reps" aria-label="Split L/R reps">
           <span class="material-symbols-rounded">add_link</span>

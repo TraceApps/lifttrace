@@ -218,7 +218,11 @@
 
 <style>
   .superset-card {
-    border: 2px solid var(--border);
+    /* 1px, not 2px — every px here comes straight out of each member's
+       SetRow grid on a phone (see .ss-connector / .ss-exercise-content
+       below + issue #75). The frame is still visible against
+       var(--bg); it doesn't need the extra px to read as a border. */
+    border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     overflow: hidden;
     background: var(--bg);
@@ -261,7 +265,10 @@
   .ss-remove-btn:hover { color: var(--danger); }
   .ss-remove-btn .material-symbols-rounded { font-size: 18px; }
 
-  .superset-exercises { padding: 8px 8px 8px 0; }
+  /* Right padding trimmed from 8px to 0 (issue #75) — the card's own
+     border + border-radius already give enough visual breathing room
+     on the right edge without also taxing every set row's width. */
+  .superset-exercises { padding: 8px 0 8px 0; }
 
   /* Per-exercise coach feedback within a superset — sits right under the
      specific exercise's card so the reader doesn't have to look at the
@@ -286,9 +293,27 @@
 
   .ss-exercise { display: flex; gap: 0; }
 
+  /* Weight's ± step buttons take ~48px out of every SetRow (2 buttons +
+     their flex gaps) — the single biggest chunk of a set-field's own
+     internal chrome. A superset's frame (connector + borders, trimmed
+     above but still non-zero) already eats into the same row before
+     the two fr columns get split, so at phone widths there's often
+     nothing left for the actual number once these buttons take their
+     share too (issue #75). Hiding them only inside a superset — where
+     the width is genuinely gone, not just tight — keeps the tap-to-
+     bump convenience everywhere else; a weight can still always be
+     typed directly. :global() reaches through SetRow/ExerciseCard's
+     component boundaries since .step-btn is a plain DOM class, not
+     scoped to this file. */
+  :global(.superset-card .step-btn) { display: none; }
+
+  /* 28px → 10px (issue #75). Still comfortably wider than the 8px dot
+     + 2px line it holds; the room it gave up went to whichever
+     SetRow member is tightest for space, which on a phone is every
+     one of them once RPE tracking is on. */
   .ss-connector {
     display: flex; flex-direction: column; align-items: center;
-    width: 28px; flex-shrink: 0; position: relative; padding-top: 20px;
+    width: 10px; flex-shrink: 0; position: relative; padding-top: 20px;
   }
   .connector-dot {
     width: 8px; height: 8px; border-radius: 50%;
@@ -299,11 +324,17 @@
     height: calc(100% - 8px); background: var(--accent-dim);
   }
 
-  .ss-exercise-content { flex: 1; min-width: 0; padding: 4px 8px 4px 0; }
+  /* Right padding trimmed from 8px to 0 (issue #75) — same reasoning
+     as .superset-exercises above. */
+  .ss-exercise-content { flex: 1; min-width: 0; padding: 4px 0 4px 0; }
 
   .ss-add-exercise {
     display: flex; align-items: center; justify-content: center; gap: 6px;
-    width: calc(100% - 36px); margin: 6px 8px 6px 28px; padding: 10px;
+    /* Left margin matches .ss-connector's width (10px, was 28px) so this
+       still lines up under the exercise content rather than the
+       connector column; right margin/width follow .ss-exercise-content's
+       now-0 right padding (issue #75). */
+    width: calc(100% - 10px); margin: 6px 0 6px 10px; padding: 10px;
     background: var(--surface-2); border: 1px dashed var(--accent-dim);
     border-radius: var(--radius-md);
     color: var(--accent); font-size: 13px; font-weight: 600;
