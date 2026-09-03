@@ -593,6 +593,13 @@
      the number begins". */
   .sh-weight { padding-left: 28px; }
   .sh-reps   { padding-left: 8px; }
+  /* Inside a superset the ± step buttons are hidden (SupersetCard.svelte,
+     issue #75 — they were the one lever with room to give at phone
+     widths), so the weight input's left edge sits right after
+     weight-field's own 4px padding instead of 4px + 22px + 2px = 28px.
+     Re-derive the same "label over the input's left edge" alignment for
+     that context; standalone exercises keep the 28px above unchanged. */
+  :global(.superset-card) .sh-weight { padding-left: 4px; }
 
   .add-set-actions { display: flex; gap: 6px; margin-top: 6px; }
   .add-set-btn {
