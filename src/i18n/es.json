@@ -715,7 +715,9 @@
     "show_average": "Mostrar la línea de la media",
     "show_average_hint": "Línea horizontal en el valor medio",
     "show_trend": "Mostrar la línea de tendencia",
-    "show_trend_hint": "Superpone una tendencia suavizada en las gráficas"
+    "show_trend_hint": "Superpone una tendencia suavizada en las gráficas",
+    "lock_y_axis": "Fijar el eje Y en cero",
+    "lock_y_axis_hint": "Empieza siempre el eje Y en 0"
   },
   "settings_catalog": {
     "deleted": "Eliminado",
