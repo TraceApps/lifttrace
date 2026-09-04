@@ -179,11 +179,31 @@ export function mergeExercises(
   };
 }
 
+// The only fields that ever belong inside body_stats_log.stats. Mirrors
+// BodyStatsWidget.svelte's ROWS + Statistics.svelte's OVERLAY_METRICS —
+// same list, same maintenance burden as those two.
+//
+// Guards against a specific corruption shape (issue #80): the GET
+// /api/body-stats/:date response wraps the row one level deeper than
+// the client read (data.stats.stats holds the measurements, not
+// data.stats), and before that read bug was fixed, a client that had
+// hit it would spread the whole row — including id / user_id / date
+// and a nested stats object — into what it PUT back. mergeStatsObject
+// used to copy every key it was handed, so that malformed shape would
+// have landed inside the stored JSON blob verbatim. The read fix
+// removes the way this gets constructed client-side; this allowlist
+// means it can't land in the stored data even if a similar bug shows
+// up in some future client entry point.
+const BODY_STAT_KEYS = new Set([
+  'weight', 'bodyFat', 'neck', 'chest', 'waist', 'hips', 'biceps', 'thighs', 'calves',
+]);
+
 /**
  * Per-key merge for a flat object (used for body_stats_log.stats).
  * Empty incoming object preserves everything; incoming keys with
  * defined values overwrite; incoming keys explicitly set to null are
- * treated as deletions (user cleared that stat).
+ * treated as deletions (user cleared that stat). Client keys outside
+ * BODY_STAT_KEYS are ignored rather than merged — see the comment above.
  *
  * Simpler than the array merge because keys ARE the identity — no
  * uuids needed.
@@ -193,6 +213,7 @@ export function mergeStatsObject(serverStats, clientStats) {
   const client = (clientStats && typeof clientStats === 'object') ? clientStats : {};
   const out = { ...server };
   for (const [k, v] of Object.entries(client)) {
+    if (!BODY_STAT_KEYS.has(k)) continue;
     if (v === null) delete out[k];   // explicit clear
     else if (v !== undefined) out[k] = v;
   }

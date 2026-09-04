@@ -53,7 +53,11 @@
       const res = await fetch(`/api/body-stats/${$currentDate}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        stats = data.stats ? (typeof data.stats === 'string' ? JSON.parse(data.stats) : data.stats) : {};
+        // See BodyStatsWidget.svelte's load() for the wire-shape rationale
+        // (issue #80): the actual measurements sit one level deeper, at
+        // data.stats.stats, not data.stats itself.
+        const raw = typeof data.stats === 'string' ? JSON.parse(data.stats) : data.stats;
+        stats = raw?.stats ?? raw ?? {};
       } else {
         stats = {};
       }

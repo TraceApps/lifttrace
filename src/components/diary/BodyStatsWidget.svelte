@@ -43,7 +43,15 @@
       const res = await fetch(`/api/body-stats/${$currentDate}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        stats = data.stats ? (typeof data.stats === 'string' ? JSON.parse(data.stats) : data.stats) : {};
+        // GET /api/body-stats/:date responds with { stats: row | null },
+        // and the row itself carries the measurements one level deeper at
+        // row.stats (id/user_id/date sit alongside it) — the wire shape is
+        // { stats: { id, user_id, date, stats: { weight, bodyFat, ... } } }.
+        // data.stats?.stats reaches the actual measurements; the ?? data.stats
+        // fallback keeps this working if a future response ever comes back
+        // already flat (issue #80).
+        const raw = typeof data.stats === 'string' ? JSON.parse(data.stats) : data.stats;
+        stats = raw?.stats ?? raw ?? {};
       } else {
         stats = {};
       }

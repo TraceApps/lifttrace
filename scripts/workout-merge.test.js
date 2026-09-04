@@ -99,30 +99,52 @@ test('regression: LT 2026-08-11 shape — stale client with empty exercises must
   assert.equal(merged.reduce((sum, e) => sum + e.sets.length, 0), 32);
 });
 
+// Key names here match BODY_STAT_KEYS in workout-merge.js (weight,
+// bodyFat, waist, ...) — the actual production shape, not placeholder
+// names, since mergeStatsObject now allowlists against that exact set.
 test('mergeStatsObject preserves keys not mentioned by client', () => {
-  const server = { weight_kg: 92.5, body_fat_pct: 15.0, waist_cm: 88 };
-  const client = { weight_kg: 92.0 }; // only updating weight
+  const server = { weight: 92.5, bodyFat: 15.0, waist: 88 };
+  const client = { weight: 92.0 }; // only updating weight
   const merged = mergeStatsObject(server, client);
-  assert.deepEqual(merged, { weight_kg: 92.0, body_fat_pct: 15.0, waist_cm: 88 });
+  assert.deepEqual(merged, { weight: 92.0, bodyFat: 15.0, waist: 88 });
 });
 
 test('mergeStatsObject treats explicit null as clear', () => {
-  const server = { weight_kg: 92, body_fat_pct: 15, waist_cm: 88 };
-  const client = { body_fat_pct: null }; // user cleared body fat
+  const server = { weight: 92, bodyFat: 15, waist: 88 };
+  const client = { bodyFat: null }; // user cleared body fat
   const merged = mergeStatsObject(server, client);
-  assert.deepEqual(merged, { weight_kg: 92, waist_cm: 88 });
+  assert.deepEqual(merged, { weight: 92, waist: 88 });
 });
 
 test('mergeStatsObject with empty client preserves everything (the primary safety property)', () => {
-  const server = { weight_kg: 92, body_fat_pct: 15, waist_cm: 88 };
+  const server = { weight: 92, bodyFat: 15, waist: 88 };
   const merged = mergeStatsObject(server, {});
   assert.deepEqual(merged, server);
 });
 
 test('mergeStatsObject with undefined client returns server unchanged', () => {
-  const server = { weight_kg: 92 };
+  const server = { weight: 92 };
   assert.deepEqual(mergeStatsObject(server, undefined), server);
   assert.deepEqual(mergeStatsObject(server, null), server);
+});
+
+// Regression for issue #80: before the client-side read fix, a client
+// that had hit the wire-shape bug would PUT back { id, user_id, date,
+// stats: {...}, weight: val } — the whole row it had misread as the
+// measurements object, plus its own edit. mergeStatsObject must not
+// let any of those stray keys land in the stored blob.
+test('mergeStatsObject drops keys outside the known body-stat set (issue #80 corruption guard)', () => {
+  const server = { weight: 183 };
+  const client = { id: 42, user_id: 7, date: '2026-09-01', stats: { weight: 183, bodyFat: 20 }, weight: 185 };
+  const merged = mergeStatsObject(server, client);
+  assert.deepEqual(merged, { weight: 185 });
+});
+
+test('mergeStatsObject still merges every known key correctly alongside a rejected unknown one', () => {
+  const server = { weight: 183, bodyFat: 20 };
+  const client = { weight: 185, waist: 34, rogueKey: 'nope' };
+  const merged = mergeStatsObject(server, client);
+  assert.deepEqual(merged, { weight: 185, bodyFat: 20, waist: 34 });
 });
 
 test('ensureExerciseUuids assigns uuids at exercise AND set level', () => {
