@@ -548,7 +548,9 @@
   "exercises_page": {
     "all_equipment":         "All Equipment",
     "go_to_settings":        "Go to Settings",
-    "custom":                "Custom"
+    "custom":                "Custom",
+    "density_compact":       "Compact",
+    "density_comfortable":   "Comfortable"
   },
   "coaching_dialogs": {
     "cancel":                "Cancel"

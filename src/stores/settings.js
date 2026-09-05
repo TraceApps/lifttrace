@@ -182,6 +182,9 @@ export const favoriteExercises = createSettingStore('favoriteExercises', []);
 // a user's home-gym kit follows them between devices.
 export const customEquipment = createSettingStore('customEquipment', []);
 export const exerciseReorderMethod = createSettingStore('exerciseReorderMethod', 'both'); // 'drag' | 'buttons' | 'both'
+// Exercises tab display density (issue #74). Desktop only, so mobile's
+// existing compact list is untouched.
+export const exerciseBrowserDensity = createSettingStore('exerciseBrowserDensity', 'compact'); // 'compact' | 'comfortable'
 export const autoCollapseCompleted = createSettingStore('autoCollapseCompleted', true);
 export const autoNameWorkouts = createSettingStore('autoNameWorkouts', true);
 export const confirmExerciseRemoval = createSettingStore('confirmExerciseRemoval', true);

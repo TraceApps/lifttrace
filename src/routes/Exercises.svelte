@@ -10,7 +10,7 @@
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
   import Dialog from '../components/ui/Dialog.svelte';
-  import { pageBanners, bannerStyle, favoriteExercises, customEquipment, weightUnit } from '../stores/settings.js';
+  import { pageBanners, bannerStyle, favoriteExercises, customEquipment, weightUnit, exerciseBrowserDensity } from '../stores/settings.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
   import { readSharedExerciseFile, fetchSharedExerciseUrl, importSharedExercise } from '../lib/exerciseShare.js';
 
@@ -435,6 +435,31 @@
       </div>
     {/if}
 
+    <!-- Display density (issue #74). Desktop only -- _wideMode already
+         gates every other desktop-specific behavior in this file, so
+         reusing it here keeps this consistent instead of adding a
+         second breakpoint check. Mobile's compact list is untouched. -->
+    {#if _wideMode}
+      <div class="density-toggle" role="group" aria-label="Display density">
+        <button
+          class="density-btn"
+          class:active={$exerciseBrowserDensity === 'compact'}
+          on:click={() => exerciseBrowserDensity.set('compact')}
+        >
+          <span class="material-symbols-rounded">view_list</span>
+          {$_('exercises_page.density_compact')}
+        </button>
+        <button
+          class="density-btn"
+          class:active={$exerciseBrowserDensity === 'comfortable'}
+          on:click={() => exerciseBrowserDensity.set('comfortable')}
+        >
+          <span class="material-symbols-rounded">grid_view</span>
+          {$_('exercises_page.density_comfortable')}
+        </button>
+      </div>
+    {/if}
+
   </div>
   </div>
 
@@ -462,7 +487,7 @@
       {#each Object.entries(grouped) as [category, exs]}
         <div class="group">
           {#if category}<h3 class="group-title">{category}</h3>{/if}
-          <div class="group-list">
+          <div class="group-list" class:comfortable={_wideMode && $exerciseBrowserDensity === 'comfortable'}>
             {#each exs.sort(_sortFn()) as ex}
               {@const u = usage[ex.id]}
               <div class="exercise-row" class:selected-for-detail={_wideMode && _detailSelected?.id === ex.id}>
@@ -617,6 +642,23 @@
   .chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .chip-icon { font-size: 16px; }
 
+  /* Display density toggle (issue #74). Same visual language as .chip
+     so it reads as part of the same toolbar, just a two-way switch
+     instead of a multi-select filter. */
+  .density-toggle {
+    display: flex; align-items: center; gap: 4px;
+    margin-top: 8px;
+  }
+  .density-btn {
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 12px;
+    border-radius: var(--radius-full); background: var(--surface-1); border: 1px solid var(--border);
+    color: var(--text-2); font-size: 12px; font-weight: 500; cursor: pointer;
+    transition: all var(--dur-fast);
+  }
+  .density-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .density-btn .material-symbols-rounded { font-size: 16px; }
+
   /* Wrapper exists so the fade gradients can sit outside the scrolling
      area — otherwise they'd move with the content. */
   .equipment-chips-wrap {
@@ -696,6 +738,18 @@
   }
   .ex-thumb img { width: 100%; height: 100%; object-fit: cover; }
   .ex-thumb .material-symbols-rounded { font-size: 22px; }
+
+  /* Comfortable density (issue #74). Desktop only, opt-in via the
+     toggle next to the filter chips. Same row structure as compact,
+     just a bigger thumbnail and more breathing room, rather than a
+     full card-grid rebuild: matches the issue's own "taller row or
+     card" framing without touching markup structure. */
+  .group-list.comfortable { gap: 8px; }
+  .group-list.comfortable .ex-row-main { padding: 14px 14px 14px 0; gap: 16px; }
+  .group-list.comfortable .ex-thumb { width: 96px; height: 96px; }
+  .group-list.comfortable .ex-thumb .material-symbols-rounded { font-size: 36px; }
+  .group-list.comfortable .ex-name { font-size: 15px; white-space: normal; }
+  .group-list.comfortable .ex-meta { font-size: 13px; white-space: normal; }
 
   /* Sort menu — anchored inside the search bar via a small icon button.
      Replaces the old chip-row so the filter bar stays focused on
