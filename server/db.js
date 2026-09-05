@@ -313,7 +313,18 @@ db.exec(`
       const extraCols = colInfo.filter(c => !baseCols.includes(c.name));
       const extraDDL  = extraCols.map(c => {
         const notnull = c.notnull ? ' NOT NULL' : '';
-        const dflt = c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : '';
+        // Parens make this valid for ANY default expression SQLite can
+        // report via dflt_value — a bare literal like '0' round-trips
+        // through PRAGMA table_info unwrapped, but a function-call
+        // default like datetime('now') also comes back unwrapped despite
+        // needing parens to be re-declared as a DEFAULT clause. SQLite
+        // accepts (and normalizes away) the extra parens on a plain
+        // literal too, so wrapping unconditionally is always correct.
+        // Latent bug found and fixed while building issue #76's
+        // workout_log/workout_tombstones rebuilds below, which copy this
+        // exact recipe — dormant here only because trainer_id (today's
+        // only extra column ever seen on this table) has no default.
+        const dflt = c.dflt_value != null ? ` DEFAULT (${c.dflt_value})` : '';
         // Mirror the trainer_id self-FK so the new schema keeps the constraint.
         const fk = c.name === 'trainer_id' ? ' REFERENCES users(id) ON DELETE SET NULL' : '';
         return `, ${c.name} ${c.type || 'TEXT'}${notnull}${dflt}${fk}`;
@@ -566,7 +577,13 @@ try {
       const extraCols = colInfo.filter(c => !baseCols.includes(c.name));
       const extraDDL = extraCols.map(c => {
         const notnull = c.notnull ? ' NOT NULL' : '';
-        const dflt = c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : '';
+        // Parens make this valid for ANY default expression, not just
+        // bare literals — see the identical fix + full explanation on
+        // the users-table rebuild above. This table's actual extra
+        // columns today (program_week, updated_at, deleted_at,
+        // session_seq) never hit the unwrapped-function-call case in
+        // production, but a future column easily could.
+        const dflt = c.dflt_value != null ? ` DEFAULT (${c.dflt_value})` : '';
         return `, ${c.name} ${c.type || 'TEXT'}${notnull}${dflt}`;
       }).join('');
       const allCols = baseCols.concat(extraCols.map(c => c.name));

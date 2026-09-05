@@ -362,9 +362,26 @@ async function _createSchema(db) {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_exercises_source_external
        ON exercises(source, external_id)
        WHERE is_global = 1 AND external_id IS NOT NULL`,
+    // Multiple workout sessions per day (issue #76). Additive half of the
+    // migration — safe as a plain ALTER, unlike the UNIQUE-drop / PK-widen
+    // rebuilds below which need their own guarded block.
+    `ALTER TABLE workout_log        ADD COLUMN session_seq INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE workout_tombstones ADD COLUMN workout_id INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const stmt of _alters) {
     try { await db.execute(stmt); } catch { /* duplicate column / table missing — fine */ }
+  }
+
+  // Issue #76 continued: the UNIQUE-drop / PK-widen table rebuilds. Kept
+  // out of the try/catch-per-statement _alters loop above on purpose —
+  // see _migrateMultiSession's own doc comment for why. Never allowed to
+  // throw out of here: a failed rebuild must leave the OLD schema intact
+  // and let the app keep booting, not brick a device on its own local
+  // data (this table is that device's only copy in standalone mode).
+  try {
+    await _migrateMultiSession(db);
+  } catch (e) {
+    console.error('[db-native] _migrateMultiSession threw unexpectedly:', e?.message || e);
   }
 
   // ── One-shot cleanup: drop garbage user_settings rows ───────────────────
@@ -379,6 +396,162 @@ async function _createSchema(db) {
   try {
     await db.run(`DELETE FROM user_settings WHERE key IN ('key', 'value')`, []);
   } catch {}
+}
+
+/**
+ * Issue #76 (multiple workout sessions per day) — native-side counterpart
+ * to the server's schema rebuild in server/db.js. Same target shape: no
+ * UNIQUE(user_id,date) on workout_log; workout_tombstones' primary key
+ * widened to include workout_id. Can't just be two more entries in
+ * _alters above: SQLite can't ALTER/DROP a table-level constraint, so
+ * this needs a real table rebuild, and unlike a plain ADD COLUMN a
+ * rebuild has to (a) check whether it already happened — re-running
+ * unconditionally on every boot would repeat table surgery forever,
+ * since _createSchema runs on every app launch — and (b) fail closed:
+ * this device's local database may be the user's ONLY copy of their
+ * data (standalone mode, no server), so a rebuild that goes wrong here
+ * has no server-side recovery the way a failed server-side migration
+ * would. Each half below is independently guarded and independently
+ * try/caught so a failure in one never blocks the other or blocks app
+ * boot — it just leaves that half on the old schema, logged, flagged in
+ * sync_meta, and naturally retried again next boot since the guard
+ * condition is still true.
+ */
+async function _migrateMultiSession(db) {
+  // ── workout_log: drop UNIQUE(user_id,date) ──────────────────────────
+  try {
+    const idx = await db.query(`PRAGMA index_list(workout_log)`, []);
+    const stillUnique = (idx?.values || []).some(
+      ix => ix.origin === 'u' && String(ix.name || '').startsWith('sqlite_autoindex_workout_log_')
+    );
+    if (stillUnique) {
+      await _backupDbFile('pre-workout-log-rebuild');
+      // Dynamic column preservation (mirrors the server-side recipe
+      // exactly, verified there against real production data): anything
+      // beyond the schema's original columns — program_week, updated_at,
+      // deleted_at, sync_state, session_seq — gets carried through
+      // without hardcoding, so this rebuild can't silently drop a column
+      // added by an earlier or later migration.
+      const colInfo = await db.query(`PRAGMA table_info(workout_log)`, []);
+      const baseCols = ['id', 'user_id', 'date', 'template_id', 'program_id', 'name',
+                        'exercises', 'notes', 'duration_min', 'completed', 'created_at'];
+      const extraCols = (colInfo?.values || []).filter(c => !baseCols.includes(c.name));
+      const extraDDL = extraCols.map(c => {
+        const notnull = c.notnull ? ' NOT NULL' : '';
+        // Parens make this valid for ANY default expression PRAGMA
+        // table_info can report, not just bare literals — a function-call
+        // default like this table's own `updated_at TEXT DEFAULT
+        // (datetime('now'))` comes back from table_info as the unwrapped
+        // text datetime('now'), which is invalid re-declared as a
+        // DEFAULT clause without the parens. Confirmed by dry-running
+        // this exact reconstruction against a real SQLite engine with
+        // updated_at as one of the preserved extra columns — it threw
+        // "syntax error near (" without this fix.
+        const dflt = c.dflt_value != null ? ` DEFAULT (${c.dflt_value})` : '';
+        return `, ${c.name} ${c.type || 'TEXT'}${notnull}${dflt}`;
+      }).join('');
+      const allCols = baseCols.concat(extraCols.map(c => c.name));
+      const colList = allCols.join(', ');
+
+      // No REFERENCES clauses here, matching the native table's original
+      // definition above — unlike the server schema, this mirror never
+      // declared FK constraints on template_id/program_id.
+      await db.execute(`
+        CREATE TABLE workout_log_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id      INTEGER,
+          date         TEXT NOT NULL,
+          template_id  INTEGER,
+          program_id   INTEGER,
+          name         TEXT,
+          exercises    TEXT DEFAULT '[]',
+          notes        TEXT,
+          duration_min REAL,
+          completed    INTEGER DEFAULT 0,
+          created_at   TEXT DEFAULT (datetime('now'))${extraDDL}
+        );
+        INSERT INTO workout_log_new (${colList}) SELECT ${colList} FROM workout_log;
+        DROP TABLE workout_log;
+        ALTER TABLE workout_log_new RENAME TO workout_log;
+        CREATE INDEX IF NOT EXISTS idx_workout_log_date ON workout_log(date);
+        CREATE INDEX IF NOT EXISTS idx_workout_log_user_date ON workout_log(user_id, date);
+      `);
+      console.log('[db-native] workout_log rebuilt: UNIQUE(user_id,date) dropped (issue #76)');
+    }
+  } catch (e) {
+    console.error('[db-native] workout_log rebuild failed, leaving old schema in place:', e?.message || e);
+    try { await db.run(`INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('schema_migration_v76_failed', '1')`, []); } catch {}
+  }
+
+  // ── workout_tombstones: widen the primary key to include workout_id ─
+  try {
+    const cols = await db.query(`PRAGMA table_info(workout_tombstones)`, []);
+    const wfCol = (cols?.values || []).find(c => c.name === 'workout_id');
+    const alreadyRebuilt = wfCol && wfCol.pk > 0;
+    if (!alreadyRebuilt) {
+      await _backupDbFile('pre-workout-tombstones-rebuild');
+      // Backfill BEFORE the rebuild — a date is still guaranteed to have
+      // exactly one workout_log row at this point, since the workout_log
+      // step above (whether it ran this boot or a previous one) only
+      // ever drops a constraint, never splits an existing row into two.
+      await db.run(`
+        UPDATE workout_tombstones
+        SET workout_id = COALESCE((
+          SELECT wl.id FROM workout_log wl
+          WHERE wl.date = workout_tombstones.date
+            AND wl.user_id IS workout_tombstones.user_id
+          LIMIT 1
+        ), 0)
+        WHERE workout_id = 0
+      `, []);
+      await db.execute(`
+        CREATE TABLE workout_tombstones_new (
+          user_id     INTEGER,
+          date        TEXT NOT NULL,
+          workout_id  INTEGER NOT NULL DEFAULT 0,
+          kind        TEXT NOT NULL,
+          ex_uuid     TEXT NOT NULL DEFAULT '',
+          uuid        TEXT NOT NULL,
+          deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+          sync_state  TEXT DEFAULT 'clean',
+          PRIMARY KEY (user_id, date, workout_id, kind, ex_uuid, uuid)
+        );
+        INSERT INTO workout_tombstones_new (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state)
+          SELECT user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state FROM workout_tombstones;
+        DROP TABLE workout_tombstones;
+        ALTER TABLE workout_tombstones_new RENAME TO workout_tombstones;
+        CREATE INDEX IF NOT EXISTS idx_workout_tombstones_user_date ON workout_tombstones(user_id, date);
+      `);
+      console.log('[db-native] workout_tombstones rebuilt: workout_id added to primary key (issue #76)');
+    }
+  } catch (e) {
+    console.error('[db-native] workout_tombstones rebuild failed, leaving old schema in place:', e?.message || e);
+    try { await db.run(`INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('schema_migration_v76_failed', '1')`, []); } catch {}
+  }
+}
+
+/**
+ * Best-effort on-device backup of the raw db file before risky table
+ * surgery (issue #76) — a rebuild gone wrong on a device with no server
+ * connection would otherwise corrupt the user's only copy of their data
+ * with nothing to recover from. Failure to back up is logged but never
+ * blocks the migration attempt itself: an un-backed-up successful
+ * migration is still strictly better than refusing to migrate at all.
+ * The backup is a manual-recovery last resort (no restore UI reads it
+ * back) — its job is to exist on disk if someone ever needs to pull it
+ * off the device by hand.
+ */
+async function _backupDbFile(label) {
+  try {
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    await Filesystem.copy({
+      from: `databases/${DB_NAME}SQLite.db`,
+      to: `databases/${DB_NAME}SQLite.db.${label}.bak`,
+      directory: Directory.Data,
+    });
+  } catch (e) {
+    console.warn('[db-native] pre-migration backup skipped:', e?.message || e);
+  }
 }
 
 /**

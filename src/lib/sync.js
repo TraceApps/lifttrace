@@ -241,6 +241,20 @@ export async function pullSnapshot(silent = false) {
   const result = { ok: true, tables: {}, errors: [] };
 
   try {
+    // Issue #76: if db-native.js's multi-session schema rebuild failed on
+    // this device (flagged rather than left half-applied — see
+    // _migrateMultiSession's doc comment), force a full re-pull instead
+    // of trusting the local mirror's watermark. A server-connected device
+    // can always recover this way; only genuinely standalone (no server)
+    // installs can't, which is exactly why db-native.js also backs up the
+    // raw file before attempting that rebuild.
+    if ((await getSyncMeta('schema_migration_v76_failed')) === '1') {
+      await setSyncMeta('last_server_time', '');
+      await setSyncMeta('last_pull_at', '');
+      await setSyncMeta('schema_migration_v76_failed', '');
+      console.warn('[sync] local schema migration (#76) had failed — forcing a full re-pull');
+    }
+
     // Use the previous pull's server_time as `since` (server gives us a
     // monotonic timestamp on every response). Fall back to last_pull_at
     // for installs that synced under the old snapshot path; fall back
