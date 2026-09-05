@@ -33,6 +33,22 @@ db.exec(`
     PRIMARY KEY (user_id, key)
   );
 
+  -- Personal access tokens for external integrations (MCP server, issue
+  -- #78). Token raw value is never stored; only the SHA-256 hash. Ported
+  -- from NutriTrace's api_tokens table (server/lib/api-tokens.js).
+  CREATE TABLE IF NOT EXISTS api_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    token_hash   TEXT NOT NULL UNIQUE,
+    scopes       TEXT NOT NULL DEFAULT '[]',  -- JSON array of scope strings
+    expires_at   TEXT,                         -- NULL = never expires
+    last_used_at TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+  CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
   CREATE TABLE IF NOT EXISTS app_config (
     key   TEXT PRIMARY KEY,
     value TEXT

@@ -206,6 +206,10 @@ services:
 | `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`. Reached from the server container, not the browser — Docker Compose sidecars on internal networks work. |
 | `AI_ENABLED` | No | — | If `true`, auto-enables Trace for all users. |
 | `OIDC_*` | No | — | Single-provider OIDC shorthand. See `.env.example` and Settings → User Management → OIDC providers for the full multi-provider syntax. |
+| `MCP_ENABLED` | No | `0` | Set to `1` to expose the Model Context Protocol endpoint at `/api/mcp`. Off by default. See [the MCP setup guide](https://traceapps.github.io/docs/lifttrace/mcp/) for Claude Desktop / Cursor / Codex config. |
+| `MCP_WRITE_ENABLED` | No | `0` | Set to `1` to allow MCP write tools (`log_set`, `log_body_stat`) to be registered. Also requires the calling token to hold `mcp:write`. |
+| `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow the MCP destructive tool (`delete_workout`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
+| `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
 
 > **Note:** SMTP, AI, and OIDC settings can also be configured in their respective **Settings** sections (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
 

@@ -380,6 +380,7 @@
     "notifications":   { "section": "Notifications" },
     "email":           { "section": "Email (SMTP)" },
     "authentication":  { "section": "Authentication" },
+    "api_tokens":      { "section": "API Tokens" },
     "profile_hero": {
       "label_fallback":  "My Profile",
       "subtitle_empty":  "Tap to add your name and photo"
@@ -610,6 +611,60 @@
     "access_token_hint_suffix": "scope.",
     "wearable_priority":     "Wearable Priority",
     "wearable_priority_hint": "If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → \"Prefer Wearable Data Over LiftTrace\"."
+  },
+  "settings_api_tokens": {
+    "intro_before": "Personal access tokens let an external MCP client (like Claude Desktop",
+    "intro_dev": "or another MCP-aware agent",
+    "intro_middle": " talk to this LiftTrace instance directly. Tokens are scoped to a specific set of capabilities and connect to",
+    "intro_see": "MCP must also be enabled on the server (MCP_ENABLED=1) for a token to do anything.",
+    "just_created": {
+      "title": "Token created:",
+      "warn": "Copy this now — it will not be shown again.",
+      "copy": "Copy",
+      "saved": "I've saved it"
+    },
+    "empty": {
+      "title": "No tokens yet",
+      "desc": "Create one to connect an MCP client to this instance."
+    },
+    "row": {
+      "scopes_label": "Scopes:",
+      "scopes_none": "none",
+      "last_used": "last used {when}",
+      "expires": "expires {when}",
+      "never": "never",
+      "just_now": "just now",
+      "min_ago": "{n}m ago",
+      "hr_ago": "{n}h ago",
+      "day_ago": "{n}d ago",
+      "revoke_title": "Revoke token"
+    },
+    "form": {
+      "new_token": "New Token",
+      "name": "Name",
+      "name_ph": "e.g. Claude Desktop",
+      "scopes": "Scopes",
+      "mcp_disabled": "MCP is not enabled on this server. A token can still be created, but it won't do anything until MCP_ENABLED=1 is set.",
+      "expires_label": "Expires (days)",
+      "expires_ph": "Never",
+      "cancel": "Cancel",
+      "create": "Create Token",
+      "creating": "Creating…"
+    },
+    "confirm": {
+      "revoke_title": "Revoke \"{name}\"?",
+      "revoke_msg": "Any MCP client using this token will immediately lose access. This cannot be undone.",
+      "revoke_confirm": "Revoke"
+    },
+    "toast": {
+      "load_failed": "Could not load tokens",
+      "scope_required": "Select at least one scope",
+      "create_failed": "Could not create token",
+      "revoke_failed": "Could not revoke token",
+      "revoked": "Token revoked",
+      "copied": "Copied to clipboard",
+      "copy_failed": "Could not copy — select the text manually"
+    }
   },
   "settings_diagnostics": {
     "copy_failed":           "Copy failed, select the text manually",

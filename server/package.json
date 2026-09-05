@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@garmin/fitsdk": "^21.208.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@zxcvbn-ts/core": "^3.0.4",
     "@zxcvbn-ts/language-common": "^3.0.4",
     "@zxcvbn-ts/language-en": "^3.0.2",
@@ -21,6 +22,7 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
     "openid-client": "^5.7.1",
-    "undici": "^6.28.0"
+    "undici": "^6.28.0",
+    "zod": "^4.5.4"
   }
 }

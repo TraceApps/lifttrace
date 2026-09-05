@@ -38,6 +38,8 @@ import coachFeedbackRoutes from './routes/coach-feedback.js';
 import syncRoutes         from './routes/sync.js';
 import oidcRoutes        from './routes/oidc.js';
 import oidcAdminRoutes   from './routes/oidc-admin.js';
+import apiTokensRoutes   from './routes/api-tokens.js';
+import mcpRoutes         from './routes/mcp.js';
 import { logger }        from './logger.js';
 import { authenticate }  from './middleware/auth.js';
 import { seedSmtpFromEnv } from './email.js';
@@ -177,6 +179,12 @@ router.use('/api/trainer',      trainerRoutes);
 router.use('/api/prescriptions', prescriptionRoutes);
 router.use('/api/coach-feedback', coachFeedbackRoutes);
 router.use('/api/sync',          syncRoutes);
+router.use('/api/admin/api-tokens', apiTokensRoutes);
+// Model Context Protocol endpoint — Bearer-token auth, scope 'mcp:read'.
+// 404s (not just an empty tool list) when the endpoint isn't reachable
+// unless MCP_ENABLED=1 in the server env. See server/routes/mcp.js and
+// server/lib/mcp/ for the tool implementations. Issue #78.
+router.use('/api/mcp', mcpRoutes);
 router.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Serve Svelte frontend (production build) — anything except index.html.

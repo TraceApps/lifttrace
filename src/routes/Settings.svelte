@@ -23,6 +23,7 @@
   import SettingsEmail from '../components/settings/SettingsEmail.svelte';
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
   import SettingsAuth from '../components/settings/SettingsAuth.svelte';
+  import SettingsApiTokens from '../components/settings/SettingsApiTokens.svelte';
   import SettingsDiagnostics from '../components/settings/SettingsDiagnostics.svelte';
   // Profile is a route in its own right, but the desktop welcome hero
   // embeds it inline so users can edit their info without navigating
@@ -380,6 +381,7 @@
     email:          ['email','smtp','mail','host','port','tls','password reset','invite','test','test email','send test','recipient','change password','stored password'],
     users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
+    apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
@@ -417,6 +419,7 @@
     helpImprove:      { titleKey: 'settings.diagnostics.section',       icon: 'troubleshoot' },
     users:            { titleKey: 'settings.users.section',             icon: 'group' },
     authentication:   { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
+    apiTokens:        { titleKey: 'settings.api_tokens.section',        icon: 'key' },
     email:            { titleKey: 'settings.email.section',             icon: 'mail' },
     about:            { titleKey: 'settings.about.section',             icon: 'info' },
   };
@@ -493,6 +496,7 @@
     email: false,
     users: false,
     authentication: false,
+    apiTokens: false,
     updates: false,
     helpImprove: false,
     about: false,
@@ -753,6 +757,18 @@
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'authentication')} class:active={currentSection === 'authentication'} aria-current={currentSection === 'authentication' ? 'page' : undefined} on:click={() => toggleSection('authentication')}>
       <span class="material-symbols-rounded si">shield_person</span>
       <span>{$_('settings.authentication.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <!-- API Tokens (issue #78: MCP server). Strictly gated on real
+         multi-user mode with a signed-in admin — NOT the broader
+         single-user-counts-as-admin pattern the rest of this group
+         uses, because a token needs a real user_id to own it and
+         single-user mode has zero rows in `users`. See
+         server/routes/api-tokens.js for the matching server-side
+         guard. -->
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
+      <span class="material-symbols-rounded si">key</span>
+      <span>{$_('settings.api_tokens.section')}</span>
       <span class="material-symbols-rounded chevron">chevron_right</span>
     </button>
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'email')} class:active={currentSection === 'email'} aria-current={currentSection === 'email' ? 'page' : undefined} on:click={() => toggleSection('email')}>
@@ -1023,6 +1039,19 @@
             <SettingsUserManagement visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'authentication'}
             <SettingsAuth visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'apiTokens'}
+            <!-- SettingsApiTokens is body-only (matches NT), not the
+                 visible/expanded/onToggle prop shape SettingsAuth etc.
+                 use — same reason SettingsUpdates below needs its own
+                 explicit header wrapper. -->
+            <button class="section-toggle" on:click={backToIndex}>
+              <span class="material-symbols-rounded si">key</span>
+              <span class="section-name">{$_('settings.api_tokens.section')}</span>
+              <span class="material-symbols-rounded chevron rotated">expand_more</span>
+            </button>
+            <div class="section-body">
+              <SettingsApiTokens expanded={true} />
+            </div>
           {:else if currentSection === 'email'}
             <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'about'}
@@ -1290,6 +1319,24 @@
           expanded={expanded.authentication}
           onToggle={() => toggleSection('authentication')}
         />
+
+        <!-- API Tokens (issue #78: MCP server) — body-only component
+             like SettingsUpdates above, doesn't take the visible/
+             expanded/onToggle prop shape. Strictly gated on real
+             multi-user mode + admin, same as SettingsAuth just above:
+             a token needs a real user_id to own it. -->
+        {#if sectionVisible(settingsQuery, 'apiTokens')}
+          <button class="section-toggle" on:click={() => toggleSection('apiTokens')}>
+            <span class="material-symbols-rounded si">key</span>
+            <span class="section-name">{$_('settings.api_tokens.section')}</span>
+            <span class="material-symbols-rounded chevron" class:rotated={openSections.apiTokens}>expand_more</span>
+          </button>
+          {#if expanded.apiTokens}
+            <div class="section-body" transition:slide={{ duration: 180 }}>
+              <SettingsApiTokens expanded={true} />
+            </div>
+          {/if}
+        {/if}
       {/if}
 
       <SettingsEmail
