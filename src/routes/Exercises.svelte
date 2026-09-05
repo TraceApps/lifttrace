@@ -725,8 +725,8 @@
     transition: all var(--dur-fast);
   }
   .density-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-  .density-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
-  .density-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .density-btn:not(:first-child) { margin-left: -1px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .density-btn.active { position: relative; z-index: 1; background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .density-btn .material-symbols-rounded { font-size: 18px; }
 
   /* Wrapper exists so the fade gradients can sit outside the scrolling
