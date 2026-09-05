@@ -428,10 +428,25 @@
     <div class="search-bar">
       <span class="material-symbols-rounded search-icon">search</span>
       <input class="search-input" type="text" placeholder="Search exercises..." bind:value={search} />
-      <!-- Sort menu lives inside the search bar so the chip rows below
-           stay focused on filters (Category / Equipment). Most users only
-           touch sort occasionally; tucking it behind an icon keeps the
-           filter bar light. -->
+    </div>
+
+    <!-- Category chips + sort + display density (issue #74) share one
+         row: chips scroll on the left, sort and the density toggle sit
+         pinned on the right with sort immediately to the left of the
+         view toggle. Sort used to live in the search bar; moved here so
+         it reads as one filter/sort/view control cluster instead of
+         being split across two rows. -->
+    <div class="category-row">
+      <div class="category-chips">
+        <button class="chip" class:active={!selectedCategory} on:click={() => selectedCategory = ''}>All</button>
+        {#each CATEGORIES.filter(c => categoryCounts[c.id]) as cat}
+          <button class="chip" class:active={selectedCategory === cat.id} on:click={() => selectedCategory = cat.id}>
+            <span class="material-symbols-rounded chip-icon">{cat.icon}</span>
+            {cat.label}
+          </button>
+        {/each}
+      </div>
+
       <div class="sort-menu-wrap" use:clickOutside={() => sortMenuOpen = false}>
         <button class="sort-icon-btn" class:active={sortMode !== 'alpha'}
                 on:click|stopPropagation={() => sortMenuOpen = !sortMenuOpen}
@@ -455,22 +470,6 @@
             {/each}
           </div>
         {/if}
-      </div>
-    </div>
-
-    <!-- Category chips + display density (issue #74) share one row,
-         chips scrolling on the left and the toggle pinned on the
-         right, matching CookTrace Pantry's actual .filter-row (chips
-         and its grid/list toggle are one row there too, not stacked). -->
-    <div class="category-row">
-      <div class="category-chips">
-        <button class="chip" class:active={!selectedCategory} on:click={() => selectedCategory = ''}>All</button>
-        {#each CATEGORIES.filter(c => categoryCounts[c.id]) as cat}
-          <button class="chip" class:active={selectedCategory === cat.id} on:click={() => selectedCategory = cat.id}>
-            <span class="material-symbols-rounded chip-icon">{cat.icon}</span>
-            {cat.label}
-          </button>
-        {/each}
       </div>
 
       {#if _wideMode}
