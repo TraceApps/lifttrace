@@ -158,7 +158,8 @@
       "body_stats":        "Body stats",
       "body_stats_long":   "Body Stats — log weight, body fat, and measurements",
       "workout_actions":   "Workout actions",
-      "workout_options":   "Workout options"
+      "workout_options":   "Workout options",
+      "add_session":       "Start a new session"
     },
     "toast": {
       "workout_cleared":       "Workout cleared",
@@ -210,6 +211,7 @@
       "delete_reply_msg":        "Your reply to this note will be removed.",
       "replace_workout_title":   "Replace workout?",
       "replace_confirm":         "Replace",
+      "start_new_session":       "Start a New Session",
       "replace_suggested_msg":   "Loading the suggested workout will overwrite your current workout for today.",
       "replace_template_msg":    "Picking a new template will overwrite your current workout for today.",
       "replace_prescribed_msg":  "Loading the prescribed workout will overwrite your current workout for today.",

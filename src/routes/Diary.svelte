@@ -3,7 +3,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
-  import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription } from '../stores/workout.js';
+  import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession } from '../stores/workout.js';
   import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
@@ -45,6 +45,46 @@
   let showLoadWorkout = false;
   let showWorkoutActions = false;
   let showDatePicker = false;
+
+  // Replace-vs-new-session choice for loadTemplate (issue #76). Promise-
+  // wrapped around the ActionSheet's event-based API so loadTemplate can
+  // just `await` the user's choice like it already does with
+  // confirmDialog elsewhere in this file.
+  let showReplaceOrNewSession = false;
+  let replaceOrNewSessionTitle = '';
+  let _replaceOrNewSessionResolve = null;
+  function _askReplaceOrNewSession(msgKey) {
+    return new Promise(resolve => {
+      _replaceOrNewSessionResolve = resolve;
+      replaceOrNewSessionTitle = $_(msgKey);
+      showReplaceOrNewSession = true;
+    });
+  }
+  function _handleReplaceOrNewSessionChoice(e) {
+    showReplaceOrNewSession = false;
+    _replaceOrNewSessionResolve?.(e.detail?.value || null);
+    _replaceOrNewSessionResolve = null;
+  }
+  function _cancelReplaceOrNewSession() {
+    showReplaceOrNewSession = false;
+    _replaceOrNewSessionResolve?.(null);
+    _replaceOrNewSessionResolve = null;
+  }
+
+  // switchSession() only touches the workout store — `notes` here is a
+  // local component variable bound to the textarea (same pattern as
+  // every other action in this file that imperatively re-syncs it after
+  // changing $todayLog, e.g. loadTemplate/copyFromYesterday), so it
+  // needs its own re-sync or switching sessions would leave the
+  // PREVIOUS session's notes showing in the box.
+  function handleSwitchSession(sessionId) {
+    switchSession($currentDate, sessionId);
+    notes = $todayLog?.notes || '';
+  }
+  $: replaceOrNewSessionActions = [
+    { label: $_('diary.confirm.replace_confirm'), icon: 'swap_horiz', value: 'replace', danger: true },
+    { label: $_('diary.confirm.start_new_session'), icon: 'add_circle', value: 'new_session' },
+  ];
   let notes = '';
   let notesExpanded = false;
   let loading = true;
@@ -892,13 +932,17 @@
     // specific message (loadFromSuggested, loadFromPrescription) pass
     // confirmMsgKey instead of duplicating their own pre-check, which
     // would otherwise double-prompt now that this guard always runs.
-    if (($todayLog?.exercises?.length || 0) > 0
-        && !await confirmDialog({
-          title: $_('diary.confirm.replace_workout_title'),
-          message: $_(confirmMsgKey),
-          confirmText: $_('diary.confirm.replace_confirm'),
-          dangerous: true,
-        })) return;
+    //
+    // Issue #76: rather than only "replace or cancel", offer "start a
+    // new session" too — today's already-logged workout stays completely
+    // untouched, and the new template becomes an independent second
+    // session. mode stays 'replace' (today's exact behavior) when there's
+    // nothing to protect, so an empty day skips the picker entirely.
+    let mode = 'replace';
+    if (($todayLog?.exercises?.length || 0) > 0) {
+      mode = await _askReplaceOrNewSession(confirmMsgKey);
+      if (!mode) return; // cancelled
+    }
     showLoadWorkout = false;
     // Current plan week for a multi-week program — drives week-aware prefill.
     // Only meaningful when this template's program is the active one.
@@ -984,8 +1028,13 @@
         })
       : templateExercises;
 
-    await saveWorkout($currentDate, {
-      ...($todayLog || {}),
+    // 'new_session' (issue #76) deliberately does NOT spread $todayLog —
+    // a new session starts clean rather than inheriting the old
+    // session's completed/duration_min/notes. 'replace' keeps today's
+    // exact pre-#76 behavior (spread first so anything the template
+    // doesn't set falls back to what was already there).
+    const payload = {
+      ...(mode === 'new_session' ? {} : ($todayLog || {})),
       name: template.name,
       template_id: template.id,
       program_id: selectedProgram?.id || null,
@@ -994,7 +1043,12 @@
       program_week: planWeek,
       program_duration_weeks: planWeek ? (selectedProgram?.duration_weeks || null) : null,
       exercises: withWarmups,
-    });
+    };
+    if (mode === 'new_session') {
+      await startNewSession($currentDate, payload);
+    } else {
+      await saveWorkout($currentDate, payload);
+    }
     notes = '';
     showSuccess($_('diary_extra.toast.loaded_named', { values: { name: template.name } }));
   }
@@ -2031,6 +2085,31 @@
        by anything in the HUD or rail columns. -->
   <div class="diary-main-col">
 
+  <!-- Session switcher (issue #76) — only appears once a date has more
+       than one session; a lone session's date keeps looking exactly
+       like it always has. "+" reuses the existing Load Workout flow,
+       which now asks replace-vs-new-session once there's something to
+       protect (loadTemplate's confirm gate). -->
+  {#if $todaySessions.length > 1}
+    <div class="session-tabs" role="tablist">
+      {#each $todaySessions as s (s.id)}
+        <button
+          class="session-tab"
+          class:active={s.id === $currentSessionId}
+          role="tab"
+          aria-selected={s.id === $currentSessionId}
+          on:click={() => handleSwitchSession(s.id)}
+        >
+          <span class="session-tab-name">{s.name || $_('diary_extra.toast.workout_fallback')}</span>
+          {#if s.completed}<span class="material-symbols-rounded session-tab-check">check_circle</span>{/if}
+        </button>
+      {/each}
+      <button class="session-tab session-tab-add" on:click={openLoadWorkout} title={$_('diary.actions.add_session')} aria-label={$_('diary.actions.add_session')}>
+        <span class="material-symbols-rounded">add</span>
+      </button>
+    </div>
+  {/if}
+
   <!-- Planning badge when viewing a future date -->
   {#if isFuture}
     <div class="planning-badge">
@@ -2774,6 +2853,16 @@
     on:cancel={() => showWorkoutActions = false}
   />
 
+  <!-- Replace vs start-new-session choice (issue #76) — the loadTemplate
+       confirm gate, shown whenever the current day already has exercises. -->
+  <ActionSheet
+    bind:open={showReplaceOrNewSession}
+    title={replaceOrNewSessionTitle}
+    actions={replaceOrNewSessionActions}
+    on:select={_handleReplaceOrNewSessionChoice}
+    on:cancel={_cancelReplaceOrNewSession}
+  />
+
   <!-- Per-exercise action sheet (superset actions) -->
   <ActionSheet
     bind:open={exActionsOpen}
@@ -3071,6 +3160,38 @@
   }
   .wn-icon { font-size: 18px; color: var(--accent); }
   .wn-text { font-size: 13px; font-weight: 600; color: var(--accent); }
+
+  /* Session switcher (issue #76) — only rendered once a date has more
+     than one session, so a single-session day's layout is unaffected. */
+  .session-tabs {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px var(--page-px) 0;
+    overflow-x: auto;
+  }
+  .session-tab {
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-1);
+    color: var(--text-2);
+    font-size: 12px; font-weight: 600;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .session-tab.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .session-tab-name {
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .session-tab-check { font-size: 14px; color: var(--accent); }
+  .session-tab-add {
+    padding: 6px 8px;
+  }
+  .session-tab-add .material-symbols-rounded { font-size: 16px; }
 
   .summary-bar {
     position: relative;

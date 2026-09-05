@@ -7,6 +7,13 @@ export const currentDate  = writable(localDateStr());
 export const todayLog     = writable(null);    // full workout log entry for currentDate
 export const activeProgram = writable(null);   // user's active program
 export const todayPrescription = writable(null); // coach's prescription for currentDate
+// Issue #76: a date can have more than one session. todaySessions holds
+// every session logged that date (for a session-switcher UI);
+// currentSessionId is the id of whichever one is currently loaded into
+// todayLog — null until a load/save resolves one (matches a brand-new
+// day with nothing saved yet).
+export const todaySessions = writable([]);
+export const currentSessionId = writable(null);
 
 // Option C snapshot: the last server-authoritative exercises array we
 // saw for each date. deleted_uuids on the next PUT is computed by
@@ -15,19 +22,31 @@ export const todayPrescription = writable(null); // coach's prescription for cur
 // where a concurrent write from another device (present in the fresh
 // GET but never in the client's local state) would get spuriously
 // tombstoned by our diff.
+//
+// Keyed by (date, session id) rather than date alone (issue #76): two
+// sessions on the same date must diff independently, or a save to one
+// could spuriously tombstone the other's exercises against the wrong
+// baseline. sessionId is null for a date with no row yet (brand-new day,
+// identical to pre-#76 behavior since only one snapshot slot existed).
 const _snapshotByDate = new Map();
-function _snapshotExercises(dateStr) {
-  return _snapshotByDate.get(dateStr) || [];
+function _snapshotKey(dateStr, sessionId) {
+  return sessionId != null ? `${dateStr}:${sessionId}` : dateStr;
 }
-function _setSnapshot(dateStr, workout) {
+function _snapshotExercises(dateStr, sessionId) {
+  return _snapshotByDate.get(_snapshotKey(dateStr, sessionId)) || [];
+}
+function _setSnapshot(dateStr, sessionId, workout) {
+  const key = _snapshotKey(dateStr, sessionId);
   if (workout && Array.isArray(workout.exercises)) {
-    _snapshotByDate.set(dateStr, workout.exercises);
+    _snapshotByDate.set(key, workout.exercises);
   } else {
-    _snapshotByDate.set(dateStr, []);
+    _snapshotByDate.set(key, []);
   }
 }
 
-/** Load workout log for a specific date. Also pulls any coach prescription. */
+/** Load workout log for a specific date — the default session (issue
+ *  #76: session 0, or the lowest surviving one). Also pulls the full
+ *  session list and any coach prescription. */
 export async function loadWorkout(dateStr) {
   const guard = dateStr;
   currentDate.set(dateStr);
@@ -35,11 +54,16 @@ export async function loadWorkout(dateStr) {
     const data = await LtApi.getWorkout(dateStr);
     if (guard !== dateStr) return; // stale
     todayLog.set(data.workout || null);
-    _setSnapshot(dateStr, data.workout);
+    currentSessionId.set(data.workout?.id ?? null);
+    _setSnapshot(dateStr, data.workout?.id ?? null, data.workout);
   } catch {
     todayLog.set(null);
-    _setSnapshot(dateStr, null);
+    currentSessionId.set(null);
+    _setSnapshot(dateStr, null, null);
   }
+  // Best-effort, non-blocking — a session-switcher UI wants this, but a
+  // failure here shouldn't stop the main diary from rendering.
+  loadWorkoutSessions(dateStr).catch(() => {});
   // Pull prescription in parallel (fire-and-forget, fails silently on single-user mode)
   try {
     const px = await LtApi.getMyPrescriptionForDate(dateStr);
@@ -48,6 +72,52 @@ export async function loadWorkout(dateStr) {
   } catch {
     todayPrescription.set(null);
   }
+}
+
+/** Refresh the full list of sessions logged on `dateStr` (issue #76). */
+export async function loadWorkoutSessions(dateStr) {
+  const guard = dateStr;
+  try {
+    const data = await LtApi.getWorkoutSessions(dateStr);
+    if (guard !== dateStr) return; // stale
+    todaySessions.set(data.sessions || []);
+  } catch {
+    if (guard !== dateStr) return;
+    todaySessions.set([]);
+  }
+}
+
+/** Switch the currently-viewed session to `sessionId` without a network
+ *  round-trip — todaySessions already holds every session's full,
+ *  enriched data from the last loadWorkoutSessions call. */
+export function switchSession(dateStr, sessionId) {
+  let sessions;
+  const unsub = todaySessions.subscribe(v => { sessions = v; });
+  unsub();
+  const target = (sessions || []).find(s => s.id === sessionId);
+  if (!target) return;
+  todayLog.set(target);
+  currentSessionId.set(target.id);
+  _setSnapshot(dateStr, target.id, target);
+}
+
+/** Start a genuinely new session on `dateStr` rather than continuing
+ *  whatever's currently loaded into todayLog (issue #76). Bypasses the
+ *  debounced saveWorkout/merge machinery — this is a deliberate,
+ *  one-off action like loadTemplate, not rapid-fire typing. */
+export async function startNewSession(dateStr, seedEntry = {}) {
+  const stamped = {
+    ...seedEntry,
+    exercises: ensureExerciseUuids(seedEntry.exercises || []),
+    new_session: true,
+  };
+  delete stamped.id; // never continue an existing session
+  const saved = await LtApi.saveWorkout(dateStr, stamped);
+  todayLog.set(saved.workout);
+  currentSessionId.set(saved.workout?.id ?? null);
+  _setSnapshot(dateStr, saved.workout?.id ?? null, saved.workout);
+  await loadWorkoutSessions(dateStr);
+  return saved.workout;
 }
 
 /** Refetch the server's current workout for `dateStr` and merge the
@@ -66,9 +136,18 @@ export async function loadWorkout(dateStr) {
  *  would block that. Per-set timestamps would be the proper fix for
  *  the exercises array; tracked for a follow-up. */
 async function _mergeAndSave(dateStr, clientEntry) {
+  // Which session this save actually targets (issue #76) — clientEntry
+  // already carries `id` whenever the caller spread an already-loaded
+  // $todayLog (every existing call site does this), so this falls out
+  // for free; null means "no row yet for this date" (brand-new day,
+  // identical to pre-#76 behavior). Refetching and diffing against THIS
+  // session specifically matters once a date can have more than one —
+  // without it, editing session 2 would refetch/diff against session 1's
+  // state instead.
+  const sessionId = clientEntry.id ?? null;
   let server = null;
   try {
-    const data = await LtApi.getWorkout(dateStr);
+    const data = await LtApi.getWorkout(dateStr, sessionId);
     server = data?.workout || null;
   } catch {}
 
@@ -86,7 +165,7 @@ async function _mergeAndSave(dateStr, clientEntry) {
   // our load and this save — the whole point of Option C is to
   // preserve those concurrent adds. Snapshot-based diff only reflects
   // deletions the local user actually performed since load.
-  const deleted_uuids = diffTombstones(_snapshotExercises(dateStr), nextExercises);
+  const deleted_uuids = diffTombstones(_snapshotExercises(dateStr, sessionId), nextExercises);
 
   const toSave = server ? {
     ...server,
@@ -107,8 +186,11 @@ async function _mergeAndSave(dateStr, clientEntry) {
   const saved = await LtApi.saveWorkout(dateStr, toSave);
   // Refresh snapshot to the server-authoritative post-merge state so
   // subsequent saves diff against reality (including any concurrent
-  // additions the server folded in).
-  _setSnapshot(dateStr, saved?.workout);
+  // additions the server folded in). Keyed by the saved row's own id —
+  // identical to sessionId for an existing session; resolves the very
+  // first save's null to the newly-assigned id so the next edit on this
+  // date diffs against the right slot.
+  _setSnapshot(dateStr, saved?.workout?.id ?? sessionId, saved?.workout);
   return saved;
 }
 
@@ -154,6 +236,10 @@ export function saveWorkout(dateStr, entry) {
         // Only sync from server if no newer edits are queued
         if (_latestEntry === toSave) {
           todayLog.set(saved.workout);
+          // Resolves currentSessionId once a brand-new day's first save
+          // gets its id assigned (issue #76) — a no-op for every
+          // subsequent save on an already-known session.
+          currentSessionId.set(saved.workout?.id ?? null);
           // Clear so lifecycle-driven flushes (App.pause / visibilitychange /
           // pagehide) don't re-fire the same already-saved entry. A genuine
           // subsequent edit re-populates via a new `saveWorkout` call.
@@ -178,6 +264,7 @@ export async function flushWorkoutSave(dateStr) {
     const saved = await _mergeAndSave(date, toSave);
     if (_latestEntry === toSave) {
       todayLog.set(saved.workout);
+      currentSessionId.set(saved.workout?.id ?? null);
       // Clear so re-firing lifecycle handlers can't re-save the same
       // already-flushed entry. See saveWorkout for the full rationale.
       _latestEntry = null;

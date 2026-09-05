@@ -133,14 +133,21 @@ router.get('/:date/sessions', wrap((req, res) => {
   res.json({ sessions: rows.map(_enrichWorkout) });
 }));
 
-// GET /api/workout/:date — returns the default session only (issue #76:
-// a date may have more than one; session-aware callers use the
-// /:date/sessions list above). Zero response-shape change for every
-// existing caller when there's exactly one session that date.
+// GET /api/workout/:date — returns the default session (issue #76: a
+// date may have more than one; session-aware callers use the
+// /:date/sessions list above, or pass ?id= for a specific one — e.g.
+// stores/workout.js's _mergeAndSave safety-refetch, which must re-fetch
+// the SAME session it's about to save over, not silently fall back to
+// the default when the client is actively editing a non-default one).
+// Zero response-shape change for every existing caller when there's
+// exactly one session that date and no ?id= is given.
 router.get('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
-  const workout = _defaultWorkout(userId, date, { excludeDeleted: true });
+  const explicitId = req.query.id != null ? parseInt(req.query.id) : null;
+  const workout = explicitId != null
+    ? _resolveWorkout(userId, date, explicitId, { excludeDeleted: true })
+    : _defaultWorkout(userId, date, { excludeDeleted: true });
   res.json({ workout: _enrichWorkout(workout) || null });
 }));
 

@@ -706,12 +706,34 @@ const Templates = {
 };
 
 const Workout = {
-  async byDate(date) {
+  // Default-session lookup (issue #76): a date can now have more than one
+  // row. Picks the lowest session_seq (0 = the original/only session),
+  // falling back to the lowest id if session 0 was ever deleted — matches
+  // the server's GET /:date exactly, so a caller that never asks about
+  // sessions keeps hitting the one row that exists for anyone who's never
+  // created a second session.
+  async _defaultRow(date) {
     const rows = await dbQuery(
-      `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
+      `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL
+        ORDER BY session_seq ASC, id ASC LIMIT 1`,
       [ME, date]
     );
-    const w = _workoutFromRow(rows[0]);
+    return rows[0] || null;
+  },
+  // Resolve which row a request targets: explicit id wins (must still
+  // belong to this user + date), otherwise the default session.
+  async _resolve(date, explicitId) {
+    if (explicitId != null) {
+      const rows = await dbQuery(
+        `SELECT * FROM workout_log WHERE id = ? AND user_id = ? AND date = ?`,
+        [explicitId, ME, date]
+      );
+      return rows[0] || null;
+    }
+    return Workout._defaultRow(date);
+  },
+  async _enrich(row) {
+    const w = _workoutFromRow(row);
     if (!w) return null;
     // Surface the program's plan length alongside the stamped program_week so
     // the diary can render "Week N of M" (matches the server's GET /:date).
@@ -723,63 +745,46 @@ const Workout = {
     }
     return w;
   },
+  // explicitId mirrors the server's GET /:date?id= — used by
+  // stores/workout.js's merge-safety refetch, which must re-fetch the
+  // SAME session it's about to save over, not silently fall back to the
+  // default when the client is editing a non-default one (issue #76).
+  async byDate(date, explicitId = null) {
+    const row = explicitId != null ? await Workout._resolve(date, explicitId) : await Workout._defaultRow(date);
+    return Workout._enrich(row);
+  },
+  // GET /api/workout/:date/sessions (issue #76) — every session logged
+  // that date, each enriched like byDate. Excludes soft-deleted rows —
+  // a deleted session isn't something a session-switcher should offer.
+  async sessions(date) {
+    const rows = await dbQuery(
+      `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL
+        ORDER BY session_seq ASC, id ASC`,
+      [ME, date]
+    );
+    const out = [];
+    for (const r of rows) out.push(await Workout._enrich(r));
+    return out;
+  },
   async upsert(date, body) {
     const exercises = body.exercises || [];
-    const hasAny = exercises.some(ex =>
-      Array.isArray(ex?.sets) && ex.sets.some(s => s?.completed && !s?.warmup)
-    );
 
-    // Option C (2026-08-11): persist any explicit per-entry deletions
-    // as pending tombstones in the local mirror. Sync push includes
-    // these so the server-side merge treats them as deleted rather
-    // than preserving-by-default. Without this, a delete performed
-    // while offline would silently fail to propagate on reconnect.
-    const dr = body.deleted_uuids;
-    if (dr) {
-      const del = dr.exercises || (Array.isArray(dr) ? dr : []);
-      const setsByEx = (dr.sets && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
-      const ts = _now();
-      for (const uuid of del) {
-        if (typeof uuid === 'string' && uuid) {
-          await dbRun(
-            `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
-             VALUES (?, ?, 'exercise', '', ?, ?, 'pending')`,
-            [ME, date, uuid, ts]
-          );
-        }
-      }
-      for (const [exUuid, uuids] of Object.entries(setsByEx)) {
-        for (const uuid of (uuids || [])) {
-          if (typeof uuid === 'string' && uuid) {
-            await dbRun(
-              `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
-               VALUES (?, ?, 'set', ?, ?, ?, 'pending')`,
-              [ME, date, exUuid, uuid, ts]
-            );
-          }
-        }
-      }
-    }
+    // Resolve the target row (issue #76): new_session:true always creates
+    // a fresh row, bypassing the existing-row lookup entirely, so "start
+    // a new session" can never accidentally land on one that already
+    // exists. Otherwise an explicit id targets that specific session;
+    // absent both, the default-session lookup reproduces pre-#76
+    // single-row behavior exactly.
+    const existing = body.new_session ? null : await Workout._resolve(date, body.id ?? null);
 
-    // (Auto-delete-empty-entries shortcut removed — the server dropped
-    // it when Option C landed on 2026-08-11 in workout.js; day-level
-    // deletion now requires an explicit DELETE /api/workout/:date on
-    // both sides. Leaving it here caused a Load Workout on Android
-    // native-server mode to soft-delete the local row (fresh template
-    // sets have completed:false → hasAny was false → row got
-    // soft-deleted locally even though the server preserved it), so
-    // any subsequent load returned null from local-first cache and
-    // the diary UI blanked. The user then re-added, and because the
-    // client snapshot was empty, deleted_uuids came out empty, and
-    // the server merge stacked the new exercises on top of the ones
-    // the server had preserved. See issue-report thread 2026-08-24.)
-    const existing = await Workout.byDate(date);
+    let targetId;
     if (existing) {
+      targetId = existing.id;
       await dbRun(
         `UPDATE workout_log
             SET template_id = ?, program_id = ?, name = ?, exercises = ?,
                 notes = ?, duration_min = ?, completed = ?, program_week = ?, updated_at = ?, sync_state = 'pending'
-          WHERE user_id = ? AND date = ?`,
+          WHERE id = ?`,
         [
           body.template_id ?? existing.template_id ?? null,
           body.program_id  ?? existing.program_id  ?? null,
@@ -789,15 +794,27 @@ const Workout = {
           body.duration_min ?? existing.duration_min ?? null,
           body.completed ? 1 : 0,
           body.program_week ?? existing.program_week ?? null,
-          _now(), ME, date,
+          _now(), targetId,
         ]
       );
     } else {
-      await dbRun(
+      // A brand-new row: either the very first session for this date
+      // (default path, session_seq=0 — identical to pre-#76 behavior) or
+      // an explicit additional session (new_session:true, next
+      // session_seq for this date).
+      let nextSeq = 0;
+      if (body.new_session) {
+        const r = (await dbQuery(
+          `SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE user_id = ? AND date = ?`,
+          [ME, date]
+        ))[0];
+        nextSeq = r?.n ?? 0;
+      }
+      const ins = await dbRun(
         `INSERT INTO workout_log
           (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week,
-           created_at, updated_at, sync_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+           session_seq, created_at, updated_at, sync_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
         [
           ME, date,
           body.template_id ?? null,
@@ -808,11 +825,64 @@ const Workout = {
           body.duration_min ?? null,
           body.completed ? 1 : 0,
           body.program_week ?? null,
+          nextSeq,
           _now(), _now(),
         ]
       );
+      targetId = ins.lastId;
     }
-    return Workout.byDate(date);
+
+    // Option C (2026-08-11): persist any explicit per-entry deletions
+    // as pending tombstones in the local mirror, scoped to the resolved
+    // session's workout_id (issue #76) so a deletion in one session
+    // doesn't affect another same-date session's tombstone lookups. Sync
+    // push includes these so the server-side merge treats them as
+    // deleted rather than preserving-by-default. Without this, a delete
+    // performed while offline would silently fail to propagate on
+    // reconnect.
+    const dr = body.deleted_uuids;
+    if (dr) {
+      const del = dr.exercises || (Array.isArray(dr) ? dr : []);
+      const setsByEx = (dr.sets && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
+      const ts = _now();
+      for (const uuid of del) {
+        if (typeof uuid === 'string' && uuid) {
+          await dbRun(
+            `INSERT OR IGNORE INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state)
+             VALUES (?, ?, ?, 'exercise', '', ?, ?, 'pending')`,
+            [ME, date, targetId, uuid, ts]
+          );
+        }
+      }
+      for (const [exUuid, uuids] of Object.entries(setsByEx)) {
+        for (const uuid of (uuids || [])) {
+          if (typeof uuid === 'string' && uuid) {
+            await dbRun(
+              `INSERT OR IGNORE INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state)
+               VALUES (?, ?, ?, 'set', ?, ?, ?, 'pending')`,
+              [ME, date, targetId, exUuid, uuid, ts]
+            );
+          }
+        }
+      }
+    }
+
+    return Workout._enrich(await (async () => {
+      const rows = await dbQuery(`SELECT * FROM workout_log WHERE id = ?`, [targetId]);
+      return rows[0] || null;
+    })());
+  },
+  // DELETE /api/workout/:date — explicit day-level deletion. Optional
+  // explicitId targets a specific session (issue #76); absent, deletes
+  // the same default session byDate would return. Previously unsupported
+  // in standalone mode at all (fell through to the generic 501) — added
+  // now since a session-aware UI needs to be able to remove one session
+  // without a server.
+  async del(date, explicitId) {
+    const existing = await Workout._resolve(date, explicitId ?? null);
+    if (!existing) return { ok: true, deleted: false };
+    await dbRun(`DELETE FROM workout_log WHERE id = ?`, [existing.id]);
+    return { ok: true, deleted: true };
   },
   async recent(limit = 30) {
     const rows = await dbQuery(
@@ -1450,8 +1520,11 @@ async function handle(method, path, body, query) {
     // /api/workout/:date/feedback — no local store for feedback in
     // standalone; return empty list so the diary renders cleanly.
     if (id && sub === 'feedback' && m === 'GET') return [];
-    if (id              && m === 'GET') return { workout: await Workout.byDate(id) };
-    if (id              && m === 'PUT') return { workout: await Workout.upsert(id, body || {}) };
+    // /api/workout/:date/sessions (issue #76) — every session that date.
+    if (id && sub === 'sessions' && m === 'GET') return { sessions: await Workout.sessions(id) };
+    if (id              && m === 'GET')    return { workout: await Workout.byDate(id, query?.id != null ? Number(query.id) : null) };
+    if (id              && m === 'PUT')    return { workout: await Workout.upsert(id, body || {}) };
+    if (id              && m === 'DELETE') return Workout.del(id, query?.id != null ? Number(query.id) : null);
   }
 
   // ── /api/body-stats/:date | /api/body-stats/range ─────────────────────

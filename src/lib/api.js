@@ -56,8 +56,16 @@ export const LtApi = {
   reorderTemplates: (programId, ids) => fetch(`/api/programs/${programId}/reorder`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ ids }) }).then(_json),
 
   // ── Workout Log (diary) ────────────────────────────────────────────────
-  getWorkout: (date) => fetch(`/api/workout/${date}`, opts).then(_json),
+  // id targets a specific session (issue #76); default fetches session 0 /
+  // lowest surviving. Used by stores/workout.js's merge-safety refetch,
+  // which must target the session it's actually about to save over.
+  getWorkout: (date, id = null) => fetch(`/api/workout/${date}${id != null ? `?id=${id}` : ''}`, opts).then(_json),
   getWorkoutFeedback: (date) => fetch(`/api/workout/${date}/feedback`, opts).then(_json),
+  // Every session logged on a date (issue #76). Not in apiFetch.js's
+  // LOCAL_FIRST_GET_PATTERNS (same treatment as getWorkoutFeedback) —
+  // a session-aware caller always wants live data, not a stale cache.
+  getWorkoutSessions: (date) => fetch(`/api/workout/${date}/sessions`, opts).then(_json),
+  deleteWorkout: (date, id = null) => fetch(`/api/workout/${date}${id != null ? `?id=${id}` : ''}`, { ...opts, method: 'DELETE' }).then(_json),
   getCoachFeedbackInbox: () => fetch('/api/coach-feedback/inbox', opts).then(_json),
   markCoachFeedbackSeen: (id = null) => fetch('/api/coach-feedback/seen', { ...jsonOpts, method: 'POST', body: JSON.stringify(id ? { id } : {}) }).then(_json),
   getUnreadCoachFeedbackDates: () => fetch('/api/coach-feedback/unread-dates', opts).then(_json),
