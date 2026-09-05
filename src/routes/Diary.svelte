@@ -3,7 +3,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
-  import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession } from '../stores/workout.js';
+  import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
   import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
@@ -92,9 +92,34 @@
   // changing $todayLog, e.g. loadTemplate/copyFromYesterday), so it
   // needs its own re-sync or switching sessions would leave the
   // PREVIOUS session's notes showing in the box.
-  function handleSwitchSession(sessionId) {
-    switchSession($currentDate, sessionId);
+  async function handleSwitchSession(sessionId) {
+    // switchSession is now async (fetches fresh rather than trusting a
+    // cached list — see stores/workout.js for why), so this must await
+    // it before reading $todayLog, or notes would sync from the
+    // PREVIOUS session's data instead of the one just switched to.
+    await switchSession($currentDate, sessionId);
     notes = $todayLog?.notes || '';
+  }
+
+  // Per-tab delete (issue #76) — separate from the ⋮ menu's "Delete
+  // Workout" (which always targets whatever's currently displayed):
+  // this can remove a DIFFERENT, inactive tab without switching to it
+  // first, e.g. cleaning up a duplicate created while testing.
+  async function handleDeleteSessionTab(sessionId) {
+    if (!await confirmDialog({
+      title: $_('diary.confirm.delete_workout_title'),
+      message: $_('diary.confirm.delete_workout_msg'),
+      confirmText: $_('diary.confirm.delete_workout_confirm'),
+      dangerous: true,
+    })) return;
+    // Captured BEFORE the delete — deleteSession may itself change
+    // currentSessionId (when it falls back to loadWorkout), so checking
+    // afterward would always compare against the wrong, already-updated
+    // value.
+    const wasActive = sessionId === $currentSessionId;
+    await deleteSession($currentDate, sessionId);
+    if (wasActive) notes = $todayLog?.notes || '';
+    showSuccess($_('diary.toast.workout_deleted'));
   }
   $: replaceOrNewSessionActions = [
     { label: $_('diary.confirm.replace_confirm'), icon: 'swap_horiz', value: 'replace', danger: true },
@@ -461,6 +486,11 @@
     { label: 'Copy From Yesterday', icon: 'content_copy', value: 'copy_yesterday' },
     ...($timerState ? [{ label: 'Reset Timer', icon: 'timer_off', value: 'reset_timer' }] : []),
     { label: 'Clear Workout', icon: 'delete_sweep', value: 'clear', danger: true },
+    // Issue #76: distinct from "Clear" (empties this session's content but
+    // keeps the row) — this removes the row entirely. Previously there was
+    // no way to do this from the UI at all. Only offered once a session
+    // actually exists to delete.
+    ...($currentSessionId != null ? [{ label: 'Delete Workout', icon: 'delete_forever', value: 'delete', danger: true }] : []),
   ];
   // Small helper so the inline rail card can trigger the same action
   // path the mobile ActionSheet uses, without simulating a select event
@@ -834,6 +864,16 @@
       resetTimer();
       await saveWorkout($currentDate, { ...($todayLog || {}), duration_min: 0 });
       showSuccess($_('diary.toast.timer_reset'));
+    } else if (action === 'delete') {
+      if (!await confirmDialog({
+        title: $_('diary.confirm.delete_workout_title'),
+        message: $_('diary.confirm.delete_workout_msg'),
+        confirmText: $_('diary.confirm.delete_workout_confirm'),
+        dangerous: true,
+      })) return;
+      await deleteSession($currentDate, $currentSessionId);
+      notes = '';
+      showSuccess($_('diary.toast.workout_deleted'));
     }
   }
 
@@ -2130,16 +2170,26 @@
   {#if $todaySessions.length > 1}
     <div class="session-tabs" role="tablist">
       {#each $todaySessions as s (s.id)}
-        <button
-          class="session-tab"
-          class:active={s.id === $currentSessionId}
-          role="tab"
-          aria-selected={s.id === $currentSessionId}
-          on:click={() => handleSwitchSession(s.id)}
-        >
-          <span class="session-tab-name">{s.name || $_('diary_extra.toast.workout_fallback')}</span>
-          {#if s.completed}<span class="material-symbols-rounded session-tab-check">check_circle</span>{/if}
-        </button>
+        <div class="session-tab-wrap">
+          <button
+            class="session-tab"
+            class:active={s.id === $currentSessionId}
+            role="tab"
+            aria-selected={s.id === $currentSessionId}
+            on:click={() => handleSwitchSession(s.id)}
+          >
+            <span class="session-tab-name">{s.name || $_('diary_extra.toast.workout_fallback')}</span>
+            {#if s.completed}<span class="material-symbols-rounded session-tab-check">check_circle</span>{/if}
+          </button>
+          <button
+            class="session-tab-delete"
+            on:click={() => handleDeleteSessionTab(s.id)}
+            title={$_('diary.confirm.delete_workout_confirm')}
+            aria-label={$_('diary.confirm.delete_workout_confirm')}
+          >
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
       {/each}
       <button class="session-tab session-tab-add" on:click={openLoadWorkoutForNewSession} title={$_('diary.actions.add_session')} aria-label={$_('diary.actions.add_session')}>
         <span class="material-symbols-rounded">add</span>
@@ -3220,6 +3270,10 @@
     padding: 8px var(--page-px) 0;
     overflow-x: auto;
   }
+  .session-tab-wrap {
+    display: flex; align-items: center; gap: 2px;
+    flex: 0 0 auto;
+  }
   .session-tab {
     display: flex; align-items: center; gap: 4px;
     padding: 6px 12px;
@@ -3240,6 +3294,16 @@
     max-width: 140px; overflow: hidden; text-overflow: ellipsis;
   }
   .session-tab-check { font-size: 14px; color: var(--accent); }
+  .session-tab-delete {
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px;
+    border: none; border-radius: 50%;
+    background: transparent;
+    color: var(--text-3);
+    flex: 0 0 auto;
+  }
+  .session-tab-delete:hover { background: var(--surface-2); color: var(--text-1); }
+  .session-tab-delete .material-symbols-rounded { font-size: 14px; }
   .session-tab-add {
     padding: 6px 8px;
   }

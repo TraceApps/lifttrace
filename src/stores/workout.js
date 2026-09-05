@@ -87,18 +87,41 @@ export async function loadWorkoutSessions(dateStr) {
   }
 }
 
-/** Switch the currently-viewed session to `sessionId` without a network
- *  round-trip — todaySessions already holds every session's full,
- *  enriched data from the last loadWorkoutSessions call. */
-export function switchSession(dateStr, sessionId) {
-  let sessions;
-  const unsub = todaySessions.subscribe(v => { sessions = v; });
+/** Switch the currently-viewed session to `sessionId`. Always fetches
+ *  fresh rather than trusting todaySessions' cached snapshot — that
+ *  list is only refreshed at specific points (load, after a save,
+ *  starting a new session), and a bug found in exactly this spot
+ *  (edit a session, switch away, switch back — stale data reappears,
+ *  looking exactly like the edit silently reverted) showed relying on
+ *  it is too easy to get wrong. A tab switch isn't a hot path, so the
+ *  extra round-trip is worth the correctness guarantee. */
+export async function switchSession(dateStr, sessionId) {
+  try {
+    const data = await LtApi.getWorkout(dateStr, sessionId);
+    if (!data?.workout) return;
+    todayLog.set(data.workout);
+    currentSessionId.set(data.workout.id);
+    _setSnapshot(dateStr, data.workout.id, data.workout);
+  } catch {}
+}
+
+/** Permanently delete one session (issue #76). sessionId is optional —
+ *  omitted, this deletes the same default session loadWorkout would
+ *  return. Only reloads todayLog (jumping the view to whatever's now
+ *  the default session) when the DELETED session is the one currently
+ *  displayed — deleting a different, inactive tab just refreshes the
+ *  tab list so it disappears, without yanking the view away from
+ *  whatever the user is actually looking at. */
+export async function deleteSession(dateStr, sessionId = null) {
+  await LtApi.deleteWorkout(dateStr, sessionId);
+  let activeId;
+  const unsub = currentSessionId.subscribe(v => { activeId = v; });
   unsub();
-  const target = (sessions || []).find(s => s.id === sessionId);
-  if (!target) return;
-  todayLog.set(target);
-  currentSessionId.set(target.id);
-  _setSnapshot(dateStr, target.id, target);
+  if (sessionId == null || sessionId === activeId) {
+    await loadWorkout(dateStr);
+  } else {
+    await loadWorkoutSessions(dateStr);
+  }
 }
 
 /** Start a genuinely new session on `dateStr` rather than continuing
@@ -240,6 +263,10 @@ export function saveWorkout(dateStr, entry) {
           // gets its id assigned (issue #76) — a no-op for every
           // subsequent save on an already-known session.
           currentSessionId.set(saved.workout?.id ?? null);
+          // Keeps the tab strip's own names/checkmarks current — without
+          // this, completing or renaming a session wouldn't show up on
+          // its tab until a full page reload.
+          loadWorkoutSessions(dateStr).catch(() => {});
           // Clear so lifecycle-driven flushes (App.pause / visibilitychange /
           // pagehide) don't re-fire the same already-saved entry. A genuine
           // subsequent edit re-populates via a new `saveWorkout` call.
@@ -265,6 +292,7 @@ export async function flushWorkoutSave(dateStr) {
     if (_latestEntry === toSave) {
       todayLog.set(saved.workout);
       currentSessionId.set(saved.workout?.id ?? null);
+      loadWorkoutSessions(date).catch(() => {});
       // Clear so re-firing lifecycle handlers can't re-save the same
       // already-flushed entry. See saveWorkout for the full rationale.
       _latestEntry = null;
