@@ -583,14 +583,11 @@
     } else {
       showError($_('diary_extra.toast.no_exercises')); return;
     }
-    if ($todayLog?.exercises?.length > 0) {
-      if (!await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_suggested_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
-    }
     await loadTemplate({
       exercises: exs,
       name: px.template_name || px.name || 'Coach pick',
       id: px.template_id || null,
-    });
+    }, 'diary.confirm.replace_suggested_msg');
   }
 
   onMount(async () => {
@@ -766,8 +763,11 @@
   async function handleWorkoutAction(e) {
     const action = e.detail?.value;
     if (action === 'replace') {
-      if (($todayLog?.exercises?.length || 0) > 0
-          && !await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_template_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
+      // No confirm here anymore — this only opens the template picker sheet,
+      // it doesn't touch $todayLog. The real guard is inside loadTemplate()
+      // itself, which fires reliably regardless of how the user got there
+      // (this menu, a direct picker tap, "load most recent", etc.) instead
+      // of only covering this one entry path.
       openLoadWorkout();
     } else if (action === 'clear') {
       await saveWorkout($currentDate, { ...($todayLog || {}), name: '', template_id: null, program_id: null, exercises: [], notes: '' });
@@ -880,7 +880,25 @@
     };
   }
 
-  async function loadTemplate(template) {
+  async function loadTemplate(template, confirmMsgKey = 'diary.confirm.replace_template_msg') {
+    // Loading a template replaces $todayLog's exercises wholesale — any
+    // exercise from the currently-loaded workout that isn't in the new
+    // template gets tombstoned (deleted) by the uuid-diff in
+    // stores/workout.js's _mergeAndSave, with no way to undo it. This is
+    // the one confirm choke-point every entry path (menu action, template
+    // picker tap, template-info sheet, "load most recent", suggested/
+    // prescribed workout) funnels through, so gating it here covers all
+    // of them instead of each caller individually. Callers with a more
+    // specific message (loadFromSuggested, loadFromPrescription) pass
+    // confirmMsgKey instead of duplicating their own pre-check, which
+    // would otherwise double-prompt now that this guard always runs.
+    if (($todayLog?.exercises?.length || 0) > 0
+        && !await confirmDialog({
+          title: $_('diary.confirm.replace_workout_title'),
+          message: $_(confirmMsgKey),
+          confirmText: $_('diary.confirm.replace_confirm'),
+          dangerous: true,
+        })) return;
     showLoadWorkout = false;
     // Current plan week for a multi-week program — drives week-aware prefill.
     // Only meaningful when this template's program is the active one.
@@ -993,9 +1011,6 @@
     } else {
       showError($_('diary_extra.toast.no_exercises')); return;
     }
-    if ($todayLog?.exercises?.length > 0) {
-      if (!await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_prescribed_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
-    }
     // Reuse the template-load code path via a synthetic template object
     const syntheticProgram = selectedProgram;
     selectedProgram = { id: px.program_id || null };
@@ -1004,7 +1019,7 @@
         exercises: exs,
         name: px.template_name || px.name || 'Prescribed workout',
         id: px.template_id || null,
-      });
+      }, 'diary.confirm.replace_prescribed_msg');
     } finally {
       selectedProgram = syntheticProgram;
     }
