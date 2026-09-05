@@ -153,12 +153,12 @@
       "jump_to_today": "Jump to today"
     },
     "actions": {
-      "gym_tools":         "Gym tools",
-      "gym_tools_long":    "Gym Tools — plate calculator & unit converter",
-      "body_stats":        "Body stats",
-      "body_stats_long":   "Body Stats — log weight, body fat, and measurements",
-      "workout_actions":   "Workout actions",
-      "workout_options":   "Workout options",
+      "gym_tools":         "Gym Tools",
+      "gym_tools_long":    "Gym Tools: plate calculator & unit converter",
+      "body_stats":        "Body Stats",
+      "body_stats_long":   "Body Stats: log weight, body fat, and measurements",
+      "workout_actions":   "Workout Actions",
+      "workout_options":   "Workout Options",
       "add_session":       "Start a new session"
     },
     "toast": {
@@ -217,7 +217,7 @@
       "replace_template_msg":    "Picking a new template will overwrite your current workout for today.",
       "replace_prescribed_msg":  "Loading the prescribed workout will overwrite your current workout for today.",
       "delete_workout_title":    "Delete this workout?",
-      "delete_workout_msg":      "This permanently deletes the entire session — every exercise and set. This cannot be undone.",
+      "delete_workout_msg":      "This permanently deletes the entire session, every exercise and set. This cannot be undone.",
       "delete_workout_confirm":  "Delete",
       "remove_exercise_title":   "Remove exercise?",
       "remove_exercise_msg":     "{name} will be removed from today's workout.",
