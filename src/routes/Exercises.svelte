@@ -458,13 +458,22 @@
       </div>
     </div>
 
-    <!-- Display density (issue #74). Desktop only, its own row right
-         below the search bar and above the filter chips -- matches
-         CookTrace Pantry's actual layout, which has the toggle in a
-         separate row below search (.filter-row), not inside the
-         search input's own row. -->
-    {#if _wideMode}
-      <div class="density-row">
+    <!-- Category chips + display density (issue #74) share one row,
+         chips scrolling on the left and the toggle pinned on the
+         right, matching CookTrace Pantry's actual .filter-row (chips
+         and its grid/list toggle are one row there too, not stacked). -->
+    <div class="category-row">
+      <div class="category-chips">
+        <button class="chip" class:active={!selectedCategory} on:click={() => selectedCategory = ''}>All</button>
+        {#each CATEGORIES.filter(c => categoryCounts[c.id]) as cat}
+          <button class="chip" class:active={selectedCategory === cat.id} on:click={() => selectedCategory = cat.id}>
+            <span class="material-symbols-rounded chip-icon">{cat.icon}</span>
+            {cat.label}
+          </button>
+        {/each}
+      </div>
+
+      {#if _wideMode}
         <div class="density-toggle" role="group" aria-label="Display density">
           <button
             class="density-btn"
@@ -487,17 +496,7 @@
             <span class="material-symbols-rounded">grid_view</span>
           </button>
         </div>
-      </div>
-    {/if}
-
-    <div class="category-chips">
-      <button class="chip" class:active={!selectedCategory} on:click={() => selectedCategory = ''}>All</button>
-      {#each CATEGORIES.filter(c => categoryCounts[c.id]) as cat}
-        <button class="chip" class:active={selectedCategory === cat.id} on:click={() => selectedCategory = cat.id}>
-          <span class="material-symbols-rounded chip-icon">{cat.icon}</span>
-          {cat.label}
-        </button>
-      {/each}
+      {/if}
     </div>
 
     {#if availableEquipment.length > 1}
@@ -681,20 +680,20 @@
   .search-icon { font-size: 20px; color: var(--text-3); }
   .search-input { flex: 1; background: none; border: none; outline: none; color: var(--text-1); font-size: 15px; padding: 12px 0; font-family: inherit; }
 
-  /* Display density row (issue #74) -- own row between search and the
-     filter chips, right-aligned. Matches CookTrace Pantry's actual
-     layout, which puts its grid/list toggle in a row below search
-     rather than inside the search input's own row. */
-  .density-row {
-    display: flex; justify-content: flex-end;
-    padding: 8px var(--page-px) 0;
+  /* Category chips + display density (issue #74) share one row now,
+     chips scrolling on the left and the toggle pinned on the right.
+     Matches CookTrace Pantry's actual .filter-row, where its grid/list
+     toggle sits alongside the category chips in one row, not stacked
+     above or below them. */
+  .category-row {
+    display: flex; align-items: center; gap: 4px;
   }
-
   .category-chips {
     display: flex; gap: 6px; padding: 12px var(--page-px);
     overflow-x: auto; scrollbar-width: none;
     /* Cap the row at viewport width so chips can't push the page wide. */
     max-width: 100%; min-width: 0;
+    flex: 1;
   }
   .category-chips::-webkit-scrollbar { display: none; }
   .chip {
@@ -709,20 +708,26 @@
 
   /* Display density toggle (issue #74). Icon-only two-up segmented
      control, matching CookTrace Pantry's grid/list toggle exactly:
-     lives in the search bar next to sort rather than its own chip
-     row, and adjacent buttons share a border so they read as one
-     control instead of two separate chips. */
-  .density-toggle { display: inline-flex; gap: 0; flex-shrink: 0; }
+     lives alongside the category chips rather than its own row, and
+     adjacent buttons share a border so they read as one control
+     instead of two separate chips. overflow:hidden on the wrapper
+     clips both buttons' backgrounds to the pill's own rounded corners
+     -- without it the active (highlighted) button's background could
+     square off at the shared border instead of following the radius. */
+  .density-toggle {
+    display: inline-flex; gap: 0; flex-shrink: 0;
+    margin-right: var(--page-px);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
   .density-btn {
     display: flex; align-items: center; justify-content: center;
     padding: 6px 10px;
     background: var(--surface-1); border: 1px solid var(--border);
     color: var(--text-2); cursor: pointer;
-    border-radius: 0;
     transition: all var(--dur-fast);
   }
-  .density-btn:first-child { border-top-left-radius: var(--radius-sm); border-bottom-left-radius: var(--radius-sm); }
-  .density-btn:last-child { border-top-right-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); border-left: none; }
+  .density-btn:last-child { border-left: none; }
   .density-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .density-btn .material-symbols-rounded { font-size: 18px; }
 
