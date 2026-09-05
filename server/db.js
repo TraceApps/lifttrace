@@ -147,6 +147,10 @@ db.exec(`
 `);
 
 // ── Workout Log (diary) ──────────────────────────────────────────────────
+// No UNIQUE(user_id, date): multiple sessions per day are addressed by the
+// surrogate `id` (issue #76), same precedent as cardio_log below.
+// session_seq is a per-(user_id,date) ordinal for stable labeling/ordering
+// only (0 = the original/only session) — never used for addressing.
 db.exec(`
   CREATE TABLE IF NOT EXISTS workout_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,10 +163,11 @@ db.exec(`
     notes       TEXT,
     duration_min REAL,
     completed   INTEGER DEFAULT 0,
-    created_at  TEXT DEFAULT (datetime('now')),
-    UNIQUE(user_id, date)
+    session_seq INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_workout_log_date ON workout_log(date);
+  CREATE INDEX IF NOT EXISTS idx_workout_log_user_date ON workout_log(user_id, date);
 
   -- Per-entry deletion tombstones for the nested collections that used
   -- to lose data on wholesale replace. Kinds:
@@ -173,17 +178,23 @@ db.exec(`
   --                         (date = "template:<template_id>")
   --   'template_set'      - a set within a template exercise
   --                         (ex_uuid = parent exercise uuid)
-  -- ex_uuid uses '' (not NULL) for kinds without a parent so the
-  -- composite PK dedupes cleanly (SQLite treats NULL as distinct in
-  -- UNIQUE constraints).
+  -- ex_uuid uses '' (not NULL) for kinds without a parent, and workout_id
+  -- uses 0 (not NULL) for tombstone kinds not scoped to a specific
+  -- workout_log row (template_exercise/template_set) — SQLite treats NULL
+  -- as distinct from itself inside a composite PK/UNIQUE constraint, which
+  -- would silently break the INSERT-OR-IGNORE dedupe these writes rely on.
+  -- workout_id scopes a tombstone to one session vs another on the same
+  -- date (issue #76) — not a FK so a tombstone can outlive the row it
+  -- applied to, same as coach_activity.workout_id is a soft reference.
   CREATE TABLE IF NOT EXISTS workout_tombstones (
     user_id     INTEGER,
     date        TEXT NOT NULL,
+    workout_id  INTEGER NOT NULL DEFAULT 0,
     kind        TEXT NOT NULL,
     ex_uuid     TEXT NOT NULL DEFAULT '',
     uuid        TEXT NOT NULL,
     deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (user_id, date, kind, ex_uuid, uuid)
+    PRIMARY KEY (user_id, date, workout_id, kind, ex_uuid, uuid)
   );
   CREATE INDEX IF NOT EXISTS idx_workout_tombstones_user_date
     ON workout_tombstones(user_id, date);
@@ -480,6 +491,162 @@ db.exec(`
 // row yet when this ALTER fired, which broke `docker compose up` on a clean
 // volume in v1.0.0-rc.2 (issue #2).
 addColumnIfMissing('coach_activity', 'feedback_id', 'feedback_id INTEGER REFERENCES coach_feedback(id) ON DELETE CASCADE');
+
+// ── Multiple workout sessions per day (issue #76) ─────────────────────────
+// workout_log had UNIQUE(user_id, date) — exactly one workout per user per
+// day. Loading a second workout the same day didn't create a second
+// entity, it merged into (and could tombstone-delete exercises out of) the
+// same row. Follows the cardio_log precedent already in this file:
+// surrogate-id addressing, no UNIQUE(user_id,date) — a caller that never
+// asks about sessions keeps hitting the one row that exists for anyone
+// who's never created a second session.
+//
+// session_seq is a per-(user_id,date) ordinal (0 = the original/only
+// session) for stable labeling/ordering only — addressing stays the
+// surrogate `id`, exactly like coach_feedback/coach_activity already
+// reference workout_log(id).
+addColumnIfMissing('workout_log', 'session_seq', 'session_seq INTEGER NOT NULL DEFAULT 0');
+
+// workout_tombstones was keyed on (user_id, date, kind, ex_uuid, uuid) with
+// no way to scope a deletion tombstone to one session vs another on the
+// same date. NOT NULL DEFAULT 0 (not nullable) matches how ex_uuid already
+// uses '' instead of NULL for kinds without a parent — the comment on the
+// table below explains SQLite treats NULL as distinct from itself inside a
+// composite PK, so a nullable workout_id would silently break the
+// INSERT-OR-IGNORE dedupe that tombstone writes rely on. 0 is a safe
+// sentinel: workout_log ids are AUTOINCREMENT starting at 1.
+addColumnIfMissing('workout_tombstones', 'workout_id', 'workout_id INTEGER NOT NULL DEFAULT 0');
+
+// One-time backfill: existing tombstone rows predate the workout_id column
+// and were written back when there was still guaranteed to be exactly one
+// workout_log row per (user_id, date) — same precondition the orphan
+// user_id backfill above relies on. Must run BEFORE the UNIQUE-drop
+// rebuild below: once a date can have >1 row, "the" row for a date is
+// ambiguous. Template-kind tombstones (kind IN ('template_exercise',
+// 'template_set')) use a synthetic date ("template:<id>") that matches no
+// workout_log row, so the subquery naturally falls back to the 0 sentinel
+// via COALESCE — no separate branch needed.
+try {
+  const r = db.prepare(`
+    UPDATE workout_tombstones
+    SET workout_id = COALESCE((
+      SELECT wl.id FROM workout_log wl
+      WHERE wl.date = workout_tombstones.date
+        AND wl.user_id IS workout_tombstones.user_id
+      LIMIT 1
+    ), 0)
+    WHERE workout_id = 0
+  `).run();
+  if (r.changes > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[db] backfilled workout_id on ${r.changes} workout_tombstones row(s)`);
+  }
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('[db] workout_tombstones.workout_id backfill skipped:', e?.message || e);
+}
+
+// Drop UNIQUE(user_id, date) on workout_log. SQLite can't ALTER/DROP a
+// table-level constraint, so this is a rebuild — same safe-rebuild recipe
+// as the users table above (foreign_keys OFF for the transaction,
+// PRAGMA foreign_key_check after, re-enable in finally). Gated on whether
+// the constraint's autoindex still exists, so repeat boots after a
+// successful rebuild are a cheap no-op check instead of repeating table
+// surgery. coach_feedback.workout_id / coach_activity.workout_id are
+// id-based FKs and survive this rebuild untouched.
+{
+  const wlIndexes = db.prepare(`PRAGMA index_list(workout_log)`).all();
+  const stillUnique = wlIndexes.some(ix => ix.origin === 'u' && ix.name.startsWith('sqlite_autoindex_workout_log_'));
+  if (stillUnique) {
+    db.pragma('foreign_keys = OFF');
+    try {
+      const colInfo = db.prepare(`PRAGMA table_info(workout_log)`).all();
+      const baseCols = ['id', 'user_id', 'date', 'template_id', 'program_id', 'name',
+                        'exercises', 'notes', 'duration_min', 'completed', 'created_at'];
+      const extraCols = colInfo.filter(c => !baseCols.includes(c.name));
+      const extraDDL = extraCols.map(c => {
+        const notnull = c.notnull ? ' NOT NULL' : '';
+        const dflt = c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : '';
+        return `, ${c.name} ${c.type || 'TEXT'}${notnull}${dflt}`;
+      }).join('');
+      const allCols = baseCols.concat(extraCols.map(c => c.name));
+      const colList = allCols.join(', ');
+
+      const rebuild = db.transaction(() => {
+        db.exec(`
+          CREATE TABLE workout_log_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER,
+            date         TEXT NOT NULL,
+            template_id  INTEGER REFERENCES workout_templates(id) ON DELETE SET NULL,
+            program_id   INTEGER REFERENCES programs(id) ON DELETE SET NULL,
+            name         TEXT,
+            exercises    TEXT DEFAULT '[]',
+            notes        TEXT,
+            duration_min REAL,
+            completed    INTEGER DEFAULT 0,
+            created_at   TEXT DEFAULT (datetime('now'))${extraDDL}
+          );
+          INSERT INTO workout_log_new (${colList}) SELECT ${colList} FROM workout_log;
+          DROP TABLE workout_log;
+          ALTER TABLE workout_log_new RENAME TO workout_log;
+          CREATE INDEX IF NOT EXISTS idx_workout_log_date ON workout_log(date);
+          CREATE INDEX IF NOT EXISTS idx_workout_log_user_date ON workout_log(user_id, date);
+        `);
+      });
+      rebuild();
+      const violations = db.prepare(`PRAGMA foreign_key_check`).all();
+      if (violations.length) {
+        console.error('[db] FK violations after workout_log rebuild:', violations);
+      } else {
+        console.log('[db] workout_log rebuilt: UNIQUE(user_id,date) dropped (issue #76)');
+      }
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+}
+
+// Widen workout_tombstones' composite PK to include workout_id, so a
+// deletion tombstone can be scoped to one session vs another on the same
+// date. Same rebuild-gate pattern: check whether workout_id is already
+// part of the PK (its `pk` field in table_info is > 0) before rebuilding,
+// so repeat boots after success are a no-op.
+{
+  const wtCols = db.prepare(`PRAGMA table_info(workout_tombstones)`).all();
+  const wfCol = wtCols.find(c => c.name === 'workout_id');
+  const alreadyRebuilt = wfCol && wfCol.pk > 0;
+  if (!alreadyRebuilt) {
+    db.pragma('foreign_keys = OFF');
+    try {
+      const rebuild = db.transaction(() => {
+        db.exec(`
+          CREATE TABLE workout_tombstones_new (
+            user_id     INTEGER,
+            date        TEXT NOT NULL,
+            workout_id  INTEGER NOT NULL DEFAULT 0,
+            kind        TEXT NOT NULL,
+            ex_uuid     TEXT NOT NULL DEFAULT '',
+            uuid        TEXT NOT NULL,
+            deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, date, workout_id, kind, ex_uuid, uuid)
+          );
+          INSERT INTO workout_tombstones_new (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at)
+            SELECT user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at FROM workout_tombstones;
+          DROP TABLE workout_tombstones;
+          ALTER TABLE workout_tombstones_new RENAME TO workout_tombstones;
+          CREATE INDEX IF NOT EXISTS idx_workout_tombstones_user_date ON workout_tombstones(user_id, date);
+          CREATE INDEX IF NOT EXISTS idx_workout_tombstones_deleted ON workout_tombstones(deleted_at);
+        `);
+      });
+      rebuild();
+      // eslint-disable-next-line no-console
+      console.log('[db] workout_tombstones rebuilt: workout_id added to primary key (issue #76)');
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+}
 
 // ── Phase 3 — Differential sync columns (updated_at + deleted_at) ─────────
 // The Capacitor Android app's /api/sync/pull?since=<ISO> endpoint scans
