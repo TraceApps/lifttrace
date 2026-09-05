@@ -2170,10 +2170,9 @@
   {#if $todaySessions.length > 1}
     <div class="session-tabs" role="tablist">
       {#each $todaySessions as s (s.id)}
-        <div class="session-tab-wrap">
+        <div class="session-tab-wrap" class:active={s.id === $currentSessionId}>
           <button
             class="session-tab"
-            class:active={s.id === $currentSessionId}
             role="tab"
             aria-selected={s.id === $currentSessionId}
             on:click={() => handleSwitchSession(s.id)}
@@ -3270,26 +3269,31 @@
     padding: 8px var(--page-px) 0;
     overflow-x: auto;
   }
+  /* One visual pill per session: the wrap carries the pill's border/
+     background, the switch button and delete "x" inside it are both
+     borderless/transparent so there's no seam between them. */
   .session-tab-wrap {
-    display: flex; align-items: center; gap: 2px;
-    flex: 0 0 auto;
-  }
-  .session-tab {
-    display: flex; align-items: center; gap: 4px;
-    padding: 6px 12px;
+    display: flex; align-items: center;
     border: 1px solid var(--border);
     border-radius: 999px;
     background: var(--surface-1);
+    flex: 0 0 auto;
+    overflow: hidden;
+  }
+  .session-tab-wrap.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+  }
+  .session-tab {
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 4px 6px 12px;
+    border: none;
+    background: transparent;
     color: var(--text-2);
     font-size: 12px; font-weight: 600;
     white-space: nowrap;
-    flex: 0 0 auto;
   }
-  .session-tab.active {
-    background: var(--accent-dim);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
+  .session-tab-wrap.active .session-tab { color: var(--accent); }
   .session-tab-name {
     max-width: 140px; overflow: hidden; text-overflow: ellipsis;
   }
@@ -3297,15 +3301,23 @@
   .session-tab-delete {
     display: flex; align-items: center; justify-content: center;
     width: 22px; height: 22px;
+    margin-right: 4px;
     border: none; border-radius: 50%;
     background: transparent;
     color: var(--text-3);
     flex: 0 0 auto;
   }
-  .session-tab-delete:hover { background: var(--surface-2); color: var(--text-1); }
+  .session-tab-wrap.active .session-tab-delete { color: var(--accent); }
+  .session-tab-delete:hover { background: var(--danger); color: #fff; }
   .session-tab-delete .material-symbols-rounded { font-size: 14px; }
   .session-tab-add {
+    display: flex; align-items: center; justify-content: center;
     padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-1);
+    color: var(--text-2);
+    flex: 0 0 auto;
   }
   .session-tab-add .material-symbols-rounded { font-size: 16px; }
 
