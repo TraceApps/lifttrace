@@ -122,7 +122,10 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
     const avgRpe = rpeValues.length
       ? Math.round((rpeValues.reduce((a, b) => a + b, 0) / rpeValues.length) * 10) / 10
       : null;
-    progress.push({ date: row.date, maxWeight, totalVolume, sets: completedSets.length, avgRpe });
+    // workout_id lets a chart distinguish two same-date points once a
+    // date can have multiple sessions (issue #76) — additive, existing
+    // chart code that only reads `date` is unaffected.
+    progress.push({ date: row.date, workout_id: row.id, maxWeight, totalVolume, sets: completedSets.length, avgRpe });
   }
   res.json(progress);
 }));
@@ -371,7 +374,13 @@ router.get('/streaks', wrap((req, res) => {
   }
   longestStreak = Math.max(longestStreak, tempStreak);
 
-  res.json({ currentStreak, longestStreak, totalWorkouts: dates.size });
+  // totalWorkouts stays "distinct days with a completed workout" (a day
+  // counts as done if ANY session that day is completed — the right call
+  // once a date can have multiple sessions, issue #76, so a still-open
+  // daily-stretch session doesn't cost the lifting streak). totalSessions
+  // is the true per-session count, additive so existing consumers of
+  // totalWorkouts see no change in meaning.
+  res.json({ currentStreak, longestStreak, totalWorkouts: dates.size, totalSessions: rows.length });
 }));
 
 export default router;

@@ -4,6 +4,11 @@
  * Read a single day's workout — every exercise and set. Mirrors
  * GET /api/workout/:date. Filters out soft-deleted rows the same way
  * that route does (deleted_at IS NULL, see LT v1.2.0 CHANGELOG).
+ *
+ * A date can have more than one session (issue #76); this tool doesn't
+ * expose session selection yet (unchanged contract for phase 1), so it
+ * returns the same default session GET /:date would — session 0, or the
+ * lowest surviving session_seq/id.
  */
 import { z } from 'zod';
 import db from '../../../db.js';
@@ -28,7 +33,7 @@ export function registerGetWorkout(server, { userId }) {
       if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
       const row = db.prepare(
-        'SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL'
+        'SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1'
       ).get(day, userId);
       if (!row) return toolResult({ date: day, logged: false, exercises: [] });
 

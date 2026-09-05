@@ -63,14 +63,14 @@ router.post('/preview', upload.single('file'), wrap((req, res) => {
     }
   }
 
-  // Count dates that already have a workout_log entry for this user
-  const existing = db.prepare(
-    "SELECT date FROM workout_log WHERE user_id = ? AND date IN (" +
-    workouts.map(() => '?').join(',') + ')'
-  );
-  const existingDates = workouts.length > 0
-    ? new Set(existing.all(userId, ...workouts.map(w => w.date)).map(r => r.date))
-    : new Set();
+  // Count workouts that already have a matching workout_log entry —
+  // scoped to (user_id, date, name), not date alone (issue #76): a date
+  // can now legitimately hold more than one distinctly-named session, so
+  // "duplicate" means "would replace/skip the same-named session on
+  // commit" rather than "this date already has anything logged." Matches
+  // commit's own dedup scope below exactly.
+  const dupeCheckStmt = db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND name = ? LIMIT 1');
+  const duplicateCount = workouts.filter(w => dupeCheckStmt.get(userId, w.date, w.name || 'Imported')).length;
 
   res.json({
     workouts: workouts.length,
@@ -81,7 +81,7 @@ router.post('/preview', upload.single('file'), wrap((req, res) => {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 40)
       .map(([name, count]) => ({ name, count })),
-    duplicateDates: [...existingDates].length,
+    duplicateDates: duplicateCount,
     dateRange: { from: workouts[0].date, to: workouts[workouts.length - 1].date },
   });
 }));
@@ -104,21 +104,34 @@ router.post('/commit', upload.single('file'), wrap((req, res) => {
   catch(e) { return res.status(400).json({ error: `Parse failed: ${e.message}` }); }
 
   const library = _loadLibraryForUser(userId);
-  const existingStmt = db.prepare('SELECT id FROM workout_log WHERE user_id = ? AND date = ?');
-  const deleteStmt   = db.prepare('DELETE FROM workout_log WHERE user_id = ? AND date = ?');
+  // Dedup scoped to (user_id, date, name) — not date alone (issue #76): a
+  // Strong/Hevy export with two distinctly-named same-day sessions ("AM"/
+  // "PM") now imports both instead of the second one silently skipping
+  // or replacing the first. A re-import of the SAME file still matches
+  // and skips/replaces as before, since it produces the same names.
+  const existingStmt = db.prepare('SELECT id, session_seq FROM workout_log WHERE user_id = ? AND date = ? AND name = ?');
+  const deleteStmt   = db.prepare('DELETE FROM workout_log WHERE id = ?');
+  const nextSeqStmt  = db.prepare('SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE user_id = ? AND date = ?');
   const insertStmt   = db.prepare(
-    `INSERT INTO workout_log (user_id, date, name, notes, duration_min, exercises, completed, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))`
+    `INSERT INTO workout_log (user_id, date, name, notes, duration_min, exercises, completed, session_seq, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))`
   );
 
   let imported = 0, skipped = 0, replaced = 0;
   const tx = db.transaction(() => {
     for (const w of workouts) {
-      const existing = existingStmt.get(userId, w.date);
+      const importName = w.name || 'Imported';
+      const existing = existingStmt.get(userId, w.date, importName);
+      let sessionSeq;
       if (existing) {
         if (dupeMode === 'skip') { skipped++; continue; }
-        deleteStmt.run(userId, w.date);
+        // Reuse the replaced row's own session_seq so its position among
+        // any OTHER same-date sessions doesn't shuffle.
+        sessionSeq = existing.session_seq;
+        deleteStmt.run(existing.id);
         replaced++;
+      } else {
+        sessionSeq = nextSeqStmt.get(userId, w.date).n;
       }
       const exerciseRows = w.exercises.map(ex => {
         const match = matchExercise(ex.sourceName, library);
@@ -131,8 +144,8 @@ router.post('/commit', upload.single('file'), wrap((req, res) => {
         };
       });
       insertStmt.run(
-        userId, w.date, w.name || 'Imported', w.notes || null,
-        w.duration_min || null, JSON.stringify(exerciseRows),
+        userId, w.date, importName, w.notes || null,
+        w.duration_min || null, JSON.stringify(exerciseRows), sessionSeq,
       );
       imported++;
     }

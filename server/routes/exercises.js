@@ -77,10 +77,16 @@ router.get('/usage', wrap((req, res) => {
       ORDER BY date DESC`
   ).all(userId);
   const out = {};
+  // Hoisted OUTSIDE the rows loop (issue #76 fix): a date can now have
+  // more than one completed workout_log row, and this must still track
+  // "seen this exercise on this date" across ALL of them, not just
+  // within a single row's exercise list — otherwise the same exercise
+  // logged in two sessions the same day double-counts as two distinct
+  // days used.
+  const seenOnDate = new Set();
   for (const row of rows) {
     let exs;
     try { exs = JSON.parse(row.exercises || '[]'); } catch { continue; }
-    const seenInDay = new Set();
     for (const ex of exs) {
       if (!ex.exercise_id) continue;
       // Only count exercises with at least one completed working set.
@@ -88,8 +94,9 @@ router.get('/usage', wrap((req, res) => {
       if (!hasCompletedSet) continue;
       // Distinct-day count: each exercise increments at most once per day.
       const key = `${ex.exercise_id}`;
-      if (seenInDay.has(key)) continue;
-      seenInDay.add(key);
+      const dayKey = `${key}:${row.date}`;
+      if (seenOnDate.has(dayKey)) continue;
+      seenOnDate.add(dayKey);
       if (!out[key]) out[key] = { count: 0, last_date: row.date };
       out[key].count++;
       // Latest-date wins (rows ordered DESC, so the first hit is freshest).
