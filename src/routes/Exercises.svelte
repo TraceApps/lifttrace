@@ -13,6 +13,7 @@
   import { pageBanners, bannerStyle, favoriteExercises, customEquipment, weightUnit, exerciseBrowserDensity } from '../stores/settings.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
   import { readSharedExerciseFile, fetchSharedExerciseUrl, importSharedExercise } from '../lib/exerciseShare.js';
+  import { portal } from '../lib/portal.js';
 
   let showEditor = false;
   let addMenuOpen = false;
@@ -188,7 +189,54 @@
     _wideMq.addEventListener?.('change', _syncWide);
   }
 
-  // Inline detail pane state — mirrors the picker's info-pane setup
+  // Detail pane positioning. Was plain position:sticky inside the grid,
+  // which looked right in isolation but never actually stuck: the route
+  // wrapper Svelte's fade transition applies to every page sets
+  // will-change:opacity on .page-transition and leaves it there, and
+  // that alone is enough to make it establish a new containing block,
+  // silently scoping the sticky panel to the wrong ancestor. Confirmed
+  // live, by walking the ancestor chain via getComputedStyle in the
+  // browser, rather than assumed. Diary.svelte's right rail hit the
+  // exact same class of bug already, fixed via use:portal (escapes the
+  // problem ancestor entirely) plus position:fixed with JS-measured CSS
+  // vars instead of trusting the grid to size or position it, since a
+  // portaled element is no longer a grid item and cannot inherit column
+  // geometry.
+  let _detailStickyTopPx = 0;   // exposed as --ex-detail-top
+  let _detailFixedLeftPx = 0;   // exposed as --ex-detail-left
+  let _detailFixedWidthPx = 380; // exposed as --ex-detail-width
+  let _contentEl = null;
+  let _detailResizeObs = null;
+  function _measureDetailPane() {
+    if (!_contentEl) return;
+    const gridRect = _contentEl.getBoundingClientRect();
+    const colWidth = _detailFixedWidthPx;
+    const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const pad = parseFloat(getComputedStyle(_contentEl).paddingTop || '0') || 0;
+    const naturalDocTop = gridRect.top + scrollY + pad;
+    const rootCS = getComputedStyle(document.documentElement);
+    const pageTop = parseFloat(rootCS.getPropertyValue('--page-top') || rootCS.getPropertyValue('--safe-top') || '0') || 0;
+    const hamRow  = parseFloat(rootCS.getPropertyValue('--hamburger-row') || '0') || 0;
+    const topPx = Math.max(0, Math.round(naturalDocTop - pageTop - hamRow));
+    if (topPx  !== _detailStickyTopPx)  _detailStickyTopPx  = topPx;
+    if (leftPx !== _detailFixedLeftPx)  _detailFixedLeftPx  = leftPx;
+  }
+  onMount(() => {
+    requestAnimationFrame(() => requestAnimationFrame(_measureDetailPane));
+    try {
+      _detailResizeObs = new ResizeObserver(_measureDetailPane);
+      if (_contentEl) _detailResizeObs.observe(_contentEl);
+    } catch { /* ResizeObserver unavailable, one-shot measurement stands */ }
+    const onResize = () => { _syncWide(); _measureDetailPane(); };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      try { _detailResizeObs?.disconnect(); } catch { /* ignore */ }
+    };
+  });
+
+  // Inline detail pane state, mirrors the picker's info-pane setup
   // so the two surfaces feel like one system.
   let _detailSelected = null;
   let _detailHistory = [];
@@ -408,6 +456,33 @@
           </div>
         {/if}
       </div>
+      <!-- Display density (issue #74). Desktop only, same place
+           CookTrace's Pantry puts its grid/list toggle: icon-only,
+           inside the search bar next to sort, not its own chip row. -->
+      {#if _wideMode}
+        <div class="density-toggle" role="group" aria-label="Display density">
+          <button
+            class="density-btn"
+            class:active={$exerciseBrowserDensity === 'compact'}
+            on:click={() => exerciseBrowserDensity.set('compact')}
+            title={$_('exercises_page.density_compact')}
+            aria-label={$_('exercises_page.density_compact')}
+            aria-pressed={$exerciseBrowserDensity === 'compact'}
+          >
+            <span class="material-symbols-rounded">view_list</span>
+          </button>
+          <button
+            class="density-btn"
+            class:active={$exerciseBrowserDensity === 'comfortable'}
+            on:click={() => exerciseBrowserDensity.set('comfortable')}
+            title={$_('exercises_page.density_comfortable')}
+            aria-label={$_('exercises_page.density_comfortable')}
+            aria-pressed={$exerciseBrowserDensity === 'comfortable'}
+          >
+            <span class="material-symbols-rounded">grid_view</span>
+          </button>
+        </div>
+      {/if}
     </div>
 
     <div class="category-chips">
@@ -435,35 +510,10 @@
       </div>
     {/if}
 
-    <!-- Display density (issue #74). Desktop only -- _wideMode already
-         gates every other desktop-specific behavior in this file, so
-         reusing it here keeps this consistent instead of adding a
-         second breakpoint check. Mobile's compact list is untouched. -->
-    {#if _wideMode}
-      <div class="density-toggle" role="group" aria-label="Display density">
-        <button
-          class="density-btn"
-          class:active={$exerciseBrowserDensity === 'compact'}
-          on:click={() => exerciseBrowserDensity.set('compact')}
-        >
-          <span class="material-symbols-rounded">view_list</span>
-          {$_('exercises_page.density_compact')}
-        </button>
-        <button
-          class="density-btn"
-          class:active={$exerciseBrowserDensity === 'comfortable'}
-          on:click={() => exerciseBrowserDensity.set('comfortable')}
-        >
-          <span class="material-symbols-rounded">grid_view</span>
-          {$_('exercises_page.density_comfortable')}
-        </button>
-      </div>
-    {/if}
-
   </div>
   </div>
 
-  <div class="content">
+  <div class="content" bind:this={_contentEl}>
     <!-- Center list column — at wide widths sits alongside the inline
          detail pane in the grid. On mobile this is a plain block. -->
     <div class="ex-list-col">
@@ -534,7 +584,8 @@
          that jumps to the /exercise/:id route for deeper analytics
          (charts, per-session breakdown). Mirrors the picker's info
          pane so the two surfaces feel like one system. -->
-    <aside class="ex-detail-pane">
+    <aside class="ex-detail-pane" use:portal
+      style="--ex-detail-top:{_detailStickyTopPx}px; --ex-detail-left:{_detailFixedLeftPx}px; --ex-detail-width:{_detailFixedWidthPx}px">
       {#if _detailSelected}
         <div class="edp-head">
           <h3 class="edp-title">{_detailSelected.name}</h3>
@@ -642,22 +693,24 @@
   .chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .chip-icon { font-size: 16px; }
 
-  /* Display density toggle (issue #74). Same visual language as .chip
-     so it reads as part of the same toolbar, just a two-way switch
-     instead of a multi-select filter. */
-  .density-toggle {
-    display: flex; align-items: center; gap: 4px;
-    margin-top: 8px;
-  }
+  /* Display density toggle (issue #74). Icon-only two-up segmented
+     control, matching CookTrace Pantry's grid/list toggle exactly:
+     lives in the search bar next to sort rather than its own chip
+     row, and adjacent buttons share a border so they read as one
+     control instead of two separate chips. */
+  .density-toggle { display: inline-flex; gap: 0; flex-shrink: 0; }
   .density-btn {
-    display: flex; align-items: center; gap: 4px;
-    padding: 6px 12px;
-    border-radius: var(--radius-full); background: var(--surface-1); border: 1px solid var(--border);
-    color: var(--text-2); font-size: 12px; font-weight: 500; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 6px 10px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    color: var(--text-2); cursor: pointer;
+    border-radius: 0;
     transition: all var(--dur-fast);
   }
+  .density-btn:first-child { border-top-left-radius: var(--radius-sm); border-bottom-left-radius: var(--radius-sm); }
+  .density-btn:last-child { border-top-right-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); border-left: none; }
   .density-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-  .density-btn .material-symbols-rounded { font-size: 16px; }
+  .density-btn .material-symbols-rounded { font-size: 18px; }
 
   /* Wrapper exists so the fade gradients can sit outside the scrolling
      area — otherwise they'd move with the content. */
@@ -881,8 +934,18 @@
       border-color: var(--accent);
       background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
     }
-    /* Right detail pane — sticky below the sticky filter chrome. */
-    :global(html:not(.force-mobile-layout)) .content > .ex-detail-pane {
+    /* Right detail pane, fixed below the sticky filter chrome.
+       Portaled to body (use:portal on the element) and positioned via
+       JS-measured CSS vars rather than plain position:sticky inside
+       the grid: .page-transition's will-change:opacity (Svelte's fade
+       transition on every route) silently scopes sticky positioning to
+       the wrong ancestor, so it never actually held in place. Diary's
+       right rail solved the identical problem the same way. No .content
+       ancestor in this selector on purpose: once portaled, the aside is
+       a direct child of body, not a grid item. Grid still reserves the
+       380px column because its track size is explicit, so the list
+       column doesn't reflow when the aside leaves flow. */
+    :global(html:not(.force-mobile-layout)) .ex-detail-pane {
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -890,12 +953,15 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       padding: 14px;
-      position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 220px + var(--hamburger-row, 0px));
-      align-self: start;
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--ex-detail-top, 220px) + var(--hamburger-row, 0px));
+      left: var(--ex-detail-left, auto);
+      width: var(--ex-detail-width, 380px);
+      z-index: 5;
       max-height: calc(100vh
         - var(--page-top, var(--safe-top))
-        - 240px
+        - var(--ex-detail-top, 220px)
+        - 20px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
         - var(--safe-bottom, 0px));
