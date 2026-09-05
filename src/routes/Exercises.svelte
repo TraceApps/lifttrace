@@ -456,10 +456,15 @@
           </div>
         {/if}
       </div>
-      <!-- Display density (issue #74). Desktop only, same place
-           CookTrace's Pantry puts its grid/list toggle: icon-only,
-           inside the search bar next to sort, not its own chip row. -->
-      {#if _wideMode}
+    </div>
+
+    <!-- Display density (issue #74). Desktop only, its own row right
+         below the search bar and above the filter chips -- matches
+         CookTrace Pantry's actual layout, which has the toggle in a
+         separate row below search (.filter-row), not inside the
+         search input's own row. -->
+    {#if _wideMode}
+      <div class="density-row">
         <div class="density-toggle" role="group" aria-label="Display density">
           <button
             class="density-btn"
@@ -482,8 +487,8 @@
             <span class="material-symbols-rounded">grid_view</span>
           </button>
         </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
 
     <div class="category-chips">
       <button class="chip" class:active={!selectedCategory} on:click={() => selectedCategory = ''}>All</button>
@@ -675,6 +680,15 @@
   }
   .search-icon { font-size: 20px; color: var(--text-3); }
   .search-input { flex: 1; background: none; border: none; outline: none; color: var(--text-1); font-size: 15px; padding: 12px 0; font-family: inherit; }
+
+  /* Display density row (issue #74) -- own row between search and the
+     filter chips, right-aligned. Matches CookTrace Pantry's actual
+     layout, which puts its grid/list toggle in a row below search
+     rather than inside the search input's own row. */
+  .density-row {
+    display: flex; justify-content: flex-end;
+    padding: 8px var(--page-px) 0;
+  }
 
   .category-chips {
     display: flex; gap: 6px; padding: 12px var(--page-px);
