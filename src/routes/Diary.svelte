@@ -46,6 +46,21 @@
   let showWorkoutActions = false;
   let showDatePicker = false;
 
+  // Set right before opening the Load Workout sheet from an entry point
+  // that's already unambiguous about intent (issue #76) — the session-
+  // tab strip's own "+" and the Add-menu's "Start a new session" both
+  // already told the user exactly what's about to happen, so asking
+  // Replace-vs-New-Session AGAIN once they pick a template would be a
+  // pointless, confusing second prompt for a decision they already
+  // made. loadTemplate consumes and clears this; the Sheet's on:close
+  // also clears it, so dismissing without picking anything can't leak
+  // a forced mode into the next, unrelated template load.
+  let loadWorkoutForcedMode = null;
+  function openLoadWorkoutForNewSession() {
+    loadWorkoutForcedMode = 'new_session';
+    openLoadWorkout();
+  }
+
   // Replace-vs-new-session choice for loadTemplate (issue #76). Promise-
   // wrapped around the ActionSheet's event-based API so loadTemplate can
   // just `await` the user's choice like it already does with
@@ -938,8 +953,15 @@
     // untouched, and the new template becomes an independent second
     // session. mode stays 'replace' (today's exact behavior) when there's
     // nothing to protect, so an empty day skips the picker entirely.
+    // A forced mode (set by an entry point that already told the user
+    // exactly what's about to happen — see openLoadWorkoutForNewSession)
+    // skips the ask entirely rather than re-litigating a decision already
+    // made one tap ago.
     let mode = 'replace';
-    if (($todayLog?.exercises?.length || 0) > 0) {
+    if (loadWorkoutForcedMode) {
+      mode = loadWorkoutForcedMode;
+      loadWorkoutForcedMode = null;
+    } else if (($todayLog?.exercises?.length || 0) > 0) {
       mode = await _askReplaceOrNewSession(confirmMsgKey);
       if (!mode) return; // cancelled
     }
@@ -1584,7 +1606,7 @@
   function handleAddMenuChoice(e) {
     showAddMenu = false;
     if (e.detail?.value === 'exercise') showPicker = true;
-    else if (e.detail?.value === 'workout') openLoadWorkout();
+    else if (e.detail?.value === 'workout') openLoadWorkoutForNewSession();
   }
 
   // ── Edge-scroll during drag ──────────────────────────────────────────────
@@ -2119,7 +2141,7 @@
           {#if s.completed}<span class="material-symbols-rounded session-tab-check">check_circle</span>{/if}
         </button>
       {/each}
-      <button class="session-tab session-tab-add" on:click={openLoadWorkout} title={$_('diary.actions.add_session')} aria-label={$_('diary.actions.add_session')}>
+      <button class="session-tab session-tab-add" on:click={openLoadWorkoutForNewSession} title={$_('diary.actions.add_session')} aria-label={$_('diary.actions.add_session')}>
         <span class="material-symbols-rounded">add</span>
       </button>
     </div>
@@ -2735,7 +2757,7 @@
   />
 
   <!-- Load Workout sheet -->
-  <Sheet open={showLoadWorkout} on:close={() => { showLoadWorkout = false; selectedProgram = null; }}>
+  <Sheet open={showLoadWorkout} on:close={() => { showLoadWorkout = false; selectedProgram = null; loadWorkoutForcedMode = null; }}>
     <div class="load-workout">
       <h3 class="lw-title">{$_('diary_extra.load_workout')}</h3>
 
