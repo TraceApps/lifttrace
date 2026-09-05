@@ -162,6 +162,7 @@
       <p class="sub-label" style="padding:0 0 6px">
         {$_('settings_api_tokens.intro_before')} <em>{$_('settings_api_tokens.intro_dev')}</em>){$_('settings_api_tokens.intro_middle')}
         <code>/api/mcp</code>. {$_('settings_api_tokens.intro_see')}
+        <a href="https://traceapps.github.io/docs/lifttrace/mcp/" target="_blank" rel="noopener">the MCP setup guide</a>.
       </p>
 
       {#if justCreatedRaw}

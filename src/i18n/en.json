@@ -616,7 +616,7 @@
     "intro_before": "Personal access tokens let an external MCP client (like Claude Desktop",
     "intro_dev": "or another MCP-aware agent",
     "intro_middle": " talk to this LiftTrace instance directly. Tokens are scoped to a specific set of capabilities and connect to",
-    "intro_see": "MCP must also be enabled on the server (MCP_ENABLED=1) for a token to do anything.",
+    "intro_see": "See",
     "just_created": {
       "title": "Token created:",
       "warn": "Copy this now — it will not be shown again.",
@@ -641,12 +641,12 @@
     },
     "form": {
       "new_token": "New Token",
-      "name": "Name",
+      "name": "Name *",
       "name_ph": "e.g. Claude Desktop",
-      "scopes": "Scopes",
+      "scopes": "Scopes *",
       "mcp_disabled": "MCP is not enabled on this server. A token can still be created, but it won't do anything until MCP_ENABLED=1 is set.",
-      "expires_label": "Expires (days)",
-      "expires_ph": "Never",
+      "expires_label": "Expires After (Days, Optional)",
+      "expires_ph": "Leave empty to never expire",
       "cancel": "Cancel",
       "create": "Create Token",
       "creating": "Creating…"
