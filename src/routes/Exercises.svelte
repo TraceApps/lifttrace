@@ -707,17 +707,15 @@
 
   /* Display density toggle (issue #74). Icon-only two-up segmented
      control, matching CookTrace Pantry's grid/list toggle exactly:
-     lives alongside the category chips rather than its own row, and
-     adjacent buttons share a border so they read as one control
-     instead of two separate chips. overflow:hidden on the wrapper
-     clips both buttons' backgrounds to the pill's own rounded corners
-     -- without it the active (highlighted) button's background could
-     square off at the shared border instead of following the radius. */
+     lives alongside the category chips rather than its own row.
+     Each button rounds its own outer corner directly, rather than
+     clipping a square corner with overflow:hidden on the wrapper,
+     so the active button's own background fills all the way into
+     the curve instead of leaving an unfilled notch where the clip
+     would otherwise cut the square corner off. */
   .density-toggle {
     display: inline-flex; gap: 0; flex-shrink: 0;
     margin-right: var(--page-px);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
   }
   .density-btn {
     display: flex; align-items: center; justify-content: center;
@@ -726,7 +724,8 @@
     color: var(--text-2); cursor: pointer;
     transition: all var(--dur-fast);
   }
-  .density-btn:last-child { border-left: none; }
+  .density-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+  .density-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
   .density-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .density-btn .material-symbols-rounded { font-size: 18px; }
 
