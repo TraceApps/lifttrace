@@ -156,7 +156,12 @@ async function checkToolOrCleanError(name, args, resultKey, note) {
   const r = await callTool(name, args);
   const sc = r.json?.result?.structuredContent;
   const isErr = r.json?.result?.isError;
-  if (r.status === 200 && sc && (resultKey ? resultKey in sc : true)) {
+  if (r.status === 200 && sc?.ambiguous === true) {
+    // Legitimate third outcome for name-resolution tools: multiple
+    // catalog matches, tool correctly refuses to guess rather than
+    // silently picking one. Not an error, not the normal success shape.
+    line('PASS', name, `(ambiguous match, ${sc.candidates?.length ?? '?'} candidates — refused to guess)`);
+  } else if (r.status === 200 && sc && (resultKey ? resultKey in sc : true)) {
     const preview = resultKey ? JSON.stringify(sc[resultKey]).slice(0, 80) : '';
     line('PASS', name, note ? `${note} ${preview}` : preview);
   } else if (r.status === 200 && isErr) {
