@@ -852,7 +852,9 @@
     "notes_ph":                "Workout notes...",
     "load_workout":            "Load Workout",
     "auto":                    "Auto",
-    "mark_all_seen":           "Mark All Seen"
+    "mark_all_seen":           "Mark All Seen",
+    "add_menu_title":          "Add",
+    "add_exercise_action":     "Add Exercise"
   },
   "native_setup": {
     "toast": {

@@ -1567,9 +1567,24 @@
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   }
+  // Issue #76: the ⋮ menu's "Replace Workout" was the only discoverable
+  // path to loading another workout once today's already has exercises
+  // — easy to miss. Offering it here too, right next to "Add Exercise"
+  // (the button people already reach for), makes "start a new session"
+  // discoverable from the same tap they're already making.
+  let showAddMenu = false;
+  $: addMenuActions = [
+    { label: $_('diary_extra.add_exercise_action'), icon: 'fitness_center', value: 'exercise' },
+    { label: $_('diary.actions.add_session'), icon: 'playlist_add', value: 'workout' },
+  ];
   function handleAddFabClick() {
     if (addFabHasDragged) return;   // suppress click after drag
-    showPicker = true;
+    showAddMenu = true;
+  }
+  function handleAddMenuChoice(e) {
+    showAddMenu = false;
+    if (e.detail?.value === 'exercise') showPicker = true;
+    else if (e.detail?.value === 'workout') openLoadWorkout();
   }
 
   // ── Edge-scroll during drag ──────────────────────────────────────────────
@@ -1899,7 +1914,7 @@
     {#if _wideViewport && exercises.length > 0}
       <button class="diary-header-action diary-header-add"
               on:click={handleAddFabClick}
-              title="Add exercise" aria-label="Add exercise">
+              title="Add" aria-label="Add">
         <span class="material-symbols-rounded">add</span>
       </button>
     {/if}
@@ -2688,16 +2703,19 @@
     </div>
 {/snippet}
 
-  <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
-       Loading from a program mid-workout lives in the ⋮ menu as "Replace workout". -->
+  <!-- Add FAB (visible only mid-workout — empty state has its own buttons).
+       Tap opens a small menu: Add Exercise, or Add Workout (issue #76 —
+       starts a new session via the same Load Workout flow the ⋮ menu's
+       "Replace Workout" already used, now surfaced somewhere people
+       actually look instead of only in that overflow menu). -->
   {#if exercises.length > 0}
     <div class="fab-group" class:positioned={!!addFabPos} style={addFabStyle}>
       <button
         class="fab fab-primary"
         on:pointerdown={startAddFabDrag}
         on:click={handleAddFabClick}
-        aria-label="Add exercise · drag to reposition"
-        title="Tap to add exercise · hold and drag to move"
+        aria-label="Add · drag to reposition"
+        title="Tap to add · hold and drag to move"
       >
         <span class="material-symbols-rounded">add</span>
       </button>
@@ -2861,6 +2879,18 @@
     actions={replaceOrNewSessionActions}
     on:select={_handleReplaceOrNewSessionChoice}
     on:cancel={_cancelReplaceOrNewSession}
+  />
+
+  <!-- Add menu (issue #76) — the + FAB / header button's own small menu:
+       Add Exercise (today's existing single action) or Add Workout
+       (opens Load Workout, surfacing "start a new session" somewhere
+       more discoverable than only the ⋮ overflow menu). -->
+  <ActionSheet
+    bind:open={showAddMenu}
+    title={$_('diary_extra.add_menu_title')}
+    actions={addMenuActions}
+    on:select={handleAddMenuChoice}
+    on:cancel={() => showAddMenu = false}
   />
 
   <!-- Per-exercise action sheet (superset actions) -->
