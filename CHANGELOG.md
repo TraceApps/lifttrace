@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Settings → API Tokens: the intro's "the MCP setup guide" link text now flows through i18n** ([#84](https://github.com/TraceApps/lifttrace/pull/84)). It was a literal in the template, so translated locales rendered a mixed-language sentence ("Consulta the MCP setup guide." in Spanish). One new key, `settings_api_tokens.intro_guide_link`.
+
 ## [1.3.0-dev01] - 2026-09-05
 
 ### Added
