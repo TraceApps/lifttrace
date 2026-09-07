@@ -180,7 +180,8 @@
       "body_stats": "Medidas corporales",
       "body_stats_long": "Medidas corporales: registra el peso, la grasa corporal y las medidas",
       "workout_actions": "Acciones del entrenamiento",
-      "workout_options": "Opciones del entrenamiento"
+      "workout_options": "Opciones del entrenamiento",
+      "add_session": "Empezar una sesión nueva"
     },
     "toast": {
       "workout_cleared": "Entrenamiento vaciado",
@@ -189,7 +190,8 @@
       "superset_created": "Superserie creada",
       "superset_removed": "Superserie eliminada",
       "added_to_superset": "Añadido a la superserie",
-      "removed_from_superset": "Quitado de la superserie"
+      "removed_from_superset": "Quitado de la superserie",
+      "workout_deleted": "Entrenamiento eliminado"
     },
     "errors": {
       "no_workout_yesterday": "No hay ningún entrenamiento de ayer",
@@ -239,7 +241,11 @@
       "remove_exercise_msg": "{name} se quitará del entrenamiento de hoy.",
       "remove_superset_title": "¿Quitar la superserie?",
       "remove_superset_msg": "{list} se quitará del entrenamiento de hoy.",
-      "remove_confirm": "Quitar"
+      "remove_confirm": "Quitar",
+      "start_new_session": "Empezar una sesión nueva",
+      "delete_workout_title": "¿Eliminar este entrenamiento?",
+      "delete_workout_msg": "Elimina de forma permanente la sesión entera, con todos sus ejercicios y series. Esto no se puede deshacer.",
+      "delete_workout_confirm": "Eliminar"
     }
   },
   "trace": {
@@ -536,6 +542,9 @@
     },
     "about": {
       "section": "Acerca de"
+    },
+    "api_tokens": {
+      "section": "Tokens de API"
     }
   },
   "workout_editor_ss": {
@@ -593,7 +602,9 @@
   "exercises_page": {
     "all_equipment": "Todo el material",
     "go_to_settings": "Ir a Ajustes",
-    "custom": "Personalizado"
+    "custom": "Personalizado",
+    "density_compact": "Vista compacta",
+    "density_comfortable": "Vista cómoda"
   },
   "coaching_dialogs": {
     "cancel": "Cancelar"
@@ -847,7 +858,9 @@
     "notes_ph": "Notas del entrenamiento...",
     "load_workout": "Cargar el entrenamiento",
     "auto": "Auto",
-    "mark_all_seen": "Marcar todo como visto"
+    "mark_all_seen": "Marcar todo como visto",
+    "add_menu_title": "Añadir",
+    "add_exercise_action": "Añadir ejercicio"
   },
   "native_setup": {
     "toast": {
@@ -1674,6 +1687,60 @@
       "hourly": "Cada hora",
       "every_12h": "Cada 12 horas",
       "desc": "Cada cuánto comprueba la app si hay una versión nueva mientras está abierta. Solo manual desactiva todas las comprobaciones automáticas."
+    }
+  },
+  "settings_api_tokens": {
+    "intro_before": "Los tokens de acceso personal permiten que un cliente MCP externo (como Claude Desktop",
+    "intro_dev": "u otro agente compatible con MCP",
+    "intro_middle": " se comunique directamente con esta instancia de LiftTrace. Cada token se limita a un conjunto concreto de capacidades y se conecta a",
+    "intro_see": "Consulta",
+    "just_created": {
+      "title": "Token creado:",
+      "warn": "Cópialo ahora: no se volverá a mostrar.",
+      "copy": "Copiar",
+      "saved": "Ya lo he guardado"
+    },
+    "empty": {
+      "title": "Todavía no hay tokens",
+      "desc": "Crea uno para conectar un cliente MCP a esta instancia."
+    },
+    "row": {
+      "scopes_label": "Ámbitos:",
+      "scopes_none": "ninguno",
+      "last_used": "último uso: {when}",
+      "expires": "caduca: {when}",
+      "never": "nunca",
+      "just_now": "ahora mismo",
+      "min_ago": "hace {n} min",
+      "hr_ago": "hace {n} h",
+      "day_ago": "hace {n} d",
+      "revoke_title": "Revocar el token"
+    },
+    "form": {
+      "new_token": "Nuevo token",
+      "name": "Nombre *",
+      "name_ph": "p. ej. Claude Desktop",
+      "scopes": "Ámbitos *",
+      "mcp_disabled": "MCP no está activado en este servidor. Puedes crear el token igualmente, pero no hará nada hasta que se defina MCP_ENABLED=1.",
+      "expires_label": "Caducidad (días, opcional)",
+      "expires_ph": "Déjalo vacío para que no caduque",
+      "cancel": "Cancelar",
+      "create": "Crear token",
+      "creating": "Creando…"
+    },
+    "confirm": {
+      "revoke_title": "¿Revocar \"{name}\"?",
+      "revoke_msg": "Cualquier cliente MCP que use este token perderá el acceso de inmediato. Esto no se puede deshacer.",
+      "revoke_confirm": "Revocar"
+    },
+    "toast": {
+      "load_failed": "No se pudieron cargar los tokens",
+      "scope_required": "Selecciona al menos un ámbito",
+      "create_failed": "No se pudo crear el token",
+      "revoke_failed": "No se pudo revocar el token",
+      "revoked": "Token revocado",
+      "copied": "Copiado al portapapeles",
+      "copy_failed": "No se pudo copiar: selecciona el texto a mano"
     }
   }
 }
