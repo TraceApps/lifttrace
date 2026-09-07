@@ -272,6 +272,13 @@ let _latestDate = null;
 // gets applied locally; the save itself, and its promise, always
 // complete normally.
 let _epoch = 0;
+// The epoch _latestEntry was stamped in, checked by BOTH the debounced
+// timer callback below AND flushWorkoutSave (issue #86) -- a plain
+// per-call closure variable would only guard the timer path, leaving
+// flushWorkoutSave (App.pause / visibilitychange / pagehide) free to
+// apply a stale result if it fires inside the same race window before
+// the original 350ms timer does.
+let _latestEntryEpoch = 0;
 export function saveWorkout(dateStr, entry) {
   // Stamp uuids IMMEDIATELY so `_latestEntry` and `todayLog` hold the
   // uuid-carrying shape from the start. Without this, `ensureExerciseUuids`
@@ -294,17 +301,18 @@ export function saveWorkout(dateStr, entry) {
   todayLog.set(stamped);
   _latestEntry = stamped;
   _latestDate  = dateStr;
-  const myEpoch = _epoch; // see the _epoch declaration above (issue #86)
+  _latestEntryEpoch = _epoch; // see the _epoch declaration above (issue #86)
 
   return new Promise((resolve, reject) => {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(async () => {
       const toSave = _latestEntry;
+      const toSaveEpoch = _latestEntryEpoch;
       try {
         const saved = await _mergeAndSave(dateStr, toSave);
         // Only sync from server if no newer edits are queued, and the
         // user hasn't since switched to a different session/date.
-        if (_latestEntry === toSave && myEpoch === _epoch) {
+        if (_latestEntry === toSave && toSaveEpoch === _epoch) {
           todayLog.set(saved.workout);
           // Resolves currentSessionId once a brand-new day's first save
           // gets its id assigned (issue #76) — a no-op for every
@@ -334,9 +342,10 @@ export async function flushWorkoutSave(dateStr) {
   if (!_latestEntry || !date) return;
   clearTimeout(_saveTimer);
   const toSave = _latestEntry;
+  const toSaveEpoch = _latestEntryEpoch; // see the _epoch declaration above (issue #86)
   try {
     const saved = await _mergeAndSave(date, toSave);
-    if (_latestEntry === toSave) {
+    if (_latestEntry === toSave && toSaveEpoch === _epoch) {
       todayLog.set(saved.workout);
       currentSessionId.set(saved.workout?.id ?? null);
       loadWorkoutSessions(date).catch(() => {});
