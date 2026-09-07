@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **Settings → API Tokens: the intro's "the MCP setup guide" link text now flows through i18n** ([#84](https://github.com/TraceApps/lifttrace/pull/84)). It was a literal in the template, so translated locales rendered a mixed-language sentence ("Consulta the MCP setup guide." in Spanish). One new key, `settings_api_tokens.intro_guide_link`.
+- **Settings → API Tokens: a token's expiry showed "expires just now" for its entire lifetime, then flipped straight to "expires 3d ago" once it lapsed.** `_fmtRelative` only ever computed elapsed time (`Date.now() - d`), which is correct for `last_used_at` (always in the past) but wrong for `expires_at` (always in the future until it lapses): a negative delta satisfied `sec < 60` no matter how far out the expiry actually was. Now branches on the sign of the delta, so a future expiry counts down ("expires in 3d", "expires in 2h") and a lapsed one still reads "expires 3d ago" as before.
 
 ## [1.3.0-dev01] - 2026-09-05
 

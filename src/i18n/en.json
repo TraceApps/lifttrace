@@ -646,6 +646,9 @@
       "min_ago": "{n}m ago",
       "hr_ago": "{n}h ago",
       "day_ago": "{n}d ago",
+      "min_in": "in {n}m",
+      "hr_in": "in {n}h",
+      "day_in": "in {n}d",
       "revoke_title": "Revoke token"
     },
     "form": {

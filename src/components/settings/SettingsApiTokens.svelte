@@ -149,11 +149,18 @@
     const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
     if (isNaN(d)) return iso;
     const ms = Date.now() - d.getTime();
-    const sec = Math.floor(ms / 1000);
+    const future = ms < 0;
+    const sec = Math.floor(Math.abs(ms) / 1000);
     if (sec < 60) return $_('settings_api_tokens.row.just_now');
-    if (sec < 3600) return $_('settings_api_tokens.row.min_ago', { values: { n: Math.floor(sec / 60) } });
-    if (sec < 86400) return $_('settings_api_tokens.row.hr_ago',  { values: { n: Math.floor(sec / 3600) } });
-    if (sec < 86400 * 30) return $_('settings_api_tokens.row.day_ago', { values: { n: Math.floor(sec / 86400) } });
+    if (sec < 3600) return future
+      ? $_('settings_api_tokens.row.min_in',  { values: { n: Math.floor(sec / 60) } })
+      : $_('settings_api_tokens.row.min_ago', { values: { n: Math.floor(sec / 60) } });
+    if (sec < 86400) return future
+      ? $_('settings_api_tokens.row.hr_in',  { values: { n: Math.floor(sec / 3600) } })
+      : $_('settings_api_tokens.row.hr_ago', { values: { n: Math.floor(sec / 3600) } });
+    if (sec < 86400 * 30) return future
+      ? $_('settings_api_tokens.row.day_in',  { values: { n: Math.floor(sec / 86400) } })
+      : $_('settings_api_tokens.row.day_ago', { values: { n: Math.floor(sec / 86400) } });
     return d.toLocaleDateString();
   }
 </script>
