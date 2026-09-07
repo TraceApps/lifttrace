@@ -1007,6 +1007,17 @@
       "y1":  "1Y",
       "all": "All"
     },
+    "rail": {
+      "summary":    "Summary",
+      "progress":   "Progress",
+      "trends":     "Trends",
+      "range":      "Range",
+      "vs_prior":   "vs Prior {range}",
+      "prior_window_one":   "Prior window: {n} session",
+      "prior_window_other": "Prior window: {n} sessions",
+      "nav_aria":   "Statistics sections",
+      "aside_aria": "Range + comparison"
+    },
     "categories": {
       "chest":     "Chest",
       "back":      "Back",

@@ -47,12 +47,12 @@
     ];
     if ($cardioEnabled) trends.push(CARDIO_METRIC);
     return [
-      { title: 'Summary',  items: [{ id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' }] },
-      { title: 'Progress', items: [
+      { titleKey: 'statistics.rail.summary',  items: [{ id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' }] },
+      { titleKey: 'statistics.rail.progress', items: [
         { id: 'progress', labelKey: 'statistics.tabs.progress', icon: 'trending_up' },
         { id: 'records',  labelKey: 'statistics.tabs.records',  icon: 'emoji_events' },
       ]},
-      { title: 'Trends',   items: trends },
+      { titleKey: 'statistics.rail.trends',   items: trends },
     ];
   })();
 
@@ -576,10 +576,10 @@
   <!-- Left metric picker rail (desktop only via CSS). Replaces the
        horizontal .metric-bar chip scroller with a grouped, always-
        visible vertical menu that mirrors the Settings rail idiom. -->
-  <nav class="stats-metric-rail" aria-label="Statistics sections">
+  <nav class="stats-metric-rail" aria-label={$_('statistics.rail.nav_aria')}>
     {#each METRIC_GROUPS as group}
       <div class="mr-group">
-        <span class="mr-group-title">{group.title}</span>
+        <span class="mr-group-title">{$_(group.titleKey)}</span>
         {#each group.items as m}
           <button type="button"
                   class="mr-btn"
@@ -1184,11 +1184,11 @@
        here so it stays visible as the user scrolls through the
        metric's widgets; prior-period delta KPIs surface the existing
        periodDeltas computation that was buried in a tiny chip. -->
-  <aside class="stats-rail" aria-label="Range + comparison">
+  <aside class="stats-rail" aria-label={$_('statistics.rail.aside_aria')}>
     <div class="rail-card">
       <div class="rail-card-head">
         <span class="material-symbols-rounded">date_range</span>
-        <span class="rail-card-title">Range</span>
+        <span class="rail-card-title">{$_('statistics.rail.range')}</span>
       </div>
       <div class="rail-range-chips">
         {#each Object.keys(RANGES) as r}
@@ -1200,12 +1200,12 @@
       <div class="rail-card">
         <div class="rail-card-head">
           <span class="material-symbols-rounded">compare_arrows</span>
-          <span class="rail-card-title">vs Prior {$_(RANGE_LABEL_KEYS[range])}</span>
+          <span class="rail-card-title">{$_('statistics.rail.vs_prior', { values: { range: $_(RANGE_LABEL_KEYS[range]) } })}</span>
         </div>
         <div class="rail-delta-stats">
           {#if periodDeltas.volPct != null}
             <div class="rail-delta">
-              <span class="rail-delta-label">Volume</span>
+              <span class="rail-delta-label">{$_('statistics.tabs.volume')}</span>
               <span class="rail-delta-val"
                     class:up={periodDeltas.volPct > 0}
                     class:down={periodDeltas.volPct < 0}>
@@ -1215,7 +1215,7 @@
           {/if}
           {#if periodDeltas.cntPct != null}
             <div class="rail-delta">
-              <span class="rail-delta-label">Sessions</span>
+              <span class="rail-delta-label">{$_('statistics.sessions')}</span>
               <span class="rail-delta-val"
                     class:up={periodDeltas.cntPct > 0}
                     class:down={periodDeltas.cntPct < 0}>
@@ -1224,7 +1224,9 @@
             </div>
           {/if}
         </div>
-        <div class="rail-delta-note">Prior window: {periodDeltas.priorCount} {periodDeltas.priorCount === 1 ? 'session' : 'sessions'}</div>
+        <div class="rail-delta-note">{periodDeltas.priorCount === 1
+          ? $_('statistics.rail.prior_window_one',   { values: { n: periodDeltas.priorCount } })
+          : $_('statistics.rail.prior_window_other', { values: { n: periodDeltas.priorCount } })}</div>
       </div>
     {/if}
   </aside>

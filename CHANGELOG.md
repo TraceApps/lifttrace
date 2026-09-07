@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Statistics desktop rails now flow through i18n** ([#83](https://github.com/TraceApps/lifttrace/pull/83)). The Summary / Progress / Trends group headings on the left metric rail, and the Range and "vs Prior" comparison cards on the right (Volume and Sessions labels included), were English literals in the template, so they stayed in English in every translated locale. They now resolve through `$_()` so Weblate can pick them up: nine new keys under `statistics.rail` (the labels, the "Prior window: n sessions" note as a one/other pair, and the two rails' `aria-label`s); Volume and Sessions reuse the labels the page already has.
+
 ## [1.3.0-dev01] - 2026-09-05
 
 ### Added
