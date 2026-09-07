@@ -57,11 +57,20 @@ export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
   // navigation, and bumping the epoch there would invalidate any edit
   // the user is actively mid-debounce on.
   if (!preferFresher) _epoch++;
-  const guard = dateStr;
   currentDate.set(dateStr);
   try {
     const data = await LtApi.getWorkout(dateStr);
-    if (guard !== dateStr) return; // stale
+    // Stale check against the CURRENT value of currentDate, not a local
+    // copy of the argument (which can never differ from itself). Matters
+    // most for preferFresher: a background refresh captures $currentDate
+    // at the moment it's kicked off, and under a slow connection (the
+    // exact condition that motivated preferFresher) the user has plenty
+    // of time to navigate to a different date before it resolves. Without
+    // this, its session-id check below would see a mismatched id, assume
+    // a session was created elsewhere, and apply anyway, overwriting the
+    // date the user actually navigated to with stale data for the one
+    // they left.
+    if (dateStr !== get(currentDate)) return;
     if (preferFresher) {
       // A background sync-complete refresh (issue reported 2026-09-07:
       // set/weight edits reverting on every change). The `/api/workout/
@@ -99,7 +108,7 @@ export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
   // Pull prescription in parallel (fire-and-forget, fails silently on single-user mode)
   try {
     const px = await LtApi.getMyPrescriptionForDate(dateStr);
-    if (guard !== dateStr) return;
+    if (dateStr !== get(currentDate)) return;
     todayPrescription.set(px || null);
   } catch {
     todayPrescription.set(null);
