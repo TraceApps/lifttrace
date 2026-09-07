@@ -469,33 +469,41 @@ async function _applyWorkouts(rows, result) {
  */
 async function _applyWorkoutTombstones(rows, result) {
   if (!rows?.length) { result.tables.workoutTombstones = 0; return; }
-  const byDate = new Map();
+  const byWorkout = new Map(); // key: `${date}::${workoutId}`
   for (const t of rows) {
     if (!t || !t.date || !t.kind || !t.uuid) continue;
+    const workoutId = t.workout_id || 0;
     await dbRun(
-      `INSERT INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
-       VALUES (1, ?, ?, ?, ?, ?, 'clean')
-       ON CONFLICT(user_id, date, kind, ex_uuid, uuid) DO UPDATE SET
+      `INSERT INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state)
+       VALUES (1, ?, ?, ?, ?, ?, ?, 'clean')
+       ON CONFLICT(user_id, date, workout_id, kind, ex_uuid, uuid) DO UPDATE SET
          deleted_at = excluded.deleted_at, sync_state = 'clean'`,
-      [t.date, t.kind, t.ex_uuid || '', t.uuid, t.deleted_at || new Date().toISOString()]
+      [t.date, workoutId, t.kind, t.ex_uuid || '', t.uuid, t.deleted_at || new Date().toISOString()]
     );
-    // Only exercise/set kinds filter the daily workout row locally;
-    // template tombstones affect a separate table.
+    // Only exercise/set kinds filter a workout row locally; template
+    // tombstones (workoutId 0, synthetic date) affect a separate table.
     if (t.kind !== 'exercise' && t.kind !== 'set') continue;
-    const g = byDate.get(t.date) || { exUuids: new Set(), setsByEx: new Map() };
+    const key = `${t.date}::${workoutId}`;
+    const g = byWorkout.get(key) || { date: t.date, workoutId, exUuids: new Set(), setsByEx: new Map() };
     if (t.kind === 'exercise') g.exUuids.add(t.uuid);
     else {
       const set = g.setsByEx.get(t.ex_uuid) || new Set();
       set.add(t.uuid);
       g.setsByEx.set(t.ex_uuid, set);
     }
-    byDate.set(t.date, g);
+    byWorkout.set(key, g);
   }
-  for (const [date, g] of byDate) {
-    const rows2 = await dbQuery(
-      `SELECT id, exercises FROM workout_log WHERE user_id = 1 AND date = ?`,
-      [date]
-    );
+  for (const g of byWorkout.values()) {
+    // workoutId scopes the tombstone to its own session (issue #82) so a
+    // deletion on one same-day session never touches another; falls back
+    // to a bare date lookup only for tombstones that predate the #76
+    // migration's workout_id backfill (workoutId 0 with an exercise/set
+    // kind should not normally occur post-backfill, but degrades safely
+    // to the pre-#76 single-row-per-date behavior rather than dropping
+    // the tombstone).
+    const rows2 = g.workoutId
+      ? await dbQuery(`SELECT id, exercises FROM workout_log WHERE user_id = 1 AND id = ? AND date = ?`, [g.workoutId, g.date])
+      : await dbQuery(`SELECT id, exercises FROM workout_log WHERE user_id = 1 AND date = ?`, [g.date]);
     const row = rows2?.[0];
     if (!row) continue;
     let exercises;
