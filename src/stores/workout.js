@@ -48,6 +48,11 @@ function _setSnapshot(dateStr, sessionId, workout) {
  *  #76: session 0, or the lowest surviving one). Also pulls the full
  *  session list and any coach prescription. */
 export async function loadWorkout(dateStr) {
+  // See the _epoch declaration below saveWorkout (issue #86): bumping it
+  // stops a save still pending for whatever date/session the user is
+  // navigating away from from landing later and overwriting the date
+  // being navigated TO, without disturbing that save's own promise.
+  _epoch++;
   const guard = dateStr;
   currentDate.set(dateStr);
   try {
@@ -96,6 +101,13 @@ export async function loadWorkoutSessions(dateStr) {
  *  it is too easy to get wrong. A tab switch isn't a hot path, so the
  *  extra round-trip is worth the correctness guarantee. */
 export async function switchSession(dateStr, sessionId) {
+  // See the _epoch declaration below saveWorkout (issue #86): its own
+  // network call still completes and persists normally, but without
+  // this its late-arriving completion would unconditionally overwrite
+  // todayLog with whatever it saved for the session the user just
+  // switched AWAY from, undoing the switch a moment later. See the
+  // matching note on startNewSession for the full symptom.
+  _epoch++;
   try {
     const data = await LtApi.getWorkout(dateStr, sessionId);
     if (!data?.workout) return;
@@ -113,6 +125,10 @@ export async function switchSession(dateStr, sessionId) {
  *  tab list so it disappears, without yanking the view away from
  *  whatever the user is actually looking at. */
 export async function deleteSession(dateStr, sessionId = null) {
+  // See switchSession's note (issue #86): bump _epoch so a still-pending
+  // debounced save's late completion can't resurrect stale state into
+  // todayLog after the session it was saving is gone.
+  _epoch++;
   await LtApi.deleteWorkout(dateStr, sessionId);
   let activeId;
   const unsub = currentSessionId.subscribe(v => { activeId = v; });
@@ -129,6 +145,18 @@ export async function deleteSession(dateStr, sessionId = null) {
  *  debounced saveWorkout/merge machinery — this is a deliberate,
  *  one-off action like loadTemplate, not rapid-fire typing. */
 export async function startNewSession(dateStr, seedEntry = {}) {
+  // Bump _epoch first (issue #86, see the declaration below saveWorkout).
+  // Symptom without this: Clear Workout (or any edit) schedules a save
+  // 350ms out and returns control to the UI immediately; if the user
+  // starts a new session inside that window, this function's own save
+  // resolves first and todayLog briefly shows the new session, then the
+  // earlier debounced save finally fires and unconditionally overwrites
+  // todayLog with what IT saved (the old, now-abandoned session): "the
+  // new workout shows for a second and vanishes again". The old save's
+  // own network write still completes and persists correctly against
+  // its own session; only applying its result to the NOW-current
+  // todayLog is what needs to be skipped.
+  _epoch++;
   const stamped = {
     ...seedEntry,
     exercises: ensureExerciseUuids(seedEntry.exercises || []),
@@ -227,6 +255,23 @@ let _latestEntry = null;
 // have a specific date in scope — without this, a 350ms-debounced save that
 // hasn't fired yet when Android kills the app is lost silently.
 let _latestDate = null;
+// Bumped by loadWorkout/switchSession/startNewSession/deleteSession
+// (issue #86): each captures the epoch at the moment saveWorkout() is
+// called, and only applies its debounced result to todayLog if the
+// epoch hasn't moved on since. Without this, a save still in its 350ms
+// debounce (or its own network round trip) when the user switches to a
+// different session/date resolves later and unconditionally overwrites
+// todayLog with whatever IT saved (the session/date the user switched
+// away from), undoing the switch a moment after it visibly happened:
+// "the new workout shows for a second then vanishes again". Not done
+// via clearTimeout() or nulling _latestEntry: either would stop that
+// save's own setTimeout callback from ever running, leaving any
+// `await saveWorkout()` caller (e.g. handleWorkoutAction('clear')
+// awaiting its toast/reset) hanging forever, since nothing would ever
+// resolve that promise. The epoch check only gates whether the RESULT
+// gets applied locally; the save itself, and its promise, always
+// complete normally.
+let _epoch = 0;
 export function saveWorkout(dateStr, entry) {
   // Stamp uuids IMMEDIATELY so `_latestEntry` and `todayLog` hold the
   // uuid-carrying shape from the start. Without this, `ensureExerciseUuids`
@@ -249,6 +294,7 @@ export function saveWorkout(dateStr, entry) {
   todayLog.set(stamped);
   _latestEntry = stamped;
   _latestDate  = dateStr;
+  const myEpoch = _epoch; // see the _epoch declaration above (issue #86)
 
   return new Promise((resolve, reject) => {
     clearTimeout(_saveTimer);
@@ -256,8 +302,9 @@ export function saveWorkout(dateStr, entry) {
       const toSave = _latestEntry;
       try {
         const saved = await _mergeAndSave(dateStr, toSave);
-        // Only sync from server if no newer edits are queued
-        if (_latestEntry === toSave) {
+        // Only sync from server if no newer edits are queued, and the
+        // user hasn't since switched to a different session/date.
+        if (_latestEntry === toSave && myEpoch === _epoch) {
           todayLog.set(saved.workout);
           // Resolves currentSessionId once a brand-new day's first save
           // gets its id assigned (issue #76) — a no-op for every
