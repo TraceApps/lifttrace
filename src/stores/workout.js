@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { localDateStr } from '../lib/db.js';
 import { LtApi } from '../lib/api.js';
 import { ensureExerciseUuids, diffTombstones } from '../lib/workout-uuid.js';
@@ -47,24 +47,51 @@ function _setSnapshot(dateStr, sessionId, workout) {
 /** Load workout log for a specific date — the default session (issue
  *  #76: session 0, or the lowest surviving one). Also pulls the full
  *  session list and any coach prescription. */
-export async function loadWorkout(dateStr) {
+export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
   // See the _epoch declaration below saveWorkout (issue #86): bumping it
   // stops a save still pending for whatever date/session the user is
   // navigating away from from landing later and overwriting the date
   // being navigated TO, without disturbing that save's own promise.
-  _epoch++;
+  // Skipped for a preferFresher background refresh (see below): that
+  // call is for the SAME date the user is already on, not a real
+  // navigation, and bumping the epoch there would invalidate any edit
+  // the user is actively mid-debounce on.
+  if (!preferFresher) _epoch++;
   const guard = dateStr;
   currentDate.set(dateStr);
   try {
     const data = await LtApi.getWorkout(dateStr);
     if (guard !== dateStr) return; // stale
+    if (preferFresher) {
+      // A background sync-complete refresh (issue reported 2026-09-07:
+      // set/weight edits reverting on every change). The `/api/workout/
+      // :date` GET is local-first (apiFetch.js), unconditionally served
+      // from the on-device SQLite cache; that cache is only updated by
+      // a PULL applying the server's copy, never by this device's own
+      // saves (those update todayLog directly from the save's network
+      // response). Under a flaky connection the cache can lag well
+      // behind an edit that already succeeded, so blindly applying it
+      // here reverted the user's own just-made change mid-typing. Skip
+      // applying anything strictly OLDER than what's already showing
+      // for this same session; equal timestamps still apply, since a
+      // tombstone-driven cross-device deletion patches `exercises`
+      // in place without bumping `updated_at`.
+      const current = get(todayLog);
+      const sameSession = current?.id != null && current.id === (data.workout?.id ?? null);
+      if (sameSession && String(data.workout?.updated_at || '') < String(current.updated_at || '')) {
+        loadWorkoutSessions(dateStr).catch(() => {});
+        return;
+      }
+    }
     todayLog.set(data.workout || null);
     currentSessionId.set(data.workout?.id ?? null);
     _setSnapshot(dateStr, data.workout?.id ?? null, data.workout);
   } catch {
-    todayLog.set(null);
-    currentSessionId.set(null);
-    _setSnapshot(dateStr, null, null);
+    if (!preferFresher) {
+      todayLog.set(null);
+      currentSessionId.set(null);
+      _setSnapshot(dateStr, null, null);
+    }
   }
   // Best-effort, non-blocking — a session-switcher UI wants this, but a
   // failure here shouldn't stop the main diary from rendering.

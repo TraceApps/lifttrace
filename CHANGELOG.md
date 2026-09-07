@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Android: editing a set (weight, reps, or the completed checkbox) could revert a moment later, sometimes on every single edit.** `GET /api/workout/:date` is local-first: it always serves whatever the on-device SQLite cache currently holds, and that cache is only ever updated by a background pull applying the server's copy, never by this device's own saves (those update the on-screen state directly from the save's network response). Diary reloads today's workout on every `lt:sync-complete` event so a device that pulls a genuine change reflects it immediately, but that event fires roughly every few seconds while the app is open, and the overwhelming majority of those pulls touch nothing relevant. Under a slow or unstable connection, the on-device cache could lag well behind an edit that had already saved successfully, so the next one of these frequent reloads served the stale cached copy and visibly undid the edit. Now only reloads when the pull actually touched today's workout or a per-entry deletion, and refuses to apply anything older than what's already on screen for that same session as a second line of defense.
+
 ## [1.3.0-dev02] - 2026-09-07
 
 ### Changed

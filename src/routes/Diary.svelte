@@ -745,16 +745,34 @@
   // dates + PRs + suggestions refreshed, without the two-spinner overlap
   // that used to happen when both handlers fired.
 
-  function _onSyncComplete() {
+  function _onSyncComplete(e) {
     // Rely on the App-level pull-to-refresh (App.svelte) to fire the sync
     // itself; this listener refreshes everything the Diary route reads
     // locally so a user who pulled while staying on Diary sees the new
     // state without navigating away and back. Previously Diary owned its
-    // own route-scoped PTR — removed for family parity, since NT + CT
+    // own route-scoped PTR (removed for family parity, since NT + CT
     // put PTR in App.svelte and having it in both places rendered two
-    // spinners on top of each other.
-    if ($currentDate) {
-      loadWorkout($currentDate).then(() => loadCoachFeedback($currentDate));
+    // spinners on top of each other).
+    //
+    // Only reload today's workout if THIS pull actually touched
+    // workouts or per-entry tombstones (issue reported 2026-09-07: set
+    // and weight edits reverting on every change). This event fires on
+    // every background sync, roughly every few seconds while Diary is
+    // mounted (App.svelte's 30s interval, plus apiFetch.js kicking one
+    // on every local-first GET, and loadWorkout below is itself one of
+    // those GETs). The overwhelming majority pull nothing relevant, so
+    // reloading unconditionally re-read the local cache constantly for
+    // no reason, and that cache lagging a save that hadn't round-
+    // tripped back through a pull yet is what reverted an edit already
+    // reflected in todayLog. preferFresher makes loadWorkout itself
+    // refuse to apply anything older than what's already shown, as a
+    // second line of defense.
+    const t = e?.detail?.tables;
+    const workoutRelevant = t && ((t.workouts || 0) > 0 || (t.workoutTombstones || 0) > 0);
+    if ($currentDate && workoutRelevant) {
+      loadWorkout($currentDate, { preferFresher: true }).then(() => loadCoachFeedback($currentDate));
+    } else if ($currentDate) {
+      loadCoachFeedback($currentDate);
     }
     loadUnreadFeedback();
     loadWorkoutDates();
