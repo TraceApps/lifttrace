@@ -625,6 +625,7 @@
     "intro_dev": "or another MCP-aware agent",
     "intro_middle": " talk to this LiftTrace instance directly. Tokens are scoped to a specific set of capabilities and connect to",
     "intro_see": "See",
+    "intro_guide_link": "the MCP setup guide",
     "just_created": {
       "title": "Token created:",
       "warn": "Copy this now — it will not be shown again.",
