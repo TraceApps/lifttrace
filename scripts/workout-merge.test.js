@@ -99,6 +99,53 @@ test('regression: LT 2026-08-11 shape — stale client with empty exercises must
   assert.equal(merged.reduce((sum, e) => sum + e.sets.length, 0), 32);
 });
 
+test('regression: issue #85, reordering a uuid-less legacy template must not duplicate it', () => {
+  // A template/workout saved before uuid tagging existed has no uuid on
+  // any exercise. Reordering it (WorkoutEditor.svelte's moveUp/moveDown
+  // preserve object references, uuid included) and saving used to
+  // duplicate the whole list: _dedupe mints a FRESH random uuid for
+  // every uuid-less entry on every call, so the server's stored copy
+  // and the client's resent copy could never be recognized as "the
+  // same" exercises no matter how many times either side was uuid-
+  // stamped independently. mergeEntries now detects a fully uuid-less
+  // server side and trusts the client's resent list outright instead.
+  const server = [
+    { name: 'Squat', sets: [] }, { name: 'Bench', sets: [] }, { name: 'Row', sets: [] },
+  ];
+  const reordered = [server[2], server[0], server[1]]; // same object refs, just reordered
+  const { merged } = mergeExercises(server, reordered, [], [], {}, {});
+  assert.equal(merged.length, 3);
+  assert.deepEqual(merged.map(e => e.name), ['Row', 'Squat', 'Bench']);
+});
+
+test('regression: issue #85, omitting an exercise from a uuid-less legacy list deletes it (no tombstone possible yet)', () => {
+  const server = [{ name: 'Squat', sets: [] }, { name: 'Bench', sets: [] }, { name: 'Row', sets: [] }];
+  const withoutBench = [server[0], server[2]];
+  const { merged } = mergeExercises(server, withoutBench, [], [], {}, {});
+  assert.equal(merged.length, 2);
+  assert.ok(!merged.some(e => e.name === 'Bench'));
+});
+
+test('regression: issue #85, once bootstrapped, normal concurrent-edit protection resumes', () => {
+  // After the first (bootstrap) save, entries carry real uuids. A later
+  // save that omits one WITHOUT an explicit tombstone must still be
+  // treated as a possible concurrent addition from another device and
+  // preserved -- the one-time trust-the-client bootstrap must not
+  // become a permanent bypass of Option C's core safety guarantee.
+  const tagged = [_ex('a', { name: 'Squat' }), _ex('b', { name: 'Bench' }), _ex('c', { name: 'Row' })];
+  const omitsBenchNoTombstone = [tagged[0], tagged[2]];
+  const { merged } = mergeExercises(tagged, omitsBenchNoTombstone, [], [], {}, {});
+  assert.equal(merged.length, 3);
+  assert.ok(merged.some(e => e.name === 'Bench'));
+});
+
+test('regression: issue #85, mixed identity (one tagged, one not) does not trigger the bootstrap', () => {
+  const mixed = [_ex('x1', { name: 'Tagged' }), { name: 'Untagged', sets: [] }];
+  const client = [mixed[1], mixed[0]]; // reorder only
+  const { merged } = mergeExercises(mixed, client, [], [], {}, {});
+  assert.equal(merged.filter(e => e.name === 'Tagged').length, 1);
+});
+
 // Key names here match BODY_STAT_KEYS in workout-merge.js (weight,
 // bodyFat, waist, ...) — the actual production shape, not placeholder
 // names, since mergeStatsObject now allowlists against that exact set.

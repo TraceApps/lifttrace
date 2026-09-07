@@ -58,6 +58,40 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
 
   const tombstoneSet = new Set([...priorTombstones, ...deleted]);
 
+  // Legacy bootstrap (issue #85): a server-side list that predates uuid
+  // tagging entirely has no stable identity to merge against -- _dedupe
+  // below mints every uuid-less entry a FRESH random uuid on every call,
+  // so a server list with no identity can never be recognized as "the
+  // same" exercises the client is resending, no matter how many times
+  // either side is uuid-stamped independently. The result used to be
+  // every client entry treated as new AND every server entry kept as
+  // "server-only", i.e. the whole list duplicated, and a client-side
+  // delete could never match an identity either so it silently
+  // resurrected. The client always resends its complete list on every
+  // save (see saveWorkout in stores/workout.js and WorkoutEditor's
+  // save flow), so when the server side has no identity to protect,
+  // trust the client's list outright instead of unioning it with
+  // entries that can never be recognized as duplicates of it. Entries
+  // the client already tagged (e.g. this same edit adding something
+  // new) keep their own uuid; only untagged ones get a fresh one here.
+  if (server.length > 0 && server.every(e => !e || typeof e !== 'object' || !e.uuid)) {
+    const seen = new Set();
+    const bootstrapped = [];
+    for (let entry of client) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (!entry.uuid || typeof entry.uuid !== 'string') entry = { ...entry, uuid: randomUUID() };
+      if (tombstoneSet.has(entry.uuid)) continue;
+      const priorIdx = seen.has(entry.uuid) ? bootstrapped.findIndex(e => e.uuid === entry.uuid) : -1;
+      if (priorIdx >= 0) {
+        if (_tsOf(entry) >= _tsOf(bootstrapped[priorIdx])) bootstrapped[priorIdx] = entry;
+        continue;
+      }
+      seen.add(entry.uuid);
+      bootstrapped.push(entry);
+    }
+    return { merged: bootstrapped, newTombstoneUuids: deleted.filter(u => !priorTombstones.includes(u)) };
+  }
+
   const serverDeduped = _dedupe(server, tombstoneSet);
   const serverByUuid = new Map(serverDeduped.map(e => [e.uuid, e]));
 

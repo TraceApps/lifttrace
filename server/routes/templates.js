@@ -73,6 +73,12 @@ router.put('/:id', wrap((req, res) => {
   let newExTombstones = [];
   let newSetTombstonesByEx = {};
   if (Array.isArray(exercises)) {
+    // Note (issue #85): serverExs is intentionally NOT pre-backfilled
+    // with ensureExerciseUuids here. mergeEntries() itself detects a
+    // fully uuid-less server side and bootstraps identity from the
+    // client's list instead -- pre-tagging it here would erase that
+    // signal (every entry would already "have" a uuid) and silently
+    // defeat the bootstrap. See workout-merge.js for the full fix.
     const serverExs = JSON.parse(existing.exercises || '[]');
     const r = mergeExercises(
       serverExs, ensureExerciseUuids(exercises),

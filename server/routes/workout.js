@@ -212,6 +212,10 @@ router.put('/:date', wrap((req, res) => {
   // the default-session lookup reproduces pre-#76 single-row behavior
   // exactly (including resurrecting a soft-deleted row on save).
   const existing = new_session ? null : _resolveWorkout(userId, date, bodyId ?? null);
+  // Note (issue #85): serverExercises is intentionally NOT pre-backfilled
+  // with ensureExerciseUuids. See templates.js's PUT route and
+  // workout-merge.js's mergeEntries() for why -- pre-tagging here would
+  // defeat mergeEntries()'s own uuid-less-server bootstrap.
   const serverExercises = existing ? JSON.parse(existing.exercises || '[]') : [];
 
   const priorExTombstones  = existing ? _loadExerciseTombstoneUuids(userId, date, existing.id) : [];

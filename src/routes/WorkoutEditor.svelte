@@ -3,6 +3,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { diffTombstones } from '../lib/workout-uuid.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { exerciseLoadTypes, trackRpe, weightUnit } from '../stores/settings.js';
   import { resolveLoadType } from '../lib/workout.js';
@@ -76,8 +77,23 @@
   let ssAsTargetId = null;
 
   // ── Lifecycle ──────────────────────────────────────────────────────
+  // Snapshot of exercises exactly as loaded, so save() can diff against
+  // it to find explicit deletions (issue #85). This file previously
+  // never tracked deletions at all: removing an exercise just edited
+  // the local array, and Option C's merge treats anything the client's
+  // resent list doesn't mention -- without an explicit tombstone -- as
+  // a concurrent addition from another device and keeps it, so the
+  // "deleted" exercise silently reappeared after every save. Matches
+  // stores/workout.js's _snapshotByDate: no deep clone needed since
+  // every mutation in this file replaces exercise/set objects and
+  // arrays immutably rather than editing them in place.
+  let _originalExercises = [];
+
   onMount(async () => {
-    try { template = await LtApi.getTemplate(params.templateId); }
+    try {
+      template = await LtApi.getTemplate(params.templateId);
+      _originalExercises = template?.exercises || [];
+    }
     catch(e) { showError(e.message); }
     loading = false;
   });
@@ -664,7 +680,8 @@
   async function save() {
     saving = true;
     try {
-      await LtApi.updateTemplate(params.templateId, { name: template.name, exercises: template.exercises });
+      const deleted_uuids = diffTombstones(_originalExercises, template.exercises);
+      await LtApi.updateTemplate(params.templateId, { name: template.name, exercises: template.exercises, deleted_uuids });
       showSuccess($_('workout_editor.toast.saved'));
       push(`/programs/${params.programId}`);
     } catch(e) { showError(e.message); }

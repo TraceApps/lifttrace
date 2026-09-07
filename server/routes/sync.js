@@ -307,7 +307,10 @@ router.post('/push', wrap((req, res) => {
           if (t.deleted_at) {
             db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
           } else {
-            // Per-uuid merge instead of wholesale replace.
+            // Per-uuid merge instead of wholesale replace. Note (issue
+            // #85): serverExs is intentionally NOT pre-backfilled -- see
+            // workout-merge.js's mergeEntries() for the uuid-less-server
+            // bootstrap this would otherwise defeat.
             const serverExs = JSON.parse(existing.exercises || '[]');
             const priorExTs = _loadTemplateTombstones(t.server_id, 'template_exercise').map(r => r.uuid);
             const priorSetTsByEx = {};
@@ -385,6 +388,9 @@ router.post('/push', wrap((req, res) => {
           if (w.deleted_at) {
             db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
           } else {
+            // Note (issue #85): serverExs is intentionally NOT
+            // pre-backfilled -- see workout-merge.js's mergeEntries()
+            // for the uuid-less-server bootstrap this would defeat.
             const serverExs = JSON.parse(existing.exercises || '[]');
             const priorExTs = _loadExUuidsForDate(u, w.date, existing.id);
             const priorSetTsByEx = _loadSetUuidsByExForDate(u, w.date, existing.id);
