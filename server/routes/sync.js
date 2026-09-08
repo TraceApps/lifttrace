@@ -368,11 +368,24 @@ router.post('/push', wrap((req, res) => {
     // session_seq/id — reproducing exactly what that client already
     // believes is "the" workout for that date.
     for (const w of (body.workout_log || [])) {
-      const existing = w.server_id
+      let existing = w.server_id
         ? db.prepare('SELECT * FROM workout_log WHERE id = ?').get(w.server_id)
-        : db.prepare(
-            `SELECT * FROM workout_log WHERE user_id ${u != null ? '= ?' : 'IS NULL'} AND date = ? ORDER BY session_seq ASC, id ASC LIMIT 1`
-          ).get(...(u != null ? [u, w.date] : [w.date]));
+        : null;
+      // Issue #87: a server_id that does NOT resolve (stale device-
+      // cached id, a row that no longer exists) falls back to the same
+      // live-default lookup legacy pre-#76 clients already use, instead
+      // of falling through to the insert branch below and creating a
+      // duplicate live session_seq=0 row for this date. Excludes soft-
+      // deleted rows (a real bug this same pass turned up: without it,
+      // a push could resolve onto an already-deleted row and write
+      // fresh content into it via the merge branch below, which does
+      // not clear deleted_at, silently corrupting a "deleted" session
+      // instead of leaving it deleted or starting a fresh one).
+      if (!existing) {
+        existing = db.prepare(
+          `SELECT * FROM workout_log WHERE user_id ${u != null ? '= ?' : 'IS NULL'} AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1`
+        ).get(...(u != null ? [u, w.date] : [w.date]));
+      }
 
       const dr = w.deleted_uuids;
       const delExUuids = Array.isArray(dr?.exercises) ? dr.exercises : (Array.isArray(dr) ? dr : []);

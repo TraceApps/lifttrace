@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A stale or unknown session id could spawn a duplicate live session on every set edit, and deleting a session didn't stick after the next sync** ([#87](https://github.com/TraceApps/lifttrace/issues/87), diagnosed by @kgenerozov). Two related identity holes from #76's multi-session support, both server-side: (1) `PUT /api/workout/:date` treated an id that didn't resolve to a live row (a stale Android-cached id, or one whose row had since been deleted) as "no existing session" and inserted a fresh `session_seq=0` clone instead of falling back to the live default session, so a completed-set tick or a reps change whose cached id had drifted could spawn a brand new workout tab. The same identity hole existed in sync push's `server_id` resolution. (2) `DELETE /api/workout/:date` was a hard delete, but `/api/sync/pull` finds deletions via `WHERE updated_at >= ?`, which requires the row to still exist with `deleted_at` set; a hard-deleted row can never match that query, so Android never learned a session was gone, and the next autosave (still holding the now-unknown id) recreated it via bug (1). Both fixed together: PUT and sync push now fall back to the live default session when an id doesn't resolve, DELETE is now a soft delete matching the pattern already used everywhere else in this codebase, and an exact id match on a soft-deleted row still resurrects it exactly as before (the existing, intentional undo-delete path). A related latent bug turned up in the same pass: sync push's fallback could resolve onto an already-deleted row and write fresh content into it without ever clearing `deleted_at`, silently corrupting a "deleted" session instead of leaving it deleted or starting a fresh one; fixed alongside this.
+
 ## [1.3.0-dev03] - 2026-09-07
 
 ### Fixed

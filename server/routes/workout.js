@@ -58,11 +58,25 @@ function _defaultWorkout(userId, date, { excludeDeleted = false } = {}) {
 // Resolve which row a request targets: explicit ?id=/body.id wins (must
 // still belong to this user + date, so a client can't cross-target
 // another day's or another user's row), otherwise the default session.
-function _resolveWorkout(userId, date, explicitId, opts) {
+//
+// opts.fallbackToDefault (issue #87): an explicit id that does NOT
+// resolve to a live row for this user+date -- a stale Android local
+// id, a hard-to-refresh cached id after a delete, or a value that
+// simply never existed here -- falls back to the live default session
+// instead of the caller treating "not found" as "create one". Without
+// this, a PUT/push carrying a slightly-stale id silently inserted a
+// duplicate live session_seq=0 row: every completed-set tick or reps
+// change whose cached id had drifted spawned a brand new workout tab.
+// Off by default since a GET for a SPECIFIC unknown id should still
+// report "not found" rather than silently substituting another
+// session's data.
+function _resolveWorkout(userId, date, explicitId, opts = {}) {
   if (explicitId != null) {
-    return userId != null
+    const row = userId != null
       ? db.prepare('SELECT * FROM workout_log WHERE id = ? AND user_id = ? AND date = ?').get(explicitId, userId, date)
       : db.prepare('SELECT * FROM workout_log WHERE id = ? AND user_id IS NULL AND date = ?').get(explicitId, date);
+    if (row || !opts.fallbackToDefault) return row;
+    return _defaultWorkout(userId, date, opts);
   }
   return _defaultWorkout(userId, date, opts);
 }
@@ -211,7 +225,15 @@ router.put('/:date', wrap((req, res) => {
   // Otherwise an explicit id targets that specific session; absent both,
   // the default-session lookup reproduces pre-#76 single-row behavior
   // exactly (including resurrecting a soft-deleted row on save).
-  const existing = new_session ? null : _resolveWorkout(userId, date, bodyId ?? null);
+  //
+  // fallbackToDefault + excludeDeleted (issue #87): a bodyId that is
+  // stale/unknown falls back to the live default session for this date
+  // rather than being treated as "create a new one" -- excludeDeleted
+  // so a soft-deleted session isn't silently resurrected by a client
+  // that no longer has a specific id in mind (that's what the resurrect-
+  // on-save behavior just below is for, and it only applies to an EXACT
+  // id match, a client that still knows precisely which row it means).
+  const existing = new_session ? null : _resolveWorkout(userId, date, bodyId ?? null, { fallbackToDefault: true, excludeDeleted: true });
   // Note (issue #85): serverExercises is intentionally NOT pre-backfilled
   // with ensureExerciseUuids. See templates.js's PUT route and
   // workout-merge.js's mergeEntries() for why -- pre-tagging here would
@@ -310,7 +332,16 @@ router.delete('/:date', wrap((req, res) => {
   const explicitId = req.query.id != null ? parseInt(req.query.id) : null;
   const existing = _resolveWorkout(userId, date, explicitId);
   if (!existing) return res.json({ ok: true, deleted: false });
-  db.prepare('DELETE FROM workout_log WHERE id = ?').run(existing.id);
+  // Soft delete (issue #87): a hard DELETE removed the row before any
+  // client could ever pull it. /api/sync/pull finds deletions via
+  // `WHERE updated_at >= ?`, which requires the row to still exist with
+  // deleted_at set -- a hard-deleted row can never match that query, so
+  // Android never learned the session was gone, and its next autosave
+  // (still holding the now-unknown id) recreated it. Matches the same
+  // soft-delete shape sync-push already uses when a client sends
+  // deleted_at, and the PUT handler above already knows how to clear
+  // deleted_at again on an explicit save to resurrect one.
+  db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
   res.json({ ok: true, deleted: true });
 }));
 
