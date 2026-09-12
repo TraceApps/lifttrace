@@ -9,6 +9,35 @@
 import db from '../../../db.js';
 import { toolResult } from '../_util.js';
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API
+ * (issue #77) at GET /api/v1/programs.
+ */
+export function listProgramsCore(userId) {
+  const programs = db.prepare(
+    `SELECT p.*,
+            CASE WHEN pa.active = 1 THEN 1 ELSE 0 END as is_active
+       FROM programs p
+       LEFT JOIN program_assignments pa ON pa.program_id = p.id AND pa.assigned_to = ?
+      WHERE p.created_by = ? OR pa.id IS NOT NULL
+      ORDER BY p.created_at DESC`
+  ).all(userId, userId);
+
+  const list = programs.map(p => {
+    const templateCount = db.prepare(
+      'SELECT COUNT(*) as c FROM workout_templates WHERE program_id = ?'
+    ).get(p.id)?.c || 0;
+    return {
+      program_id: p.id,
+      name: p.name,
+      duration_weeks: p.duration_weeks,
+      is_active: !!p.is_active,
+      template_count: templateCount,
+    };
+  });
+  return { programs: list, count: list.length };
+}
+
 export function registerListPrograms(server, { userId }) {
   server.registerTool(
     'list_programs',
@@ -21,29 +50,6 @@ export function registerListPrograms(server, { userId }) {
         "and today's prescribed template.",
       inputSchema: {},
     },
-    async () => {
-      const programs = db.prepare(
-        `SELECT p.*,
-                CASE WHEN pa.active = 1 THEN 1 ELSE 0 END as is_active
-           FROM programs p
-           LEFT JOIN program_assignments pa ON pa.program_id = p.id AND pa.assigned_to = ?
-          WHERE p.created_by = ? OR pa.id IS NOT NULL
-          ORDER BY p.created_at DESC`
-      ).all(userId, userId);
-
-      const list = programs.map(p => {
-        const templateCount = db.prepare(
-          'SELECT COUNT(*) as c FROM workout_templates WHERE program_id = ?'
-        ).get(p.id)?.c || 0;
-        return {
-          program_id: p.id,
-          name: p.name,
-          duration_weeks: p.duration_weeks,
-          is_active: !!p.is_active,
-          template_count: templateCount,
-        };
-      });
-      return toolResult({ programs: list, count: list.length });
-    }
+    async () => toolResult(listProgramsCore(userId))
   );
 }

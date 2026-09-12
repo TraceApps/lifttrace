@@ -33,6 +33,46 @@ const STAT_RANGES = {
   calves:  { min: 15,  max: 100 },
 };
 
+/**
+ * Core mutation, shared by the MCP tool below and the public REST API
+ * (issue #77) at PUT /api/v1/body-stats/:date.
+ */
+export function logBodyStatCore(userId, args = {}) {
+  const { weight_unit, date, ...rawStats } = args;
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+
+  const stats = { ...rawStats };
+  if (stats.weight != null && weight_unit === 'lb') {
+    stats.weight = Math.round(stats.weight * LB_PER_KG * 100) / 100;
+  }
+
+  const keys = Object.keys(stats).filter(k => stats[k] != null);
+  if (keys.length === 0) throw new Error('At least one stat value is required.');
+  for (const k of keys) {
+    const range = STAT_RANGES[k];
+    if (range && (stats[k] < range.min || stats[k] > range.max)) {
+      throw new Error(`${k}=${stats[k]} is outside the plausible range (${range.min}-${range.max}).`);
+    }
+  }
+
+  const tx = db.transaction(() => {
+    const existing = db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(day, userId);
+    const serverStats = existing ? JSON.parse(existing.stats || '{}') : {};
+    const merged = mergeStatsObject(serverStats, stats);
+    const mergedJson = JSON.stringify(merged);
+    if (existing) {
+      db.prepare('UPDATE body_stats_log SET stats = ? WHERE id = ?').run(mergedJson, existing.id);
+    } else {
+      db.prepare('INSERT INTO body_stats_log (user_id, date, stats) VALUES (?, ?, ?)').run(userId, day, mergedJson);
+    }
+    return merged;
+  });
+  const merged = tx();
+
+  return { ok: true, date: day, logged: stats, stats: merged };
+}
+
 export function registerLogBodyStat(server, { userId }) {
   server.registerTool(
     'log_body_stat',
@@ -59,39 +99,11 @@ export function registerLogBodyStat(server, { userId }) {
       },
     },
     async (args) => {
-      const { weight_unit, date, ...rawStats } = args;
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
-
-      const stats = { ...rawStats };
-      if (stats.weight != null && weight_unit === 'lb') {
-        stats.weight = Math.round(stats.weight * LB_PER_KG * 100) / 100;
+      try {
+        return toolResult(logBodyStatCore(userId, args));
+      } catch (e) {
+        return toolError(e.message);
       }
-
-      const keys = Object.keys(stats).filter(k => stats[k] != null);
-      if (keys.length === 0) return toolError('At least one stat value is required.');
-      for (const k of keys) {
-        const range = STAT_RANGES[k];
-        if (range && (stats[k] < range.min || stats[k] > range.max)) {
-          return toolError(`${k}=${stats[k]} is outside the plausible range (${range.min}-${range.max}).`);
-        }
-      }
-
-      const tx = db.transaction(() => {
-        const existing = db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(day, userId);
-        const serverStats = existing ? JSON.parse(existing.stats || '{}') : {};
-        const merged = mergeStatsObject(serverStats, stats);
-        const mergedJson = JSON.stringify(merged);
-        if (existing) {
-          db.prepare('UPDATE body_stats_log SET stats = ? WHERE id = ?').run(mergedJson, existing.id);
-        } else {
-          db.prepare('INSERT INTO body_stats_log (user_id, date, stats) VALUES (?, ?, ?)').run(userId, day, mergedJson);
-        }
-        return merged;
-      });
-      const merged = tx();
-
-      return toolResult({ ok: true, date: day, logged: stats, stats: merged });
     }
   );
 }

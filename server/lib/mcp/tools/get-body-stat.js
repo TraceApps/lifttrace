@@ -9,6 +9,18 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API
+ * (issue #77) at GET /api/v1/body-stats/:date.
+ */
+export function getBodyStatCore(userId, { date } = {}) {
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+  const row = db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(day, userId);
+  if (!row) return { date: day, logged: false, stats: {} };
+  return { date: day, logged: true, stats: JSON.parse(row.stats || '{}') };
+}
+
 export function registerGetBodyStat(server, { userId }) {
   server.registerTool(
     'get_body_stat',
@@ -22,11 +34,11 @@ export function registerGetBodyStat(server, { userId }) {
       },
     },
     async ({ date }) => {
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
-      const row = db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(day, userId);
-      if (!row) return toolResult({ date: day, logged: false, stats: {} });
-      return toolResult({ date: day, logged: true, stats: JSON.parse(row.stats || '{}') });
+      try {
+        return toolResult(getBodyStatCore(userId, { date }));
+      } catch (e) {
+        return toolError(e.message);
+      }
     }
   );
 }

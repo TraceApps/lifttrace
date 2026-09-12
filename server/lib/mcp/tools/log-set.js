@@ -18,6 +18,54 @@ import db from '../../../db.js';
 import { mutateWorkoutDay } from '../_workout-write.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 
+/**
+ * Core mutation, shared by the MCP tool below and the public REST API
+ * (issue #77) at POST /api/v1/workouts/:date/sets.
+ */
+export function logSetCore(userId, { exercise_id, reps, weight, rpe, warmup, completed, date } = {}) {
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+
+  const catalogEx = db.prepare(
+    'SELECT id, name, load_type FROM exercises WHERE id = ? AND deleted_at IS NULL AND (is_global = 1 OR created_by = ?)'
+  ).get(exercise_id, userId);
+  if (!catalogEx) throw new Error(`No exercise with id ${exercise_id} in the catalog. Use search_exercises to find a valid id.`);
+
+  const newSet = {
+    uuid: randomUUID(),
+    reps,
+    weight,
+    completed: completed ?? true,
+    warmup: warmup ?? false,
+    rpe: rpe ?? null,
+  };
+
+  let loggedExercise = null;
+  const result = mutateWorkoutDay(userId, day, (exercises) => {
+    const next = exercises.map(ex => ({ ...ex, sets: [...(ex.sets || [])] }));
+    let target = next.find(ex => ex.exercise_id === exercise_id);
+    if (!target) {
+      target = { uuid: randomUUID(), exercise_id, exercise_name: catalogEx.name, sets: [] };
+      next.push(target);
+    }
+    target.sets.push(newSet);
+    loggedExercise = target;
+    return next;
+  });
+
+  // Re-read the merged exercise back out (mutateWorkoutDay may have
+  // reconciled concurrent server-side changes since the callback ran).
+  const merged = result.exercises.find(ex => ex.exercise_id === exercise_id) || loggedExercise;
+  return {
+    ok: true,
+    date: day,
+    exercise_id,
+    exercise_name: catalogEx.name,
+    logged_set: newSet,
+    sets_on_exercise: merged?.sets?.length ?? 1,
+  };
+}
+
 export function registerLogSet(server, { userId }) {
   server.registerTool(
     'log_set',
@@ -39,47 +87,11 @@ export function registerLogSet(server, { userId }) {
       },
     },
     async ({ exercise_id, reps, weight, rpe, warmup, completed, date }) => {
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
-
-      const catalogEx = db.prepare(
-        'SELECT id, name, load_type FROM exercises WHERE id = ? AND deleted_at IS NULL AND (is_global = 1 OR created_by = ?)'
-      ).get(exercise_id, userId);
-      if (!catalogEx) return toolError(`No exercise with id ${exercise_id} in the catalog. Use search_exercises to find a valid id.`);
-
-      const newSet = {
-        uuid: randomUUID(),
-        reps,
-        weight,
-        completed: completed ?? true,
-        warmup: warmup ?? false,
-        rpe: rpe ?? null,
-      };
-
-      let loggedExercise = null;
-      const result = mutateWorkoutDay(userId, day, (exercises) => {
-        const next = exercises.map(ex => ({ ...ex, sets: [...(ex.sets || [])] }));
-        let target = next.find(ex => ex.exercise_id === exercise_id);
-        if (!target) {
-          target = { uuid: randomUUID(), exercise_id, exercise_name: catalogEx.name, sets: [] };
-          next.push(target);
-        }
-        target.sets.push(newSet);
-        loggedExercise = target;
-        return next;
-      });
-
-      // Re-read the merged exercise back out (mutateWorkoutDay may have
-      // reconciled concurrent server-side changes since the callback ran).
-      const merged = result.exercises.find(ex => ex.exercise_id === exercise_id) || loggedExercise;
-      return toolResult({
-        ok: true,
-        date: day,
-        exercise_id,
-        exercise_name: catalogEx.name,
-        logged_set: newSet,
-        sets_on_exercise: merged?.sets?.length ?? 1,
-      });
+      try {
+        return toolResult(logSetCore(userId, { exercise_id, reps, weight, rpe, warmup, completed, date }));
+      } catch (e) {
+        return toolError(e.message);
+      }
     }
   );
 }

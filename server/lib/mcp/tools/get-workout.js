@@ -14,6 +14,43 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API
+ * (issue #77) at GET /api/v1/workouts/:date. Throws a plain Error on bad
+ * input so callers on either side can decide how to surface it: the MCP
+ * wrapper maps it to toolError, the REST route maps it to a 400.
+ */
+export function getWorkoutCore(userId, { date } = {}) {
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+
+  const row = db.prepare(
+    'SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1'
+  ).get(day, userId);
+  if (!row) return { date: day, logged: false, exercises: [] };
+
+  const exercises = JSON.parse(row.exercises || '[]');
+  return {
+    date: day,
+    logged: true,
+    name: row.name || null,
+    completed: !!row.completed,
+    duration_min: row.duration_min ?? null,
+    exercises: exercises.map(ex => ({
+      exercise_id: ex.exercise_id,
+      exercise_name: ex.exercise_name,
+      superset_id: ex.superset_id ?? null,
+      sets: (ex.sets || []).map(s => ({
+        reps: s.reps ?? null,
+        weight: s.weight ?? null,
+        completed: !!s.completed,
+        warmup: !!s.warmup,
+        rpe: s.rpe ?? null,
+      })),
+    })),
+  };
+}
+
 export function registerGetWorkout(server, { userId }) {
   server.registerTool(
     'get_workout',
@@ -29,34 +66,11 @@ export function registerGetWorkout(server, { userId }) {
       },
     },
     async ({ date }) => {
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
-
-      const row = db.prepare(
-        'SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1'
-      ).get(day, userId);
-      if (!row) return toolResult({ date: day, logged: false, exercises: [] });
-
-      const exercises = JSON.parse(row.exercises || '[]');
-      return toolResult({
-        date: day,
-        logged: true,
-        name: row.name || null,
-        completed: !!row.completed,
-        duration_min: row.duration_min ?? null,
-        exercises: exercises.map(ex => ({
-          exercise_id: ex.exercise_id,
-          exercise_name: ex.exercise_name,
-          superset_id: ex.superset_id ?? null,
-          sets: (ex.sets || []).map(s => ({
-            reps: s.reps ?? null,
-            weight: s.weight ?? null,
-            completed: !!s.completed,
-            warmup: !!s.warmup,
-            rpe: s.rpe ?? null,
-          })),
-        })),
-      });
+      try {
+        return toolResult(getWorkoutCore(userId, { date }));
+      } catch (e) {
+        return toolError(e.message);
+      }
     }
   );
 }

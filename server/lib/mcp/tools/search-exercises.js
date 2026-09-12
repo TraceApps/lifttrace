@@ -13,6 +13,27 @@ import { toolResult } from '../_util.js';
 
 const MAX_LIMIT = 25;
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API
+ * (issue #77) at GET /api/v1/exercises.
+ */
+export function searchExercisesCore(userId, { query, limit } = {}) {
+  const n = Math.min(Math.max(1, limit || 10), MAX_LIMIT);
+  const rows = db.prepare(
+    `SELECT id, name, category, equipment, load_type FROM exercises
+      WHERE deleted_at IS NULL AND name LIKE ? AND (is_global = 1 OR created_by = ?)
+      ORDER BY name ASC LIMIT ?`
+  ).all(`%${query}%`, userId, n);
+  const exercises = rows.map(r => ({
+    exercise_id: r.id,
+    name: r.name,
+    category: r.category || null,
+    equipment: r.equipment ? JSON.parse(r.equipment) : [],
+    load_type: r.load_type || null,
+  }));
+  return { exercises, count: exercises.length };
+}
+
 export function registerSearchExercises(server, { userId }) {
   server.registerTool(
     'search_exercises',
@@ -27,21 +48,6 @@ export function registerSearchExercises(server, { userId }) {
         limit: z.number().int().positive().max(MAX_LIMIT).optional(),
       },
     },
-    async ({ query, limit }) => {
-      const n = Math.min(limit || 10, MAX_LIMIT);
-      const rows = db.prepare(
-        `SELECT id, name, category, equipment, load_type FROM exercises
-          WHERE deleted_at IS NULL AND name LIKE ? AND (is_global = 1 OR created_by = ?)
-          ORDER BY name ASC LIMIT ?`
-      ).all(`%${query}%`, userId, n);
-      const exercises = rows.map(r => ({
-        exercise_id: r.id,
-        name: r.name,
-        category: r.category || null,
-        equipment: r.equipment ? JSON.parse(r.equipment) : [],
-        load_type: r.load_type || null,
-      }));
-      return toolResult({ exercises, count: exercises.length });
-    }
+    async ({ query, limit }) => toolResult(searchExercisesCore(userId, { query, limit }))
   );
 }

@@ -10,6 +10,56 @@ import db from '../../../db.js';
 import { currentPlanWeek } from '../../programWeek.js';
 import { toolResult } from '../_util.js';
 
+/**
+ * Core lookup, shared by the MCP tool below, the public REST API
+ * (issue #77) at GET /api/v1/programs/active, and the program.advanced
+ * webhook detection (issue #79) in workout.js, which calls this before
+ * and after a completed save and compares current_week.
+ */
+export function getActiveProgramCore(userId) {
+  const assignment = db.prepare(
+    `SELECT pa.*, p.* FROM program_assignments pa
+       JOIN programs p ON p.id = pa.program_id
+      WHERE pa.assigned_to = ? AND pa.active = 1`
+  ).get(userId);
+  if (!assignment) return { active: false };
+
+  const templates = db.prepare(
+    'SELECT id, name, day_label, exercises FROM workout_templates WHERE program_id = ? ORDER BY order_index ASC'
+  ).all(assignment.program_id);
+  const templateCount = templates.length;
+
+  const sessionsInProgram = db.prepare(`
+    SELECT COUNT(*) as c FROM workout_log wl
+      WHERE wl.user_id = ? AND wl.completed = 1
+        AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
+        ${assignment.assigned_at ? 'AND date >= date(?)' : ''}
+  `).get(...(assignment.assigned_at ? [userId, assignment.program_id, assignment.assigned_at] : [userId, assignment.program_id]))?.c || 0;
+
+  const currentWeek = currentPlanWeek(assignment, assignment, {
+    sessionsInProgram,
+    sessionsPerWeek: templateCount,
+  });
+
+  return {
+    active: true,
+    program_id: assignment.program_id,
+    name: assignment.name,
+    duration_weeks: assignment.duration_weeks,
+    current_week: currentWeek,
+    templates: templates.map(t => ({
+      template_id: t.id,
+      name: t.name,
+      day_label: t.day_label || null,
+      exercises: JSON.parse(t.exercises || '[]').map(ex => ({
+        exercise_id: ex.exercise_id,
+        exercise_name: ex.exercise_name,
+        target_sets: ex.target_sets ?? null,
+      })),
+    })),
+  };
+}
+
 export function registerGetActiveProgram(server, { userId }) {
   server.registerTool(
     'get_active_program',
@@ -21,48 +71,6 @@ export function registerGetActiveProgram(server, { userId }) {
         'Returns active: false if no program is active.',
       inputSchema: {},
     },
-    async () => {
-      const assignment = db.prepare(
-        `SELECT pa.*, p.* FROM program_assignments pa
-           JOIN programs p ON p.id = pa.program_id
-          WHERE pa.assigned_to = ? AND pa.active = 1`
-      ).get(userId);
-      if (!assignment) return toolResult({ active: false });
-
-      const templates = db.prepare(
-        'SELECT id, name, day_label, exercises FROM workout_templates WHERE program_id = ? ORDER BY order_index ASC'
-      ).all(assignment.program_id);
-      const templateCount = templates.length;
-
-      const sessionsInProgram = db.prepare(`
-        SELECT COUNT(*) as c FROM workout_log wl
-          WHERE wl.user_id = ? AND wl.completed = 1
-            AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
-            ${assignment.assigned_at ? 'AND date >= date(?)' : ''}
-      `).get(...(assignment.assigned_at ? [userId, assignment.program_id, assignment.assigned_at] : [userId, assignment.program_id]))?.c || 0;
-
-      const currentWeek = currentPlanWeek(assignment, assignment, {
-        sessionsInProgram,
-        sessionsPerWeek: templateCount,
-      });
-
-      return toolResult({
-        active: true,
-        program_id: assignment.program_id,
-        name: assignment.name,
-        duration_weeks: assignment.duration_weeks,
-        current_week: currentWeek,
-        templates: templates.map(t => ({
-          template_id: t.id,
-          name: t.name,
-          day_label: t.day_label || null,
-          exercises: JSON.parse(t.exercises || '[]').map(ex => ({
-            exercise_id: ex.exercise_id,
-            exercise_name: ex.exercise_name,
-            target_sets: ex.target_sets ?? null,
-          })),
-        })),
-      });
-    }
+    async () => toolResult(getActiveProgramCore(userId))
   );
 }

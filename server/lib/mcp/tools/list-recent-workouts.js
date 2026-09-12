@@ -13,6 +13,32 @@ import { toolResult } from '../_util.js';
 
 const MAX_LIMIT = 50;
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API
+ * (issue #77) at GET /api/v1/workouts. `limit` is clamped here (not left
+ * to zod's schema validation, which only runs on the MCP path) so both
+ * callers get identical behavior for an out-of-range value.
+ */
+export function listRecentWorkoutsCore(userId, { limit } = {}) {
+  const n = Math.min(Math.max(1, limit || 10), MAX_LIMIT);
+  const rows = db.prepare(
+    'SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT ?'
+  ).all(userId, n);
+
+  const workouts = rows.map(r => {
+    const exercises = JSON.parse(r.exercises || '[]');
+    const totalVolume = exercises.reduce((sum, ex) => sum + exerciseVolume(ex), 0);
+    return {
+      date: r.date,
+      name: r.name || null,
+      completed: !!r.completed,
+      exercise_count: exercises.length,
+      total_volume: Math.round(totalVolume),
+    };
+  });
+  return { workouts, count: workouts.length };
+}
+
 export function registerListRecentWorkouts(server, { userId }) {
   server.registerTool(
     'list_recent_workouts',
@@ -26,24 +52,6 @@ export function registerListRecentWorkouts(server, { userId }) {
         limit: z.number().int().positive().max(MAX_LIMIT).optional(),
       },
     },
-    async ({ limit }) => {
-      const n = Math.min(limit || 10, MAX_LIMIT);
-      const rows = db.prepare(
-        'SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT ?'
-      ).all(userId, n);
-
-      const workouts = rows.map(r => {
-        const exercises = JSON.parse(r.exercises || '[]');
-        const totalVolume = exercises.reduce((sum, ex) => sum + exerciseVolume(ex), 0);
-        return {
-          date: r.date,
-          name: r.name || null,
-          completed: !!r.completed,
-          exercise_count: exercises.length,
-          total_volume: Math.round(totalVolume),
-        };
-      });
-      return toolResult({ workouts, count: workouts.length });
-    }
+    async ({ limit }) => toolResult(listRecentWorkoutsCore(userId, { limit }))
   );
 }
