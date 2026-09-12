@@ -15,7 +15,7 @@ const MAX_LIMIT = 50;
 
 /**
  * Core lookup, shared by the MCP tool below and the public REST API
- * (issue #77) at GET /api/v1/workouts. `limit` is clamped here (not left
+ * (issue #77) at GET /api/v1/workouts/recent. `limit` is clamped here (not left
  * to zod's schema validation, which only runs on the MCP path) so both
  * callers get identical behavior for an out-of-range value.
  */

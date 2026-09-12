@@ -46,6 +46,20 @@ test('webhook target URLs are validated through the shared SSRF guard, at creati
   assert.ok(occurrences.length >= 3, 'expected assertSafeUrl called at create, update, and delivery time');
 });
 
+test('assertSafeUrl is re-checked inside the retry loop, not just once before it (regression check)', () => {
+  // A prior version called assertSafeUrl once before the `for` loop
+  // started, so only the FIRST attempt was actually re-validated;
+  // retries 2 and 3 (up to ~2.5s later) reused the already-decided
+  // envelope/signature without checking DNS again. The call must be
+  // textually inside the loop body, immediately before sendWebhookRequest.
+  const loopMatch = libJs.match(/for \(let attempt = 0;[\s\S]*?\n {2}\}\n\}/);
+  assert.ok(loopMatch, 'expected to find the retry for-loop in webhooks.js');
+  assert.match(loopMatch[0], /assertSafeUrl\(/, 'assertSafeUrl should be called inside the retry loop body');
+  const assertIdx = loopMatch[0].indexOf('assertSafeUrl(');
+  const sendIdx = loopMatch[0].indexOf('sendWebhookRequest(');
+  assert.ok(assertIdx >= 0 && sendIdx >= 0 && assertIdx < sendIdx, 'assertSafeUrl should run immediately before sendWebhookRequest on each attempt');
+});
+
 test('the four known events are all registered with descriptions', () => {
   for (const event of ['workout.completed', 'body_stat.logged', 'pr.set', 'program.advanced']) {
     assert.match(libJs, new RegExp(`'${event.replace('.', '\\.')}'`));

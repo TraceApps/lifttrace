@@ -102,3 +102,29 @@ test('sendWebhookRequest rejects when the receiver is unreachable (connection re
   const { envelope, signature } = signEnvelope('shh', 'pr.set', {});
   await assert.rejects(() => sendWebhookRequest(url, envelope, signature, 'd-2', 'pr.set'));
 });
+
+test('sendWebhookRequest does NOT follow a redirect (SSRF guard bypass regression check)', async () => {
+  // A compromised or malicious endpoint could otherwise 3xx this
+  // request to an internal address (169.254.169.254, localhost) after
+  // assertSafeUrl already validated the original host. Node's fetch
+  // with redirect:'manual' returns the real 3xx status with ok:false,
+  // so this must reject rather than transparently following the hop.
+  let redirectTargetHit = false;
+  const { url: targetUrl, close: closeTarget } = await withServer((req, res) => {
+    redirectTargetHit = true;
+    res.writeHead(200);
+    res.end('should never be reached');
+  });
+  const { url, close } = await withServer((req, res) => {
+    res.writeHead(302, { Location: targetUrl });
+    res.end();
+  });
+  try {
+    const { envelope, signature } = signEnvelope('shh', 'workout.completed', {});
+    await assert.rejects(() => sendWebhookRequest(url, envelope, signature, 'd-3', 'workout.completed'), /302/);
+    assert.equal(redirectTargetHit, false, 'the redirect target should never have been fetched');
+  } finally {
+    await close();
+    await closeTarget();
+  }
+});

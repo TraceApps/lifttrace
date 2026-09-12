@@ -33,6 +33,14 @@ export async function sendWebhookRequest(url, envelope, signature, deliveryId, e
   try {
     const res = await fetch(url, {
       method: 'POST',
+      // Do not follow a redirect: a compromised or malicious endpoint
+      // could 3xx this request to an internal address (169.254.169.254,
+      // localhost) after assertSafeUrl already validated the original
+      // host, bypassing the SSRF guard entirely. With redirect:'manual',
+      // Node's fetch returns the real 3xx status and res.ok is false, so
+      // the check below already treats it as a failure without a
+      // separate status-range check.
+      redirect: 'manual',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',

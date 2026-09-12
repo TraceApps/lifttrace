@@ -161,10 +161,6 @@ async function _deliverWithRetry(row, event, data) {
   try {
     secret = decrypt(row.secret_encrypted);
     if (!secret) throw new Error('Could not decrypt webhook secret');
-    await assertSafeUrl(row.url, {
-      allowPrivate: ALLOW_PRIVATE_WEBHOOK_URLS,
-      allowPrivateEnvHint: 'ALLOW_PRIVATE_WEBHOOK_URLS',
-    });
     ({ envelope, signature } = signEnvelope(secret, event, data));
   } catch (e) {
     logger.warn(`[webhooks] delivery ${deliveryId} to webhook ${row.id} rejected before sending: ${e.message}`);
@@ -174,6 +170,15 @@ async function _deliverWithRetry(row, event, data) {
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
+      // Re-validated on EVERY attempt, not just once before the loop:
+      // an attacker who controls DNS for the webhook's hostname could
+      // otherwise point it at a public IP for this check, then rebind
+      // to an internal address before a later retry fires (up to ~2.5s
+      // later), and the guard would never look again.
+      await assertSafeUrl(row.url, {
+        allowPrivate: ALLOW_PRIVATE_WEBHOOK_URLS,
+        allowPrivateEnvHint: 'ALLOW_PRIVATE_WEBHOOK_URLS',
+      });
       await sendWebhookRequest(row.url, envelope, signature, deliveryId, event);
       _recordDelivery(row.id, 'success', null);
       return;
