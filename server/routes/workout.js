@@ -4,6 +4,10 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { onWorkoutCompleted } from '../lib/coach-activity.js';
 import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
+import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
+import { getRecordsCore, hasQualifyingSet } from '../lib/mcp/tools/get-records.js';
+import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -260,6 +264,27 @@ router.put('/:date', wrap((req, res) => {
   const wasCompleted = existing ? !!existing.completed : false;
   const exercisesJson = JSON.stringify(mergedExercises);
 
+  // pr.set / program.advanced webhook snapshots (issue #79), taken
+  // BEFORE the transaction below so the "before" state genuinely
+  // predates this save. pr.set is independent of the day-level
+  // `completed` flag: a set can be completed even if the workout as a
+  // whole isn't marked done, and that's still a real PR the moment it's
+  // saved. Cheap early-exit guard (hasQualifyingSet) so a save that only
+  // edits notes or duration never pays for a full-history records scan.
+  let _recordsBefore = null;
+  if (Array.isArray(exercises) && hasQualifyingSet(exercises)) {
+    try { _recordsBefore = getRecordsCore(userId).records; } catch { _recordsBefore = null; }
+  }
+  // program.advanced only matters when this session belongs to a
+  // program at all; the actual week comparison happens after the save,
+  // nested in the completed 0-to-1 transition below, since session
+  // count (and therefore current week) only changes on a newly-
+  // completed session.
+  let _programBefore = null;
+  if (program_id) {
+    try { _programBefore = getActiveProgramCore(userId); } catch { _programBefore = null; }
+  }
+
   const insertTombstone = db.prepare(
     `INSERT OR IGNORE INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
@@ -308,6 +333,62 @@ router.put('/:date', wrap((req, res) => {
   if (workout && workout.completed && !wasCompleted) {
     try { onWorkoutCompleted(workout); }
     catch (e) { /* never let a notification failure block the save */ }
+
+    // workout.completed webhook (issue #79). Reuses getWorkoutCore so
+    // the payload matches exactly what GET /api/v1/workouts/:date and
+    // MCP's get_workout tool already return, one shape everywhere.
+    try { dispatchWebhookEvent(userId, 'workout.completed', getWorkoutCore(userId, { date })); }
+    catch (e) { /* never let a webhook failure block the save */ }
+
+    // program.advanced webhook (issue #79). Only meaningful when this
+    // session belongs to the program that was active before the save
+    // (_programBefore, snapshotted above). Comparing current_week here
+    // (not before the save) is deliberate: session count, and therefore
+    // current_week, only changes once this save has actually committed.
+    if (_programBefore?.active && _programBefore.program_id === program_id) {
+      try {
+        const programAfter = getActiveProgramCore(userId);
+        if (programAfter?.active && programAfter.current_week !== _programBefore.current_week) {
+          dispatchWebhookEvent(userId, 'program.advanced', {
+            program_id: programAfter.program_id,
+            program_name: programAfter.name,
+            previous_week: _programBefore.current_week,
+            new_week: programAfter.current_week,
+            duration_weeks: programAfter.duration_weeks,
+          });
+        }
+      } catch (e) { /* never let a webhook failure block the save */ }
+    }
+  }
+
+  // pr.set webhook (issue #79). Independent of the completed 0-to-1
+  // transition above, see the _recordsBefore snapshot's own comment for
+  // why. Fires once per exercise whose max weight or estimated 1-rep
+  // max improved on this save, reusing the exact record definition
+  // get-records.js already uses for GET /api/v1/records and the
+  // Statistics page, so all three agree on what "a record" means.
+  if (_recordsBefore) {
+    try {
+      const recordsAfter = getRecordsCore(userId).records;
+      const beforeByExercise = new Map(_recordsBefore.map(r => [r.exercise_id, r]));
+      for (const after of recordsAfter) {
+        const before = beforeByExercise.get(after.exercise_id);
+        const improvedWeight = after.maxWeight > (before?.maxWeight ?? 0);
+        const improvedE1rm = after.e1rm > (before?.e1rm ?? 0);
+        if (improvedWeight || improvedE1rm) {
+          dispatchWebhookEvent(userId, 'pr.set', {
+            exercise_id: after.exercise_id,
+            exercise_name: after.name,
+            date,
+            new_max_weight: after.maxWeight,
+            new_max_reps: after.maxReps,
+            new_e1rm: after.e1rm,
+            previous_max_weight: before?.maxWeight ?? 0,
+            previous_e1rm: before?.e1rm ?? 0,
+          });
+        }
+      }
+    } catch (e) { /* never let a webhook failure block the save */ }
   }
 
   res.json({ workout, tombstones: _loadTombstones(userId, date, targetId) });

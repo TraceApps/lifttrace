@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { mergeStatsObject } from '../lib/workout-merge.js';
+import { dispatchWebhookEvent } from '../lib/webhooks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -63,6 +64,14 @@ router.put('/:date', wrap((req, res) => {
     ? db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(date, userId)
     : db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id IS NULL').get(date);
   if (row) row.stats = JSON.parse(row.stats || '{}');
+
+  // body_stat.logged webhook (issue #79). Fires on every save, no
+  // "was it new" gate, matching log_body_stat's own always-merge-and-
+  // return semantics; no-op in single-user mode (userId null) since a
+  // webhook needs a real account to own it, same as API tokens.
+  try { dispatchWebhookEvent(userId, 'body_stat.logged', { date, stats: merged }); }
+  catch (e) { /* never let a webhook failure block the save */ }
+
   res.json({ stats: row });
 }));
 

@@ -49,6 +49,27 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
   CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
 
+  -- Outgoing webhooks (issue #79). secret_encrypted holds the shared
+  -- secret via token-crypto.js's AES-256-GCM at-rest encryption, not
+  -- hashed like api_tokens: unlike a bearer token the server needs the
+  -- plaintext back to compute each delivery's HMAC signature. events is
+  -- a JSON array of event-name strings (subset of KNOWN_WEBHOOK_EVENTS
+  -- in server/lib/webhooks.js), same "list of enum strings in a TEXT
+  -- column" shape api_tokens.scopes already uses above.
+  CREATE TABLE IF NOT EXISTS webhooks (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    url                  TEXT NOT NULL,
+    secret_encrypted     TEXT NOT NULL,
+    events               TEXT NOT NULL DEFAULT '[]',
+    enabled              INTEGER NOT NULL DEFAULT 1,
+    last_delivery_at     TEXT,
+    last_delivery_status TEXT,   -- 'success' | 'failed' | NULL (never fired)
+    last_delivery_error  TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
+
   CREATE TABLE IF NOT EXISTS app_config (
     key   TEXT PRIMARY KEY,
     value TEXT

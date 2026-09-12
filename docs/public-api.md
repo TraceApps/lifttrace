@@ -2,7 +2,9 @@
 
 A versioned REST API at `/api/v1`, for scripts and automations that want
 plain JSON over HTTP rather than the [Model Context Protocol](https://traceapps.github.io/docs/lifttrace/mcp/)
-LiftTrace also speaks. Off by default.
+LiftTrace also speaks. Off by default. Pull-based, if you want to be
+notified the instant something happens instead of polling, see
+[outgoing webhooks](webhooks.md).
 
 ## Enabling it
 

@@ -41,6 +41,7 @@ import oidcAdminRoutes   from './routes/oidc-admin.js';
 import apiTokensRoutes   from './routes/api-tokens.js';
 import mcpRoutes         from './routes/mcp.js';
 import publicApiRoutes   from './routes/public-api.js';
+import webhooksRoutes    from './routes/webhooks.js';
 import { logger }        from './logger.js';
 import { authenticate }  from './middleware/auth.js';
 import { seedSmtpFromEnv } from './email.js';
@@ -181,6 +182,7 @@ router.use('/api/prescriptions', prescriptionRoutes);
 router.use('/api/coach-feedback', coachFeedbackRoutes);
 router.use('/api/sync',          syncRoutes);
 router.use('/api/admin/api-tokens', apiTokensRoutes);
+router.use('/api/webhooks', webhooksRoutes);
 // Model Context Protocol endpoint — Bearer-token auth, scope 'mcp:read'.
 // 404s (not just an empty tool list) when the endpoint isn't reachable
 // unless MCP_ENABLED=1 in the server env. See server/routes/mcp.js and

@@ -24,6 +24,7 @@
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
   import SettingsAuth from '../components/settings/SettingsAuth.svelte';
   import SettingsApiTokens from '../components/settings/SettingsApiTokens.svelte';
+  import SettingsWebhooks from '../components/settings/SettingsWebhooks.svelte';
   import SettingsDiagnostics from '../components/settings/SettingsDiagnostics.svelte';
   // Profile is a route in its own right, but the desktop welcome hero
   // embeds it inline so users can edit their info without navigating
@@ -382,6 +383,7 @@
     users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
+    webhooks:       ['webhook','webhooks','outgoing webhook','automation','automations','home assistant','n8n','integration','integrations','event','events','signature','hmac','secret','payload','pr','personal record','workout completed','program advanced','test webhook'],
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
@@ -420,6 +422,7 @@
     users:            { titleKey: 'settings.users.section',             icon: 'group' },
     authentication:   { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
     apiTokens:        { titleKey: 'settings.api_tokens.section',        icon: 'key' },
+    webhooks:         { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
     email:            { titleKey: 'settings.email.section',             icon: 'mail' },
     about:            { titleKey: 'settings.about.section',             icon: 'info' },
   };
@@ -497,6 +500,7 @@
     users: false,
     authentication: false,
     apiTokens: false,
+    webhooks: false,
     updates: false,
     helpImprove: false,
     about: false,
@@ -769,6 +773,15 @@
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
       <span class="material-symbols-rounded si">key</span>
       <span>{$_('settings.api_tokens.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <!-- Webhooks (issue #79). Same real-multi-user-mode-plus-admin
+         posture as API Tokens just above: a webhook needs a real
+         user_id to own it. See server/routes/webhooks.js for the
+         matching server-side guard. -->
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'webhooks')} class:active={currentSection === 'webhooks'} aria-current={currentSection === 'webhooks' ? 'page' : undefined} on:click={() => toggleSection('webhooks')}>
+      <span class="material-symbols-rounded si">webhook</span>
+      <span>{$_('settings.webhooks.section')}</span>
       <span class="material-symbols-rounded chevron">chevron_right</span>
     </button>
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'email')} class:active={currentSection === 'email'} aria-current={currentSection === 'email' ? 'page' : undefined} on:click={() => toggleSection('email')}>
@@ -1052,6 +1065,17 @@
             <div class="section-body">
               <SettingsApiTokens expanded={true} />
             </div>
+          {:else if currentSection === 'webhooks'}
+            <!-- SettingsWebhooks is body-only, same shape as
+                 SettingsApiTokens just above. -->
+            <button class="section-toggle" on:click={backToIndex}>
+              <span class="material-symbols-rounded si">webhook</span>
+              <span class="section-name">{$_('settings.webhooks.section')}</span>
+              <span class="material-symbols-rounded chevron rotated">expand_more</span>
+            </button>
+            <div class="section-body">
+              <SettingsWebhooks expanded={true} />
+            </div>
           {:else if currentSection === 'email'}
             <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'about'}
@@ -1334,6 +1358,22 @@
           {#if expanded.apiTokens}
             <div class="section-body" transition:slide={{ duration: 180 }}>
               <SettingsApiTokens expanded={true} />
+            </div>
+          {/if}
+        {/if}
+
+        <!-- Webhooks (issue #79), body-only component, same shape and
+             gating as API Tokens just above: a webhook needs a real
+             user_id to own it. -->
+        {#if sectionVisible(settingsQuery, 'webhooks')}
+          <button class="section-toggle" on:click={() => toggleSection('webhooks')}>
+            <span class="material-symbols-rounded si">webhook</span>
+            <span class="section-name">{$_('settings.webhooks.section')}</span>
+            <span class="material-symbols-rounded chevron" class:rotated={openSections.webhooks}>expand_more</span>
+          </button>
+          {#if expanded.webhooks}
+            <div class="section-body" transition:slide={{ duration: 180 }}>
+              <SettingsWebhooks expanded={true} />
             </div>
           {/if}
         {/if}
