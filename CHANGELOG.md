@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Public REST API for external integrations** ([#77](https://github.com/TraceApps/lifttrace/issues/77), requested by @bursaar). A versioned REST API at `/api/v1`, off by default (`PUBLIC_API_ENABLED=1` to turn on), for scripts and automations that want plain JSON over HTTP rather than the MCP protocol (#78). Eight read routes covering workouts, recent workouts, personal records, exercise progress, exercise search, programs, the active program, and body stats, plus two additive write routes (log a set, log a body stat, gated on `PUBLIC_API_WRITE_ENABLED=1` in addition to the base flag, mirroring MCP's own read/write split). Uses the exact same personal access tokens and `mcp:read`/`mcp:write` scopes MCP already introduced: one token now works for both interfaces, since a scope describes what class of access it grants, not which protocol carries it. Every route calls the same underlying function its MCP-tool counterpart calls (extracted into shared exports in this release), so the two interfaces can't drift out of sync with each other. Deletion stays MCP-only for now, it's the one irreversible operation in the set and this surface hasn't needed it yet. See `docs/public-api.md` for the full endpoint reference.
+
 ## [1.3.0-dev04] - 2026-09-10
 
 ### Fixed

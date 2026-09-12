@@ -211,6 +211,11 @@ services:
 | `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow the MCP destructive tool (`delete_workout`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
 | `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
 
+| `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the versioned REST API at `/api/v1`, for scripts and automations that don't speak MCP. Uses the same tokens and `mcp:read`/`mcp:write` scopes as MCP. See `docs/public-api.md`. |
+| `PUBLIC_API_WRITE_ENABLED` | No | `0` | Set to `1` to allow the REST API's write routes (log a set, log body stats). Also requires the calling token to hold `mcp:write`. Independent of `PUBLIC_API_ENABLED` so read-only external access can be exposed without ever opening a write surface. |
+| `WEBHOOKS_ENABLED` | No | `0` | Set to `1` to allow outgoing webhooks (workout completed, PR set, program advanced, body stat logged) configured in Settings, Webhooks. |
+| `ALLOW_PRIVATE_WEBHOOK_URLS` | No | `0` | Set to `1` to allow a webhook target on a private/loopback address (a same-Docker-network Home Assistant instance, for example). Off by default: a webhook target normally must resolve to a public address. |
+
 > **Note:** SMTP, AI, and OIDC settings can also be configured in their respective **Settings** sections (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
 
 ---

@@ -23,21 +23,24 @@ const TOKEN_BYTES = 32;  // 256-bit secret
  * is a bug the wiring test catches on load.
  */
 export const SCOPE_DESCRIPTIONS = {
-  'mcp:read':    'MCP: read workouts, PRs, exercise progress, programs, and body stats (8 tools).',
-  'mcp:write':   'MCP: log a set and log body stats (2 additive tools). Requires MCP_WRITE_ENABLED=1 on the server.',
-  'mcp:destroy': "MCP: delete a day's workout (1 tool). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.",
+  'mcp:read':    'Read workouts, PRs, exercise progress, programs, and body stats, via MCP tools or the REST API (issue #77).',
+  'mcp:write':   'Log a set and log body stats, via MCP tools or the REST API. Requires MCP_WRITE_ENABLED=1 (for MCP) or PUBLIC_API_WRITE_ENABLED=1 (for REST) on the server.',
+  'mcp:destroy': "Delete a day's workout via MCP only (no REST equivalent yet). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.",
 };
 
 export const KNOWN_SCOPES = new Set([
-  // mcp:read unlocks the Model Context Protocol read tools (issue #78)
-  // exposed under /api/mcp when MCP_ENABLED=1. Lets a user's own agent
-  // (Claude Desktop / Cursor / Codex / etc.) inspect their workouts,
-  // PRs, progress, programs, and body stats through the MCP standard
-  // interface.
+  // mcp:read unlocks read access to workouts, PRs, progress, programs,
+  // and body stats through either the Model Context Protocol tools
+  // (issue #78, /api/mcp when MCP_ENABLED=1, for an agent like Claude
+  // Desktop) or the plain REST API (issue #77, /api/v1 when
+  // PUBLIC_API_ENABLED=1, for a script or automation). One scope, either
+  // protocol: a scope describes what class of access it grants, not
+  // which protocol carries it.
   'mcp:read',
-  // mcp:write unlocks Model Context Protocol WRITE tools (log_set,
-  // log_body_stat). Independent of mcp:read but tokens typically hold
-  // both. Requires MCP_WRITE_ENABLED=1 on the server for any effect.
+  // mcp:write unlocks the WRITE endpoints (log a set, log body stats) on
+  // either surface. Independent of mcp:read but tokens typically hold
+  // both. Requires MCP_WRITE_ENABLED=1 (MCP) or PUBLIC_API_WRITE_ENABLED=1
+  // (REST) on the server for any effect.
   'mcp:write',
   // mcp:destroy unlocks Model Context Protocol DESTRUCTIVE tools
   // (delete_workout). Requires MCP_DESTROY_ENABLED=1 on the server AND

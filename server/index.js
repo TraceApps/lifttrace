@@ -40,6 +40,7 @@ import oidcRoutes        from './routes/oidc.js';
 import oidcAdminRoutes   from './routes/oidc-admin.js';
 import apiTokensRoutes   from './routes/api-tokens.js';
 import mcpRoutes         from './routes/mcp.js';
+import publicApiRoutes   from './routes/public-api.js';
 import { logger }        from './logger.js';
 import { authenticate }  from './middleware/auth.js';
 import { seedSmtpFromEnv } from './email.js';
@@ -185,6 +186,10 @@ router.use('/api/admin/api-tokens', apiTokensRoutes);
 // unless MCP_ENABLED=1 in the server env. See server/routes/mcp.js and
 // server/lib/mcp/ for the tool implementations. Issue #78.
 router.use('/api/mcp', mcpRoutes);
+// Versioned public REST API, off by default, shares the same bearer
+// token + mcp:* scopes as MCP. Serves scripts/automations that just
+// want a plain JSON HTTP endpoint rather than the MCP protocol. Issue #77.
+router.use('/api/v1', publicApiRoutes);
 router.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Serve Svelte frontend (production build) — anything except index.html.
