@@ -232,6 +232,28 @@ db.exec(`
     stats   TEXT DEFAULT '{}',
     UNIQUE(user_id, date)
   );
+
+  -- Progress photos. Deliberately NOT unique per date: a user can log a
+  -- front and a side shot the same day, and a photo can exist on a date
+  -- with no numeric stats logged (and vice versa), so this is its own
+  -- table rather than a key inside body_stats_log.stats.
+  --
+  -- \`kind\` only ever holds 'photo' today. It exists so a second media
+  -- kind later is an additive change instead of a table rename plus a
+  -- migration through every sync/backup/purge touchpoint. No CHECK
+  -- constraint on purpose: that would itself need a migration to loosen.
+  -- Shape is enforced in the route/core layer, matching how
+  -- body_stats_log.stats is schema-less here and validated in code.
+  CREATE TABLE IF NOT EXISTS body_stat_media (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER,
+    date       TEXT NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'photo',
+    url        TEXT NOT NULL,
+    created_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_body_stat_media_user_date
+    ON body_stat_media(user_id, date);
 `);
 
 // ── Cardio Log ───────────────────────────────────────────────────────────
@@ -700,6 +722,7 @@ const SYNCABLE = [
   { table: 'program_assignments', hasCreated: 'assigned_at', byUser: 'assigned_to' },
   { table: 'workout_log',       hasCreated: 'created_at',  byUser: 'user_id' },
   { table: 'body_stats_log',    hasCreated: null,          byUser: 'user_id' },
+  { table: 'body_stat_media',   hasCreated: 'created_at',  byUser: 'user_id' },
   { table: 'ai_chat_history',   hasCreated: 'created_at',  byUser: 'user_id' },
 ];
 

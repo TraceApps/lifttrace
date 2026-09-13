@@ -172,6 +172,7 @@
   import ProgramDetail   from './routes/ProgramDetail.svelte';
   import WorkoutEditor   from './routes/WorkoutEditor.svelte';
   import Statistics      from './routes/Statistics.svelte';
+  import Progress        from './routes/Progress.svelte';
   import Radio           from './routes/Radio.svelte';
   import Settings        from './routes/Settings.svelte';
   import Coaching        from './routes/Coaching.svelte';
@@ -196,6 +197,9 @@
     '/programs/:id':          ProgramDetail,
     '/programs/:programId/template/:templateId': WorkoutEditor,
     '/statistics':            Statistics,
+    // Reached from Statistics and the Body Stats sheet rather than the
+    // nav bar: occasional-use content, but a real page with its own URL.
+    '/progress':              Progress,
     '/radio':                 Radio,
     '/settings':              Settings,
     '/settings/:section':     Settings,

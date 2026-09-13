@@ -1,4 +1,5 @@
 import db from '../db.js';
+import { deleteMediaForUser } from './body-stat-media.js';
 
 // ── Claim anonymous (single-user mode) data for the first real account ────
 // Single-user mode has no users row, so `uid()` writes NULL and the
@@ -21,7 +22,7 @@ import db from '../db.js';
 // route and both call it.
 export const CLAIM_NULL = [
   'workout_log', 'workout_tombstones', 'body_stats_log',
-  'cardio_log', 'ai_chat_history',
+  'body_stat_media', 'cardio_log', 'ai_chat_history',
 ];
 
 const ORPHAN_EXTRA_COUNTS = [
@@ -116,6 +117,10 @@ export function releaseDataBeforeDisable() {
 
 /** Every table LiftTrace scopes to a user. No FKs exist, so this is by hand. */
 const purgeAllUserData = db.transaction((userId) => {
+  // Runs before the generic loop below: body_stat_media owns files on
+  // disk, and a plain row DELETE would strand them. The loop's own
+  // DELETE for that table is then a harmless no-op.
+  deleteMediaForUser(userId);
   for (const t of CLAIM_NULL) {
     db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).run(userId);
   }
@@ -129,7 +134,13 @@ const purgeAllUserData = db.transaction((userId) => {
 // LiftTrace has no FK to users(id) anywhere, so routes/auth.js deletes each
 // table by hand when an admin removes an account. cardio_log and
 // workout_tombstones were never added to that list and survived the delete.
-const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state'];
+// body_stat_media is listed here as a safety net for its ROWS: the files
+// on disk still need deleteMediaForUser (see lib/body-stat-media.js),
+// which every deletion path calls first, so this entry is normally a
+// no-op. It matters if a future path ever reaches purgeUserRows without
+// the helper: rows would still go, rather than surviving a deleted
+// account entirely.
+const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state', 'body_stat_media'];
 
 export const purgeUserRows = db.transaction((userId) => {
   for (const t of NO_CASCADE_TABLES) {

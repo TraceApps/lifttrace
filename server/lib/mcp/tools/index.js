@@ -20,8 +20,10 @@ import { registerSearchExercises } from './search-exercises.js';
 import { registerListPrograms } from './list-programs.js';
 import { registerGetActiveProgram } from './get-active-program.js';
 import { registerGetBodyStat } from './get-body-stat.js';
+import { registerListProgressPhotos } from './list-progress-photos.js';
 import { registerLogSet } from './log-set.js';
 import { registerLogBodyStat } from './log-body-stat.js';
+import { registerAddProgressPhoto } from './add-progress-photo.js';
 import { registerDeleteWorkout } from './delete-workout.js';
 
 export function registerReadTools(server, ctx) {
@@ -33,11 +35,13 @@ export function registerReadTools(server, ctx) {
   registerListPrograms(server, ctx);
   registerGetActiveProgram(server, ctx);
   registerGetBodyStat(server, ctx);
+  registerListProgressPhotos(server, ctx);
 }
 
 export function registerWriteTools(server, ctx) {
   registerLogSet(server, ctx);
   registerLogBodyStat(server, ctx);
+  registerAddProgressPhoto(server, ctx);
 }
 
 export function registerDestroyTools(server, ctx) {

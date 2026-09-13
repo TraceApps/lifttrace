@@ -4,6 +4,9 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { mergeStatsObject } from '../lib/workout-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { unlinkMediaFile } from '../lib/body-stat-media.js';
+import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
+import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -20,6 +23,52 @@ router.get('/range', wrap((req, res) => {
     : db.prepare('SELECT * FROM body_stats_log WHERE user_id IS NULL AND date BETWEEN ? AND ? ORDER BY date ASC').all(start, end);
   for (const r of rows) r.stats = JSON.parse(r.stats || '{}');
   res.json(rows);
+}));
+
+// ── Progress photos ───────────────────────────────────────────────────────
+// Declared BEFORE /:date, or Express matches "photos" as a date param.
+//
+// Reads and writes go through the same xCore functions the MCP tools and
+// /api/v1 use, so there is one implementation of each, not three. Delete
+// is app-only (no MCP or REST equivalent, matching how public-api.js
+// exposes no DELETE at all) and owns its own logic here.
+
+// GET /api/body-stats/photos?start=YYYY-MM-DD&end=YYYY-MM-DD
+router.get('/photos', wrap((req, res) => {
+  try {
+    res.json(listProgressPhotosCore(uid(req), { start: req.query.start, end: req.query.end }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
+
+// POST /api/body-stats/photos  { date, url }
+// Two-step: the client uploads to /api/upload/body-stats first, then
+// attaches the URL that route returns. Keeps the upload route unaware of
+// body-stats and reusable.
+router.post('/photos', wrap((req, res) => {
+  try {
+    res.status(201).json(addProgressPhotoCore(uid(req), { date: req.body?.date, url: req.body?.url }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
+
+// DELETE /api/body-stats/photos/:id, soft-deletes the row so the delete
+// syncs to other devices, and unlinks the file so it does not linger as
+// an orphan the way custom-exercise media currently does.
+router.delete('/photos/:id', wrap((req, res) => {
+  const userId = uid(req);
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  const row = userId != null
+    ? db.prepare('SELECT * FROM body_stat_media WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, userId)
+    : db.prepare('SELECT * FROM body_stat_media WHERE id = ? AND user_id IS NULL AND deleted_at IS NULL').get(id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  db.prepare("UPDATE body_stat_media SET deleted_at = datetime('now') WHERE id = ?").run(id);
+  unlinkMediaFile(row.url);
+  res.json({ ok: true });
 }));
 
 router.get('/:date', wrap((req, res) => {

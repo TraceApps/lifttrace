@@ -31,6 +31,7 @@
     "program_detail":  { "title": "Program" },
     "workout_editor":  { "title": "Workout Editor" },
     "statistics":      { "title": "Statistics" },
+    "progress":        { "title": "Progress" },
     "radio":           { "title": "Radio" },
     "coaching":        { "title": "Coaching" },
     "settings":        { "title": "Settings" },
@@ -1161,6 +1162,8 @@
     "most_active":          "Most active: {day}",
     "no_workouts_in_range": "No workouts in this range.",
     "no_body_weight":       "No body weight logged yet. Tap the scale icon in the diary to log your weight.",
+    "progress_link":        "Progress photos",
+    "progress_link_sub":    "See your timeline and compare two dates",
     "current":              "Current",
     "no_cardio_range":      "No cardio logged in this range. Add sessions from the Diary.",
     "on_target":            "On target",
@@ -1190,6 +1193,38 @@
     "pounds":          "Pounds",
     "kilograms":       "Kilograms",
     "weight_ph":       "Enter weight"
+  },
+  "progress": {
+    "add_photo":      "Add photo",
+    "adding":         "Adding…",
+    "view_timeline":  "View timeline",
+    "compare_ends":   "Compare first and latest",
+    "compare_pick":   "Compare two",
+    "compare_cancel": "Cancel",
+    "compare_hint":   "Pick two photos to compare ({n}/2 selected)",
+    "delete_title":   "Delete photo",
+    "empty": {
+      "title": "No progress photos yet",
+      "desc":  "Add a photo every few weeks and compare any two dates side by side to see how far you have come."
+    },
+    "compare": {
+      "title":        "Before and after",
+      "before_alt":   "Earlier photo",
+      "after_alt":    "Later photo",
+      "handle_label": "Drag to compare"
+    },
+    "confirm": {
+      "delete_title":   "Delete this photo?",
+      "delete_msg":     "This removes the photo from your timeline and deletes the file. This cannot be undone.",
+      "delete_confirm": "Delete"
+    },
+    "toast": {
+      "added":         "Photo added",
+      "add_failed":    "Could not add photo",
+      "deleted":       "Photo deleted",
+      "delete_failed": "Could not delete photo",
+      "load_failed":   "Could not load progress photos"
+    }
   },
   "coaching": {
     "toast": {

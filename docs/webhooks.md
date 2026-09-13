@@ -34,6 +34,7 @@ signatures on the receiving end and cannot be retrieved again later.
 |---|---|
 | `workout.completed` | A workout session is marked completed. |
 | `body_stat.logged` | Any body-stat value (weight, body fat, a measurement) is logged or updated. |
+| `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
 | `pr.set` | A new personal record (max weight or estimated 1-rep max) is set on an exercise. Uses the same record definition the Statistics page and `/api/v1/records` already use. |
 | `program.advanced` | An active program moves to its next week. |
 

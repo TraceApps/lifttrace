@@ -45,6 +45,8 @@ import { searchExercisesCore } from '../lib/mcp/tools/search-exercises.js';
 import { listProgramsCore } from '../lib/mcp/tools/list-programs.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 import { getBodyStatCore } from '../lib/mcp/tools/get-body-stat.js';
+import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
+import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 import { logSetCore } from '../lib/mcp/tools/log-set.js';
 import { logBodyStatCore } from '../lib/mcp/tools/log-body-stat.js';
 
@@ -126,12 +128,25 @@ router.get('/programs/active', requireScope('mcp:read'), core(req =>
   getActiveProgramCore(req.apiUser.id)
 ));
 
+// Declared before /body-stats/:date, or Express matches "photos" as a
+// date param. Same xCore functions the MCP tools call.
+router.get('/body-stats/photos', requireScope('mcp:read'), core(req =>
+  listProgressPhotosCore(req.apiUser.id, { start: req.query.start, end: req.query.end })
+));
+
 router.get('/body-stats/:date', requireScope('mcp:read'), core(req =>
   getBodyStatCore(req.apiUser.id, { date: req.params.date })
 ));
 
 router.post('/workouts/:date/sets', requireWriteEnabled, requireScope('mcp:write'), core(req =>
   logSetCore(req.apiUser.id, { ...req.body, date: req.params.date })
+));
+
+// Attaches an already-hosted image URL. Raw uploads stay on the
+// session-authed /api/upload/body-stats route: nothing in this API
+// handles multipart, by design.
+router.post('/body-stats/photos', requireWriteEnabled, requireScope('mcp:write'), core(req =>
+  addProgressPhotoCore(req.apiUser.id, { date: req.body?.date, url: req.body?.url })
 ));
 
 router.put('/body-stats/:date', requireWriteEnabled, requireScope('mcp:write'), core(req =>

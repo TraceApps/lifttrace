@@ -169,8 +169,8 @@ The Strong / Hevy importers currently stash RPE into set notes as `"RPE 8"`. Pro
 
 ### ~~Body stats~~ *(done, v0.9.x)*
 
-### Progress photos timeline
-Dated photos stored under body-stats, swipeable before/after view.
+### ~~Progress photos timeline~~ *(done)*
+Dated photos on their own `/progress` page, reached from Statistics and the Body Stats sheet, with a drag-to-compare before/after view. Photos never expire; they are the long-term record the feature exists for. Coaching clips (#57) are a separate concern with a separate lifetime, see that issue.
 
 ---
 

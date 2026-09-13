@@ -1003,6 +1003,17 @@
 
       <!-- ═════════ BODY WEIGHT ═════════ -->
       {#if metric === 'weight'}
+        <!-- Progress photos live on their own route; this is the entry
+             point into it, here because this is where someone already
+             comes to look at how their body has changed. -->
+        <button class="progress-link" on:click={() => push('/progress')}>
+          <span class="material-symbols-rounded">photo_library</span>
+          <span class="pl-text">
+            <span class="pl-title">{$_('statistics.progress_link')}</span>
+            <span class="pl-sub">{$_('statistics.progress_link_sub')}</span>
+          </span>
+          <span class="material-symbols-rounded pl-chev">chevron_right</span>
+        </button>
         {#if bodyWeights.length === 0}
           <div class="empty-state">
             <span class="material-symbols-rounded">monitor_weight</span>
@@ -1583,6 +1594,21 @@
     font-size: 13px; color: var(--text-3);
     margin: 24px 0 0; text-align: center;
   }
+
+  /* Entry point into the Progress route (photos live on their own page) */
+  .progress-link {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; margin-bottom: 12px; padding: 12px 14px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    text-align: left; cursor: pointer;
+  }
+  .progress-link:hover { background: var(--surface-2); }
+  .progress-link > .material-symbols-rounded { font-size: 24px; color: var(--accent); }
+  .pl-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .pl-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
+  .pl-sub { font-size: 12px; color: var(--text-3); }
+  .pl-chev { font-size: 20px; color: var(--text-3); }
 
   /* Empty / loading */
   .empty-state {

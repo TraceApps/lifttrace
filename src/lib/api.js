@@ -79,6 +79,20 @@ export const LtApi = {
   getBodyStatsRange: (start, end) => fetch(`/api/body-stats/range?start=${start}&end=${end}`, opts).then(_json),
   saveBodyStats: (date, data) => fetch(`/api/body-stats/${date}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
 
+  // ── Progress photos ────────────────────────────────────────────────────
+  // Two-step by design: upload the file, then attach the URL it returns.
+  getProgressPhotos: (start, end) =>
+    fetch(`/api/body-stats/photos?start=${start}&end=${end}`, opts).then(_json),
+  uploadProgressPhoto: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch('/api/upload/body-stats', { ...opts, method: 'POST', body: fd }).then(_json);
+  },
+  addProgressPhoto: (date, url) =>
+    fetch('/api/body-stats/photos', { ...jsonOpts, method: 'POST', body: JSON.stringify({ date, url }) }).then(_json),
+  deleteProgressPhoto: (id) =>
+    fetch(`/api/body-stats/photos/${id}`, { ...opts, method: 'DELETE' }).then(_json),
+
   // ── Statistics ─────────────────────────────────────────────────────────
   getVolume: (start, end) => fetch(`/api/stats/volume?start=${start}&end=${end}`, opts).then(_json),
   getFrequency: (start, end) => fetch(`/api/stats/frequency?start=${start}&end=${end}`, opts).then(_json),

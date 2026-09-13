@@ -1,11 +1,35 @@
 <script>
   import { onMount } from 'svelte';
+  import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { bodyStatsVisible, weightUnit, dateFormat } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { currentDate } from '../../stores/workout.js';
+  import { uploadAndAttachPhoto } from '../../lib/progress-photo-upload.js';
 
   export let open = false;
+
+  // Progress photo capture for the date this sheet is editing. The
+  // timeline and comparison live on /progress; this is the shortcut for
+  // someone already logging today's measurements.
+  let photoInput;
+  let photoUploading = false;
+
+  async function onPhotoFile(e) {
+    const file = e.target.files?.[0];
+    if (photoInput) photoInput.value = '';
+    if (!file) return;
+    photoUploading = true;
+    try {
+      await uploadAndAttachPhoto(file, $currentDate);
+      showSuccess($_('progress.toast.added'));
+    } catch (err) {
+      showError(err.message || $_('progress.toast.add_failed'));
+    } finally {
+      photoUploading = false;
+    }
+  }
 
   // Title case for the label, unit comes from getUnit() so each label
   // renders as e.g. "Weight (lbs)" or "Body Fat (%)". The previous
@@ -114,6 +138,20 @@
         {#if visibleStats.length === 0}
           <p class="bs-empty">No measurements enabled. Go to Settings → Workout to choose which stats to track.</p>
         {/if}
+
+        <!-- Progress photo for this same date. The full timeline and the
+             before/after comparison live on the Progress page; this is
+             just the "while I'm logging today" shortcut. -->
+        <div class="bs-photo-row">
+          <button class="btn btn-secondary bs-photo-btn" disabled={photoUploading} on:click={() => photoInput?.click()}>
+            <span class="material-symbols-rounded">add_a_photo</span>
+            {photoUploading ? $_('progress.adding') : $_('progress.add_photo')}
+          </button>
+          <button class="bs-photo-link" on:click={() => { open = false; push('/progress'); }}>
+            {$_('progress.view_timeline')}
+          </button>
+        </div>
+        <input type="file" accept="image/*" bind:this={photoInput} on:change={onPhotoFile} style="display:none" />
       </div>
       <div class="bs-sheet-footer">
         <button class="btn btn-primary w-full" on:click={save} disabled={saving}>
@@ -150,6 +188,15 @@
     padding-bottom: var(--safe-bottom);
   }
   .bs-sheet-body { padding: 8px 20px 0; }
+  .bs-photo-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 14px; flex-wrap: wrap;
+  }
+  .bs-photo-btn { flex: 1; min-width: 160px; }
+  .bs-photo-link {
+    background: none; border: none; padding: 4px 2px;
+    font-size: 12px; color: var(--accent); cursor: pointer;
+  }
   .bs-sheet-footer { padding: 16px 20px; }
   .bs-grid {
     display: grid;

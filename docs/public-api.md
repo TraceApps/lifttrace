@@ -56,6 +56,7 @@ a token lacking the required scope returns `403`.
 | GET | `/api/v1/programs` | List your programs, owned or coach-assigned. |
 | GET | `/api/v1/programs/active` | The currently active program: current week and every weekly template. |
 | GET | `/api/v1/body-stats/:date` | Body-stat measurements (weight, body fat, tape measurements) for a date. |
+| GET | `/api/v1/body-stats/photos?start=&end=` | Progress photos with their dates, newest first. Range defaults to the last year. |
 
 ### Write (require `mcp:write` and `PUBLIC_API_WRITE_ENABLED=1`)
 
@@ -63,6 +64,12 @@ a token lacking the required scope returns `403`.
 |---|---|---|---|
 | POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight, rpe?, warmup?, completed?}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. |
 | PUT | `/api/v1/body-stats/:date` | `{weight?, weight_unit?, bodyFat?, waist?, hips?, neck?, chest?, biceps?, thighs?, calves?}` | Merges the given values into that day's stats; omitted fields are left alone. `weight_unit: "lb"` converts to kg before storing. |
+| POST | `/api/v1/body-stats/photos` | `{url, date?}` | Attaches an already-hosted image to a date as a progress photo. `date` defaults to today. |
+
+`POST /api/v1/body-stats/photos` takes a URL, not a file: nothing in this
+API handles multipart uploads. Point it at an image you already host, or
+upload through the app, which posts to its own session-authenticated
+upload route first and then calls this with the URL that returns.
 
 Not yet exposed here: deleting a workout. That stays MCP-only for now
 (see `delete_workout` in the MCP setup guide), since it is an

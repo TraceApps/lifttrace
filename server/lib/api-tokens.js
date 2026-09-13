@@ -23,8 +23,8 @@ const TOKEN_BYTES = 32;  // 256-bit secret
  * is a bug the wiring test catches on load.
  */
 export const SCOPE_DESCRIPTIONS = {
-  'mcp:read':    'Read workouts, PRs, exercise progress, programs, and body stats, via MCP tools or the REST API (issue #77).',
-  'mcp:write':   'Log a set and log body stats, via MCP tools or the REST API. Requires MCP_WRITE_ENABLED=1 (for MCP) or PUBLIC_API_WRITE_ENABLED=1 (for REST) on the server.',
+  'mcp:read':    'Read workouts, PRs, exercise progress, programs, body stats, and progress photos, via MCP tools or the REST API (issue #77).',
+  'mcp:write':   'Log a set, log body stats, and attach a progress photo, via MCP tools or the REST API. Requires MCP_WRITE_ENABLED=1 (for MCP) or PUBLIC_API_WRITE_ENABLED=1 (for REST) on the server.',
   'mcp:destroy': "Delete a day's workout via MCP only (no REST equivalent yet). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.",
 };
 

@@ -49,6 +49,7 @@ const ALLOW_PRIVATE_WEBHOOK_URLS = _envFlag(process.env.ALLOW_PRIVATE_WEBHOOK_UR
 export const WEBHOOK_EVENT_DESCRIPTIONS = {
   'workout.completed': 'A workout session is marked completed.',
   'body_stat.logged':  'Any body-stat value (weight, body fat, a measurement) is logged or updated.',
+  'progress_photo.logged': 'A progress photo is attached to a date.',
   'pr.set':            'A new personal record (max weight or estimated 1-rep max) is set on an exercise.',
   'program.advanced':  'An active program moves to its next week.',
 };

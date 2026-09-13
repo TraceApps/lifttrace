@@ -42,6 +42,7 @@
     "@zxcvbn-ts/core": "^3.0.4",
     "@zxcvbn-ts/language-common": "^3.0.4",
     "@zxcvbn-ts/language-en": "^3.0.2",
+    "heic2any": "^0.0.4",
     "hls.js": "^1.6.16",
     "markdown-it": "^15.0.0",
     "svelte-i18n": "^4.0.1",

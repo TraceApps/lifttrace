@@ -161,6 +161,10 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM body_stats_log WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(sinceSql, ...userParams).map(parseRow);
 
+  const body_stat_media = db.prepare(
+    `SELECT * FROM body_stat_media WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
+  ).all(sinceSql, ...userParams).map(parseRow);
+
   // user_settings — only the current user's keys; never push admin-only
   // keys (none yet, but the filter is a hook for future).
   const settings = u != null
@@ -193,6 +197,7 @@ router.get('/pull', wrap((req, res) => {
     program_assignments,
     workout_log,
     body_stats_log,
+    body_stat_media,
     workout_tombstones,
     user_settings: settings,
     ai_chat_history,
@@ -218,7 +223,7 @@ router.post('/push', wrap((req, res) => {
   const body = req.body || {};
   const result = {
     exercises: [], programs: [], workout_templates: [], program_assignments: [],
-    workout_log: [], body_stats_log: [], user_settings: [], ai_chat_history: [],
+    workout_log: [], body_stats_log: [], body_stat_media: [], user_settings: [], ai_chat_history: [],
   };
 
   const norm = ts => ts ? toSqlTime(ts) : '';
@@ -466,6 +471,30 @@ router.post('/push', wrap((req, res) => {
           `INSERT INTO body_stats_log (user_id, date, stats, updated_at) VALUES (?, ?, ?, datetime('now'))`
         ).run(u, b.date, JSON.stringify(b.stats || {}));
         result.body_stats_log.push({ client_id: b.client_id, server_id: r.lastInsertRowid });
+      }
+    }
+
+    // ── body_stat_media (progress photos) ──────────────────────────────
+    //
+    // Keyed by server_id, not (user_id, date) like body_stats_log above:
+    // a date can hold several photos, so the date is not an identity.
+    // A photo row is immutable once written, the only update that can
+    // arrive is a soft-delete, so there is no field merge here.
+    for (const p of (body.body_stat_media || [])) {
+      const existing = p.server_id
+        ? db.prepare(`SELECT * FROM body_stat_media WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+            .get(...(u != null ? [p.server_id, u] : [p.server_id]))
+        : null;
+      if (existing) {
+        if (p.deleted_at && !existing.deleted_at && wins(p.updated_at, existing.updated_at)) {
+          db.prepare(`UPDATE body_stat_media SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+        }
+        result.body_stat_media.push({ client_id: p.client_id, server_id: existing.id });
+      } else if (!p.deleted_at && p.url && p.date) {
+        const r = db.prepare(
+          `INSERT INTO body_stat_media (user_id, date, kind, url, created_at, updated_at) VALUES (?, ?, 'photo', ?, datetime('now'), datetime('now'))`
+        ).run(u, p.date, p.url);
+        result.body_stat_media.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
     }
 
