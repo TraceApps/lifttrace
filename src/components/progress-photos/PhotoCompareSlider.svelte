@@ -65,6 +65,7 @@
 </script>
 
 <div class="compare">
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
     class="frame"
     bind:this={frameEl}

@@ -13,14 +13,18 @@
    * the comparison the feature exists for without making someone scroll
    * to both ends to set it up.
    */
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../../lib/api.js';
   import { resolveAssetUrl } from '../../lib/platform.js';
+  import { weightUnit } from '../../stores/settings.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { uploadAndAttachPhoto } from '../../lib/progress-photo-upload.js';
   import Spinner from '../ui/Spinner.svelte';
+  import Sheet from '../ui/Sheet.svelte';
+  import DatePicker from '../ui/DatePicker.svelte';
+  import WeightQuickLog from './WeightQuickLog.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -37,6 +41,17 @@
   function todayStr() {
     return new Date().toLocaleDateString('sv-SE');
   }
+
+  // The date the next capture attaches to. Defaults to today, which is the
+  // overwhelmingly common case, but is settable so a camera roll of older
+  // photos can be backfilled without walking the diary date by date.
+  let targetDate = todayStr();
+  let showDatePicker = false;
+  $: targetIsToday = targetDate === todayStr();
+
+  // Shown after a capture when that date has no weight logged. The number is
+  // only free to collect while you are standing there.
+  let weightPromptDate = null;
   function startStr() {
     const d = new Date();
     d.setMonth(d.getMonth() - months);
@@ -62,6 +77,19 @@
   }
 
   onMount(load);
+
+  // Weight can be logged from the diary, the desktop widget, or the prompt
+  // below, so follow the signal the app already broadcasts rather than
+  // assuming this component is the only writer.
+  function onStatsChanged() { if (!loading) load(); }
+  onMount(() => {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('lt:body-stats-saved', onStatsChanged);
+  });
+  onDestroy(() => {
+    if (typeof window === 'undefined') return;
+    window.removeEventListener('lt:body-stats-saved', onStatsChanged);
+  });
 
   // Newest first from the server; group into month buckets in that order.
   $: groups = (() => {
@@ -128,16 +156,27 @@
     const file = e.target.files?.[0];
     if (fileInput) fileInput.value = '';
     if (!file) return;
+    const day = targetDate;
     uploading = true;
     try {
-      await uploadAndAttachPhoto(file, todayStr());
+      await uploadAndAttachPhoto(file, day);
       showSuccess($_('progress.toast.added'));
       await load();
+      // Offer the missing number rather than nagging about one already there.
+      if (weightFor(day) == null) weightPromptDate = day;
     } catch (err) {
       showError(err.message || $_('progress.toast.add_failed'));
     } finally {
       uploading = false;
     }
+  }
+
+  function onWeightSaved(e) {
+    const { date, weight } = e.detail;
+    statsByDate.set(date, { ...(statsByDate.get(date) || {}), weight });
+    statsByDate = statsByDate;        // Map mutation needs the reassignment
+    weightPromptDate = null;
+    showSuccess($_('progress.weight.saved'));
   }
 
   async function remove(photo) {
@@ -185,6 +224,17 @@
           <span class="material-symbols-rounded">add_a_photo</span>
           {uploading ? $_('progress.adding') : $_('progress.add_photo')}
         </button>
+        <!-- Muted while it says Today, accented once it does not, so
+             backfilling a date is never something you do by accident. -->
+        <button
+          class="pp-datechip"
+          class:changed={!targetIsToday}
+          on:click={() => showDatePicker = true}
+          title={$_('progress.date_for_next')}
+        >
+          <span class="material-symbols-rounded">event</span>
+          {targetIsToday ? $_('progress.date_today') : dayLabel(targetDate)}
+        </button>
         {#if photos.length >= 3}
           <button class="btn btn-secondary" on:click={compareEnds}>
             <span class="material-symbols-rounded">compare</span>
@@ -199,6 +249,19 @@
       </div>
       {#if compareMode}
         <p class="pp-hint">{$_('progress.compare_hint', { values: { n: picked.length } })}</p>
+      {/if}
+
+      {#if weightPromptDate}
+        <div class="pp-weight-prompt">
+          <span class="pp-wp-text">
+            {$_('progress.weight.prompt', { values: { date: dayLabel(weightPromptDate) } })}
+          </span>
+          <WeightQuickLog
+            date={weightPromptDate}
+            on:saved={onWeightSaved}
+            on:cancel={() => weightPromptDate = null}
+          />
+        </div>
       {/if}
     </div>
 
@@ -217,7 +280,7 @@
               <div class="pp-meta">
                 <span class="pp-date">{dayLabel(p.date)}</span>
                 {#if weightFor(p.date) != null}
-                  <span class="pp-weight">{weightFor(p.date)}</span>
+                  <span class="pp-weight">{weightFor(p.date)} {$weightUnit}</span>
                 {/if}
                 {#if !compareMode}
                   <button class="pp-del btn-icon" title={$_('progress.delete_title')} on:click={() => remove(p)}>
@@ -233,6 +296,16 @@
   {/if}
 </div>
 
+<Sheet bind:open={showDatePicker} title={$_('progress.date_for_next')}>
+  <div class="pp-datesheet">
+    <DatePicker
+      bind:value={targetDate}
+      max={todayStr()}
+      on:select={(e) => { targetDate = e.detail; showDatePicker = false; }}
+    />
+  </div>
+</Sheet>
+
 <style>
   .pp-wrap { padding: 8px 0 24px; }
 
@@ -247,6 +320,34 @@
   .pp-toolbar { padding: 0 4px 12px; }
   .pp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .pp-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-3); }
+
+  .pp-datechip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: 13px; font-weight: 600; font-family: inherit;
+    cursor: pointer;
+  }
+  .pp-datechip .material-symbols-rounded { font-size: 18px; }
+  .pp-datechip.changed {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .pp-weight-prompt {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 10px; padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+  }
+  .pp-wp-text { font-size: 12px; color: var(--text-2); }
+
+  .pp-datesheet { max-width: 360px; margin: 0 auto; }
 
   .pp-group { margin-bottom: 20px; }
   .pp-month {

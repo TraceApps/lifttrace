@@ -22,6 +22,8 @@
   import { onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { resolveAssetUrl } from '../../lib/platform.js';
+  import { weightUnit } from '../../stores/settings.js';
+  import WeightQuickLog from './WeightQuickLog.svelte';
 
   /** @type {Array<{id:number, date:string, url:string}>} newest-first, as the timeline holds them */
   export let photos = [];
@@ -149,6 +151,59 @@
     const parsed = new Date(`${d}T00:00:00`);
     return isNaN(parsed) ? d : parsed.toLocaleDateString();
   }
+
+  // Weights logged from here before the parent has refetched. Without this
+  // the number you just typed would vanish until the sheet is reopened.
+  //
+  // `overrides` is threaded through as an argument rather than read from the
+  // closure on purpose: Svelte tracks only what a reactive statement mentions
+  // by name, so a bare weightAt(date) helper would leave `baseline` and
+  // `delta` stale after a save, showing the new weight beside a delta still
+  // computed from the old one.
+  let localWeights = new Map();
+  let logging = false;
+  function weightAt(date, overrides) {
+    if (overrides.has(date)) return overrides.get(date);
+    return weightFor(date);
+  }
+  function onWeightSaved(e) {
+    localWeights.set(e.detail.date, e.detail.weight);
+    localWeights = localWeights;
+    logging = false;
+  }
+
+  // Scrubbing away closes an open editor, so it cannot be left hanging over
+  // a photo it no longer belongs to.
+  let lastSeenDate = null;
+  $: if (current && current.date !== lastSeenDate) {
+    lastSeenDate = current.date;
+    logging = false;
+  }
+
+  $: currentWeight = current ? weightAt(current.date, localWeights) : null;
+
+  // The bare number is close to meaningless while scrubbing; the change since
+  // the first weighed photo is the thing worth reading. Baseline is the
+  // earliest photo that actually has a weight, not simply the earliest photo.
+  $: baseline = (() => {
+    for (const p of ordered) {
+      const w = weightAt(p.date, localWeights);
+      if (w != null && Number.isFinite(parseFloat(w))) {
+        return { date: p.date, weight: parseFloat(w) };
+      }
+    }
+    return null;
+  })();
+  $: delta = (() => {
+    if (!current || !baseline || current.date === baseline.date) return null;
+    const w = parseFloat(weightAt(current.date, localWeights));
+    if (!Number.isFinite(w)) return null;
+    const diff = w - baseline.weight;
+    if (Math.abs(diff) < 0.05) return null;
+    // Rounded to one decimal: scale precision beyond that is noise.
+    const rounded = Math.round(Math.abs(diff) * 10) / 10;
+    return { text: `${diff > 0 ? '+' : '-'}${rounded}`, since: baseline.date };
+  })();
   // "Day 0" is the first photo, which is the number someone actually wants
   // while scrubbing: how long this took, not the calendar date.
   $: dayOffset = (() => {
@@ -164,8 +219,26 @@
       <img src={resolveAssetUrl(current.url)} alt={fmtDate(current.date)} draggable="false" />
       <div class="stamp">
         <span class="stamp-date">{fmtDate(current.date)}</span>
-        {#if weightFor(current.date) != null}
-          <span class="stamp-sub">{weightFor(current.date)}</span>
+        {#if currentWeight != null}
+          <span class="stamp-sub">{currentWeight} {$weightUnit}</span>
+          {#if delta}
+            <span class="stamp-delta">
+              {$_('progress.scrub.since', {
+                values: { delta: delta.text, unit: $weightUnit, date: fmtDate(delta.since) },
+              })}
+            </span>
+          {/if}
+        {:else if logging}
+          <WeightQuickLog
+            date={current.date}
+            onDark
+            on:saved={onWeightSaved}
+            on:cancel={() => logging = false}
+          />
+        {:else}
+          <button class="stamp-add" on:click={() => logging = true}>
+            {$_('progress.weight.add')}
+          </button>
         {/if}
         {#if dayOffset != null}
           <span class="stamp-sub">{$_('progress.scrub.day_n', { values: { n: dayOffset } })}</span>
@@ -246,13 +319,25 @@
 
   .stamp {
     position: absolute; bottom: 10px; left: 10px;
-    display: flex; align-items: baseline; gap: 8px;
-    padding: 4px 10px; border-radius: var(--radius-full);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    max-width: calc(100% - 20px);
+    padding: 5px 10px; border-radius: var(--radius-lg);
     background: rgba(0, 0, 0, 0.55);
-    pointer-events: none;
+    /* Not pointer-events:none any more: the weight control lives in here. */
   }
   .stamp-date { font-size: 12px; font-weight: 700; color: #fff; }
   .stamp-sub  { font-size: 11px; color: rgba(255, 255, 255, 0.75); }
+  .stamp-delta {
+    font-size: 11px; font-weight: 600;
+    color: var(--accent);
+  }
+  .stamp-add {
+    background: none; border: none; padding: 0;
+    font-size: 11px; font-weight: 600; font-family: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+  }
 
   .controls { display: flex; align-items: center; gap: 10px; padding: 0 4px; }
   .play { flex-shrink: 0; }

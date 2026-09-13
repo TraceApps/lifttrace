@@ -202,6 +202,58 @@ test('scrub preloads a window around the cursor rather than the whole set', () =
   assert.match(scrubber, /new Image\(\)/);
 });
 
+test('weights are rendered with their unit, not as a bare number', () => {
+  // "182" is ambiguous and was the shipped behaviour; every other weight
+  // surface in the app renders the configured unit alongside it.
+  const timeline = read('../src/components/progress-photos/ProgressPhotosTimeline.svelte');
+  const scrubber = read('../src/components/progress-photos/PhotoScrubber.svelte');
+  for (const [name, src] of [['timeline', timeline], ['scrubber', scrubber]]) {
+    assert.match(src, /weightUnit/, `${name} must know the unit`);
+    assert.match(src, /\{\$weightUnit\}/, `${name} must render the unit`);
+  }
+});
+
+test('quick weight log merges into the day rather than replacing it', () => {
+  // PUT /api/body-stats/:date replaces the whole stats blob, so sending
+  // { weight } alone would wipe a waist or body-fat figure logged that day.
+  const wql = read('../src/components/progress-photos/WeightQuickLog.svelte');
+  assert.match(wql, /GET|fetch\(`\/api\/body-stats\/\$\{date\}`/);
+  assert.match(wql, /\.\.\.existing, weight: val/);
+  assert.match(wql, /method: 'PUT'/);
+  // The photo row must not grow its own copy of the weight.
+  assert.doesNotMatch(wql, /body_stat_media|photos/);
+});
+
+test('quick weight log announces itself on the app-wide stats signal', () => {
+  // Diary widget and the timeline both listen; without the event a weight
+  // logged from a photo would not reach either until a manual reload.
+  const wql = read('../src/components/progress-photos/WeightQuickLog.svelte');
+  const timeline = read('../src/components/progress-photos/ProgressPhotosTimeline.svelte');
+  assert.match(wql, /CustomEvent\('lt:body-stats-saved'\)/);
+  assert.match(timeline, /addEventListener\('lt:body-stats-saved'/);
+  assert.match(timeline, /removeEventListener\('lt:body-stats-saved'/);
+});
+
+test('capture can target a date other than today', () => {
+  // Backfilling a camera roll should not mean walking the diary date by date.
+  const timeline = read('../src/components/progress-photos/ProgressPhotosTimeline.svelte');
+  assert.match(timeline, /let targetDate = todayStr\(\)/);
+  assert.match(timeline, /uploadAndAttachPhoto\(file, day\)/);
+  assert.doesNotMatch(timeline, /uploadAndAttachPhoto\(file, todayStr\(\)\)/);
+  // A future date is not a thing a progress photo can have.
+  assert.match(timeline, /max=\{todayStr\(\)\}/);
+});
+
+test('scrub delta recomputes after a weight is logged in place', () => {
+  // Svelte tracks only what a reactive statement names, so the overrides map
+  // has to be an argument. Reading it from the closure leaves the delta
+  // computed from the old value while the number beside it shows the new one.
+  const scrubber = read('../src/components/progress-photos/PhotoScrubber.svelte');
+  assert.match(scrubber, /function weightAt\(date, overrides\)/);
+  assert.match(scrubber, /weightAt\(current\.date, localWeights\)/);
+  assert.match(scrubber, /weightAt\(p\.date, localWeights\)/);
+});
+
 test('both navs keep Statistics lit while on /progress', () => {
   // Without this the bottom nav falls through to its index-0 fallback and
   // highlights Diary, and the sidebar highlights nothing at all, on a page

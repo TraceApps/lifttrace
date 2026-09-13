@@ -1213,12 +1213,24 @@
       "after_alt":    "Later photo",
       "handle_label": "Drag to compare"
     },
+    "date_today":    "Today",
+    "date_for_next": "Date for the next photo",
     "scrub": {
       "title":        "Photo Timeline",
       "handle_label": "Drag to move through time",
       "play":         "Play",
       "pause":        "Pause",
-      "day_n":        "Day {n}"
+      "day_n":        "Day {n}",
+      "since":        "{delta} {unit} since {date}"
+    },
+    "weight": {
+      "label":       "Weight",
+      "add":         "Add weight",
+      "save":        "Save",
+      "saving":      "Saving…",
+      "saved":       "Weight saved",
+      "save_failed": "Could not save weight",
+      "prompt":      "No weight logged for {date}. Add it?"
     },
     "confirm": {
       "delete_title":   "Delete this photo?",
