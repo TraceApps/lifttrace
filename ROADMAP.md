@@ -172,6 +172,13 @@ The Strong / Hevy importers currently stash RPE into set notes as `"RPE 8"`. Pro
 ### ~~Progress photos timeline~~ *(done)*
 Dated photos on their own `/progress` page, reached from Statistics and the Body Stats sheet, with a drag-to-compare before/after view. Photos never expire; they are the long-term record the feature exists for. Coaching clips (#57) are a separate concern with a separate lifetime, see that issue.
 
+### Photo notes
+A free-text note per photo, not per date. The deciding case is the pose label ("front relaxed", "side flexed"): the table deliberately allows several photos on one date, and a pose is inherently per-photo, while a date-level note ("start of cut") degrades perfectly well into a per-photo one. The implication only runs one way, so the photo is the right owner, and one notes field beats two.
+
+Deliberately free text rather than a structured pose picker for now. A taxonomy chosen before anyone has formed a habit is a UI plus a migration betting on a guess, and free text stays fuzzy-matchable if smart compare (offering like against like) ever earns its place.
+
+Bigger than the one nullable column suggests: notes are the first thing that makes a photo row editable, so this adds an update verb across the app route, the MCP tool and the REST route, plus the sync-push and backup-restore column lists. Full plan in `docs/plans/photo-notes.md`.
+
 ---
 
 ## External Integrations
