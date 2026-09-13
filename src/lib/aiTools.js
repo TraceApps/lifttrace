@@ -228,6 +228,18 @@ export const TOOLS = [
     },
   },
   {
+    name: 'get_progress_photos',
+    description:
+      "List the user's progress photos in a date range: how many, on which dates, and the weight logged that day when there is one. Returns metadata only, never image content, so use it for consistency and trend questions ('how often am I taking photos?', 'when did I last take one?', 'what did I weigh at my first and latest photo?'). You cannot see the images themselves; if the user wants you to look at one, ask them to attach it to a message.",
+    parameters: {
+      type: 'object',
+      properties: {
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 365 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+      },
+    },
+  },
+  {
     name: 'get_stats_overview',
     description:
       "Snapshot the user's training over a window: workouts done, current + best streak, weekly averages, weekly volume + frequency series, muscle-group balance (with imbalance %), and top PRs set in range. Use for 'how am I doing?' / 'weekly summary'.",
@@ -395,6 +407,7 @@ export async function runTool(name, args) {
     case 'get_active_program':     return _getActiveProgram();
     case 'get_prs':                return _getPrs(args);
     case 'get_body_stats':         return _getBodyStats(args);
+    case 'get_progress_photos':    return _getProgressPhotos(args);
     case 'get_stats_overview':     return _getStatsOverview(args);
     case 'get_coach_prescription': return _getCoachPrescription(args);
 
@@ -642,6 +655,53 @@ function _defaultUnit(stat) {
   if (stat === 'weight') return 'kg';
   if (stat === 'body_fat' || stat === 'bodyfat') return '%';
   return null;
+}
+
+/**
+ * Progress-photo metadata. Deliberately returns no image content and no
+ * fetchable URL: the bytes sit behind an ownership-checked route, and
+ * shipping a user's body photos to whichever third-party model is
+ * configured is not something a convenience tool should do as a side
+ * effect. The user can attach an image to a message when they actually
+ * want that, which is explicit and per-message.
+ */
+async function _getProgressPhotos({ date_from, date_to } = {}) {
+  const from = date_from || _daysAgo(365);
+  const to   = date_to   || _today();
+  const [res, statRows] = await Promise.all([
+    _get(`/api/body-stats/photos?start=${from}&end=${to}`),
+    _get(`/api/body-stats/range?start=${from}&end=${to}`).catch(() => []),
+  ]);
+  const weightByDate = new Map();
+  for (const row of (statRows || [])) {
+    const w = (row.stats || {}).weight;
+    if (w == null || w === '') continue;
+    weightByDate.set(row.date, typeof w === 'object' ? w.value : w);
+  }
+  // Server returns newest first; count per date so several shots on one day
+  // read as one session rather than as separate entries.
+  const byDate = new Map();
+  for (const p of (res?.photos || [])) {
+    byDate.set(p.date, (byDate.get(p.date) || 0) + 1);
+  }
+  const dates = [...byDate.keys()].sort();
+  const entries = dates.map(d => ({
+    date: d,
+    photos: byDate.get(d),
+    ...(weightByDate.has(d) ? { weight: weightByDate.get(d), weight_unit: _defaultUnit('weight') } : {}),
+  }));
+  const first = entries[0] || null;
+  const last  = entries[entries.length - 1] || null;
+  return {
+    start: from,
+    end: to,
+    count: res?.count ?? (res?.photos || []).length,
+    days_with_photos: entries.length,
+    first,
+    latest: last,
+    entries,
+    note: 'Metadata only. Image content is not available to you; ask the user to attach a photo if you need to see one.',
+  };
 }
 
 async function _getStatsOverview({ range } = {}) {
