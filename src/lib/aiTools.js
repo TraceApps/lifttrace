@@ -240,6 +240,37 @@ export const TOOLS = [
     },
   },
   {
+    name: 'get_cardio',
+    description:
+      "Get logged cardio sessions in a date range: activity, duration, distance, average heart rate and notes, plus totals per activity. Cardio is logged separately from lifting and does NOT appear in get_workouts, so check here before commenting on conditioning, weekly training load, or recovery.",
+    parameters: {
+      type: 'object',
+      properties: {
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 30 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+        activity:  { type: 'string', description: "Optional case-insensitive filter, e.g. 'run', 'cycling'." },
+      },
+    },
+  },
+  {
+    name: 'log_cardio',
+    description:
+      "Log a cardio session. Use for runs, rides, rowing, walking, swimming and similar. Do NOT use log_workout or log_set for these; they are for resistance training.",
+    parameters: {
+      type: 'object',
+      required: ['activity', 'duration_min'],
+      properties: {
+        activity:      { type: 'string', description: "Activity name, e.g. 'Running', 'Cycling'." },
+        duration_min:  { type: 'number', description: 'Duration in whole minutes. Required, must be positive.' },
+        distance:      { type: 'number', description: 'Optional distance covered.' },
+        distance_unit: { type: 'string', description: "'km' or 'mi'. Defaults to km." },
+        avg_hr:        { type: 'number', description: 'Optional average heart rate in bpm.' },
+        notes:         { type: 'string', description: 'Optional free-text note.' },
+        date:          { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
+      },
+    },
+  },
+  {
     name: 'get_stats_overview',
     description:
       "Snapshot the user's training over a window: workouts done, current + best streak, weekly averages, weekly volume + frequency series, muscle-group balance (with imbalance %), and top PRs set in range. Use for 'how am I doing?' / 'weekly summary'.",
@@ -408,6 +439,7 @@ export async function runTool(name, args) {
     case 'get_prs':                return _getPrs(args);
     case 'get_body_stats':         return _getBodyStats(args);
     case 'get_progress_photos':    return _getProgressPhotos(args);
+    case 'get_cardio':             return _getCardio(args);
     case 'get_stats_overview':     return _getStatsOverview(args);
     case 'get_coach_prescription': return _getCoachPrescription(args);
 
@@ -416,6 +448,7 @@ export async function runTool(name, args) {
     case 'add_exercise_to_diary':       return _addExerciseToDiary(args);
     case 'log_set':                     return _logSet(args);
     case 'log_body_stat':               return _logBodyStat(args);
+    case 'log_cardio':                  return _logCardio(args);
     case 'start_workout_from_template': return _startWorkoutFromTemplate(args);
     case 'set_active_program':          return _setActiveProgram(args);
     case 'add_coach_prescription':      return _addCoachPrescription(args);
@@ -702,6 +735,62 @@ async function _getProgressPhotos({ date_from, date_to } = {}) {
     entries,
     note: 'Metadata only. Image content is not available to you; ask the user to attach a photo if you need to see one.',
   };
+}
+
+/**
+ * Cardio lives in its own table, not inside workout_log, so nothing in
+ * get_workouts or get_stats_overview reflects it. Without this tool Trace
+ * would tell a user training five days a week that they had done nothing
+ * since Tuesday.
+ */
+async function _getCardio({ date_from, date_to, activity } = {}) {
+  const from = date_from || _daysAgo(30);
+  const to   = date_to   || _today();
+  const rows = await _get(`/api/cardio?start=${from}&end=${to}`);
+  const needle = (activity || '').toLowerCase().trim();
+  const matched = (rows || []).filter(r => !needle || (r.activity || '').toLowerCase().includes(needle));
+  const sessions = matched.map(r => ({
+    date: r.date,
+    activity: r.activity,
+    duration_min: r.duration_min,
+    ...(r.distance != null ? { distance: r.distance, distance_unit: r.distance_unit || 'km' } : {}),
+    ...(r.avg_hr != null ? { avg_hr: r.avg_hr } : {}),
+    ...(r.notes ? { notes: r.notes } : {}),
+  }));
+  const byActivity = {};
+  let totalMin = 0;
+  for (const c of sessions) {
+    totalMin += c.duration_min || 0;
+    const k = c.activity || 'unknown';
+    byActivity[k] = byActivity[k] || { sessions: 0, minutes: 0 };
+    byActivity[k].sessions += 1;
+    byActivity[k].minutes += c.duration_min || 0;
+  }
+  return {
+    start: from,
+    end: to,
+    count: sessions.length,
+    total_minutes: totalMin,
+    by_activity: byActivity,
+    sessions,
+  };
+}
+
+async function _logCardio({ activity, duration_min, distance, distance_unit, avg_hr, notes, date } = {}) {
+  if (!activity || !String(activity).trim()) throw new Error('activity is required');
+  const mins = Math.floor(Number(duration_min));
+  if (!Number.isFinite(mins) || mins <= 0) throw new Error('duration_min must be a positive number of minutes');
+  const d = date || _today();
+  const saved = await _post('/api/cardio', {
+    date: d,
+    activity: String(activity).trim(),
+    duration_min: mins,
+    distance: distance == null || distance === '' ? null : Number(distance),
+    distance_unit: distance_unit === 'mi' ? 'mi' : 'km',
+    avg_hr: avg_hr == null || avg_hr === '' ? null : Math.floor(Number(avg_hr)),
+    notes: notes || null,
+  });
+  return { id: saved?.id, date: d, activity: String(activity).trim(), duration_min: mins };
 }
 
 async function _getStatsOverview({ range } = {}) {

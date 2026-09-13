@@ -607,10 +607,12 @@ ${profile || '(no profile data set yet; if the user asks about their name, age, 
 ${ctx}
 
 You have live tools for everything else. Prefer a tool call over guessing:
-- Reads: get_workouts, get_workout, get_exercises, get_exercise, get_programs, get_program, get_active_program, get_prs, get_body_stats, get_progress_photos, get_stats_overview, get_coach_prescription.
-- Writes: log_workout, add_exercise_to_diary, log_set, log_body_stat, start_workout_from_template, set_active_program, add_coach_prescription (coaches only).
+- Reads: get_workouts, get_workout, get_exercises, get_exercise, get_programs, get_program, get_active_program, get_prs, get_body_stats, get_progress_photos, get_cardio, get_stats_overview, get_coach_prescription.
+- Writes: log_workout, add_exercise_to_diary, log_set, log_body_stat, log_cardio, start_workout_from_template, set_active_program, add_coach_prescription (coaches only).
 
 Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
+
+Cardio is logged in its own table and does NOT appear in get_workouts or get_stats_overview. Call get_cardio before commenting on weekly training load, conditioning or recovery, and use log_cardio (not log_workout) for runs, rides, rows and walks.
 
 get_progress_photos returns dates, counts and the weight logged that day, never image content. You cannot see a user's progress photos. If they want your eyes on one, ask them to attach it to a message.
 
