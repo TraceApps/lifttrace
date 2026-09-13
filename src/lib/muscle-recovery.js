@@ -30,7 +30,12 @@ export const FRESHNESS = [
 ];
 
 export function freshnessFor(hoursAgo) {
-  if (hoursAgo == null) return { label: 'Untrained', color: 'var(--surface-2)' };
+  // Distinct from the body fill on purpose: an untrained muscle should still
+  // show as a region. Matching the silhouette hid the whole map for anyone
+  // with no completed sets in the window, which is what a new user sees.
+  if (hoursAgo == null) {
+    return { label: 'Untrained', color: 'color-mix(in srgb, var(--text-3) 34%, transparent)' };
+  }
   for (const t of FRESHNESS) if (hoursAgo < t.maxHours) return t;
   return FRESHNESS[FRESHNESS.length - 1];
 }
