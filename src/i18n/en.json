@@ -1213,6 +1213,13 @@
       "after_alt":    "Later photo",
       "handle_label": "Drag to compare"
     },
+    "scrub": {
+      "title":        "Photo Timeline",
+      "handle_label": "Drag to move through time",
+      "play":         "Play",
+      "pause":        "Pause",
+      "day_n":        "Day {n}"
+    },
     "confirm": {
       "delete_title":   "Delete this photo?",
       "delete_msg":     "This removes the photo from your timeline and deletes the file. This cannot be undone.",

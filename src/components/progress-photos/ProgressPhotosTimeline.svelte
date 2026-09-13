@@ -94,7 +94,10 @@
   }
 
   function onPick(photo) {
-    if (!compareMode) { dispatch('view', photo); return; }
+    // The viewer scrubs through the whole set, so it needs the list and the
+    // weights, not just the tile that was tapped. Both are already loaded
+    // here, so passing them costs nothing and saves the viewer a refetch.
+    if (!compareMode) { dispatch('view', { photo, photos, statsByDate }); return; }
     if (picked.find(p => p.id === photo.id)) {
       picked = picked.filter(p => p.id !== photo.id);
       return;

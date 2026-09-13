@@ -170,6 +170,38 @@ test('Progress is a real route but deliberately not a nav tab', () => {
   assert.doesNotMatch(tabs, /\/progress/);
 });
 
+test('tapping a photo opens the scrubber with the whole set, not one image', () => {
+  // The viewer scrubs across every photo, so a dispatch carrying only the
+  // tapped tile would leave it with nothing to travel through. The list and
+  // the weights are already loaded in the timeline, so they ride along
+  // rather than costing the viewer a second fetch.
+  const progressSvelte = read('../src/routes/Progress.svelte');
+  const timeline = read('../src/components/progress-photos/ProgressPhotosTimeline.svelte');
+  assert.match(timeline, /dispatch\('view', \{ photo, photos, statsByDate \}\)/);
+  assert.match(progressSvelte, /import PhotoScrubber/);
+  assert.match(progressSvelte, /photos=\{viewing\.photos\}/);
+  // The old tap-to-enlarge sheet was replaced, not left behind beside it.
+  assert.doesNotMatch(progressSvelte, /class="single"/);
+});
+
+test('the scrub track is a real date axis, not one even step per photo', () => {
+  // Evenly spacing the ticks would quietly hide a three-month gap in the
+  // record, which is exactly the thing worth seeing on a progress timeline.
+  const scrubber = read('../src/components/progress-photos/PhotoScrubber.svelte');
+  assert.match(scrubber, /\(times\[i\] - spanStart\) \/ \(spanEnd - spanStart\)/);
+  // Every photo on one date leaves no span to divide by, so there has to be
+  // a fallback rather than a division by zero stacking every tick at 0%.
+  assert.match(scrubber, /degenerate/);
+});
+
+test('scrub preloads a window around the cursor rather than the whole set', () => {
+  // Loading a year of photos up front on mobile data is the obvious wrong
+  // answer; decoding them one at a time mid-drag is the other one.
+  const scrubber = read('../src/components/progress-photos/PhotoScrubber.svelte');
+  assert.match(scrubber, /PRELOAD_RADIUS/);
+  assert.match(scrubber, /new Image\(\)/);
+});
+
 test('both navs keep Statistics lit while on /progress', () => {
   // Without this the bottom nav falls through to its index-0 fallback and
   // highlights Diary, and the sidebar highlights nothing at all, on a page

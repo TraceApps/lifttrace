@@ -16,19 +16,18 @@
   import Sheet from '../components/ui/Sheet.svelte';
   import ProgressPhotosTimeline from '../components/progress-photos/ProgressPhotosTimeline.svelte';
   import PhotoCompareSlider from '../components/progress-photos/PhotoCompareSlider.svelte';
+  import PhotoScrubber from '../components/progress-photos/PhotoScrubber.svelte';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
-  import { resolveAssetUrl } from '../lib/platform.js';
 
   let comparing = null;   // { before, after }
-  let viewing = null;     // single photo
+  let viewing = null;     // { photo, photos, statsByDate }
 
   function onCompare(e) { comparing = e.detail; }
   function onView(e)    { viewing = e.detail; }
 
-  function fmtDate(d) {
-    if (!d) return '';
-    const parsed = new Date(`${d}T00:00:00`);
-    return isNaN(parsed) ? d : parsed.toLocaleDateString();
+  function weightFor(date) {
+    const w = viewing?.statsByDate?.get(date)?.weight;
+    return (w === undefined || w === null || w === '') ? null : w;
   }
 </script>
 
@@ -56,26 +55,16 @@
 
 <Sheet
   open={!!viewing}
-  title={viewing ? fmtDate(viewing.date) : ''}
+  title={$_('progress.scrub.title')}
   height="full"
   wide
   on:close={() => viewing = null}
 >
   {#if viewing}
-    <div class="single">
-      <img src={resolveAssetUrl(viewing.url)} alt={fmtDate(viewing.date)} />
-    </div>
+    <PhotoScrubber
+      photos={viewing.photos}
+      startId={viewing.photo?.id}
+      {weightFor}
+    />
   {/if}
 </Sheet>
-
-<style>
-  .single {
-    display: flex; align-items: center; justify-content: center;
-    width: 100%; height: 100%; padding: 8px;
-  }
-  .single img {
-    max-width: 100%; max-height: 100%;
-    object-fit: contain;
-    border-radius: var(--radius-md);
-  }
-</style>
