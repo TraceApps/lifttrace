@@ -182,7 +182,7 @@ services:
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `DB_PATH` | Yes | `./lifttrace.db` | Path to SQLite database file |
-| `UPLOADS_PATH` | Yes | `./uploads` | Path for uploaded exercise images / GIFs / videos |
+| `UPLOADS_PATH` | Yes | `./uploads` | Path for uploaded exercise images / GIFs / videos, avatars, and progress photos (`body-stats/` subdirectory) |
 | `JWT_SECRET` | Yes (prod) | `dev-secret` | Secret for signing JWT auth tokens — **change this**. Server refuses to start in production with the dev default. |
 | `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key (AES-GCM, HKDF) for OIDC client secrets. By default we derive a key from `JWT_SECRET`, which means rotating `JWT_SECRET` invalidates every stored secret too. Set `TOKEN_ENC_KEY` explicitly if you want to rotate session tokens without forcing admins to re-enter OIDC client secrets. Use a long random string (e.g. `openssl rand -base64 48`). |
 | `PORT` | No | `3003` | Internal Express port (map to host in docker-compose) |
@@ -212,7 +212,7 @@ services:
 | `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
 
 | `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the versioned REST API at `/api/v1`, for scripts and automations that don't speak MCP. Uses the same tokens and `mcp:read`/`mcp:write` scopes as MCP. See `docs/public-api.md`. |
-| `PUBLIC_API_WRITE_ENABLED` | No | `0` | Set to `1` to allow the REST API's write routes (log a set, log body stats). Also requires the calling token to hold `mcp:write`. Independent of `PUBLIC_API_ENABLED` so read-only external access can be exposed without ever opening a write surface. |
+| `PUBLIC_API_WRITE_ENABLED` | No | `0` | Set to `1` to allow the REST API's write routes (log a set, log body stats, attach a progress photo). Also requires the calling token to hold `mcp:write`. Independent of `PUBLIC_API_ENABLED` so read-only external access can be exposed without ever opening a write surface. |
 | `WEBHOOKS_ENABLED` | No | `0` | Set to `1` to allow outgoing webhooks (workout completed, PR set, program advanced, body stat logged) configured in Settings, Webhooks. |
 | `ALLOW_PRIVATE_WEBHOOK_URLS` | No | `0` | Set to `1` to allow a webhook target on a private/loopback address (a same-Docker-network Home Assistant instance, for example). Off by default: a webhook target normally must resolve to a public address. |
 
