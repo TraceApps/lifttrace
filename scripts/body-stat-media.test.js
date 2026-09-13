@@ -77,3 +77,49 @@ maybe('unlinkMediaFile refuses a traversal path outright', () => {
 test.after(() => {
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
 });
+
+// ── Private-subdirectory guard ──────────────────────────────────────────
+//
+// Progress photos live under UPLOADS_PATH but must never be reachable
+// through the static handler. The obvious implementation, a prefix route on
+// '/uploads/body-stats', is wrong, and these vectors are why: express.static
+// percent-decodes a path before opening the file, while a router prefix
+// matches the raw path, so the two disagree on exactly the inputs an
+// attacker chooses. Three of these leaked a real file against the prefix
+// version before the guard was moved onto the resolved path.
+test('isPrivateUploadPath blocks every known static-serve bypass', { skip: !mod }, () => {
+  const { isPrivateUploadPath } = mod;
+  const vectors = [
+    '/body-stats/secret.jpg',
+    '/body-stats//secret.jpg',
+    '//body-stats/secret.jpg',          // leaked against a prefix route
+    '/%62ody-stats/secret.jpg',         // leaked against a prefix route
+    '/body%2Dstats/secret.jpg',         // leaked against a prefix route
+    '/./body-stats/secret.jpg',
+    '/other/../body-stats/secret.jpg',
+    '/exercises/../body-stats/secret.jpg',
+    '/body-stats/./secret.jpg',
+    '/body-stats/%2E/secret.jpg',
+    '/%2E%2F%62ody-stats/secret.jpg',
+    '/body-stats',                      // the directory itself
+  ];
+  for (const v of vectors) {
+    assert.equal(isPrivateUploadPath(v), true, `should block ${v}`);
+  }
+});
+
+test('isPrivateUploadPath leaves genuinely public assets alone', { skip: !mod }, () => {
+  const { isPrivateUploadPath } = mod;
+  // A sibling directory whose name merely starts with the private one must
+  // not be caught: prefix matching on the string would swallow it.
+  for (const v of ['/avatar.jpg', '/exercises/demo.gif', '/body-stats-other/ok.jpg']) {
+    assert.equal(isPrivateUploadPath(v), false, `should serve ${v}`);
+  }
+});
+
+test('isPrivateUploadPath fails closed on garbage input', { skip: !mod }, () => {
+  const { isPrivateUploadPath } = mod;
+  assert.equal(isPrivateUploadPath('/%E0%A4%A'), true, 'malformed encoding must not fall through');
+  assert.equal(isPrivateUploadPath(null), true);
+  assert.equal(isPrivateUploadPath(undefined), true);
+});

@@ -44,6 +44,7 @@ import publicApiRoutes   from './routes/public-api.js';
 import webhooksRoutes    from './routes/webhooks.js';
 import { logger }        from './logger.js';
 import { authenticate }  from './middleware/auth.js';
+import { isPrivateUploadPath } from './lib/upload-paths.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv }   from './ai.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
@@ -146,6 +147,25 @@ router.use((req, res, next) => {
 // Static uploads — kept BEFORE auth so images are publicly readable
 // (Android WebView can't send Authorization headers on <img src> requests).
 const uploadsPath = process.env.UPLOADS_PATH || './uploads';
+// Progress photos are never public. They stay under UPLOADS_PATH so full
+// backup (which walks the whole tree) keeps picking them up, but the only
+// way to read one is GET /api/body-stats/photos/:id/file, which runs behind
+// requireAuth and checks the row's owner before streaming bytes.
+//
+// The guard tests the RESOLVED path rather than the URL text. A prefix
+// route on '/uploads/body-stats' looks equivalent and is not: express.static
+// percent-decodes before opening the file while the router matches the raw
+// path, so `/uploads/%62ody-stats/x.jpg`, `/uploads/body%2Dstats/x.jpg` and
+// `/uploads//body-stats/x.jpg` all read straight through it. Verified by
+// probe, not assumed.
+//
+// A flat 404 rather than a 401, so the response says nothing about whether
+// a given filename exists.
+router.use('/uploads', (req, res, next) => {
+  if (isPrivateUploadPath(req.path)) return res.status(404).json({ error: 'Not found' });
+  next();
+});
+
 router.use('/uploads', express.static(uploadsPath, {
   setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); }
 }));

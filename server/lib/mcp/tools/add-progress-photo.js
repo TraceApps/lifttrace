@@ -13,6 +13,7 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 import { dispatchWebhookEvent } from '../../webhooks.js';
+import { isLocalPhotoUrl, PHOTO_DIR } from '../../body-stat-media.js';
 
 /**
  * Core write, shared by the MCP tool below, the app route at
@@ -36,10 +37,19 @@ export function addProgressPhotoCore(userId, { date, url } = {}) {
   // a javascript:/data: value would end up in an <img src> on the
   // timeline, and a bare relative path outside /uploads has no meaning
   // to any client.
-  const isLocal = clean.startsWith('/uploads/');
+  //
+  // A local path must be inside the progress-photo directory specifically,
+  // not merely under /uploads. The file route streams whatever path the row
+  // holds, so a row pointing at /uploads/backups/<timestamp>.zip or another
+  // user's photo would read back through your own ownership check, since
+  // the row really is yours. Narrow what a row may point at.
+  const isLocal = isLocalPhotoUrl(clean);
   const isRemote = /^https?:\/\//i.test(clean);
   if (!isLocal && !isRemote) {
-    throw new Error('url must be an /uploads/... path or an http(s) URL');
+    if (clean.startsWith('/uploads/')) {
+      throw new Error(`Local url must be under ${PHOTO_DIR} (upload via /api/upload/body-stats).`);
+    }
+    throw new Error(`url must be a ${PHOTO_DIR}... path or an http(s) URL`);
   }
 
   const r = db.prepare(

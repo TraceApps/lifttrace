@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, daysAgoLocal, todayLocal, toolResult, toolError } from '../_util.js';
+import { isLocalPhotoUrl } from '../../body-stat-media.js';
 
 const DEFAULT_DAYS = 365;
 
@@ -41,6 +42,15 @@ export function listProgressPhotosCore(userId, { start, end } = {}) {
           ORDER BY date DESC, created_at DESC, id DESC`
       ).all(userId, from, to);
 
+  // `url` is what the row stores and what the app matches on. It is NOT
+  // fetchable for a local photo any more: /uploads/body-stats is excluded
+  // from the static handler. `file_url` is the one to actually request, so
+  // an agent or script is not handed a link that 404s.
+  for (const r of rows) {
+    r.file_url = isLocalPhotoUrl(r.url)
+      ? `/api/v1/body-stats/photos/${r.id}/file`
+      : r.url;
+  }
   return { start: from, end: to, count: rows.length, photos: rows };
 }
 

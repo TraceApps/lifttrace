@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { loadServerSettings } from './settings.js';
 import { isNative, getServerUrl, apiUrl } from '../lib/platform.js';
+import { clearPhotoBlobs } from '../lib/photo-blobs.js';
 
 export const currentUser = writable(null);
 export const userMgmtActive = writable(false);
@@ -96,6 +97,9 @@ export async function loadAuthState() {
 }
 
 export async function logout() {
+  // Progress-photo bytes are held as object URLs in memory. Drop them so the
+  // next account on this device cannot read the previous one's photos.
+  try { clearPhotoBlobs(); } catch { /* nothing cached yet */ }
   // OIDC RP-initiated logout: ask the server for an end_session URL so
   // signing out also ends the IdP session and the next sign-in isn't
   // silently completed by a still-alive IdP cookie. Mobile flag tells

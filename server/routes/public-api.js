@@ -49,6 +49,7 @@ import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 import { logSetCore } from '../lib/mcp/tools/log-set.js';
 import { logBodyStatCore } from '../lib/mcp/tools/log-body-stat.js';
+import { resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 
 const router = Router();
 
@@ -133,6 +134,18 @@ router.get('/programs/active', requireScope('mcp:read'), core(req =>
 router.get('/body-stats/photos', requireScope('mcp:read'), core(req =>
   listProgressPhotosCore(req.apiUser.id, { start: req.query.start, end: req.query.end })
 ));
+
+// The bytes for one photo. Needed because /uploads/body-stats is excluded
+// from the static handler, and the session route that replaced it
+// authenticates with a JWT, which an API token is not. Without this, a
+// token holder could list photos and fetch none of them.
+router.get('/body-stats/photos/:id/file', requireScope('mcp:read'), wrap((req, res) => {
+  const found = resolvePhotoFileForUser(req.apiUser.id, req.params.id);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  res.sendFile(found.path, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: 'File missing' });
+  });
+}));
 
 router.get('/body-stats/:date', requireScope('mcp:read'), core(req =>
   getBodyStatCore(req.apiUser.id, { date: req.params.date })

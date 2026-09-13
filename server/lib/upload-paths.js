@@ -33,6 +33,61 @@ export function resolveUploadPath(url) {
   return abs;
 }
 
+/**
+ * Subdirectories under UPLOADS_PATH whose contents must never be served by
+ * the static handler.
+ *
+ * body-stats: progress photos are personal in a way an avatar or a shared
+ * exercise-demo GIF is not, so they are read only through
+ * GET /api/body-stats/photos/:id/file, which checks the row's owner.
+ *
+ * backups: BACKUPS_PATH defaults to a directory INSIDE UPLOADS_PATH, and a
+ * full-backup ZIP contains every user's photos, password hashes, reset
+ * tokens and OIDC config. Its filename is a timestamp, so it was guessable
+ * as well as public. Every /api/full-backup route is admin-only; serving
+ * the artefact itself from the pre-auth static tree handed the same data to
+ * anyone. Gating photos while leaving this open would have achieved nothing.
+ */
+const PRIVATE_SUBDIRS = ['body-stats', 'backups'];
+
+/**
+ * True when a request path under the /uploads mount would land inside a
+ * private subdirectory.
+ *
+ * Works on the RESOLVED path, not the URL text, because those two disagree
+ * in ways an attacker controls. express.static percent-decodes before
+ * looking up the file, while a router.use('/uploads/body-stats') prefix
+ * matches the raw path, so `/uploads/%62ody-stats/x.jpg`,
+ * `/uploads/body%2Dstats/x.jpg` and `/uploads//body-stats/x.jpg` all slip
+ * past a prefix guard and are then happily served. Decoding once (which is
+ * what serve-static does) and resolving collapses every one of those to the
+ * same absolute path.
+ *
+ * @param {string} reqPath path below the mount, e.g. '/body-stats/a.jpg'
+ */
+export function isPrivateUploadPath(reqPath) {
+  if (typeof reqPath !== 'string') return true;
+  let decoded;
+  try {
+    decoded = decodeURIComponent(reqPath);
+  } catch {
+    // Malformed encoding: serve-static will reject it too, but refuse here
+    // rather than guess at what it was meant to say.
+    return true;
+  }
+  if (decoded.includes('\0')) return true;
+  const root = path.resolve(uploadsPath);
+  const abs = path.resolve(root, '.' + (decoded.startsWith('/') ? decoded : '/' + decoded));
+  // Compared case-insensitively because the filesystem may be: on APFS or
+  // NTFS a request for /BODY-STATS/x.jpg resolves to the same file, and a
+  // case-sensitive guard would wave it through to express.static.
+  const lower = abs.toLowerCase();
+  return PRIVATE_SUBDIRS.some((sub) => {
+    const dir = path.join(root, sub).toLowerCase();
+    return lower === dir || lower.startsWith(dir + path.sep);
+  });
+}
+
 /** Delete one stored file by its `/uploads/...` URL. Never throws. */
 export function unlinkMediaFile(url) {
   const abs = resolveUploadPath(url);

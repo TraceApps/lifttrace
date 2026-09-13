@@ -14,7 +14,7 @@
    * separate mobile branch to keep in sync.
    */
   import { _ } from 'svelte-i18n';
-  import { resolveAssetUrl } from '../../lib/platform.js';
+  import PhotoImage from './PhotoImage.svelte';
 
   /** @type {{id:number, date:string, url:string}} */
   export let before;
@@ -75,8 +75,8 @@
     on:pointercancel={onPointerUp}
     style="--x: {pct}%"
   >
-    <img class="layer" src={resolveAssetUrl(after.url)} alt={$_('progress.compare.after_alt')} draggable="false" />
-    <img class="layer clipped" src={resolveAssetUrl(before.url)} alt={$_('progress.compare.before_alt')} draggable="false" />
+    <div class="layer"><PhotoImage photo={after} alt={$_('progress.compare.after_alt')} lazy={false} /></div>
+    <div class="layer clipped"><PhotoImage photo={before} alt={$_('progress.compare.before_alt')} lazy={false} /></div>
 
     <div class="divider" class:dragging>
       <button
@@ -119,9 +119,7 @@
   .layer {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
-    object-fit: contain;
     pointer-events: none;
-    -webkit-user-drag: none;
   }
   /* Only the "before" layer is clipped; revealing more of it as the
      divider moves right. */

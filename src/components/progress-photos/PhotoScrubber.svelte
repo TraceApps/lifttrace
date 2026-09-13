@@ -21,7 +21,8 @@
    */
   import { onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
-  import { resolveAssetUrl } from '../../lib/platform.js';
+  import { prefetchPhoto } from '../../lib/photo-blobs.js';
+  import PhotoImage from './PhotoImage.svelte';
   import { weightUnit } from '../../stores/settings.js';
   import WeightQuickLog from './WeightQuickLog.svelte';
 
@@ -65,20 +66,17 @@
   // Decoding a year of weekly photos mid-drag would stutter, so keep a window
   // around the cursor warm (plus both ends, which the arrow keys jump to)
   // rather than loading the whole set up front on someone's mobile data.
-  const preloaded = new Set();
   function preloadAround(i) {
     const wanted = [];
     for (let d = -PRELOAD_RADIUS; d <= PRELOAD_RADIUS; d++) {
-      if (ordered[i + d]) wanted.push(ordered[i + d].url);
+      if (ordered[i + d]) wanted.push(ordered[i + d]);
     }
-    if (ordered[0]) wanted.push(ordered[0].url);
-    if (ordered[ordered.length - 1]) wanted.push(ordered[ordered.length - 1].url);
-    for (const url of wanted) {
-      if (preloaded.has(url)) continue;
-      preloaded.add(url);
-      const img = new Image();
-      img.src = resolveAssetUrl(url);
-    }
+    if (ordered[0]) wanted.push(ordered[0]);
+    if (ordered[ordered.length - 1]) wanted.push(ordered[ordered.length - 1]);
+    // prefetchPhoto dedupes in-flight requests, caches successes AND
+    // failures, and skips rows that need no fetch, so repeated calls while
+    // dragging cost nothing after the first.
+    for (const p of wanted) prefetchPhoto(p);
   }
   $: if (idx >= 0 && ordered.length) preloadAround(idx);
 
@@ -216,7 +214,7 @@
 <div class="scrub">
   {#if current}
     <div class="frame">
-      <img src={resolveAssetUrl(current.url)} alt={fmtDate(current.date)} draggable="false" />
+      <PhotoImage photo={current} alt={fmtDate(current.date)} lazy={false} />
       <div class="stamp">
         <span class="stamp-date">{fmtDate(current.date)}</span>
         {#if currentWeight != null}
@@ -310,11 +308,6 @@
     border-radius: var(--radius-md);
     background: var(--surface-2);
     overflow: hidden;
-  }
-  .frame img {
-    max-width: 100%; max-height: 100%;
-    object-fit: contain;
-    -webkit-user-drag: none;
   }
 
   .stamp {

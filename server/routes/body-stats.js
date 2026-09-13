@@ -4,7 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { mergeStatsObject } from '../lib/workout-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
-import { unlinkMediaFile } from '../lib/body-stat-media.js';
+import { unlinkMediaFile, resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 
@@ -52,6 +52,29 @@ router.post('/photos', wrap((req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+}));
+
+// GET /api/body-stats/photos/:id/file, the image bytes themselves.
+//
+// Progress photos are NOT served from the static /uploads tree the way
+// avatars and exercise media are. That tree is mounted ahead of the auth
+// middleware so an Android WebView <img> can load it without an
+// Authorization header, which means anything in it is readable by anyone
+// holding the URL. That is an accepted trade for a shared exercise-demo
+// GIF and a bad one for a progress photo.
+//
+// Serving them here instead means the request passes through requireAuth
+// like every other route, and the row is looked up by id so ownership is
+// checked against the database rather than inferred from a filename. The
+// client fetches this with an ordinary fetch() (which already carries the
+// cookie on web and a bearer token on native) and renders the result from
+// an object URL, so no <img> request ever has to authenticate itself.
+router.get('/photos/:id/file', wrap((req, res) => {
+  const found = resolvePhotoFileForUser(uid(req), req.params.id);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  res.sendFile(found.path, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: 'File missing' });
+  });
 }));
 
 // DELETE /api/body-stats/photos/:id, soft-deletes the row so the delete

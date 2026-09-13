@@ -16,7 +16,6 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../../lib/api.js';
-  import { resolveAssetUrl } from '../../lib/platform.js';
   import { weightUnit } from '../../stores/settings.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
@@ -25,6 +24,7 @@
   import Sheet from '../ui/Sheet.svelte';
   import DatePicker from '../ui/DatePicker.svelte';
   import WeightQuickLog from './WeightQuickLog.svelte';
+  import PhotoImage from './PhotoImage.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -272,7 +272,7 @@
           {#each g.items as p (p.id)}
             <div class="pp-tile" class:picked={compareMode && picked.some(x => x.id === p.id)}>
               <button class="pp-thumb" on:click={() => onPick(p)}>
-                <img src={resolveAssetUrl(p.url)} alt={dayLabel(p.date)} loading="lazy" />
+                <PhotoImage photo={p} alt={dayLabel(p.date)} />
                 {#if compareMode && picked.some(x => x.id === p.id)}
                   <span class="pp-check material-symbols-rounded">check_circle</span>
                 {/if}
@@ -382,12 +382,10 @@
     aspect-ratio: 3 / 4;
     cursor: pointer;
   }
-  /* contain, not cover: a 9:16 phone photo cropped into this 3:4 tile
-     loses the head and feet, which is the part being compared. Uniform
-     tiles are not worth cropping the subject out of a progress shot, and
-     the full view and compare slider both use contain too, so the grid
-     now matches what you get when you open one. */
-  .pp-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  /* Sizing and object-fit: contain now live in PhotoImage, which every
+     progress-photo <img> goes through. Contain rather than cover because a
+     9:16 phone photo cropped into this 3:4 tile loses the head and feet,
+     which is the part being compared. */
   .pp-check {
     position: absolute; top: 8px; right: 8px;
     color: var(--accent); font-size: 24px;

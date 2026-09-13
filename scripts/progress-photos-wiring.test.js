@@ -199,7 +199,18 @@ test('scrub preloads a window around the cursor rather than the whole set', () =
   // answer; decoding them one at a time mid-drag is the other one.
   const scrubber = read('../src/components/progress-photos/PhotoScrubber.svelte');
   assert.match(scrubber, /PRELOAD_RADIUS/);
-  assert.match(scrubber, /new Image\(\)/);
+  // The whole row, not the id: prefetch has to skip rows that need no
+  // fetch (file:// on Capacitor standalone, externally hosted images) or
+  // dragging fires a doomed request per photo per pointer move.
+  assert.match(scrubber, /prefetchPhoto\(p\)/);
+  // Bytes now come from an authenticated fetch, so a bare new Image() would
+  // request a path that no longer serves anything.
+  assert.doesNotMatch(scrubber, /new Image\(\)/);
+  const blobs = read('../src/lib/photo-blobs.js');
+  assert.match(blobs, /inflight/, 'repeated prefetches must share one request');
+  assert.match(blobs, /MAX_CACHED/, 'object URLs pin blobs, so the cache needs a ceiling');
+  assert.match(blobs, /failures/, 'a failed fetch must be negatively cached, not retried per render');
+  assert.match(blobs, /directUrlFor\(photo\.url\)/, 'prefetch must skip rows needing no fetch');
 });
 
 test('weights are rendered with their unit, not as a bare number', () => {
@@ -252,6 +263,119 @@ test('scrub delta recomputes after a weight is logged in place', () => {
   assert.match(scrubber, /function weightAt\(date, overrides\)/);
   assert.match(scrubber, /weightAt\(current\.date, localWeights\)/);
   assert.match(scrubber, /weightAt\(p\.date, localWeights\)/);
+});
+
+test('progress photos are not reachable through the static uploads tree', () => {
+  // /uploads is mounted ahead of the auth middleware so an Android WebView
+  // <img> can load avatars and exercise media without an Authorization
+  // header. Anything in that tree is readable by anyone holding the URL,
+  // which is the wrong trade for a progress photo.
+  const indexJs = read('../server/index.js');
+  const guard = indexJs.indexOf('isPrivateUploadPath(req.path)');
+  const statik = indexJs.indexOf("router.use('/uploads', express.static");
+  assert.ok(guard > -1, 'the private-path guard must be wired into the uploads mount');
+  assert.ok(guard < statik, 'the guard must run before express.static, or it never fires');
+
+  // Specifically NOT a prefix route on '/uploads/body-stats'. express.static
+  // percent-decodes before opening a file while a router prefix matches the
+  // raw path, so that version serves /uploads/%62ody-stats/x.jpg straight
+  // through. The vectors are exercised for real in body-stat-media.test.js.
+  assert.doesNotMatch(indexJs, /router\.use\('\/uploads\/body-stats'/);
+
+  // A flat 404, not a 401: the response must not confirm a filename exists.
+  const block = indexJs.slice(guard, statik);
+  assert.match(block, /status\(404\)/);
+  assert.doesNotMatch(block, /status\(401\)/);
+});
+
+test('the photo file route checks ownership against the row, not the filename', () => {
+  // Lives in body-stat-media.js so the session route and the /api/v1 route
+  // share one access check. Two copies drift, and the one that drifts is
+  // the one nobody is looking at.
+  const lib = read('../server/lib/body-stat-media.js');
+  const fn = lib.slice(lib.indexOf('export function resolvePhotoFileForUser'));
+  assert.match(fn, /WHERE id = \? AND user_id = \?/);
+  assert.match(fn, /user_id IS NULL/);        // single-user mode
+  assert.match(fn, /deleted_at IS NULL/);
+  // The path comes from the stored row through the traversal-safe resolver,
+  // never from the request.
+  assert.match(fn, /resolveUploadPath\(row\.url\)/);
+
+  // A row's url is caller supplied, so the route must not trust that the
+  // write path constrained it: without this, attaching a row pointing at
+  // /uploads/backups/<timestamp>.zip and reading your own row would stream
+  // the backup back, ownership check and all.
+  assert.match(fn, /isLocalPhotoUrl\(row\.url\)/);
+  assert.match(fn, /status: 409/);
+
+  // Both callers go through it, neither reimplements the query.
+  for (const f of ['../server/routes/body-stats.js', '../server/routes/public-api.js']) {
+    const route = read(f);
+    assert.match(route, /resolvePhotoFileForUser\(/, `${f} should use the shared lookup`);
+    assert.doesNotMatch(route, /FROM body_stat_media WHERE id = \? AND user_id = \? AND deleted_at IS NULL'\)\.get\(id, userId\);\n\s*if \(!row\) return res\.status\(404\)[\s\S]{0,200}sendFile/,
+      `${f} should not reimplement the file lookup`);
+  }
+});
+
+test('a photo row can only point inside the progress-photo directory', () => {
+  // The confused-deputy fix, enforced at write time as well as read time.
+  const addTool = read('../server/lib/mcp/tools/add-progress-photo.js');
+  assert.match(addTool, /isLocalPhotoUrl\(clean\)/);
+  assert.doesNotMatch(addTool, /const isLocal = clean\.startsWith\('\/uploads\/'\)/);
+  const lib = read('../server/lib/body-stat-media.js');
+  assert.match(lib, /PHOTO_DIR = '\/uploads\/body-stats\/'/);
+});
+
+test('backup archives are excluded from the public uploads tree', () => {
+  // BACKUPS_PATH defaults to a directory inside UPLOADS_PATH, and a backup
+  // ZIP holds every user's photos plus password hashes and reset tokens.
+  // Every /api/full-backup route is admin-only; serving the artefact from
+  // the pre-auth static tree handed the same data to anyone, at a
+  // timestamp-shaped and therefore guessable filename.
+  const paths = read('../server/lib/upload-paths.js');
+  const subdirs = paths.match(/PRIVATE_SUBDIRS = \[([^\]]*)\]/)[1];
+  assert.match(subdirs, /'body-stats'/);
+  assert.match(subdirs, /'backups'/);
+  const backup = read('../server/routes/full-backup.js');
+  assert.match(backup, /BACKUPS_PATH \|\| path\.join\(UPLOADS_DIR, 'backups'\)/,
+    'if this default moves, revisit whether the carve-out still covers it');
+});
+
+test('MCP and REST hand back a URL that can actually be fetched', () => {
+  // row.url is a /uploads path that no longer serves anything, so returning
+  // it alone would give every agent and script a dead link.
+  const listTool = read('../server/lib/mcp/tools/list-progress-photos.js');
+  assert.match(listTool, /file_url/);
+  assert.match(listTool, /\/api\/v1\/body-stats\/photos\/\$\{r\.id\}\/file/);
+  // API tokens are not JWTs, so requireAuth cannot serve them; the bytes
+  // need their own route on /api/v1.
+  assert.match(publicApiJs, /router\.get\('\/body-stats\/photos\/:id\/file', requireScope\('mcp:read'\)/);
+});
+
+test('every progress-photo img goes through the authenticated component', () => {
+  // A single raw <img src={resolveAssetUrl(...)}> anywhere would silently
+  // reopen the public path for that surface.
+  const dir = '../src/components/progress-photos/';
+  for (const f of ['ProgressPhotosTimeline.svelte', 'PhotoScrubber.svelte', 'PhotoCompareSlider.svelte']) {
+    const src = read(dir + f);
+    assert.doesNotMatch(src, /resolveAssetUrl/, `${f} must not link photo bytes directly`);
+    assert.match(src, /<PhotoImage/, `${f} should render through PhotoImage`);
+  }
+  const viewer = read('../src/routes/Progress.svelte');
+  assert.doesNotMatch(viewer, /resolveAssetUrl/);
+});
+
+test('cached photo bytes are dropped on sign-out', () => {
+  // Object URLs live in memory for the session; without this the next
+  // account on the device could read the previous one's photos.
+  const authStore = read('../src/stores/auth.js');
+  assert.match(authStore, /clearPhotoBlobs/);
+  const blobs = read('../src/lib/photo-blobs.js');
+  assert.match(blobs, /export function clearPhotoBlobs/);
+  assert.match(blobs, /revokeObjectURL/);
+  // Deliberately not a service-worker cache: that is shared by every
+  // account signing in on the browser profile.
+  assert.doesNotMatch(blobs, /caches\.open|serviceWorker/);
 });
 
 test('both navs keep Statistics lit while on /progress', () => {
