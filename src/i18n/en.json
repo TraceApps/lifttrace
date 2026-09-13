@@ -1162,7 +1162,7 @@
     "most_active":          "Most active: {day}",
     "no_workouts_in_range": "No workouts in this range.",
     "no_body_weight":       "No body weight logged yet. Tap the scale icon in the diary to log your weight.",
-    "progress_link":        "Progress photos",
+    "progress_link":        "Progress Photos",
     "progress_link_sub":    "See your timeline and compare two dates",
     "current":              "Current",
     "no_cardio_range":      "No cardio logged in this range. Add sessions from the Diary.",
@@ -1195,11 +1195,11 @@
     "weight_ph":       "Enter weight"
   },
   "progress": {
-    "add_photo":      "Add photo",
+    "add_photo":      "Add Photo",
     "adding":         "Adding…",
-    "view_timeline":  "View timeline",
-    "compare_ends":   "Compare first and latest",
-    "compare_pick":   "Compare two",
+    "view_timeline":  "View Timeline",
+    "compare_ends":   "Compare First and Latest",
+    "compare_pick":   "Compare Two",
     "compare_cancel": "Cancel",
     "compare_hint":   "Pick two photos to compare ({n}/2 selected)",
     "delete_title":   "Delete photo",
@@ -1208,7 +1208,7 @@
       "desc":  "Add a photo every few weeks and compare any two dates side by side to see how far you have come."
     },
     "compare": {
-      "title":        "Before and after",
+      "title":        "Before and After",
       "before_alt":   "Earlier photo",
       "after_alt":    "Later photo",
       "handle_label": "Drag to compare"
