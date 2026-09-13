@@ -278,7 +278,12 @@
     aspect-ratio: 3 / 4;
     cursor: pointer;
   }
-  .pp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* contain, not cover: a 9:16 phone photo cropped into this 3:4 tile
+     loses the head and feet, which is the part being compared. Uniform
+     tiles are not worth cropping the subject out of a progress shot, and
+     the full view and compare slider both use contain too, so the grid
+     now matches what you get when you open one. */
+  .pp-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
   .pp-check {
     position: absolute; top: 8px; right: 8px;
     color: var(--accent); font-size: 24px;

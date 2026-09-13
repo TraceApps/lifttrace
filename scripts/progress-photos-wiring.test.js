@@ -159,10 +159,25 @@ test('the read core filters to photos and hides soft-deleted rows', () => {
   assert.match(listToolJs, /deleted_at IS NULL/);
 });
 
-test('Progress is a real route but deliberately not a nav entry', () => {
+test('Progress is a real route but deliberately not a nav tab', () => {
   assert.match(appSvelte, /import Progress\s+from '\.\/routes\/Progress\.svelte'/);
   assert.match(appSvelte, /'\/progress':\s*Progress,/);
   // Occasional-use content: reached from Statistics and the Body Stats
-  // sheet, so it should not be taking a primary nav slot.
-  assert.doesNotMatch(bottomNav, /\/progress/);
+  // sheet, so it should not be taking a primary nav slot. Checked against
+  // the tab list specifically, not the whole file, since the active-state
+  // mapping below legitimately mentions the route.
+  const tabs = bottomNav.match(/BASE_TABS = \[([\s\S]*?)\]/)[1];
+  assert.doesNotMatch(tabs, /\/progress/);
+});
+
+test('both navs keep Statistics lit while on /progress', () => {
+  // Without this the bottom nav falls through to its index-0 fallback and
+  // highlights Diary, and the sidebar highlights nothing at all, on a page
+  // that has nothing to do with either. Same treatment Coaching already
+  // gets under Programs.
+  const sidebar = read('../src/components/layout/Sidebar.svelte');
+  for (const [name, src] of [['BottomNav', bottomNav], ['Sidebar', sidebar]]) {
+    assert.match(src, /startsWith\('\/progress'\)/, `${name} should map /progress onto a tab`);
+    assert.match(src, /'\/statistics'/, `${name} should map /progress onto Statistics`);
+  }
 });

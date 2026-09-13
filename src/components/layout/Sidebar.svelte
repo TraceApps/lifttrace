@@ -42,10 +42,13 @@
     if (!persistent) { open = false; dispatch('close'); }
   }
 
-  // Coaching routes should keep the Programs entry active
+  // Routes with no sidebar entry of their own keep their parent entry
+  // active: Coaching under Programs, Progress photos under Statistics.
   $: activePath = (() => {
     const base = $location.split('?')[0];
-    return base.startsWith('/coaching') ? '/programs' : base;
+    if (base.startsWith('/coaching')) return '/programs';
+    if (base.startsWith('/progress')) return '/statistics';
+    return base;
   })();
 </script>
 
