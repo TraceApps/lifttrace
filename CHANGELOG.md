@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.3.0-dev05] - 2026-09-13
 
 ### Added
 - **Muscle recovery body map, redrawn.** The old figure was built on wrong proportions: its hip sat 71% of the way down the body instead of 50%, so the legs were about half the length they should be, and its shoulders and waist were the same width. A torso that long with no taper reads as a mannequin in a skirt whatever colour the muscles are. The figure now follows the standard eight-head canon with a real V-taper, muscle regions are anatomical shapes rather than rectangles, and each one is clipped to the silhouette so it finishes flush with the body edge instead of leaving the offset slivers you could see before. Arms attach at the shoulder, the knee and calf exist, and so do feet. Separately: an untrained muscle used to be drawn in `--surface-2`, all but identical to the silhouette fill, so anyone with no completed sets in the window saw a featureless dark blob rather than a body map. That is the first thing a new user sees, so it now renders as a visible region.
@@ -17,7 +17,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 
 - **Progress photos are no longer readable by URL.** Files under `UPLOADS_PATH/body-stats/` are excluded from the static handler and served only through `GET /api/body-stats/photos/:id/file` (and `GET /api/v1/body-stats/photos/:id/file` for API tokens), which verify the row belongs to the requester, so one account cannot read another's photos either. The exclusion tests the resolved filesystem path rather than the request URL: the obvious version, a route prefix on `/uploads/body-stats`, is bypassable, because `express.static` percent-decodes a path before opening the file while a router prefix matches the raw one. `/uploads/%62ody-stats/x.jpg`, `/uploads/body%2Dstats/x.jpg` and `/uploads//body-stats/x.jpg` each served a real file against that version. Avatars and exercise media are unchanged and stay public by URL.
-- **Full-backup archives were downloadable without signing in.** `BACKUPS_PATH` defaults to a directory inside `UPLOADS_PATH`, which is served before the auth middleware, so `/uploads/backups/lifttrace-backup-<timestamp>.zip` was fetchable by anyone who could reach the server. The filename is a timestamp, and scheduled backups run at a configured time, so guessing it was not much of an obstacle. Those archives contain every user's progress photos and measurements plus password hashes, password-reset tokens, invite tokens and OIDC client configuration, and every `/api/full-backup` route is admin-only, so this handed an unauthenticated visitor strictly more than the admin API would. The backups directory is now excluded from the static handler alongside progress photos. **If your instance has ever been reachable from the public internet, rotate `JWT_SECRET`, any OIDC client secret, and treat stored password hashes as exposed.**
+- **Full-backup archives were downloadable without signing in.** `BACKUPS_PATH` defaults to a directory inside `UPLOADS_PATH`, which is served before the auth middleware, so `/uploads/backups/lifttrace-backup-<timestamp>.zip` was fetchable by anyone who could reach the server. The filename is a timestamp and scheduled backups run at a configured time, so guessing it was not much of an obstacle. Every `/api/full-backup` route is admin-only, so this handed an unauthenticated visitor strictly more than the admin API would. The backups directory is now excluded from the static handler alongside progress photos.
+
+  **If your instance has been reachable from the public internet, assume an archive was taken and act on what it contains:**
+
+  - `smtp_pass` and `ai_api_key` are stored in `app_config` in plaintext. Rotate both.
+  - Password hashes (bcrypt) for every account. Slow to crack, but force a password change.
+  - Any unexpired rows in `password_reset_tokens` and `invite_tokens`. These are live credentials: a valid reset token is an account takeover. Delete outstanding ones.
+  - Every user's progress photos, measurements, workout history and AI chat history.
+
+  Two things are **not** exposed by the archive alone. Personal access tokens (`api_tokens`) and webhook secrets are not included in the dump at all. OIDC client secrets are, but encrypted with a key derived from `JWT_SECRET`, which is an environment variable and is not in the archive, so rotate those only if `JWT_SECRET` itself may have leaked by some other route. Note that rotating `JWT_SECRET` also re-keys that encryption, so OIDC client secrets have to be re-entered afterwards unless `TOKEN_ENC_KEY` is set explicitly.
 - **Photo bytes cached by the service worker are purged on upgrade and on sign-out.** That cache is `CacheFirst` with a 90 day lifetime and is shared by every account that signs in on the same browser profile, so without this it would have kept serving photos from before the change, to whoever signed in next. Progress photos are no longer written to it at all.
 - Bumped `adm-zip` to clear its open extraction advisory, which now has an in-range patch.
 
