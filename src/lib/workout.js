@@ -27,6 +27,136 @@ export function resolveLoadType(exercise, libraryLoadType, clientPrefs) {
   return 'bilateral';
 }
 
+// ── Set type: reps or time (issue #89) ─────────────────────────────────
+//
+// Most sets are weight x reps. Isometric holds (plank, wall sit, dead hang)
+// and timed carries are logged by duration instead, stored on the set as
+// whole seconds in `duration_sec`. Weight stays meaningful for both: a
+// weighted plank is "25 lbs for 1:00", a bodyweight one leaves weight empty.
+//
+// The mirror of these helpers for the server lives in server/lib/volume.js.
+// scripts/set-type.test.js runs the same cases through both so the two
+// cannot disagree about what counts as a timed set.
+
+export const SET_TYPES = ['reps', 'time'];
+
+function _cleanSetType(v) {
+  return v === 'time' || v === 'reps' ? v : null;
+}
+
+/**
+ * True when this set should be treated as a timed set by any math: volume,
+ * 1RM, PRs, charts.
+ *
+ * An explicit choice on the exercise instance always wins. Without one, the
+ * set's own data decides: a set carrying a duration is timed. That order is
+ * what lets a user flip an exercise to Time without losing the reps they had
+ * already typed (they stay on the set, ignored), and flip back to get them.
+ */
+export function isTimedSet(exercise, set) {
+  const t = _cleanSetType(exercise?.set_type);
+  if (t) return t === 'time';
+  return Number(set?.duration_sec) > 0;
+}
+
+/**
+ * Exercises that are timed by nature, matched by exact normalised name.
+ *
+ * Deliberately exact rather than a pattern: in the free-exercise-db catalogue
+ * "hang" also matches Hang Clean and Hang Snatch, "bridge" matches Glute
+ * Bridge and "plank" matches Push Up to Side Plank, all rep exercises. This
+ * is only a starting default for an exercise with no data, no library
+ * setting and no remembered choice; any of those overrides it.
+ */
+const TIMED_BY_NAME = new Set([
+  'plank', 'side plank', 'side bridge', 'copenhagen plank',
+  'wall sit', 'dead hang', 'bar hang', 'one handed hang', 'flexed arm hang',
+  'hollow hold', 'hollow body hold', 'l sit',
+  'farmers walk', 'farmer walk', 'farmers carry', 'suitcase carry', 'rickshaw carry',
+]);
+export function defaultSetTypeForName(name) {
+  const key = String(name || '').toLowerCase().replace(/[’'`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  return TIMED_BY_NAME.has(key) ? 'time' : null;
+}
+
+/**
+ * Which input a workout-instance exercise shows: 'reps' or 'time'.
+ *
+ *   1. Per-instance choice (`exercise.set_type`), made from the Diary chip.
+ *   2. The data already recorded on it. This outranks every default below,
+ *      so marking an exercise as timed in the library can never change the
+ *      shape of history someone has already logged with reps.
+ *   3. Library default (`librarySetType`, from the exercises table).
+ *   4. The user's remembered preference for this exercise.
+ *   5. A short list of exercises timed by nature (see defaultSetTypeForName).
+ *   6. 'reps'.
+ */
+export function resolveSetType(exercise, librarySetType, clientPrefs) {
+  const own = _cleanSetType(exercise?.set_type);
+  if (own) return own;
+  const sets = exercise?.sets || [];
+  if (sets.some(s => Number(s?.duration_sec) > 0)) return 'time';
+  if (sets.some(s => Number(s?.reps) > 0)) return 'reps';
+  const lib = _cleanSetType(librarySetType);
+  if (lib) return lib;
+  const exId = exercise?.exercise_id;
+  const pref = clientPrefs && exId != null ? _cleanSetType(clientPrefs[exId]) : null;
+  return pref || defaultSetTypeForName(exercise?.exercise_name) || 'reps';
+}
+
+/** 75 -> "1:15", 45 -> "0:45", 3725 -> "1:02:05". Empty for no duration. */
+export function fmtSetDuration(sec) {
+  const n = Math.round(Number(sec));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const h = Math.floor(n / 3600);
+  const m = Math.floor((n % 3600) / 60);
+  const s = n % 60;
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * Parse what someone types into a duration field, to whole seconds.
+ * Returns null for anything that isn't a duration.
+ *
+ *   "1:30" -> 90      "1:02:05" -> 3725
+ *   "90"   -> 90      a bare number is seconds, which is how people say holds
+ *   "45s"  -> 45      "2m" / "2min" -> 120     "1m30s" -> 90
+ */
+export function parseDuration(input) {
+  if (input == null) return null;
+  const str = String(input).trim().toLowerCase();
+  if (!str) return null;
+  if (/^\d+(:\d{1,2}){1,2}$/.test(str)) {
+    const parts = str.split(':').map(Number);
+    if (parts.slice(1).some(p => p >= 60)) return null;
+    const sec = parts.reduce((acc, p) => acc * 60 + p, 0);
+    return sec > 0 ? sec : null;
+  }
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const sec = Math.round(Number(str));
+    return sec > 0 ? sec : null;
+  }
+  const m = str.match(/^(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours))?\s*(?:(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes))?\s*(?:(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds))?$/);
+  if (!m || (!m[1] && !m[2] && !m[3])) return null;
+  const sec = Math.round((Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0));
+  return sec > 0 ? sec : null;
+}
+
+/**
+ * Compact label for one logged set, as used in history lists and summaries:
+ * "135×8" for reps, "25×1:00" for a weighted hold, "1:00" for a bodyweight
+ * one. Unilateral splits are left to callers that render them specially.
+ */
+export function fmtSetLabel(exercise, set) {
+  if (!set) return '';
+  if (isTimedSet(exercise, set)) {
+    const t = fmtSetDuration(set.duration_sec) || '0:00';
+    return set.weight ? `${set.weight}×${t}` : t;
+  }
+  return `${set.weight || 0}×${set.reps || 0}`;
+}
+
 /**
  * Per-set volume that honors the exercise's load_type. Three modes:
  *   - 'bilateral'  (default): weight × reps                — one load, both sides work together
@@ -76,6 +206,9 @@ export function exerciseVolume(exercise, opts = {}) {
   let total = 0;
   for (const s of (exercise.sets || [])) {
     if (!s.completed || s.warmup) continue;
+    // Timed sets are not weight x reps work. Leftover reps on a set whose
+    // exercise was flipped to Time must not sneak back into volume.
+    if (isTimedSet(exercise, s)) continue;
     total += setVolume(s, loadType);
   }
   return total;

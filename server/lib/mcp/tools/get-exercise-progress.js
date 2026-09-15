@@ -10,7 +10,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { setVolume } from '../../volume.js';
+import { setVolume, isTimedSet } from '../../volume.js';
 import { DATE_RE, daysAgoLocal, todayLocal, toolResult, toolError } from '../_util.js';
 
 /**
@@ -51,18 +51,24 @@ export function getExerciseProgressCore(userId, { exercise_name, start, end } = 
     const exercises = JSON.parse(row.exercises || '[]');
     const ex = exercises.find(e => e.exercise_id === exercise.id);
     if (!ex) continue;
-    const completedSets = (ex.sets || []).filter(s => s.completed && !s.warmup && s.weight > 0);
+    // Same split as GET /api/stats/progress (issue #89): timed sets report
+    // the longest hold whatever the load; rep sets still need weight.
+    const working = (ex.sets || []).filter(s => s.completed && !s.warmup);
+    const timedSets = working.filter(s => isTimedSet(ex, s) && Number(s.duration_sec) > 0);
+    const repSets = working.filter(s => !isTimedSet(ex, s) && s.weight > 0);
+    const completedSets = [...repSets, ...timedSets];
     if (!completedSets.length) continue;
-    const maxWeight = Math.max(...completedSets.map(s => s.weight));
+    const maxWeight = repSets.length ? Math.max(...repSets.map(s => s.weight)) : 0;
+    const maxDuration = timedSets.length ? Math.max(...timedSets.map(s => Number(s.duration_sec))) : 0;
     const loadType = ex.load_type || exercise.load_type || 'bilateral';
-    const totalVolume = completedSets.reduce((sum, s) => sum + setVolume(s, loadType), 0);
+    const totalVolume = repSets.reduce((sum, s) => sum + setVolume(s, loadType), 0);
     const rpeValues = completedSets
       .map(s => parseFloat(s.rpe))
       .filter(n => Number.isFinite(n) && n > 0);
     const avgRpe = rpeValues.length
       ? Math.round((rpeValues.reduce((a, b) => a + b, 0) / rpeValues.length) * 10) / 10
       : null;
-    progress.push({ date: row.date, maxWeight, totalVolume: Math.round(totalVolume), sets: completedSets.length, avgRpe });
+    progress.push({ date: row.date, maxWeight, max_duration_sec: maxDuration, totalVolume: Math.round(totalVolume), sets: completedSets.length, avgRpe });
   }
   return { exercise_name: exercise.name, start: rangeStart, end: rangeEnd, progress };
 }

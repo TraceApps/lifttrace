@@ -35,7 +35,7 @@ signatures on the receiving end and cannot be retrieved again later.
 | `workout.completed` | A workout session is marked completed. |
 | `body_stat.logged` | Any body-stat value (weight, body fat, a measurement) is logged or updated. |
 | `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
-| `pr.set` | A new personal record (max weight or estimated 1-rep max) is set on an exercise. Uses the same record definition the Statistics page and `/api/v1/records` already use. |
+| `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise. Uses the same record definition the Statistics page and `/api/v1/records` already use. |
 | `program.advanced` | An active program moves to its next week. |
 
 ## Payload
@@ -62,9 +62,16 @@ returns. `data` for `pr.set` looks like:
   "new_max_reps": 5,
   "new_e1rm": 163,
   "previous_max_weight": 135,
-  "previous_e1rm": 158
+  "previous_e1rm": 158,
+  "new_max_duration_sec": 0,
+  "previous_max_duration_sec": 0
 }
 ```
+
+For a timed exercise (plank, wall sit, dead hang, carry) the record that
+moved is the longest hold: `new_max_duration_sec` and
+`previous_max_duration_sec` carry it in seconds, and the weight fields stay
+at zero unless the exercise also has rep sets.
 
 ## Verifying a delivery
 

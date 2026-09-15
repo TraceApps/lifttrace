@@ -3,6 +3,7 @@
   import { trackRpe } from '../../stores/settings.js';
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
+  import { parseDuration, fmtSetDuration } from '../../lib/workout.js';
 
   export let set;
   export let setNum;
@@ -22,6 +23,10 @@
    *    - Whether the reps cell offers an L/R split (unilateral only).
    */
   export let loadType = 'bilateral';
+  /** 'reps' (default) or 'time' (issue #89). A timed set logs a duration
+   *  in place of reps; weight stays, for weighted holds and carries. */
+  export let setType = 'reps';
+  $: timed = setType === 'time';
 
   $: weightHint = loadType === 'paired' ? `${unit} ea`
                 : loadType === 'unilateral' ? `${unit}`
@@ -29,7 +34,7 @@
   // L/R split is only meaningful for unilateral exercises. When the user
   // taps the split icon we flip into split-mode where reps_l + reps_r are
   // edited separately; clearing both falls back to the single `reps` value.
-  $: isSplit = loadType === 'unilateral' && (set.reps_l != null || set.reps_r != null);
+  $: isSplit = !timed && loadType === 'unilateral' && (set.reps_l != null || set.reps_r != null);
   function toggleSplit() {
     if (isSplit) {
       // Collapse split → keep the higher of the two as the single rep count.
@@ -139,11 +144,13 @@
   let repsFocused = false;
   let repsLFocused = false;
   let repsRFocused = false;
+  let durationFocused = false;
 
   let weightStr = _fmt(set.weight);
   let repsStr = _fmt(set.reps);
   let repsLStr = _fmt(set.reps_l);
   let repsRStr = _fmt(set.reps_r);
+  let durationStr = fmtSetDuration(set.duration_sec);
 
   function _fmt(v) { return v == null || Number.isNaN(v) ? '' : String(v); }
 
@@ -154,6 +161,23 @@
   $: if (!repsFocused)   repsStr   = _fmt(set.reps);
   $: if (!repsLFocused)  repsLStr  = _fmt(set.reps_l);
   $: if (!repsRFocused)  repsRStr  = _fmt(set.reps_r);
+  $: if (!durationFocused) durationStr = fmtSetDuration(set.duration_sec);
+
+  // Duration entry. Commits on every keystroke that parses, like reps do,
+  // so tapping the tick straight after typing can never complete the set
+  // with a stale duration. A partial like "1:" simply waits. Bare digits
+  // are seconds ("90" is 1:30): phone number pads have no colon key, and
+  // holds are how people already count. On blur it reformats to m:ss so
+  // the reading is visible immediately.
+  function commitDuration(raw) {
+    if (raw === '' || raw == null) {
+      if (set.duration_sec) update('duration_sec', 0);
+      return;
+    }
+    const sec = parseDuration(raw);
+    if (sec == null) return;
+    if (sec !== set.duration_sec) update('duration_sec', sec);
+  }
 
   function commitNumber(field, raw, parser) {
     // Empty string commits as 0 (matches the old behaviour). Otherwise
@@ -245,6 +269,22 @@
       <button class="split-btn active" on:click={toggleSplit} title="Merge L/R" aria-label="Merge L/R">
         <span class="material-symbols-rounded">link_off</span>
       </button>
+    </div>
+  {:else if timed}
+    <div class="set-field">
+      <input
+        type="text"
+        class="set-input duration-input"
+        bind:value={durationStr}
+        on:input={() => commitDuration(durationStr)}
+        on:focus={(e) => { durationFocused = true; selectOnFocus(e); }}
+        on:blur={() => { durationFocused = false; commitDuration(durationStr); durationStr = fmtSetDuration(set.duration_sec); }}
+        on:keydown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        placeholder="0:00"
+        inputmode="numeric"
+        autocomplete="off"
+        aria-label="Duration"
+      />
     </div>
   {:else}
     <div class="set-field">
@@ -499,6 +539,9 @@
   .set-input::-webkit-inner-spin-button,
   .set-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .set-unit { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+  /* Durations change width as they tick up (0:45 -> 1:00); tabular figures
+     stop the column shifting while typing. */
+  .duration-input { font-variant-numeric: tabular-nums; }
 
   /* Unilateral L/R split — two inputs in the reps slot with tiny L/R
      labels. The chain icon at the end toggles split-mode on/off. */

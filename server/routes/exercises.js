@@ -149,14 +149,18 @@ function _cleanLoadType(v) {
   if (v == null || v === '') return null;
   return _LOAD_TYPES.has(v) ? v : null;
 }
+// Set type (issue #89), same whitelist-or-unset treatment as load_type.
+function _cleanSetType(v) {
+  return v === 'reps' || v === 'time' ? v : null;
+}
 
 // POST /api/exercises — create custom exercise
 router.post('/', wrap((req, res) => {
-  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type } = req.body;
+  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const result = db.prepare(
-    `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, source, is_global, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?)`
+    `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type, source, is_global, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?)`
   ).run(
     name, category || null,
     JSON.stringify(primary_muscles || []),
@@ -165,6 +169,7 @@ router.post('/', wrap((req, res) => {
     instructions || null, tips || null,
     img_url || null, gif_url || null, video_url || null,
     _cleanLoadType(load_type),
+    _cleanSetType(set_type),
     uid(req)
   );
   const exercise = db.prepare('SELECT * FROM exercises WHERE id = ?').get(result.lastInsertRowid);
@@ -182,7 +187,11 @@ router.put('/:id', wrap((req, res) => {
   // reachable in normal use, but block it defensively (#49).
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!existing) return res.status(404).json({ error: 'Exercise not found' });
-  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type } = req.body;
+  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type } = req.body;
+  // set_type follows the same omitted/null/explicit rules as load_type.
+  const nextSetType = set_type === undefined
+    ? existing.set_type
+    : (set_type === null ? null : _cleanSetType(set_type));
   // load_type: an explicit null clears the library-level default (back
   // to unset), an omitted key leaves the existing value, and 'bilateral' /
   // 'paired' / 'unilateral' set it explicitly.
@@ -191,7 +200,7 @@ router.put('/:id', wrap((req, res) => {
     : (load_type === null ? null : _cleanLoadType(load_type));
   db.prepare(
     `UPDATE exercises SET name=?, category=?, primary_muscles=?, secondary_muscles=?, equipment=?,
-     instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, load_type=? WHERE id=?`
+     instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, load_type=?, set_type=? WHERE id=?`
   ).run(
     name || existing.name, category ?? existing.category,
     JSON.stringify(primary_muscles || JSON.parse(existing.primary_muscles || '[]')),
@@ -200,6 +209,7 @@ router.put('/:id', wrap((req, res) => {
     instructions ?? existing.instructions, tips ?? existing.tips,
     img_url ?? existing.img_url, gif_url ?? existing.gif_url, video_url ?? existing.video_url,
     nextLoadType,
+    nextSetType,
     id
   );
   const updated = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);

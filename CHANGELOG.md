@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Timed sets for planks, holds and carries** ([#89](https://github.com/TraceApps/lifttrace/issues/89), requested by @chrisfeagles). Not every set is weight and reps: a plank, wall sit, dead hang or farmer's walk is tracked by how long you held it. An exercise can now be tracked by Time instead of Reps, and its set row shows a time field where reps would be, with weight still there for weighted holds (`25 lbs for 1:00`) or left empty for bodyweight. Type the time however is natural: `90` is 90 seconds, and `1:30` or `2m` work too.
+  - **Switching is the chip you already use.** Tap the chip next to an exercise's name in the Diary, the same one that sets Per Side or Alternating, and choose Reps or Time; tick "Remember for this exercise" to make it stick. The Exercise Editor gains a matching Tracked By setting. Common timed exercises (plank, side plank, wall sit, dead hang, hollow hold, L-sit, farmer's walk and a few carries) start as timed on their own. Switching never deletes anything: reps typed before switching to Time come back if you switch back, and an exercise that already has sets logged keeps the shape of that data, so history you have already recorded is never rewritten by a new default.
+  - **Stats understand holds.** Personal records for a timed exercise are the longest hold (and the heaviest load held), with their own "New Hold PR" celebration. Statistics and the exercise detail page chart hold time, and history reads `1:00` instead of reps. Timed sets are left out of weight x reps volume and estimated 1RM, where they would only distort the numbers, but still count as completed sets and as training in muscle recovery.
+  - **Everything else speaks it too.** Programs and templates can prescribe a time, per set or across a periodized weeks plan. Smart-Add understands `plank 3x45s`. CSV export gains a `duration_sec` column (added at the end, so spreadsheets that read columns by position keep working). Trace can log and read timed sets. Over MCP and the REST API, `log_set` takes `duration_sec`, `search_exercises` reports each exercise's `set_type`, records carry `maxDuration`, and the `pr.set` webhook includes the hold record.
+  - **Imports stop losing holds.** Strong and Hevy exports both record hold durations, and both importers were reading that column and throwing it away, so a plank came in as an empty set. They now arrive with their times.
+
+### Fixed
+
+- **Workout CSV exports had an empty exercise column.** The exporter read each exercise's name from a field workout entries never carry, so every CSV exported from the workout summary listed sets without saying which exercise they belonged to. It now reads the right field.
+- **Android: an exercise's library load type was cleared on every sync.** When the app pulled exercises from the server it rewrote each row without the load type column, resetting Per Side or Alternating back to unset on the device each time. The pull now keeps it.
+
 ## [1.3.0-dev05] - 2026-09-13
 
 ### Added

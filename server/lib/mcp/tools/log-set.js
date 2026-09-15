@@ -22,23 +22,47 @@ import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
  * Core mutation, shared by the MCP tool below and the public REST API
  * (issue #77) at POST /api/v1/workouts/:date/sets.
  */
-export function logSetCore(userId, { exercise_id, reps, weight, rpe, warmup, completed, date } = {}) {
+export function logSetCore(userId, { exercise_id, reps, weight, duration_sec, rpe, warmup, completed, date } = {}) {
   const day = date || todayLocal();
   if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
   const catalogEx = db.prepare(
-    'SELECT id, name, load_type FROM exercises WHERE id = ? AND deleted_at IS NULL AND (is_global = 1 OR created_by = ?)'
+    'SELECT id, name, load_type, set_type FROM exercises WHERE id = ? AND deleted_at IS NULL AND (is_global = 1 OR created_by = ?)'
   ).get(exercise_id, userId);
   if (!catalogEx) throw new Error(`No exercise with id ${exercise_id} in the catalog. Use search_exercises to find a valid id.`);
 
-  const newSet = {
-    uuid: randomUUID(),
-    reps,
-    weight,
-    completed: completed ?? true,
-    warmup: warmup ?? false,
-    rpe: rpe ?? null,
-  };
+  // Timed sets (issue #89): planks, holds and carries log a duration in
+  // whole seconds instead of reps. Validated here rather than only in the
+  // MCP schema because the REST route hands its body straight to this core.
+  const timed = duration_sec != null && duration_sec !== '';
+  const dur = timed ? Math.round(Number(duration_sec)) : null;
+  if (timed && (!Number.isFinite(dur) || dur <= 0 || dur > 86400)) {
+    throw new Error('duration_sec must be a whole number of seconds between 1 and 86400.');
+  }
+  if (!timed && reps == null) {
+    throw new Error('Send reps for a rep set, or duration_sec for a timed set (plank, hold, carry).');
+  }
+
+  const newSet = timed
+    ? {
+        uuid: randomUUID(),
+        reps: 0,
+        weight: weight ?? 0,
+        duration_sec: dur,
+        completed: completed ?? true,
+        warmup: warmup ?? false,
+        rpe: rpe ?? null,
+      }
+    : {
+        uuid: randomUUID(),
+        reps,
+        // Optional since timed sets need no load; a bodyweight rep set stores
+        // 0 rather than undefined so every reader sees a number.
+        weight: weight ?? 0,
+        completed: completed ?? true,
+        warmup: warmup ?? false,
+        rpe: rpe ?? null,
+      };
 
   let loggedExercise = null;
   const result = mutateWorkoutDay(userId, day, (exercises) => {
@@ -46,7 +70,18 @@ export function logSetCore(userId, { exercise_id, reps, weight, rpe, warmup, com
     let target = next.find(ex => ex.exercise_id === exercise_id);
     if (!target) {
       target = { uuid: randomUUID(), exercise_id, exercise_name: catalogEx.name, sets: [] };
+      // Stamp the type onto a new entry so the app shows the right input
+      // without needing to consult the library row.
+      if (timed) target.set_type = 'time';
       next.push(target);
+    }
+    // An entry whose type was chosen explicitly must not silently collect
+    // sets of the other kind; they would render and count wrongly.
+    if (timed && target.set_type === 'reps') {
+      throw new Error(`${catalogEx.name} is tracked by reps on ${day}; send reps instead of duration_sec.`);
+    }
+    if (!timed && target.set_type === 'time') {
+      throw new Error(`${catalogEx.name} is tracked by time on ${day}; send duration_sec instead of reps.`);
     }
     target.sets.push(newSet);
     loggedExercise = target;
@@ -75,20 +110,23 @@ export function registerLogSet(server, { userId }) {
         'Append one completed set to an exercise on a given day. Pass the ' +
         'exercise by exercise_id from search_exercises. Creates the exercise ' +
         "entry for that day if it isn't there yet. Date defaults to today in " +
-        "the server's timezone.",
+        "the server's timezone. For a timed exercise (plank, wall sit, dead " +
+        'hang, carry) send duration_sec instead of reps; weight is optional ' +
+        'and means a weighted hold. search_exercises reports set_type.',
       inputSchema: {
         exercise_id: z.number().int().positive(),
-        reps: z.number().int().min(0).max(1000),
-        weight: z.number().min(0).max(10000),
+        reps: z.number().int().min(0).max(1000).optional(),
+        weight: z.number().min(0).max(10000).optional(),
+        duration_sec: z.number().int().min(1).max(86400).optional(),
         rpe: z.number().min(1).max(10).optional(),
         warmup: z.boolean().optional(),
         completed: z.boolean().optional(),
         date: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
       },
     },
-    async ({ exercise_id, reps, weight, rpe, warmup, completed, date }) => {
+    async ({ exercise_id, reps, weight, duration_sec, rpe, warmup, completed, date }) => {
       try {
-        return toolResult(logSetCore(userId, { exercise_id, reps, weight, rpe, warmup, completed, date }));
+        return toolResult(logSetCore(userId, { exercise_id, reps, weight, duration_sec, rpe, warmup, completed, date }));
       } catch (e) {
         return toolError(e.message);
       }

@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { toolResult } from '../_util.js';
+import { isTimedSet, newRecord, accumulateRecord } from '../../volume.js';
 
 export function hasCompletedSet(exercises) {
   return exercises.some(ex => (ex.sets || []).some(s => s.completed));
@@ -23,7 +24,10 @@ export function hasCompletedSet(exercises) {
  * record (e.g. one that only edits notes or duration).
  */
 export function hasQualifyingSet(exercises) {
-  return exercises.some(ex => (ex.sets || []).some(s => s.completed && !s.warmup && s.weight > 0));
+  // A timed set qualifies on duration alone: a bodyweight plank has no
+  // weight, and without this a plank-only save could never raise pr.set.
+  return exercises.some(ex => (ex.sets || []).some(s =>
+    s.completed && !s.warmup && (s.weight > 0 || (isTimedSet(ex, s) && Number(s.duration_sec) > 0))));
 }
 
 /**
@@ -39,22 +43,12 @@ export function getRecordsCore(userId, { exercise_name } = {}) {
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   const withSets = rows.filter(r => hasCompletedSet(r.exercises));
 
-  const records = {}; // exerciseId -> { name, maxWeight, maxReps, date, e1rm }
+  const records = {}; // exerciseId -> newRecord() shape, see lib/volume.js
   for (const row of withSets) {
     for (const ex of row.exercises) {
       const id = ex.exercise_id || ex.exercise_name;
-      if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0 };
-      for (const set of ex.sets || []) {
-        if (set.completed && !set.warmup && set.weight > 0) {
-          const e1rm = set.reps === 1 ? set.weight : Math.round(set.weight * (1 + set.reps / 30));
-          if (set.weight > records[id].maxWeight) {
-            records[id].maxWeight = set.weight;
-            records[id].maxReps  = set.reps;
-            records[id].date     = row.date;
-          }
-          if (e1rm > records[id].e1rm) records[id].e1rm = e1rm;
-        }
-      }
+      if (!records[id]) records[id] = newRecord(ex.exercise_name);
+      for (const set of ex.sets || []) accumulateRecord(records[id], ex, set, row.date);
     }
   }
 
@@ -73,7 +67,9 @@ export function registerGetRecords(server, { userId }) {
       title: 'Get Personal Records',
       description:
         'Personal records per exercise: max weight ever lifted, the rep ' +
-        'count at that weight, the date, and estimated 1-rep max. Optionally ' +
+        'count at that weight, the date, and estimated 1-rep max. For timed ' +
+        'exercises (planks, holds, carries) maxDuration is the longest hold in ' +
+        'seconds and maxDurationWeight the load it was held at. Optionally ' +
         'filter to one exercise by name (case-insensitive substring match).',
       inputSchema: {
         exercise_name: z.string().max(200).optional(),

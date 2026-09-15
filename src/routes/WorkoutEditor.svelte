@@ -5,8 +5,8 @@
   import { LtApi } from '../lib/api.js';
   import { diffTombstones } from '../lib/workout-uuid.js';
   import { showSuccess, showError } from '../stores/toast.js';
-  import { exerciseLoadTypes, trackRpe, weightUnit } from '../stores/settings.js';
-  import { resolveLoadType } from '../lib/workout.js';
+  import { exerciseLoadTypes, exerciseSetTypes, trackRpe, weightUnit } from '../stores/settings.js';
+  import { resolveLoadType, resolveSetType, parseDuration, defaultSetTypeForName } from '../lib/workout.js';
   import TemplateSpecRow from '../components/programs/TemplateSpecRow.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
@@ -229,6 +229,30 @@
       $exerciseLoadTypes,
     );
   }
+  // Reps or time (issue #89). A template has no logged sets, so its own
+  // prescription stands in as the data: a template that already says
+  // "Plank, 60 reps" keeps showing reps, exactly as starting it would, and
+  // is never flipped to Time by a default added later.
+  function exSetType(ex) {
+    const prescribed = ex.set_specs?.length
+      ? ex.set_specs.map(s => ({ reps: parseInt(s.reps) || 0, duration_sec: parseDuration(s.duration) || 0 }))
+      : [{ reps: parseInt(ex.target_reps) || 0, duration_sec: parseDuration(ex.target_duration) || 0 }];
+    return resolveSetType(
+      { ...ex, sets: prescribed },
+      ex._library_set_type != null ? ex._library_set_type : (ex.exercise_set_type || null),
+      $exerciseSetTypes,
+    );
+  }
+  function pickSetType(idx, next) {
+    const ex = exercises[idx];
+    const updated = [...exercises];
+    updated[idx] = { ...ex, set_type: next };
+    exercises = updated;
+    loadMenuIdx = null;
+    if (rememberLoadType && ex.exercise_id != null) {
+      exerciseSetTypes.update(curr => ({ ...(curr || {}), [ex.exercise_id]: next }));
+    }
+  }
   function pickLoadType(idx, next) {
     const ex = exercises[idx];
     const updated = [...exercises];
@@ -425,15 +449,23 @@
     // when loaded into a diary, the convention travels with the workout.
     const savedLoadType = ex.id != null && $exerciseLoadTypes
       ? $exerciseLoadTypes[ex.id] : null;
+    // Same default chain as the Diary (issue #89): library, then remembered
+    // choice, then the timed-by-nature name list. A timed exercise starts
+    // with a duration to fill in, not a "10 reps" it would have to clear.
+    const remembered = ex.id != null ? $exerciseSetTypes?.[ex.id] : null;
+    const startTimed = ex.set_type === 'time'
+      || (ex.set_type !== 'reps' && (remembered === 'time'
+        || (remembered !== 'reps' && defaultSetTypeForName(ex.name) === 'time')));
     const newEx = {
       exercise_id: ex.id,
       exercise_name: ex.name,
       target_sets: 3,
-      target_reps: '10',
+      target_reps: startTimed ? '' : '10',
       target_weight: '',
       notes: '',
       sets: [],
       ...(savedLoadType && savedLoadType !== 'bilateral' ? { load_type: savedLoadType } : {}),
+      ...(startTimed ? { set_type: 'time', target_duration: '' } : {}),
     };
 
     if (addingToSsId) {
@@ -472,7 +504,7 @@
   // strip. Week 1 keeps mirroring the flat target_* / exercise-level defaults
   // (full back-compat); weeks 2..N live in the exercise's optional weeks[]
   // array. Field name mapping between the strip's fields and the flat keys:
-  const FLAT_FIELD = { sets: 'target_sets', reps: 'target_reps', weight: 'target_weight', tempo: 'tempo', rest_sec: 'rest_sec' };
+  const FLAT_FIELD = { sets: 'target_sets', reps: 'target_reps', weight: 'target_weight', duration: 'target_duration', tempo: 'tempo', rest_sec: 'rest_sec' };
   $: durationWeeks = template?.duration_weeks || 1;
   let activeWeek = 1;
   $: if (activeWeek > durationWeeks) activeWeek = durationWeeks;
@@ -515,7 +547,7 @@
     template.exercises = updated;
   }
 
-  const WEEK_FIELDS = ['sets', 'reps', 'weight', 'tempo', 'rest_sec'];
+  const WEEK_FIELDS = ['sets', 'reps', 'weight', 'duration', 'tempo', 'rest_sec'];
 
   // Return a copy of `ex` with week `src`'s effective values written into
   // week `dst`'s entry (creating the sparse array slot as needed).
@@ -579,6 +611,7 @@
     const specs = Array.from({ length: count }, () => ({
       weight: ex.target_weight || '',
       reps: ex.target_reps || '',
+      ...(ex.target_duration ? { duration: ex.target_duration } : {}),
     }));
     const updated = [...exercises];
     updated[idx] = { ...ex, set_specs: specs };
@@ -655,7 +688,7 @@
     const ex = { ...updated[idx] };
     const specs = [...(ex.set_specs || [])];
     const last = specs[specs.length - 1] || { weight: '', reps: '' };
-    specs.push({ weight: last.weight, reps: last.reps });
+    specs.push({ weight: last.weight, reps: last.reps, ...(last.duration ? { duration: last.duration } : {}) });
     ex.set_specs = specs;
     ex.target_sets = specs.length;
     updated[idx] = ex;
@@ -779,12 +812,12 @@
                         </div>
                         <span class="ex-name">{ex.exercise_name}</span>
                         {#each [exLoadType(ex)] as lt}
-                          <button type="button" class="load-chip" class:non-default={lt !== 'bilateral'}
+                          <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) === 'time'}
                                   on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
                                   title={$_('workout_editor.load_type')}>
                             {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
                             {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
-                            {:else}<span class="material-symbols-rounded">straighten</span>{/if}
+                            {:else if exSetType(ex) !== 'time'}<span class="material-symbols-rounded">straighten</span>{/if}{#if exSetType(ex) === 'time'}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
                           </button>
                         {/each}
                         <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title={$_('workout_editor.view_details')} aria-label={$_('workout_editor.view_details')}>
@@ -822,6 +855,18 @@
                               {#if exLoadType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
                             </button>
                           {/each}
+                          <div class="load-menu-head">{$_('exercise_card.tracked_by')}</div>
+                          {#each [['reps', 'exercise_card.set_type_reps', 'exercise_card.set_type_reps_hint'],
+                                  ['time', 'exercise_card.set_type_time', 'exercise_card.set_type_time_hint']] as [val, labelKey, hintKey]}
+                            <button class="load-menu-item" class:active={exSetType(ex) === val} type="button"
+                                    on:click={() => pickSetType(idx, val)}>
+                              <div class="lm-text">
+                                <span class="lm-label">{$_(labelKey)}</span>
+                                <span class="lm-hint">{$_(hintKey)}</span>
+                              </div>
+                              {#if exSetType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
+                            </button>
+                          {/each}
                           <label class="load-menu-remember">
                             <input type="checkbox" bind:checked={rememberLoadType} />
                             <span>{$_('workout_editor.remember_ex')}</span>
@@ -835,6 +880,7 @@
                               {spec}
                               {setIdx}
                               loadType={exLoadType(ex)}
+                      setType={exSetType(ex)}
                               trackRpe={$trackRpe}
                               showNumberPicker={true}
                               onUpdate={(field, value) => updateSpec(idx, setIdx, field, value)}
@@ -855,10 +901,17 @@
                             <label>{$_('workout_editor.sets')}</label>
                             <input type="number" value={weekVal(ex, 'sets', activeWeek)} on:input={e => setWeekVal(idx, 'sets', parseInt(e.target.value))} placeholder="—" />
                           </div>
-                          <div class="field">
-                            <label>{$_('workout_editor.reps')}</label>
-                            <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder={$_('workout_editor.reps_ph')} />
-                          </div>
+                          {#if exSetType(ex) === 'time'}
+                            <div class="field">
+                              <label>{$_('workout_editor.duration')}</label>
+                              <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => setWeekVal(idx, 'duration', e.target.value)} placeholder="0:00" />
+                            </div>
+                          {:else}
+                            <div class="field">
+                              <label>{$_('workout_editor.reps')}</label>
+                              <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder={$_('workout_editor.reps_ph')} />
+                            </div>
+                          {/if}
                           <div class="field">
                             <label>{$_('workout_editor.weight')}</label>
                             <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder={$weightUnit === 'kg' ? $_('workout_editor.weight_ph_kg') : $_('workout_editor.weight_ph_lb')} />
@@ -910,12 +963,12 @@
                 <span class="ex-sets-badge">{ex.target_sets || 1}×</span>
                 <span class="ex-name">{ex.exercise_name}</span>
                 {#each [exLoadType(ex)] as lt}
-                  <button type="button" class="load-chip" class:non-default={lt !== 'bilateral'}
+                  <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) === 'time'}
                           on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
                           title={$_('workout_editor.load_type')}>
                     {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
                     {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
-                    {:else}<span class="material-symbols-rounded">straighten</span>{/if}
+                    {:else if exSetType(ex) !== 'time'}<span class="material-symbols-rounded">straighten</span>{/if}{#if exSetType(ex) === 'time'}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
                   </button>
                 {/each}
                 <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title={$_('workout_editor.view_details')} aria-label={$_('workout_editor.view_details')}>
@@ -953,6 +1006,18 @@
                       {#if exLoadType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
                     </button>
                   {/each}
+                  <div class="load-menu-head">{$_('exercise_card.tracked_by')}</div>
+                  {#each [['reps', 'exercise_card.set_type_reps', 'exercise_card.set_type_reps_hint'],
+                          ['time', 'exercise_card.set_type_time', 'exercise_card.set_type_time_hint']] as [val, labelKey, hintKey]}
+                    <button class="load-menu-item" class:active={exSetType(ex) === val} type="button"
+                            on:click={() => pickSetType(idx, val)}>
+                      <div class="lm-text">
+                        <span class="lm-label">{$_(labelKey)}</span>
+                        <span class="lm-hint">{$_(hintKey)}</span>
+                      </div>
+                      {#if exSetType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
+                    </button>
+                  {/each}
                   <label class="load-menu-remember">
                     <input type="checkbox" bind:checked={rememberLoadType} />
                     <span>{$_('workout_editor.remember_ex')}</span>
@@ -966,6 +1031,7 @@
                       {spec}
                       {setIdx}
                       loadType={exLoadType(ex)}
+                      setType={exSetType(ex)}
                       trackRpe={$trackRpe}
                       showNumberPicker={false}
                       onUpdate={(field, value) => updateSpec(idx, setIdx, field, value)}
@@ -986,10 +1052,17 @@
                     <label>{$_('workout_editor.sets')}</label>
                     <input type="number" value={weekVal(ex, 'sets', activeWeek)} on:input={e => setWeekVal(idx, 'sets', parseInt(e.target.value))} placeholder="—" />
                   </div>
-                  <div class="field">
-                    <label>{$_('workout_editor.reps')}</label>
-                    <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder={$_('workout_editor.reps_ph')} />
-                  </div>
+                  {#if exSetType(ex) === 'time'}
+                    <div class="field">
+                      <label>{$_('workout_editor.duration')}</label>
+                      <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => setWeekVal(idx, 'duration', e.target.value)} placeholder="0:00" />
+                    </div>
+                  {:else}
+                    <div class="field">
+                      <label>{$_('workout_editor.reps')}</label>
+                      <input type="text" value={weekVal(ex, 'reps', activeWeek)} on:input={e => setWeekVal(idx, 'reps', e.target.value)} placeholder={$_('workout_editor.reps_ph')} />
+                    </div>
+                  {/if}
                   <div class="field">
                     <label>{$_('workout_editor.weight')}</label>
                     <input type="text" value={weekVal(ex, 'weight', activeWeek)} on:input={e => setWeekVal(idx, 'weight', e.target.value)} placeholder={$weightUnit === 'kg' ? $_('workout_editor.weight_ph_kg') : $_('workout_editor.weight_ph_lb')} />

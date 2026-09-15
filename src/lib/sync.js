@@ -353,8 +353,9 @@ async function _applyExercises(rows, result) {
       `INSERT OR REPLACE INTO exercises
          (id, name, category, primary_muscles, secondary_muscles, equipment,
           instructions, tips, img_url, gif_url, video_url,
-          external_id, source, is_global, created_by, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
+          external_id, source, is_global, created_by, created_at, updated_at,
+          load_type, set_type, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
       [
         e.id, e.name, e.category || null,
         JSON.stringify(e.primary_muscles || []),
@@ -366,6 +367,12 @@ async function _applyExercises(rows, result) {
         e.is_global ? 1 : 0, e.created_by || null,
         e.created_at || new Date().toISOString(),
         e.updated_at || new Date().toISOString(),
+        // INSERT OR REPLACE rewrites the whole row, so any column left out
+        // here is reset to its default on every pull. load_type used to be
+        // missing, which silently cleared a library load type on Android
+        // each sync; set_type (issue #89) would have gone the same way.
+        e.load_type ?? null,
+        e.set_type ?? null,
       ]
     );
   }

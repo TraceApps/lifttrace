@@ -4,8 +4,8 @@
   import SetRow from './SetRow.svelte';
   import { LtApi } from '../../lib/api.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, exerciseVolume, resolveLoadType } from '../../lib/workout.js';
-  import { exerciseLoadTypes } from '../../stores/settings.js';
+  import { generateWarmupSets, exerciseVolume, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration } from '../../lib/workout.js';
+  import { exerciseLoadTypes, exerciseSetTypes } from '../../stores/settings.js';
   import { portal } from '../../lib/portal.js';
 
   export let exercise;
@@ -49,7 +49,7 @@
       const recent = history.find(h => (h.sets || []).some(s => s.completed));
       if (!recent) return;
       const completed = recent.sets.filter(s => s.completed);
-      if (completed.length) lastSession = { date: recent.date, sets: completed };
+      if (completed.length) lastSession = { date: recent.date, sets: completed, set_type: recent.set_type };
     } catch {}
   }
 
@@ -58,6 +58,8 @@
   // before passing them here so the resolver's library tier fires
   // without an extra fetch per card.
   export let libraryLoadType = null;
+  // Library set type (issue #89), same enrichment path as load type.
+  export let librarySetType = null;
 
   // Full four-tier resolution: per-instance override → library default
   // → client-side per-user preference → 'bilateral'. See src/lib/workout.js
@@ -67,6 +69,14 @@
     exercise._library_load_type != null ? exercise._library_load_type : libraryLoadType,
     $exerciseLoadTypes,
   );
+  // Reps or time (issue #89). Recorded data outranks every default, so an
+  // exercise that already has reps logged never flips shape on its own.
+  $: setType = resolveSetType(
+    exercise,
+    exercise._library_set_type != null ? exercise._library_set_type : librarySetType,
+    $exerciseSetTypes,
+  );
+  $: timed = setType === 'time';
   $: loadTypeLabel = loadType === 'paired' ? 'Per side'
                    : loadType === 'unilateral' ? 'Alternating'
                    : 'Bilateral';
@@ -101,6 +111,16 @@
     }
   }
 
+  // Switching to Time or back never touches the sets: reps typed before
+  // stay on them (ignored while timed) and reappear if you switch back.
+  function pickSetType(nextType) {
+    loadMenuOpen = false;
+    dispatch('update', { ...exercise, set_type: nextType });
+    if (rememberLoad && exercise.exercise_id != null) {
+      exerciseSetTypes.update(curr => ({ ...(curr || {}), [exercise.exercise_id]: nextType }));
+    }
+  }
+
   // Volume of this exercise's completed sets (current + last session for delta)
   // Uses the load-type-aware helper so per-side / alternating sets get the
   // correct multiplier (×2, or sum of L+R when split).
@@ -111,7 +131,8 @@
   // Progression nudge: if last session hit target reps across the board at a given weight,
   // suggest +5 (or +2.5 for kg) on today's target weight.
   $: progressionSuggestion = (() => {
-    if (!lastSession || !exercise.target_reps) return null;
+    // Weight nudges are a reps idea; a hold is progressed by time.
+    if (timed || !lastSession || !exercise.target_reps) return null;
     const tgtReps = parseInt(String(exercise.target_reps).split(/[-\u2013]/)[0]);
     if (!Number.isFinite(tgtReps)) return null;
     const hitAll = lastSession.sets.length > 0 && lastSession.sets.every(s => (parseInt(s.reps) || 0) >= tgtReps);
@@ -179,10 +200,9 @@
 
   function addSet() {
     const lastSet = sets[sets.length - 1] || { reps: 0, weight: 0 };
-    const updated = {
-      ...exercise,
-      sets: [...sets, { reps: lastSet.reps, weight: lastSet.weight, completed: false, notes: '' }],
-    };
+    const next = { reps: lastSet.reps, weight: lastSet.weight, completed: false, notes: '' };
+    if (lastSet.duration_sec) next.duration_sec = lastSet.duration_sec;
+    const updated = { ...exercise, sets: [...sets, next] };
     dispatch('update', updated);
   }
 
@@ -289,6 +309,20 @@
           {/if}
         </button>
       {/each}
+      <div class="load-menu-head">{$_('exercise_card.tracked_by')}</div>
+      {#each [['reps', $_('exercise_card.set_type_reps'), $_('exercise_card.set_type_reps_hint')],
+              ['time', $_('exercise_card.set_type_time'), $_('exercise_card.set_type_time_hint')]] as [val, label, hint]}
+        <button class="load-menu-item" class:active={setType === val} role="menuitem"
+                on:click={() => pickSetType(val)}>
+          <div class="lm-text">
+            <span class="lm-label">{label}</span>
+            <span class="lm-hint">{hint}</span>
+          </div>
+          {#if setType === val}
+            <span class="material-symbols-rounded lm-check">check</span>
+          {/if}
+        </button>
+      {/each}
       <label class="load-menu-remember">
         <input type="checkbox" bind:checked={rememberLoad} />
         <span>{$_('exercise_card.remember_for_exercise')}</span>
@@ -301,13 +335,14 @@
     <div class="ex-info">
       <div class="ex-name-row">
         <span class="ex-name">{exercise.exercise_name}</span>
-        <button class="load-chip" class:non-default={loadType !== 'bilateral'}
+        <button class="load-chip" class:non-default={loadType !== 'bilateral' || timed}
                 bind:this={loadMenuTriggerEl}
                 on:click|stopPropagation={() => loadMenuOpen ? (loadMenuOpen = false) : openLoadMenu()}
                 title="Load type">
           {#if loadType === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{loadTypeLabel}
           {:else if loadType === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{loadTypeLabel}
-          {:else}<span class="material-symbols-rounded">straighten</span>{/if}
+          {:else if !timed}<span class="material-symbols-rounded">straighten</span>{/if}
+          {#if timed}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
         </button>
       </div>
       <span class="ex-meta">{completedCount}/{workingSets.length} sets</span>
@@ -342,7 +377,11 @@
         <span class="last-label">Last ({fmtRelDate(lastSession.date)})</span>
         <span class="last-sets">
           {#each lastSession.sets as s, i}
-            <span class="last-set">{s.weight || 0}×{s.reps || 0}</span>{#if i < lastSession.sets.length - 1}<span class="last-sep">·</span>{/if}
+            {#if isTimedSet({ set_type: lastSession.set_type }, s)}
+              <span class="last-set">{s.weight ? `${s.weight}×` : ''}{fmtSetDuration(s.duration_sec) || '0:00'}</span>
+            {:else}
+              <span class="last-set">{s.weight || 0}×{s.reps || 0}</span>
+            {/if}{#if i < lastSession.sets.length - 1}<span class="last-sep">·</span>{/if}
           {/each}
         </span>
         {#if volumeDeltaPct !== null && volumeDeltaPct !== 0}
@@ -357,7 +396,7 @@
       <div class="sets-header">
         <span class="sh-set">Set</span>
         <span class="sh-weight">{$_('exercise_card.weight')}</span>
-        <span class="sh-reps">{$_('exercise_card.reps')}</span>
+        <span class="sh-reps">{timed ? $_('exercise_card.time') : $_('exercise_card.reps')}</span>
         <span class="sh-done"></span>
         <!-- placeholder over the remove-set column so the right edge of the
              header lines up with the right edge of every SetRow -->
@@ -373,6 +412,7 @@
           isPR={prSetIndices?.has(setIdx)}
           {unit}
           {loadType}
+          {setType}
           on:update={e => updateSet(setIdx, e.detail)}
           on:remove={() => removeSet(setIdx)}
         />
@@ -383,7 +423,7 @@
           <span class="material-symbols-rounded">add</span>
           Add Set
         </button>
-        {#if !hasWarmups && workingWeight > 0}
+        {#if !timed && !hasWarmups && workingWeight > 0}
           <button class="add-warmup-btn" on:click={addWarmups} title="Add warm-up progression based on working weight">
             <span class="material-symbols-rounded">bolt</span>
             Warm-ups
@@ -392,10 +432,11 @@
       </div>
     </div>
 
-    {#if exercise.target_weight || exercise.target_reps || exercise.notes || progressionSuggestion}
+    {#if exercise.target_weight || (!timed && exercise.target_reps) || (timed && exercise.target_duration) || exercise.notes || progressionSuggestion}
       <div class="target-info">
         {#if exercise.target_weight}<span class="target-chip">Target: {exercise.target_weight}</span>{/if}
-        {#if exercise.target_reps}<span class="target-chip">{exercise.target_reps} reps</span>{/if}
+        {#if !timed && exercise.target_reps}<span class="target-chip">{exercise.target_reps} reps</span>{/if}
+        {#if timed && exercise.target_duration}<span class="target-chip">{fmtSetDuration(parseDuration(exercise.target_duration)) || exercise.target_duration}</span>{/if}
         {#if progressionSuggestion}
           <span class="progression-chip" title="Last session hit target reps — try going up">
             <span class="material-symbols-rounded">trending_up</span>

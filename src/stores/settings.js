@@ -34,7 +34,7 @@ const SERVER_SETTINGS = new Set([
   'notifWorkoutComplete', 'notifPRCelebrations',
   'notifMemberCompletes', 'notifMemberMissed', 'notifMemberReply', 'notifCoachFeedback',
   'notifWeeklySummary', 'weeklySummaryDay', 'weeklySummaryTime',
-  'bodyStatsVisible', 'exerciseLoadTypes',
+  'bodyStatsVisible', 'exerciseLoadTypes', 'exerciseSetTypes',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
   'radioStationsEnabled',
   'updateCheckInterval', // hours between checks: 1, 4, 12, 24, or 0 for manual only
@@ -247,6 +247,12 @@ export const bodyStatsVisible = createSettingStore('bodyStatsVisible', [
 // next time the same exercise gets added the load_type pre-fills.
 // Shape: { [exercise_id]: 'bilateral' | 'paired' | 'unilateral' }
 export const exerciseLoadTypes = createSettingStore('exerciseLoadTypes', {});
+
+// Per-exercise remembered set type (issue #89), set by the same "Remember
+// for this exercise" tickbox on the Diary chip. Shape: { [exercise_id]:
+// 'reps' | 'time' }. Only consulted when an exercise has no data and no
+// library default; see resolveSetType in src/lib/workout.js.
+export const exerciseSetTypes = createSettingStore('exerciseSetTypes', {});
 
 // Radio / Music
 export const radioEnabled  = createSettingStore('radioEnabled',  false);

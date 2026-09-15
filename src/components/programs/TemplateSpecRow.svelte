@@ -25,6 +25,10 @@
   export let spec = {};
   export let setIdx = 0;
   export let loadType = 'bilateral';
+  /** 'reps' or 'time' (issue #89). A timed spec prescribes a duration,
+   *  stored as typed ("45", "1:00") in spec.duration and parsed when the
+   *  template is started. */
+  export let setType = 'reps';
   export let trackRpe = false;
   /** True on supersets — enables the round-number picker. Single-exercise
    *  templates hide the picker (no rounds to number). */
@@ -40,7 +44,8 @@
   import { _ } from 'svelte-i18n';
 
   $: displayNum = spec?.number != null ? spec.number : setIdx + 1;
-  $: isSplit = loadType === 'unilateral'
+  $: timed = setType === 'time';
+  $: isSplit = !timed && loadType === 'unilateral'
             && (spec?.reps_l != null || spec?.reps_r != null);
 
   // Number picker
@@ -166,6 +171,11 @@
         on:input={e => onUpdate('reps_r', e.target.value)}
         placeholder="0" aria-label="Right reps" />
     </div>
+  {:else if timed}
+    <input class="ps-input" type="text"
+      value={spec?.duration ?? ''}
+      on:input={e => onUpdate('duration', e.target.value)}
+      placeholder="0:00" inputmode="numeric" aria-label={$_('template_spec.duration')} />
   {:else}
     <input class="ps-input" type="text"
       value={spec?.reps ?? ''}
@@ -173,7 +183,7 @@
       placeholder={$_('template_spec.reps')} />
   {/if}
 
-  {#if loadType === 'unilateral'}
+  {#if !timed && loadType === 'unilateral'}
     <button type="button" class="spec-icon-btn" class:active={isSplit}
       on:click={toggleSplit}
       title={isSplit ? 'Merge L/R reps' : 'Split L/R reps'}

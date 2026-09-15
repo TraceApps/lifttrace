@@ -15,7 +15,7 @@
   import { weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
-  import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
+  import { estimateWorkoutCalories, ageFromDob, isTimedSet, fmtSetDuration } from '../lib/workout.js';
   import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
   import { showError } from '../stores/toast.js';
@@ -343,6 +343,7 @@
         const lt = ex.load_type || 'bilateral';
         for (const s of (ex.sets || [])) {
           if (!s.completed || s.warmup) continue;
+          if (isTimedSet(ex, s)) continue;   // issue #89: holds carry no volume
           const wt = s.weight || 0;
           if (lt === 'unilateral') {
             if (s.reps_l != null || s.reps_r != null) priorVol += wt * ((s.reps_l || 0) + (s.reps_r || 0));
@@ -386,16 +387,30 @@
 
   // ── Progress-metric derived ──────────────────────────────────────────
   $: selectedExercise = exercises.find(e => e.id === selectedExerciseId);
+  // Timed exercise (issue #89): charted by longest hold. Decided by the most
+  // recent session, so an exercise switched to Time charts its holds. Only
+  // points of the matching kind are plotted, so a switch never drops a zero
+  // into the other kind's line.
+  $: progressTimed = progressData.length > 0 && (progressData[progressData.length - 1].maxDuration || 0) > 0;
+  $: chartData = progressData.filter(p => progressTimed ? (p.maxDuration || 0) > 0 : (p.maxWeight || 0) > 0);
+  function _pv(p) { return progressTimed ? (p.maxDuration || 0) : p.maxWeight; }
+  function _pvLabel(p) { return progressTimed ? fmtSetDuration(p?.maxDuration) : `${p?.maxWeight} ${$weightUnit}`; }
+  function recordLabel(r) {
+    if ((r.maxDuration || 0) > 0 && !(r.maxWeight > 0)) {
+      return r.maxDurationWeight ? `${fmtSetDuration(r.maxDuration)} @ ${r.maxDurationWeight} ${$weightUnit}` : fmtSetDuration(r.maxDuration);
+    }
+    return `${r.maxWeight} ${$weightUnit} × ${r.maxReps}`;
+  }
   $: progressStats = (() => {
-    if (!progressData.length) return null;
-    const weights = progressData.map(p => p.maxWeight);
+    if (!chartData.length) return null;
+    const weights = chartData.map(_pv);
     return {
       min:  Math.min(...weights),
       max:  Math.max(...weights),
       avg:  Math.round(weights.reduce((a, b) => a + b, 0) / weights.length),
-      sessions: progressData.length,
-      first: progressData[0],
-      last:  progressData[progressData.length - 1],
+      sessions: chartData.length,
+      first: chartData[0],
+      last:  chartData[chartData.length - 1],
     };
   })();
 
@@ -423,7 +438,9 @@
       .map(c => ({ category: c, labelKey: CATEGORY_LABELS[c], records: byCat[c] }));
   })();
 
+  // A timed record's date lives in durationDate (issue #89).
   $: recentPRs = records
+    .map(r => (!r.date && r.durationDate ? { ...r, date: r.durationDate } : r))
     .filter(r => r.date)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5);
@@ -444,19 +461,19 @@
   // ── Chart helpers (Svelte @const has template-scope restrictions) ────
   function _progressPoints(data) {
     if (!data.length) return [];
-    const weights = data.map(p => p.maxWeight);
-    const min = Math.min(...weights) - 5;
-    const max = Math.max(...weights) + 5;
+    const weights = data.map(_pv);
+    const min = Math.min(...weights) - (progressTimed ? 2 : 5);
+    const max = Math.max(...weights) + (progressTimed ? 2 : 5);
     const rng = Math.max(1, max - min);
-    return data.map((p, i) => `${i * 20 + 10},${110 - ((p.maxWeight - min) / rng * 90 + 10)}`);
+    return data.map((p, i) => `${i * 20 + 10},${110 - ((_pv(p) - min) / rng * 90 + 10)}`);
   }
   function _progressPointObjs(data) {
     if (!data.length) return [];
-    const weights = data.map(p => p.maxWeight);
-    const min = Math.min(...weights) - 5;
-    const max = Math.max(...weights) + 5;
+    const weights = data.map(_pv);
+    const min = Math.min(...weights) - (progressTimed ? 2 : 5);
+    const max = Math.max(...weights) + (progressTimed ? 2 : 5);
     const rng = Math.max(1, max - min);
-    return data.map((p, i) => ({ x: i * 20 + 10, y: 110 - ((p.maxWeight - min) / rng * 90 + 10) }));
+    return data.map((p, i) => ({ x: i * 20 + 10, y: 110 - ((_pv(p) - min) / rng * 90 + 10) }));
   }
   // RPE overlay — points with avgRpe only, mapped to a fixed 5-10 domain
   // (anything below RPE 5 is irrelevant for this chart). Returns objects
@@ -729,7 +746,7 @@
           </div>
         {:else if progressLoading}
           <Spinner block label={$_('statistics.loading_chart')} />
-        {:else if !progressData.length}
+        {:else if !chartData.length}
           <div class="empty-state">
             <span class="material-symbols-rounded">info</span>
             <p>{@html $_('statistics.no_sets', { values: { name: `<strong>${selectedExercise?.name}</strong>` } })}</p>
@@ -737,16 +754,16 @@
         {:else}
           <div class="summary-row">
             <div class="summary-card">
-              <span class="sc-value-sm">{progressStats.max}</span>
-              <span class="sc-label">{$_('statistics.max')} <span class="unit">{$weightUnit}</span></span>
+              <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.max) : progressStats.max}</span>
+              <span class="sc-label">{$_('statistics.max')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
-              <span class="sc-value-sm">{progressStats.min}</span>
-              <span class="sc-label">{$_('statistics.min')} <span class="unit">{$weightUnit}</span></span>
+              <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.min) : progressStats.min}</span>
+              <span class="sc-label">{$_('statistics.min')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
-              <span class="sc-value-sm">{progressStats.avg}</span>
-              <span class="sc-label">{$_('statistics.avg')} <span class="unit">{$weightUnit}</span></span>
+              <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.avg) : progressStats.avg}</span>
+              <span class="sc-label">{$_('statistics.avg')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.sessions}</span>
@@ -756,7 +773,7 @@
 
           <div class="chart-card">
             <div class="chart-title-row">
-              <h3 class="chart-title">{$_('statistics.top_set')}</h3>
+              <h3 class="chart-title">{progressTimed ? $_('statistics.longest_hold') : $_('statistics.top_set')}</h3>
               {#if hasRpe}
                 <div class="chart-legend">
                   <span class="legend-item"><span class="legend-swatch accent"></span>{$_('statistics.top_set_legend', { values: { unit: $weightUnit } })}</span>
@@ -764,11 +781,11 @@
                 </div>
               {/if}
             </div>
-            <svg class="line-chart" viewBox="0 0 {Math.max(progressData.length * 20, 200)} 120" preserveAspectRatio="none">
+            <svg class="line-chart" viewBox="0 0 {Math.max(chartData.length * 20, 200)} 120" preserveAspectRatio="none">
               <polyline fill="none" stroke="var(--accent)" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round"
-                points={_progressPoints(progressData).join(' ')} />
-              {#each _progressPointObjs(progressData) as pt}
+                points={_progressPoints(chartData).join(' ')} />
+              {#each _progressPointObjs(chartData) as pt}
                 <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
               {/each}
               {#if hasRpe}
@@ -781,8 +798,8 @@
               {/if}
             </svg>
             <div class="chart-footer">
-              <span>{progressStats.first?.date} · {progressStats.first?.maxWeight} {$weightUnit}</span>
-              <span>{progressStats.last?.date} · {progressStats.last?.maxWeight} {$weightUnit}</span>
+              <span>{progressStats.first?.date} · {_pvLabel(progressStats.first)}</span>
+              <span>{progressStats.last?.date} · {_pvLabel(progressStats.last)}</span>
             </div>
           </div>
 
@@ -791,7 +808,7 @@
             {#each progressData.slice().reverse() as p}
               <div class="history-row">
                 <span class="hr-date">{p.date}</span>
-                <span class="hr-value">{p.maxWeight} {$weightUnit} · {$_('statistics.n_sets', { values: { n: p.sets } })}</span>
+                <span class="hr-value">{(p.maxDuration || 0) > 0 && !(p.maxWeight > 0) ? fmtSetDuration(p.maxDuration) : `${p.maxWeight} ${$weightUnit}`} · {$_('statistics.n_sets', { values: { n: p.sets } })}</span>
               </div>
             {/each}
           </div>
@@ -818,7 +835,7 @@
                     <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title={$_('statistics.open_exercise')}>
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">{r.date}</span>
                       </div>
                       <span class="material-symbols-rounded record-chev">chevron_right</span>
@@ -827,7 +844,7 @@
                     <div class="record-row">
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">{r.date}</span>
                       </div>
                     </div>
@@ -846,7 +863,7 @@
                     <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title={$_('statistics.open_exercise')}>
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">
                           {r.date}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
@@ -858,7 +875,7 @@
                     <div class="record-row">
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">
                           {r.date}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}

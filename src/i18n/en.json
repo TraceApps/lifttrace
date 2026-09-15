@@ -531,13 +531,20 @@
     "auto":                  "Auto",
     "weight":                "Weight",
     "reps":                  "Reps",
-    "clear":                 "Clear"
+    "clear":                 "Clear",
+    "duration": "Time"
   },
   "exercise_card": {
     "load_type":             "Load Type",
     "remember_for_exercise": "Remember for this exercise",
     "weight":                "Weight",
-    "reps":                  "Reps"
+    "reps":                  "Reps",
+    "time":                  "Time",
+    "tracked_by":            "Tracked By",
+    "set_type_reps":         "Reps",
+    "set_type_reps_hint":    "weight and reps: bench press, squat, curls",
+    "set_type_time":         "Time",
+    "set_type_time_hint":    "a duration you hold or carry: plank, wall sit, dead hang"
   },
   "trace_ai": {
     "voice_error":           "Voice error: {reason}",
@@ -602,6 +609,7 @@
   "exercise_detail": {
     "deleted":               "Exercise deleted",
     "top_set_over_time":     "Top Set Over Time",
+    "longest_hold_over_time": "Longest Hold Over Time",
     "similar_exercises":     "Similar Exercises",
     "try_again":             "Try Again",
     "back_to_exercises":     "Back to Exercises",
@@ -893,7 +901,9 @@
     "tips":                   "Tips",
     "tips_optional":          "(optional)",
     "tips_ph":                "Common mistakes, breathing, progression notes…",
-    "cancel":                 "Cancel"
+    "cancel":                 "Cancel",
+    "tracked_by":             "Tracked By",
+    "set_type_unset":         "Unset"
   },
   "diary_extra": {
     "toast": {
@@ -1049,7 +1059,8 @@
     "rest":                 "Rest",
     "rest_ph":              "e.g. 90",
     "per_set_link":         "Different weight or reps per set…",
-    "add_exercise":         "Add Exercise"
+    "add_exercise":         "Add Exercise",
+    "duration": "Time"
   },
   "statistics": {
     "tabs": {
@@ -1109,6 +1120,7 @@
     "no_sets":           "No completed sets for {name} in this range.",
     "sessions":          "Sessions",
     "top_set":           "Top Set Over Time",
+    "longest_hold": "Longest Hold",
     "session_history":   "Session History",
     "open_exercise":     "Open Exercise",
     "peak_week":         "Peak Week",

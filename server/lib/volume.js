@@ -45,7 +45,59 @@ export function exerciseVolume(exercise, libraryLoadType) {
   let total = 0;
   for (const s of (exercise.sets || [])) {
     if (!s.completed || s.warmup) continue;
+    if (isTimedSet(exercise, s)) continue;
     total += setVolume(s, loadType);
   }
   return total;
+}
+
+/**
+ * Timed sets (issue #89). Mirror of isTimedSet in src/lib/workout.js;
+ * scripts/set-type.test.js runs identical cases through both copies.
+ *
+ * An explicit choice on the exercise instance wins; without one, a set
+ * carrying a duration is timed.
+ */
+export function isTimedSet(exercise, set) {
+  const t = exercise?.set_type;
+  if (t === 'time') return true;
+  if (t === 'reps') return false;
+  return Number(set?.duration_sec) > 0;
+}
+
+/**
+ * Fold one set into a per-exercise record, the single definition of "a
+ * record" used by GET /api/stats/records, get_records over MCP, the REST
+ * /api/v1/records route, and the pr.set webhook.
+ *
+ * Rep sets move maxWeight / maxReps / e1rm exactly as before. Timed sets
+ * move maxDuration (longest hold) and maxDurationWeight (the load it was
+ * held at) instead, and never touch the rep fields: an estimated 1RM for a
+ * wall sit is meaningless, and a heavy weighted carry is not a heavier
+ * bench.
+ */
+export function newRecord(name) {
+  return { name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, durationDate: '' };
+}
+export function accumulateRecord(record, exercise, set, date) {
+  if (!set?.completed || set.warmup) return;
+  if (isTimedSet(exercise, set)) {
+    const sec = Number(set.duration_sec) || 0;
+    if (sec <= 0) return;
+    const w = Number(set.weight) || 0;
+    if (sec > record.maxDuration || (sec === record.maxDuration && w > record.maxDurationWeight)) {
+      record.maxDuration = sec;
+      record.maxDurationWeight = w;
+      record.durationDate = date;
+    }
+    return;
+  }
+  if (!(set.weight > 0)) return;
+  const e1rm = set.reps === 1 ? set.weight : Math.round(set.weight * (1 + set.reps / 30));
+  if (set.weight > record.maxWeight) {
+    record.maxWeight = set.weight;
+    record.maxReps = set.reps;
+    record.date = date;
+  }
+  if (e1rm > record.e1rm) record.e1rm = e1rm;
 }

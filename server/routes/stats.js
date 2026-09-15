@@ -2,7 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
-import { setVolume, exerciseVolume } from '../lib/volume.js';
+import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } from '../lib/volume.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -77,22 +77,12 @@ router.get('/frequency', wrap((req, res) => {
 // GET /api/stats/records — personal records per exercise
 router.get('/records', wrap((req, res) => {
   const rows = getAllWorkouts(uid(req));
-  const records = {}; // exerciseId → { name, maxWeight, maxReps, date, e1rm }
+  const records = {}; // exerciseId → newRecord() shape, see lib/volume.js
   for (const row of rows) {
     for (const ex of row.exercises) {
       const id = ex.exercise_id || ex.exercise_name;
-      if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0 };
-      for (const set of ex.sets || []) {
-        if (set.completed && !set.warmup && set.weight > 0) {
-          const e1rm = set.reps === 1 ? set.weight : Math.round(set.weight * (1 + set.reps / 30));
-          if (set.weight > records[id].maxWeight) {
-            records[id].maxWeight = set.weight;
-            records[id].maxReps  = set.reps;
-            records[id].date     = row.date;
-          }
-          if (e1rm > records[id].e1rm) records[id].e1rm = e1rm;
-        }
-      }
+      if (!records[id]) records[id] = newRecord(ex.exercise_name);
+      for (const set of ex.sets || []) accumulateRecord(records[id], ex, set, row.date);
     }
   }
   res.json(Object.entries(records).map(([id, r]) => ({ exerciseId: id, ...r })));
@@ -109,11 +99,18 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
   for (const row of rows) {
     const ex = row.exercises.find(e => e.exercise_id === exerciseId);
     if (!ex) continue;
-    const completedSets = (ex.sets || []).filter(s => s.completed && !s.warmup && s.weight > 0);
+    const working = (ex.sets || []).filter(s => s.completed && !s.warmup);
+    // Timed sets (issue #89) chart by longest hold and count whatever the
+    // load, since most holds are bodyweight. Rep sets keep the existing
+    // rule of needing real weight.
+    const timedSets = working.filter(s => isTimedSet(ex, s) && Number(s.duration_sec) > 0);
+    const repSets = working.filter(s => !isTimedSet(ex, s) && s.weight > 0);
+    const completedSets = [...repSets, ...timedSets];
     if (!completedSets.length) continue;
-    const maxWeight = Math.max(...completedSets.map(s => s.weight));
+    const maxWeight = repSets.length ? Math.max(...repSets.map(s => s.weight)) : 0;
+    const maxDuration = timedSets.length ? Math.max(...timedSets.map(s => Number(s.duration_sec))) : 0;
     const lt = ex.load_type || libLoadType || 'bilateral';
-    const totalVolume = completedSets.reduce((sum, s) => sum + setVolume(s, lt), 0);
+    const totalVolume = repSets.reduce((sum, s) => sum + setVolume(s, lt), 0);
     // Average RPE across the session's working sets (when logged). Null
     // if the user hasn't opted into RPE or didn't log any values.
     const rpeValues = completedSets
@@ -125,7 +122,7 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
     // workout_id lets a chart distinguish two same-date points once a
     // date can have multiple sessions (issue #76) — additive, existing
     // chart code that only reads `date` is unaffected.
-    progress.push({ date: row.date, workout_id: row.id, maxWeight, totalVolume, sets: completedSets.length, avgRpe });
+    progress.push({ date: row.date, workout_id: row.id, maxWeight, maxDuration, totalVolume, sets: completedSets.length, avgRpe });
   }
   res.json(progress);
 }));

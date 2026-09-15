@@ -447,6 +447,9 @@ addColumnIfMissing('program_assignments', 'week_cursor_pinned_at', 'week_cursor_
 addColumnIfMissing('workout_log', 'program_week', 'program_week INTEGER');
 // Library-level load_type default (issue #24). NULL = unset.
 addColumnIfMissing('exercises', 'load_type', 'load_type TEXT DEFAULT NULL');
+// Library-level set type (issue #89): 'reps' | 'time', NULL = unset. Timed
+// exercises (plank, wall sit, dead hang) log a duration instead of reps.
+addColumnIfMissing('exercises', 'set_type', 'set_type TEXT DEFAULT NULL');
 // Pinned cardio templates (NT activity_log parity).
 addColumnIfMissing('cardio_log', 'is_template', 'is_template INTEGER DEFAULT 0');
 
@@ -827,7 +830,7 @@ export function dedupeExercisesOnce({ force = false } = {}) {
     if (row) return { skipped: true };
   }
 
-  const MERGEABLE = ['load_type', 'tips', 'video_url', 'img_url', 'gif_url', 'category', 'instructions'];
+  const MERGEABLE = ['load_type', 'set_type', 'tips', 'video_url', 'img_url', 'gif_url', 'category', 'instructions'];
 
   function pickSurvivorAndPatch(ids) {
     const sorted = ids.slice().sort((a, b) => a - b);

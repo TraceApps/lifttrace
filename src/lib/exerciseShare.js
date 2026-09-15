@@ -37,6 +37,7 @@ const PORTABLE_FIELDS = [
   'instructions', 'tips',
   'img_url', 'gif_url', 'video_url',
   'load_type',
+  'set_type',
 ];
 
 function _toPortable(exercise) {

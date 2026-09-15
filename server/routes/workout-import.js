@@ -141,6 +141,9 @@ router.post('/commit', upload.single('file'), wrap((req, res) => {
           sets:          ex.sets,
           superset_id:   ex.superset_id,
           superset_size: ex.superset_size || 1,
+          // Carried through for timed exercises (issue #89); the importers
+          // stamp it when every set on the exercise is a hold.
+          ...(ex.set_type ? { set_type: ex.set_type } : {}),
         };
       });
       insertStmt.run(

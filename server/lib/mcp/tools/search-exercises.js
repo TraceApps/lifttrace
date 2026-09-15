@@ -20,7 +20,7 @@ const MAX_LIMIT = 25;
 export function searchExercisesCore(userId, { query, limit } = {}) {
   const n = Math.min(Math.max(1, limit || 10), MAX_LIMIT);
   const rows = db.prepare(
-    `SELECT id, name, category, equipment, load_type FROM exercises
+    `SELECT id, name, category, equipment, load_type, set_type FROM exercises
       WHERE deleted_at IS NULL AND name LIKE ? AND (is_global = 1 OR created_by = ?)
       ORDER BY name ASC LIMIT ?`
   ).all(`%${query}%`, userId, n);
@@ -30,6 +30,7 @@ export function searchExercisesCore(userId, { query, limit } = {}) {
     category: r.category || null,
     equipment: r.equipment ? JSON.parse(r.equipment) : [],
     load_type: r.load_type || null,
+    set_type: r.set_type || null,
   }));
   return { exercises, count: exercises.length };
 }
@@ -42,7 +43,8 @@ export function registerSearchExercises(server, { userId }) {
       description:
         'Search the exercise catalog by name (case-insensitive substring ' +
         'match). Returns exercise_id, name, category, equipment, and ' +
-        'load_type for each match — exercise_id is what log_set expects.',
+        'load_type and set_type for each match (set_type "time" means log ' +
+        'duration_sec rather than reps). exercise_id is what log_set expects.',
       inputSchema: {
         query: z.string().min(1).max(200),
         limit: z.number().int().positive().max(MAX_LIMIT).optional(),

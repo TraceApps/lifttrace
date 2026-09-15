@@ -50,19 +50,20 @@ a token lacking the required scope returns `403`.
 |---|---|---|
 | GET | `/api/v1/workouts/:date` | One day's workout, every exercise and set. `date` defaults to today. |
 | GET | `/api/v1/workouts/recent?limit=` | Recent workouts, most recent first. `limit` defaults to 10, max 50. |
-| GET | `/api/v1/records?exercise_name=` | Personal records per exercise: max weight, reps at that weight, date, estimated 1-rep max. `exercise_name` optionally filters by a case-insensitive substring. |
-| GET | `/api/v1/exercises/:name/progress?start=&end=` | Per-session progress for one exercise (max weight, volume, set count, average RPE) over a date range. `:name` is matched case-insensitively by substring; an ambiguous match returns `{ambiguous: true, candidates: [...]}` instead of guessing. Range defaults to the last 90 days. |
-| GET | `/api/v1/exercises?query=&limit=` | Search the exercise catalog by name. `limit` defaults to 10, max 25. |
+| GET | `/api/v1/records?exercise_name=` | Personal records per exercise: max weight, reps at that weight, date, estimated 1-rep max. Timed exercises (planks, holds, carries) report `maxDuration` (longest hold, in seconds), `maxDurationWeight` and `durationDate` instead. `exercise_name` optionally filters by a case-insensitive substring. |
+| GET | `/api/v1/exercises/:name/progress?start=&end=` | Per-session progress for one exercise (max weight, longest hold as `max_duration_sec`, volume, set count, average RPE) over a date range. `:name` is matched case-insensitively by substring; an ambiguous match returns `{ambiguous: true, candidates: [...]}` instead of guessing. Range defaults to the last 90 days. |
+| GET | `/api/v1/exercises?query=&limit=` | Search the exercise catalog by name. Each match includes `set_type`: `"time"` means sets are logged by duration. `limit` defaults to 10, max 25. |
 | GET | `/api/v1/programs` | List your programs, owned or coach-assigned. |
 | GET | `/api/v1/programs/active` | The currently active program: current week and every weekly template. |
 | GET | `/api/v1/body-stats/:date` | Body-stat measurements (weight, body fat, tape measurements) for a date. |
-| GET | `/api/v1/body-stats/photos?start=&end=` | Progress photos with their dates, newest first. Range defaults to the last year. |
+| GET | `/api/v1/body-stats/photos?start=&end=` | Progress photos with their dates, newest first. Range defaults to the last year. Each photo has a `file_url` to fetch its image with the same token. |
+| GET | `/api/v1/body-stats/photos/:id/file` | The image itself, for a photo you own. Returns 409 for a photo attached by external URL, which has no local file. |
 
 ### Write (require `mcp:write` and `PUBLIC_API_WRITE_ENABLED=1`)
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight, rpe?, warmup?, completed?}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. |
+| POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight?, rpe?, warmup?, completed?}` or `{exercise_id, duration_sec, weight?, ...}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. For a timed exercise (plank, wall sit, dead hang, carry) send `duration_sec` in whole seconds instead of `reps`; `weight` then means a weighted hold. An exercise already logged by reps that day rejects `duration_sec`, and the reverse, rather than mixing the two. |
 | PUT | `/api/v1/body-stats/:date` | `{weight?, weight_unit?, bodyFat?, waist?, hips?, neck?, chest?, biceps?, thighs?, calves?}` | Merges the given values into that day's stats; omitted fields are left alone. `weight_unit: "lb"` converts to kg before storing. |
 | POST | `/api/v1/body-stats/photos` | `{url, date?}` | Attaches an already-hosted image to a date as a progress photo. `date` defaults to today. |
 

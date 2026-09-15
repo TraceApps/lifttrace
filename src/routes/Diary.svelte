@@ -4,12 +4,12 @@
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
-  import { celebrateWorkoutComplete, celebratePR, requestPermission } from '../lib/notifications.js';
-  import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
+  import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, requestPermission } from '../lib/notifications.js';
+  import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import { startRest as startRestTimer, stopRest } from '../stores/restTimer.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
@@ -159,17 +159,25 @@
       try {
         const history = await LtApi.getWorkoutHistory(id);
         const prior = (history || []).filter(h => h.date !== $currentDate);
-        let topW = 0, topE = 0;
+        let topW = 0, topE = 0, topDur = 0, topDurW = 0;
         for (const h of prior) {
           for (const s of (h.sets || [])) {
             if (!s.completed || s.warmup) continue;
+            // Timed sets (issue #89) keep their own bests, so a long plank
+            // never reads as a heavy lift and vice versa.
+            if (isTimedSet({ set_type: h.set_type }, s)) {
+              const d = Number(s.duration_sec) || 0;
+              if (d > topDur) topDur = d;
+              if (d > 0 && (s.weight || 0) > topDurW) topDurW = s.weight || 0;
+              continue;
+            }
             const w = s.weight || 0, r = s.reps || 0;
             if (w > topW) topW = w;
             const e = w * (1 + r / 30);
             if (e > topE) topE = e;
           }
         }
-        newBests[id] = { topWeight: topW, topE1rm: topE };
+        newBests[id] = { topWeight: topW, topE1rm: topE, topDuration: topDur, topDurationWeight: topDurW };
       } catch {}
     }));
     prevBestsByExId = newBests;
@@ -185,6 +193,14 @@
       const indices = new Set();
       (ex.sets || []).forEach((s, sIdx) => {
         if (!s.completed || s.warmup) return;
+        if (isTimedSet(ex, s)) {
+          // A hold PR is the longest hold, or the heaviest load held.
+          const d = Number(s.duration_sec) || 0;
+          if (!d) return;
+          const hw = s.weight || 0;
+          if (d > (best.topDuration || 0) || (hw > 0 && hw > (best.topDurationWeight || 0))) indices.add(sIdx);
+          return;
+        }
         const w = s.weight || 0;
         const r = s.reps || 0;
         if (!w || !r) return;
@@ -390,6 +406,16 @@
     if (t) loadTemplate(t);
   }
   function _fmtTplExerciseTarget(ex) {
+    // Timed exercises (issue #89) prescribe a duration, not reps.
+    if (ex.set_type === 'time') {
+      const t = (v) => fmtSetDuration(parseDuration(v)) || '-';
+      if (ex.set_specs?.length) {
+        return ex.set_specs.map(s => s.weight ? `${t(s.duration)} @ ${s.weight}${$weightUnit}` : t(s.duration)).join(', ');
+      }
+      const sets = ex.target_sets || 1;
+      const w = ex.target_weight ? ` @ ${ex.target_weight}${$weightUnit}` : '';
+      return `${sets}×${t(ex.target_duration)}${w}`;
+    }
     // Per-set spec wins when present (template author pinned each set);
     // otherwise fall back to the uniform sets/reps/weight target row.
     if (ex.set_specs?.length) {
@@ -979,6 +1005,7 @@
   function resolveWeek(ex, wk) {
     const base = {
       sets: ex.target_sets, reps: ex.target_reps, weight: ex.target_weight,
+      duration: ex.target_duration,
       tempo: ex.tempo, rest_sec: ex.rest_sec,
     };
     if (!wk || !ex.weeks?.length) return base;
@@ -988,6 +1015,7 @@
       sets: w.sets ?? base.sets,
       reps: w.reps ?? base.reps,
       weight: w.weight ?? base.weight,
+      duration: w.duration ?? base.duration,
       tempo: w.tempo ?? base.tempo,
       rest_sec: w.rest_sec ?? base.rest_sec,
     };
@@ -1049,6 +1077,10 @@
             completed: false,
             notes: '',
           };
+          if (ex.set_type === 'time') {
+            const dur = parseDuration(spec.duration) ?? lastSets?.[i]?.duration_sec ?? 0;
+            if (dur) set.duration_sec = dur;
+          }
           // Asymmetric supersets: template author can pin a set to a
           // specific round via spec.number. Falls back to position when
           // unset, matching the diary's display convention.
@@ -1089,6 +1121,18 @@
           sets = Array.from({ length: numSets }, () => ({
             weight: baseWeight, reps: baseReps, completed: false, notes: '',
           }));
+        }
+        // Timed exercise (issue #89): the prescribed duration, or the last
+        // session's when history wins, fills each set.
+        if (ex.set_type === 'time') {
+          const planned = parseDuration(eff.duration) || 0;
+          sets = sets.map((set, i) => {
+            const fromLast = (lastSets && !planWins)
+              ? (lastSets[i]?.duration_sec ?? lastSets[lastSets.length - 1]?.duration_sec)
+              : null;
+            const dur = fromLast || planned;
+            return dur ? { ...set, duration_sec: dur } : set;
+          });
         }
       }
       // Surface the resolved week's tempo/rest onto the logged exercise so the
@@ -1198,15 +1242,19 @@
       const numSets = (ex.sets || []).length || ex.target_sets || 3;
       let sets;
       if (lastSets) {
-        sets = Array.from({ length: numSets }, (_, i) => ({
-          weight: lastSets[i]?.weight || lastSets[lastSets.length - 1]?.weight || 0,
-          reps: lastSets[i]?.reps || lastSets[lastSets.length - 1]?.reps || 0,
-          completed: false, notes: '',
-        }));
+        sets = Array.from({ length: numSets }, (_, i) => {
+          const src = lastSets[i] || lastSets[lastSets.length - 1] || {};
+          const next = { weight: src.weight || 0, reps: src.reps || 0, completed: false, notes: '' };
+          if (src.duration_sec) next.duration_sec = src.duration_sec;
+          return next;
+        });
       } else {
         sets = Array.from({ length: numSets }, () => ({ weight: 0, reps: 0, completed: false, notes: '' }));
       }
-      return { ...ex, sets };
+      // Regenerated sets would otherwise lose the only evidence an exercise
+      // was timed, so carry it on the instance explicitly (issue #89).
+      const wasTimed = ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0);
+      return wasTimed ? { ...ex, set_type: 'time', sets } : { ...ex, sets };
     }));
     await saveWorkout($currentDate, {
       ...($todayLog || {}),
@@ -1280,7 +1328,11 @@
     let sets, targetSets, targetReps, targetWeight;
 
     if (lastSets) {
-      sets = lastSets.map(s => ({ reps: s.reps || 0, weight: s.weight || 0, completed: false }));
+      sets = lastSets.map(s => {
+        const next = { reps: s.reps || 0, weight: s.weight || 0, completed: false };
+        if (s.duration_sec) next.duration_sec = s.duration_sec;
+        return next;
+      });
       targetSets = lastSets.length;
       targetReps = String(lastSets[0]?.reps || 10);
       targetWeight = String(lastSets[0]?.weight || '');
@@ -1296,6 +1348,18 @@
     // Falls back to bilateral when no preference exists.
     const savedLoadType = ex.id != null && $exerciseLoadTypes
       ? $exerciseLoadTypes[ex.id] : null;
+    // Timed (issue #89): the last session's own data decides first, then the
+    // library default, then the user's remembered choice. Stamped onto the
+    // instance so every later reader (volume, stats, CSV, the API) sees it
+    // without needing the library row or this device's preferences.
+    const lastWasTimed = !!lastSets?.some(s => Number(s.duration_sec) > 0);
+    const lastWasReps = !!lastSets?.some(s => Number(s.reps) > 0);
+    const remembered = ex.id != null ? $exerciseSetTypes?.[ex.id] : null;
+    const startTimed = lastWasTimed
+      || (!lastWasReps && (ex.set_type === 'time'
+        || (ex.set_type !== 'reps' && (remembered === 'time'
+          || (remembered !== 'reps' && defaultSetTypeForName(ex.name) === 'time')))));
+    if (startTimed) targetReps = '';
     const newExercise = {
       exercise_id: ex.id,
       exercise_name: ex.name,
@@ -1305,6 +1369,7 @@
       notes: '',
       sets,
       ...(savedLoadType && savedLoadType !== 'bilateral' ? { load_type: savedLoadType } : {}),
+      ...(startTimed ? { set_type: 'time' } : {}),
     };
 
     let updated;
@@ -1408,7 +1473,31 @@
         // PR check — compare to PRIOR workouts only (not today), skip
         // celebrations when planning ahead (future date)
         const justCompletedSet = ex.sets.find((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
-        if (!isFuture && justCompletedSet && justCompletedSet.weight > 0 && ex.exercise_id) {
+        const justCompletedTimed = !!justCompletedSet && isTimedSet(ex, justCompletedSet);
+        if (!isFuture && justCompletedTimed && !justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0 && ex.exercise_id) {
+          // Timed set (issue #89): celebrate the longest hold, or a heavier
+          // load held, against prior timed sessions only.
+          try {
+            const history = await LtApi.getWorkoutHistory(ex.exercise_id);
+            let priorDur = 0, priorDurW = 0, priorCount = 0;
+            for (const h of history) {
+              if (h.date === $currentDate) continue;
+              for (const s of h.sets || []) {
+                if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
+                const d = Number(s.duration_sec) || 0;
+                if (d <= 0) continue;
+                priorCount++;
+                if (d > priorDur) priorDur = d;
+                if ((s.weight || 0) > priorDurW) priorDurW = s.weight || 0;
+              }
+            }
+            const d = Number(justCompletedSet.duration_sec);
+            const w = justCompletedSet.weight || 0;
+            if (priorCount > 0 && (d > priorDur || (w > 0 && w > priorDurW))) {
+              celebrateHoldPR(ex.exercise_name, d, w, $weightUnit);
+            }
+          } catch {}
+        } else if (!isFuture && justCompletedSet && !justCompletedTimed && justCompletedSet.weight > 0 && ex.exercise_id) {
           try {
             const history = await LtApi.getWorkoutHistory(ex.exercise_id);
             // Collect prior completed sets, EXCLUDING today — otherwise your
@@ -1419,7 +1508,7 @@
             for (const h of history) {
               if (h.date === $currentDate) continue;
               for (const s of h.sets || []) {
-                if (s.completed && s.weight > 0) {
+                if (s.completed && s.weight > 0 && !isTimedSet({ set_type: h.set_type }, s)) {
                   priorSetCount++;
                   if (s.weight > priorMax) priorMax = s.weight;
                   const e1 = calc1RM(s.weight, s.reps);

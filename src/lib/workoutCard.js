@@ -7,6 +7,9 @@
 // Pulls the current accent color from the CSS custom property so the card
 // matches the user's theme.
 
+// workout.js is pure (no stores), so importing it keeps this renderer self-contained.
+import { isTimedSet, fmtSetLabel } from './workout.js';
+
 const W = 1080;
 const H = 1350;
 
@@ -61,7 +64,8 @@ function _computeStats(workout) {
     if (completed.length > 0) exercisesWithCompletedSets++;
     const loadType = ex.load_type || 'bilateral';
     for (const s of completed) {
-      volume += _setVolume(s, loadType);
+      // Timed sets (issue #89) count as sets but carry no weight x reps volume.
+      if (!isTimedSet(ex, s)) volume += _setVolume(s, loadType);
       sets++;
     }
   }
@@ -190,10 +194,18 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
   // caller should advance to.
   function _renderRow(ex, y, leftPad = 0) {
     const completed = (ex.sets || []).filter(s => s.completed);
-    const top = completed.reduce((best, s) =>
-      (!best || (s.weight || 0) > (best.weight || 0) ||
-       ((s.weight || 0) === (best.weight || 0) && (s.reps || 0) > (best.reps || 0)))
-        ? s : best, null);
+    // The headline set: heaviest (then most reps) for lifts, longest (then
+    // heaviest) for a timed exercise, where the hold is the achievement.
+    const timed = completed.some(s => isTimedSet(ex, s));
+    const top = completed.reduce((best, s) => {
+      if (!best) return s;
+      if (timed) {
+        const d = Number(s.duration_sec) || 0, bd = Number(best.duration_sec) || 0;
+        return d > bd || (d === bd && (s.weight || 0) > (best.weight || 0)) ? s : best;
+      }
+      return (s.weight || 0) > (best.weight || 0) ||
+        ((s.weight || 0) === (best.weight || 0) && (s.reps || 0) > (best.reps || 0)) ? s : best;
+    }, null);
     ctx.font = '600 32px system-ui, -apple-system, sans-serif';
     ctx.fillStyle = text1;
     ctx.textAlign = 'left';
@@ -203,8 +215,8 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
     ctx.fillStyle = text2;
     ctx.textAlign = 'right';
     const setSummary = completed.length === 1
-      ? `${top.weight}×${top.reps}`
-      : `${completed.length} sets · top ${top.weight}×${top.reps}`;
+      ? fmtSetLabel(ex, top)
+      : `${completed.length} sets · top ${fmtSetLabel(ex, top)}`;
     ctx.fillText(setSummary, W - 64, y);
     ctx.textAlign = 'left';
     return y + rowGap;

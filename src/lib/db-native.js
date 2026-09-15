@@ -161,7 +161,9 @@ async function _createSchema(db) {
       -- Library-level load_type (issue #24). NULL = unset so the
       -- client-side per-user preference tier of the resolver can
       -- still take effect. See src/lib/workout.js resolveLoadType.
-      load_type         TEXT DEFAULT NULL
+      load_type         TEXT DEFAULT NULL,
+      -- Library-level set type (issue #89): 'reps' | 'time', NULL = unset.
+      set_type          TEXT DEFAULT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
     CREATE INDEX IF NOT EXISTS idx_exercises_source   ON exercises(source);
@@ -352,6 +354,8 @@ async function _createSchema(db) {
     `ALTER TABLE workout_log         ADD COLUMN program_week INTEGER`,
     // Library-level load_type default (issue #24).
     `ALTER TABLE exercises           ADD COLUMN load_type TEXT DEFAULT NULL`,
+    // Library-level set type (issue #89).
+    `ALTER TABLE exercises           ADD COLUMN set_type TEXT DEFAULT NULL`,
     // Pinned cardio quick-log templates.
     `ALTER TABLE cardio_log          ADD COLUMN is_template INTEGER DEFAULT 0`,
     // Partial UNIQUE index mirroring the server (#34). Standalone-native

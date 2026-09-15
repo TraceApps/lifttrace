@@ -401,7 +401,11 @@ Both paths are backward-compatible; existing workouts (no new fields) render exa
 
 **Implementation phases** (each independently testable)
 
-Phase 1, Schema + SetRow input rendering (~2-3 evenings)
+Phase 1, Schema + SetRow input rendering (~2-3 evenings) *(done, issue #89)*
+
+Shipped as the timed-sets slice of Bundle A, without deciding the rest-framing question below: the fields it needs (`set.duration_sec`, and a `set_type` of `'reps' | 'time'` on the exercise instance and the library row) are the same under Option 1 and Option 2, so that decision is still open. Named `set_type` rather than `default_set_type` to match the existing `load_type`, which has the same per-instance / library / remembered-preference layering. Recorded set data outranks every default, so history never changes shape. Covered: Diary chip and set row, exercise editor, templates (a real `duration` field through the weeks matrix and per-set specs), Statistics and exercise detail (longest hold), records and the `pr.set` webhook, CSV export, Strong and Hevy import, Smart-Add, Trace, MCP and the REST API.
+
+Original phase notes:
 
 - Add the columns + ALTER migration.
 - SetRow renders `duration_sec + weight` row when set is time-based, `reps + weight` row when rep-based (current behavior).

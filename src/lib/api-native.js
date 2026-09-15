@@ -19,6 +19,7 @@ import {
   setSyncMeta,
 } from './db-native.js';
 import { currentPlanWeek } from './programWeek.js';
+import { isTimedSet } from './workout.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -29,6 +30,9 @@ const _KNOWN_LOAD_TYPES = new Set(['bilateral', 'paired', 'unilateral']);
 function _cleanLoadType(v) {
   if (v == null || v === '') return null;
   return _KNOWN_LOAD_TYPES.has(v) ? v : null;
+}
+function _cleanSetType(v) {
+  return v === 'reps' || v === 'time' ? v : null;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -259,8 +263,8 @@ const Exercises = {
     const r = await dbRun(
       `INSERT INTO exercises
         (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips,
-         img_url, gif_url, video_url, load_type, source, is_global, created_by, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         img_url, gif_url, video_url, load_type, set_type, source, is_global, created_by, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         body.name,
         body.category || null,
@@ -273,6 +277,7 @@ const Exercises = {
         body.gif_url || null,
         body.video_url || null,
         _cleanLoadType(body.load_type),
+        _cleanSetType(body.set_type),
         body.source || 'custom',
         body.is_global ? 1 : 0,
         ME,
@@ -297,6 +302,10 @@ const Exercises = {
     if (body.load_type !== undefined) {
       sets.push(`load_type = ?`);
       args.push(body.load_type === null ? null : _cleanLoadType(body.load_type));
+    }
+    if (body.set_type !== undefined) {
+      sets.push(`set_type = ?`);
+      args.push(body.set_type === null ? null : _cleanSetType(body.set_type));
     }
     sets.push(`updated_at = ?`); args.push(_now());
     sets.push(`sync_state = 'pending'`);
@@ -1084,6 +1093,8 @@ const Stats = {
       if (!byWeek[weekStart]) byWeek[weekStart] = 0;
       for (const ex of w.exercises || []) {
         for (const s of ex.sets || []) {
+          // Timed sets (issue #89) carry no weight x reps volume.
+          if (isTimedSet(ex, s)) continue;
           if (s.completed && !s.warmup && (Number(s.weight) || 0) > 0 && (Number(s.reps) || 0) > 0) {
             byWeek[weekStart] += Number(s.weight) * Number(s.reps);
           }
@@ -1114,9 +1125,21 @@ const Stats = {
     for (const w of all) {
       for (const ex of w.exercises || []) {
         const id = ex.exercise_id || ex.exercise_name;
-        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0 };
+        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, durationDate: '' };
         for (const s of ex.sets || []) {
           if (!s.completed || s.warmup) continue;
+          // Mirror of accumulateRecord in server/lib/volume.js: a timed set
+          // moves the longest-hold fields and never the rep fields.
+          if (isTimedSet(ex, s)) {
+            const sec = Number(s.duration_sec) || 0;
+            if (sec <= 0) continue;
+            const hw = Number(s.weight) || 0;
+            const r = records[id];
+            if (sec > r.maxDuration || (sec === r.maxDuration && hw > r.maxDurationWeight)) {
+              r.maxDuration = sec; r.maxDurationWeight = hw; r.durationDate = w.date;
+            }
+            continue;
+          }
           const wt = Number(s.weight) || 0;
           const reps = Number(s.reps) || 0;
           if (wt <= 0) continue;
@@ -1143,17 +1166,23 @@ const Stats = {
     for (const w of rows) {
       const ex = (w.exercises || []).find(e => Number(e.exercise_id) === Number(exerciseId));
       if (!ex) continue;
-      const completed = (ex.sets || []).filter(s => s.completed && !s.warmup && (Number(s.weight) || 0) > 0);
+      // Mirror of GET /api/stats/progress (issue #89): timed sets chart by
+      // longest hold whatever the load; rep sets still need real weight.
+      const working = (ex.sets || []).filter(s => s.completed && !s.warmup);
+      const timedSets = working.filter(s => isTimedSet(ex, s) && (Number(s.duration_sec) || 0) > 0);
+      const repSets = working.filter(s => !isTimedSet(ex, s) && (Number(s.weight) || 0) > 0);
+      const completed = [...repSets, ...timedSets];
       if (!completed.length) continue;
-      const maxWeight = Math.max(...completed.map(s => Number(s.weight) || 0));
-      const totalVolume = completed.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
+      const maxWeight = repSets.length ? Math.max(...repSets.map(s => Number(s.weight) || 0)) : 0;
+      const maxDuration = timedSets.length ? Math.max(...timedSets.map(s => Number(s.duration_sec) || 0)) : 0;
+      const totalVolume = repSets.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
       const rpeValues = completed
         .map(s => parseFloat(s.rpe))
         .filter(n => Number.isFinite(n) && n > 0);
       const avgRpe = rpeValues.length
         ? Math.round((rpeValues.reduce((a, b) => a + b, 0) / rpeValues.length) * 10) / 10
         : null;
-      out.push({ date: w.date, maxWeight, totalVolume, sets: completed.length, avgRpe });
+      out.push({ date: w.date, maxWeight, maxDuration, totalVolume, sets: completed.length, avgRpe });
     }
     return out;
   },
@@ -1750,6 +1779,7 @@ async function handle(method, path, body, query) {
             sets:          ex.sets,
             superset_id:   ex.superset_id ?? null,
             superset_size: ex.superset_size || 1,
+            ...(ex.set_type ? { set_type: ex.set_type } : {}),
           };
         });
         await dbRun(

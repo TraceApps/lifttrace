@@ -38,7 +38,7 @@ router.get('/history/:exerciseId', wrap((req, res) => {
     const exercises = JSON.parse(row.exercises || '[]');
     const match = exercises.find(e => e.exercise_id === exerciseId);
     if (match) {
-      history.push({ date: row.date, sets: match.sets || [], notes: match.notes });
+      history.push({ date: row.date, sets: match.sets || [], notes: match.notes, ...(match.set_type ? { set_type: match.set_type } : {}) });
     }
   }
   res.json(history);
@@ -375,7 +375,9 @@ router.put('/:date', wrap((req, res) => {
         const before = beforeByExercise.get(after.exercise_id);
         const improvedWeight = after.maxWeight > (before?.maxWeight ?? 0);
         const improvedE1rm = after.e1rm > (before?.e1rm ?? 0);
-        if (improvedWeight || improvedE1rm) {
+        // Longest hold on a timed exercise (issue #89).
+        const improvedDuration = (after.maxDuration || 0) > (before?.maxDuration ?? 0);
+        if (improvedWeight || improvedE1rm || improvedDuration) {
           dispatchWebhookEvent(userId, 'pr.set', {
             exercise_id: after.exercise_id,
             exercise_name: after.name,
@@ -385,6 +387,8 @@ router.put('/:date', wrap((req, res) => {
             new_e1rm: after.e1rm,
             previous_max_weight: before?.maxWeight ?? 0,
             previous_e1rm: before?.e1rm ?? 0,
+            new_max_duration_sec: after.maxDuration || 0,
+            previous_max_duration_sec: before?.maxDuration ?? 0,
           });
         }
       }

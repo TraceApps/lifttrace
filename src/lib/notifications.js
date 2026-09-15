@@ -172,6 +172,26 @@ export function celebratePR(exerciseName, weight, unit, reps, type = 'weight') {
   notify(title, body, 5);
 }
 
+/**
+ * Longest-hold PR on a timed exercise (issue #89). Kept apart from
+ * celebratePR because that one dedupes on weight, and most holds have none:
+ * a longer bodyweight plank would never beat a stored 0.
+ */
+export function celebrateHoldPR(exerciseName, durationSec, weight, unit) {
+  const key = `lt:prHoldCelebrated:${exerciseName}:${new Date().toDateString()}`;
+  const last = parseFloat(localStorage.getItem(key) || '0');
+  if (durationSec <= last) return;
+  const enabled = DB.getSetting('notifPRCelebrations', true);
+  if (!enabled) return;
+  localStorage.setItem(key, String(durationSec));
+  const m = Math.floor(durationSec / 60);
+  const s = String(durationSec % 60).padStart(2, '0');
+  const body = weight > 0
+    ? `${exerciseName}: ${m}:${s} @ ${weight} ${unit}`
+    : `${exerciseName}: ${m}:${s}`;
+  notify('🏆 New Hold PR!', body, 5);
+}
+
 // ── Daily reminder scheduling (Capacitor LocalNotifications) ─────────────
 //
 // On native, schedule daily-repeating reminders directly via the OS so they

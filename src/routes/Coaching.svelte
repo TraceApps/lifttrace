@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { isTimedSet, fmtSetDuration } from '../lib/workout.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -809,7 +810,7 @@
       {@const unit = overview?.weight_unit || 'lbs'}
       {@const totalVolume = (workoutDetail.exercises || []).reduce((sum, ex) => {
         const lt = ex.load_type || 'bilateral';
-        return sum + (ex.sets || []).filter(s => s.completed && !s.warmup).reduce((a, s) => {
+        return sum + (ex.sets || []).filter(s => s.completed && !s.warmup && !isTimedSet(ex, s)).reduce((a, s) => {
           const w = s.weight || 0;
           if (lt === 'unilateral') {
             if (s.reps_l != null || s.reps_r != null) return a + w * ((s.reps_l || 0) + (s.reps_r || 0));
@@ -924,7 +925,11 @@
               {#each done as s, i}
                 <div class="wd-set" class:warmup={s.warmup}>
                   <span class="wd-set-n">{i + 1}{s.warmup ? ' (w)' : ''}</span>
-                  <span class="wd-set-detail">{s.weight || 0} {unit} × {s.reps || 0}</span>
+                  {#if isTimedSet(ex, s)}
+                    <span class="wd-set-detail">{s.weight ? `${s.weight} ${unit} × ` : ''}{fmtSetDuration(s.duration_sec) || '0:00'}</span>
+                  {:else}
+                    <span class="wd-set-detail">{s.weight || 0} {unit} × {s.reps || 0}</span>
+                  {/if}
                   {#if s.rpe != null}<span class="wd-set-rpe">@ {s.rpe}</span>{/if}
                 </div>
               {/each}
