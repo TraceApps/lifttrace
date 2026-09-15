@@ -273,3 +273,59 @@ test('Trace can log and read timed sets', () => {
   const trace = read('../src/components/ai/Trace.svelte');
   assert.match(trace, /Never report a hold's seconds as reps/);
 });
+
+// ── Gaps found on a second pass ──────────────────────────────────────────
+
+test('FitNotes import keeps hold times from its Time column', async () => {
+  const mod = await import('../server/lib/workout-import/fitnotes.js');
+  const parse = Object.values(mod).find(f => typeof f === 'function');
+  const csv = [
+    'Date,Exercise,Category,Weight (lbs),Reps,Distance,Distance Unit,Time,Comment',
+    '2024-08-01,Plank,Abs,,,,,0:01:00,',
+    '2024-08-01,Plank,Abs,,,,,45,',
+    '2024-08-01,Bench Press,Chest,135,5,,,,',
+  ].join('\n') + '\n';
+  const [w] = parse(csv, 'lbs');
+  const byName = Object.fromEntries(w.exercises.map(e => [e.exercise_name, e]));
+  assert.equal(byName.Plank.set_type, 'time');
+  assert.deepEqual(byName.Plank.sets.map(x => x.duration_sec), [60, 45]);
+  assert.equal(byName['Bench Press'].set_type, undefined);
+  assert.equal(read('../server/lib/workout-import/fitnotes.js'), read('../src/lib/workout-import/fitnotes.js'));
+});
+
+test('Garmin FIT import keeps the per-set duration instead of dropping it', () => {
+  const g = read('../server/lib/workout-import/garmin-fit.js');
+  assert.match(g, /if \(ws\.reps === 0 && holdSec > 0\) setRow\.duration_sec = holdSec/);
+  assert.match(g, /ex\.set_type = 'time'/);
+});
+
+test('auto warm-ups never ramp a timed exercise', () => {
+  const diary = read('../src/routes/Diary.svelte');
+  const block = diary.slice(diary.indexOf('const withWarmups = $autoGenerateWarmups'));
+  assert.match(block.slice(0, 600), /ex\.set_type === 'time'/);
+});
+
+test('muscle balance volume skips holds on server and Android', () => {
+  // Bounded by the handler itself rather than a character count, so the
+  // assertion cannot pass by reading into a neighbouring route.
+  const stats = read('../server/routes/stats.js');
+  const start = stats.indexOf("router.get('/muscle-group-volume'");
+  const mgv = stats.slice(start, stats.indexOf('\nrouter.', start + 1));
+  assert.match(mgv, /if \(isTimedSet\(ex, set\)\) continue;/);
+  const native = read('../src/lib/api-native.js');
+  const nStart = native.indexOf('async muscleGroupVolume');
+  const nm = native.slice(nStart, native.indexOf('async weekdayDistribution', nStart));
+  assert.match(nm, /if \(isTimedSet\(ex, s\)\) continue;/);
+});
+
+test('Trace get_prs reports hold records instead of filtering them out', () => {
+  const tools = read('../src/lib/aiTools.js');
+  const fn = tools.slice(tools.indexOf('async function _getPrs'));
+  assert.match(fn.slice(0, 1600), /\(r\.maxDuration \|\| 0\) > 0/);
+  assert.match(fn.slice(0, 1600), /longest_hold_sec: r\.maxDuration/);
+});
+
+test('program detail shows a timed exercise\'s target time', () => {
+  const pd = read('../src/routes/ProgramDetail.svelte');
+  assert.match(pd, /ex\.set_type === 'time'\}\{fmtSetDuration\(parseDuration\(ex\.target_duration\)\)/);
+});

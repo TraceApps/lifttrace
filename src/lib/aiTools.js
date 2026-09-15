@@ -655,20 +655,31 @@ async function _getPrs({ exercise_name, date_from, date_to, limit } = {}) {
   const cap = Number(limit) || 20;
   const records = await _get('/api/stats/records');
   const needle = (exercise_name || '').toLowerCase().trim();
+  // A timed exercise (issue #89) has no max weight; its record is the
+  // longest hold. Filtering on maxWeight alone hid every plank PR.
+  const isHold = (r) => !((r.maxWeight || 0) > 0) && (r.maxDuration || 0) > 0;
+  const recDate = (r) => (isHold(r) ? r.durationDate : r.date);
   const filtered = records
-    .filter(r => (r.maxWeight || 0) > 0)
+    .filter(r => (r.maxWeight || 0) > 0 || (r.maxDuration || 0) > 0)
     .filter(r => (!needle || (r.name || '').toLowerCase().includes(needle)))
-    .filter(r => (!date_from || (r.date && r.date >= date_from)))
-    .filter(r => (!date_to   || (r.date && r.date <= date_to)))
+    .filter(r => (!date_from || (recDate(r) && recDate(r) >= date_from)))
+    .filter(r => (!date_to   || (recDate(r) && recDate(r) <= date_to)))
     .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0))
     .slice(0, cap);
-  return filtered.map(r => ({
-    exercise_name: r.name,
-    weight: r.maxWeight,
-    reps: r.maxReps,
-    one_rep_max_estimate: r.e1rm,
-    date: r.date || null,
-  }));
+  return filtered.map(r => (isHold(r)
+    ? {
+        exercise_name: r.name,
+        longest_hold_sec: r.maxDuration,
+        ...(r.maxDurationWeight ? { hold_weight: r.maxDurationWeight } : {}),
+        date: r.durationDate || null,
+      }
+    : {
+        exercise_name: r.name,
+        weight: r.maxWeight,
+        reps: r.maxReps,
+        one_rep_max_estimate: r.e1rm,
+        date: r.date || null,
+      }));
 }
 
 async function _getBodyStats({ stat, date_from, date_to } = {}) {

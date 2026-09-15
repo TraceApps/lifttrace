@@ -1233,6 +1233,7 @@ const Stats = {
         const normalized = [...new Set(groups.map(normalize))];
         for (const s of ex.sets || []) {
           if (!s.completed || s.warmup || (Number(s.weight) || 0) <= 0 || (Number(s.reps) || 0) <= 0) continue;
+          if (isTimedSet(ex, s)) continue;   // mirror of the server: no volume for a hold
           const w = Number(s.weight) * Number(s.reps);
           for (const g of normalized) {
             if (!out[g]) out[g] = { muscle: g, sets: 0, volume: 0 };

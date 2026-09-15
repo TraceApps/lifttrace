@@ -158,6 +158,7 @@ router.get('/muscle-group-volume', wrap((req, res) => {
       const lt = ex.load_type || info.load_type || 'bilateral';
       for (const set of ex.sets || []) {
         if (!set.completed || set.warmup || set.weight <= 0) continue;
+        if (isTimedSet(ex, set)) continue;   // issue #89: a hold has no volume
         const w = setVolume(set, lt);
         if (w <= 0) continue;
         for (const g of normalized) {

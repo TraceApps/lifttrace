@@ -1144,6 +1144,9 @@
     // this exercise has a usable working weight.
     const withWarmups = $autoGenerateWarmups
       ? templateExercises.map(ex => {
+          // A warm-up ramp is weight x reps sets; it means nothing for a
+          // hold or carry (issue #89), whatever load it is done with.
+          if (ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0)) return ex;
           const firstWorking = (ex.sets || []).find(s => !s.warmup);
           const w = parseFloat(firstWorking?.weight || ex.target_weight || 0) || 0;
           const warmups = generateWarmupSets(w, $weightUnit);

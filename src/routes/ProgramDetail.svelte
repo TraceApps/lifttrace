@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { fmtSetDuration, parseDuration } from '../lib/workout.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -460,9 +461,9 @@
                     <span class="ptp-ex-num">{i + 1}</span>
                     <div class="ptp-ex-body">
                       <span class="ptp-ex-name">{ex.name || ex.exercise_name || 'Exercise'}</span>
-                      {#if ex.target_sets || ex.target_reps || ex.target_weight}
+                      {#if ex.target_sets || ex.target_reps || ex.target_weight || ex.target_duration}
                         <span class="ptp-ex-spec">
-                          {#if ex.target_sets}{ex.target_sets} × {/if}{#if ex.target_reps}{ex.target_reps}{/if}{#if ex.target_weight}{' @ '}{ex.target_weight}{/if}
+                          {#if ex.target_sets}{ex.target_sets} × {/if}{#if ex.set_type === 'time'}{fmtSetDuration(parseDuration(ex.target_duration)) || ex.target_duration || ''}{:else if ex.target_reps}{ex.target_reps}{/if}{#if ex.target_weight}{' @ '}{ex.target_weight}{/if}
                         </span>
                       {/if}
                     </div>
