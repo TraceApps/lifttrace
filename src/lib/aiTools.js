@@ -154,8 +154,8 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        date_from:     { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 30 days ago.' },
-        date_to:       { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+        date_from:     { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 30 days ago, and with exercise_name reaches further back if needed.' },
+        date_to:       { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
         exercise_name: { type: 'string', description: 'Case-insensitive substring match; only workouts containing this exercise are returned.' },
       },
     },
@@ -241,8 +241,8 @@ export const TOOLS = [
       type: 'object',
       properties: {
         stat:      { type: 'string', description: "Optional single-stat filter (e.g. 'weight', 'body_fat', 'chest')." },
-        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 90 days ago.' },
-        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 90 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
       },
     },
   },
@@ -253,8 +253,8 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 365 days ago.' },
-        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 365 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
       },
     },
   },
@@ -265,8 +265,8 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 30 days ago.' },
-        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 30 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
         activity:  { type: 'string', description: "Optional case-insensitive filter, e.g. 'run', 'cycling'." },
       },
     },
@@ -286,6 +286,7 @@ export const TOOLS = [
         avg_hr:        { type: 'number', description: 'Optional average heart rate in bpm.' },
         notes:         { type: 'string', description: 'Optional free-text note.' },
         date:          { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
       },
     },
   },
@@ -321,6 +322,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         date:         { type: 'string',  description: 'YYYY-MM-DD.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
         name:         { type: 'string',  description: 'Optional session name.' },
         duration_min: { type: 'number',  description: 'Optional session duration in minutes.' },
         exercises: {
@@ -362,6 +364,7 @@ export const TOOLS = [
       properties: {
         exercise_name: { type: 'string', description: 'Exercise name; matched case-insensitively against the library.' },
         date:          { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
       },
       required: ['exercise_name'],
     },
@@ -397,6 +400,7 @@ export const TOOLS = [
         value: { type: 'number',  description: 'Numeric value.' },
         unit:  { type: 'string',  description: "Optional unit override. Defaults: 'kg' for weight, '%' for body_fat." },
         date:  { type: 'string',  description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
         note:  { type: 'string',  description: 'Optional free-text note attached to the entry.' },
       },
       required: ['stat', 'value'],
@@ -412,6 +416,7 @@ export const TOOLS = [
         template_id:   { type: 'integer', description: 'workout_templates.id' },
         template_name: { type: 'string',  description: 'Case-insensitive template name match across the user\'s programs.' },
         date:          { type: 'string',  description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
       },
     },
   },
@@ -437,6 +442,7 @@ export const TOOLS = [
         trainee_id:  { type: 'integer', description: 'The member (users.id) to prescribe to.' },
         template_id: { type: 'integer', description: 'workout_templates.id to prescribe.' },
         target_date: { type: 'string',  description: 'YYYY-MM-DD the trainee should perform the workout.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
         notes:       { type: 'string',  description: 'Optional coach notes for the trainee.' },
       },
       required: ['trainee_id', 'template_id', 'target_date'],
@@ -446,8 +452,94 @@ export const TOOLS = [
 
 // ── Dispatcher ─────────────────────────────────────────────────────────────
 
-export async function runTool(name, args) {
-  args = args || {};
+// ── Date guard (issue #92) ─────────────────────────────────────────────
+//
+// Models invent dates. Asked to "compare today's bench to previous
+// sessions", a model will happily pass date_from 2024-04-27 when today is
+// 2026-09-15, usually because its own sense of "now" is its training
+// cutoff. The range is empty, and it then tells the user the lift is not in
+// their log. Prompt wording helps but is not enough on its own (mini-class
+// models ignore it), so the executor defends itself:
+//
+//   Reads   A malformed date is dropped so the default applies, a range
+//           that ends in the future is clamped to today, an inverted range
+//           is swapped. If a range the model supplied comes back empty but
+//           the default window does not, the default results are returned
+//           with a note naming today's date, so the model learns its dates
+//           were wrong instead of concluding the data is missing. This does
+//           not rely on guessing how old is "too old": a wrong 2025 is
+//           handled the same as a wrong 2024.
+//   Writes  A date far from today (more than WRITE_WINDOW_DAYS either way)
+//           is refused unless date_confirmed is true, because an invented
+//           year would otherwise file a workout two years back where the
+//           user would never find it. "Log yesterday" and "plan next week"
+//           are well inside the window.
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const WRITE_WINDOW_DAYS = 60;
+const RANGE_TOOLS = new Set(['get_workouts', 'get_prs', 'get_body_stats', 'get_cardio', 'get_progress_photos']);
+const WRITE_DATE_FIELD = {
+  log_workout: 'date',
+  log_body_stat: 'date',
+  log_cardio: 'date',
+  add_exercise_to_diary: 'date',
+  start_workout_from_template: 'date',
+  add_coach_prescription: 'target_date',
+};
+
+function _isRealDate(s) {
+  if (typeof s !== 'string' || !DATE_RE.test(s)) return false;
+  const d = new Date(`${s}T12:00:00`);
+  return !isNaN(d) && d.toISOString().slice(0, 10) === s;
+}
+function _daysFromToday(s) {
+  const a = new Date(`${s}T12:00:00`).getTime();
+  const b = new Date(`${_today()}T12:00:00`).getTime();
+  return Math.round((a - b) / 86400000);
+}
+
+/** Tidy a model-supplied read range; returns the cleaned args. */
+export function cleanRangeArgs(args) {
+  const out = { ...args };
+  for (const k of ['date_from', 'date_to']) {
+    if (out[k] != null && !_isRealDate(out[k])) delete out[k];
+  }
+  const today = _today();
+  if (out.date_to && out.date_to > today) out.date_to = today;
+  if (out.date_from && out.date_from > today) delete out.date_from;
+  if (out.date_from && out.date_to && out.date_from > out.date_to) {
+    [out.date_from, out.date_to] = [out.date_to, out.date_from];
+  }
+  return out;
+}
+
+function _isEmptyResult(r) {
+  if (r == null) return true;
+  if (Array.isArray(r)) return r.length === 0;
+  if (typeof r === 'object') {
+    if (typeof r.count === 'number') return r.count === 0;
+    if (Array.isArray(r.series)) return r.series.length === 0;
+  }
+  return false;
+}
+
+/** Throws a message the model can act on when a write date looks invented. */
+export function checkWriteDate(name, args) {
+  const field = WRITE_DATE_FIELD[name];
+  const value = field ? args?.[field] : null;
+  if (value == null || value === '') return;
+  if (!_isRealDate(value)) throw new Error(`${field} must be a real date in YYYY-MM-DD form.`);
+  const days = _daysFromToday(value);
+  if (Math.abs(days) > WRITE_WINDOW_DAYS && args.date_confirmed !== true) {
+    const when = days < 0 ? `${-days} days ago` : `${days} days from now`;
+    throw new Error(
+      `${value} is ${when} (today is ${_today()}). Do not guess dates or years. ` +
+      'Ask the user to confirm this exact date, then call again with date_confirmed: true.'
+    );
+  }
+}
+
+async function _dispatch(name, args) {
   switch (name) {
     // ── READ ────────────────────────────────────────────────────────────
     case 'get_workouts':   return _getWorkouts(args);
@@ -477,6 +569,29 @@ export async function runTool(name, args) {
   throw new Error('Unknown tool: ' + name);
 }
 
+export async function runTool(name, args) {
+  args = args || {};
+  checkWriteDate(name, args);
+  if (!RANGE_TOOLS.has(name)) return _dispatch(name, args);
+
+  const cleaned = cleanRangeArgs(args);
+  const result = await _dispatch(name, cleaned);
+  const modelSetRange = cleaned.date_from || cleaned.date_to;
+  if (!modelSetRange || !_isEmptyResult(result)) return result;
+
+  // The model's own range found nothing. Before letting it tell the user the
+  // data is missing, check the default window.
+  const { date_from, date_to, ...rest } = cleaned;
+  const fallback = await _dispatch(name, rest);
+  if (_isEmptyResult(fallback)) return result;
+  return {
+    note: `Nothing found between ${date_from || 'the start'} and ${date_to || 'today'}. ` +
+      `Today is ${_today()}; unless the user named those dates, they were wrong. ` +
+      'These results use the default window instead.',
+    results: fallback,
+  };
+}
+
 // ── Executors: READ ───────────────────────────────────────────────────────
 
 async function _getWorkouts({ date_from, date_to, exercise_name } = {}) {
@@ -489,9 +604,15 @@ async function _getWorkouts({ date_from, date_to, exercise_name } = {}) {
   const rows = await _get('/api/workout/recent?limit=200');
   const filtered = rows.filter(r => r.date >= from && r.date <= to);
   const needle = (exercise_name || '').toLowerCase().trim();
-  const matched = needle
-    ? filtered.filter(r => (r.exercises || []).some(ex => (ex.exercise_name || '').toLowerCase().includes(needle)))
-    : filtered;
+  const hasLift = (r) => (r.exercises || []).some(ex => (ex.exercise_name || '').toLowerCase().includes(needle));
+  const matched = needle ? filtered.filter(hasLift) : filtered;
+  // Issue #92: a lift last trained six weeks ago is not missing from the log
+  // just because the default window is 30 days. With no explicit range,
+  // widen to the most recent sessions of that lift before reporting none.
+  if (needle && !matched.length && !date_from && !date_to) {
+    const older = rows.filter(hasLift).slice(0, 10);
+    if (older.length) return older.map(_shapeWorkout);
+  }
   return matched.map(_shapeWorkout);
 }
 

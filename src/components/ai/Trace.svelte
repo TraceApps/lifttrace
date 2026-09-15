@@ -594,13 +594,19 @@
       const profile = buildUserProfile();
       // Context trimmed 2026-07-27: Trace now uses tool-use for live data (see aiTools.js).
       // Only stable + never-would-fetch-on-demand values stay in the prompt.
-      const _today = new Date($currentDate + 'T12:00:00');
-      const _dow = _today.toLocaleDateString(undefined, { weekday: 'long' });
+      // The real date, not the date the diary happens to be showing (issue #92):
+      // telling the model "today" is a browsed-to day last month is exactly
+      // how it ends up querying the wrong period.
+      const _realNow = new Date();
+      const _realToday = _realNow.toLocaleDateString('sv-SE');
+      const _realDow = _realNow.toLocaleDateString(undefined, { weekday: 'long' });
       const systemPrompt = `You are ${botName}, an AI weightlifting coach inside LiftTrace.
 
 Style: concise, practical, encouraging. Simple language. Give specific cues on form questions. Keep replies under 200 words unless the user asks for more detail. The user tracks weight in ${$weightUnit}. Weekly workout goal: ${$weeklyWorkoutGoal}/week.
 
-Today is ${_dow}, ${$currentDate}.
+Today is ${_realDow}, ${_realToday}.${$currentDate !== _realToday ? ` The diary is currently open on ${$currentDate}; use that date when the user says "this workout" or "log this".` : ''}
+
+Dates: only pass date_from, date_to or date when the user named a specific date or period. Otherwise leave them out so the tool defaults apply. Never guess a year. If a tool result carries a note saying your dates found nothing, believe the note and use its results; do not tell the user the data is missing.
 
 USER PROFILE (facts about the user, not numbers to hallucinate around; when asked "what's my name / age / gender", answer directly from this block; don't say you don't know):
 ${profile || '(no profile data set yet; if the user asks about their name, age, or gender, politely tell them to fill it in via Settings, My Profile)'}
