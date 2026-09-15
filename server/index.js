@@ -44,7 +44,7 @@ import publicApiRoutes   from './routes/public-api.js';
 import webhooksRoutes    from './routes/webhooks.js';
 import { logger }        from './logger.js';
 import { authenticate }  from './middleware/auth.js';
-import { isPrivateUploadPath } from './lib/upload-paths.js';
+import { isPrivateUploadPath, UPLOAD_RESPONSE_HEADERS } from './lib/upload-paths.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv }   from './ai.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
@@ -167,7 +167,7 @@ router.use('/uploads', (req, res, next) => {
 });
 
 router.use('/uploads', express.static(uploadsPath, {
-  setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); }
+  setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); res.set(UPLOAD_RESPONSE_HEADERS); }
 }));
 
 // No-cache API responses
