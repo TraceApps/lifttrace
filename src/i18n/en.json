@@ -546,6 +546,18 @@
     "set_type_time":         "Time",
     "set_type_time_hint":    "a duration you hold or carry: plank, wall sit, dead hang"
   },
+  "hold_timer": {
+    "label":          "HOLD",
+    "start":          "Start hold timer",
+    "stop":           "Stop",
+    "cancel":         "Cancel",
+    "get_ready":      "Get into position · tap to start now",
+    "skip_lead_in":   "Start the hold now",
+    "target":         "Target {time}",
+    "target_reached": "Target {time} reached · keep going",
+    "open_date":      "Open {date} to stop",
+    "set_not_found":  "Couldn't find that set. You held {time}."
+  },
   "trace_ai": {
     "voice_error":           "Voice error: {reason}",
     "voice_unknown":         "unknown",

@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { trackRpe } from '../../stores/settings.js';
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
@@ -27,6 +28,9 @@
    *  in place of reps; weight stays, for weighted holds and carries. */
   export let setType = 'reps';
   $: timed = setType === 'time';
+  /** True while the hold timer is running for this set (issue #89). The
+   *  parent card decides, since only it knows which exercise this row is. */
+  export let holdRunning = false;
 
   $: weightHint = loadType === 'paired' ? `${unit} ea`
                 : loadType === 'unilateral' ? `${unit}`
@@ -284,6 +288,16 @@
         autocomplete="off"
         aria-label="Duration"
       />
+      <!-- Hold timer: sits inside the field like the L/R split button does
+           in the reps field, so the row gets no wider on a narrow phone. -->
+      {#if !set.completed || holdRunning}
+        <button class="split-btn hold-btn" class:active={holdRunning}
+          on:click={() => dispatch(holdRunning ? 'stopHold' : 'startHold')}
+          title={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}
+          aria-label={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}>
+          <span class="material-symbols-rounded">{holdRunning ? 'stop_circle' : 'timer'}</span>
+        </button>
+      {/if}
     </div>
   {:else}
     <div class="set-field">
@@ -541,6 +555,9 @@
   /* Durations change width as they tick up (0:45 -> 1:00); tabular figures
      stop the column shifting while typing. */
   .duration-input { font-variant-numeric: tabular-nums; }
+  .hold-btn.active { color: var(--danger, #FF5C5C); animation: hold-blink 1s ease-in-out infinite; }
+  @keyframes hold-blink { 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .hold-btn.active { animation: none; } }
 
   /* Unilateral L/R split — two inputs in the reps slot with tiny L/R
      labels. The chain icon at the end toggles split-mode on/off. */

@@ -23,6 +23,7 @@
   import { dateFormat } from '../stores/settings.js';
   import { fmtWeight, fmtDuration, countCompletedSets, generateWarmupSets, calc1RM, exerciseVolume, setVolume } from '../lib/workout.js';
   import ExerciseCard from '../components/diary/ExerciseCard.svelte';
+  import HoldTimer from '../components/diary/HoldTimer.svelte';
   import SupersetCard from '../components/diary/SupersetCard.svelte';
   import WorkoutTimer from '../components/diary/WorkoutTimer.svelte';
   import CardioCard from '../components/diary/CardioCard.svelte';
@@ -3066,6 +3067,11 @@
        Add Exercise (today's existing single action) or Add Workout
        (opens Load Workout, surfacing "start a new session" somewhere
        more discoverable than only the ⋮ overflow menu). -->
+  <!-- Hold timer for timed sets (issue #89). Lives here rather than in
+       App.svelte because its result is applied by this page's exercise
+       cards; the store keeps it running if you navigate away. -->
+  <HoldTimer />
+
   <ActionSheet
     bind:open={showAddMenu}
     title={$_('diary_extra.add_menu_title')}

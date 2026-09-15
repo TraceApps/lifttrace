@@ -151,6 +151,27 @@ function _countdownCue(n) {
   if (get(restAlertVibrate)) _vibrate(40);
 }
 
+/**
+ * Sound + vibration cue for the hold timer (issue #89), reusing the rest
+ * timer's tone preset and honouring the same Tone and Vibrate settings, so a
+ * user who silenced rest alerts is not surprised by beeps from a plank.
+ * Foreground only: a hold is done looking at the phone, and the rest timer's
+ * background notification path would say "rest" about a set.
+ *
+ * kind: 'count' (n = 3, 2 or 1) or 'go' (start of the hold, and the moment
+ * the target time is reached).
+ */
+export function playTimerCue(kind, n = 1) {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (kind === 'count') {
+    if (get(restAlertTone))    _playPresetCountdown(n);
+    if (get(restAlertVibrate)) _vibrate(40);
+    return;
+  }
+  if (get(restAlertTone))    _playPresetFinale();
+  if (get(restAlertVibrate)) _vibrate([80, 60, 80]);
+}
+
 // ── Native (Capacitor) OS-level finish notification ───────────────────────
 // On Android, sound + vibration during the countdown is delivered by the
 // RestTimerCue native plugin (AlarmManager broadcasts → MediaPlayer +

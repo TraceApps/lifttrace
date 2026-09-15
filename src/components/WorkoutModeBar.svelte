@@ -53,7 +53,7 @@
     /* Add --rest-h (set by RestTimer when active, 0 otherwise) so the pill
        floats above the rest bar when resting. Smoothly animated. */
     transition: bottom 0.26s cubic-bezier(0.22, 1, 0.36, 1);
-    bottom: calc(var(--nav-bar-h, var(--nav-h)) + var(--safe-bottom, 0px) + var(--rest-h, 0px) + 12px);
+    bottom: calc(var(--nav-bar-h, var(--nav-h)) + var(--safe-bottom, 0px) + var(--rest-h, 0px) + var(--hold-h, 0px) + 12px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 40;
@@ -69,7 +69,7 @@
     -webkit-backdrop-filter: blur(28px) saturate(200%);
   }
   .wm-bar.above-miniplayer {
-    bottom: calc(var(--nav-bar-h, var(--nav-h)) + var(--safe-bottom, 0px) + var(--mini-player-h, 0px) + var(--rest-h, 0px) + 12px);
+    bottom: calc(var(--nav-bar-h, var(--nav-h)) + var(--safe-bottom, 0px) + var(--mini-player-h, 0px) + var(--rest-h, 0px) + var(--hold-h, 0px) + 12px);
   }
 
   .wm-toggle {

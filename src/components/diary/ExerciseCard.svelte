@@ -6,6 +6,7 @@
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
   import { generateWarmupSets, exerciseVolume, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration } from '../../lib/workout.js';
   import { exerciseLoadTypes, exerciseSetTypes } from '../../stores/settings.js';
+  import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
   import { portal } from '../../lib/portal.js';
 
   export let exercise;
@@ -278,6 +279,38 @@
     dispatch('update', { ...exercise, sets: updatedSets });
   }
 
+  // ── Hold timer (issue #89) ────────────────────────────────────────────
+  function startHoldFor(setIdx) {
+    const set = sets[setIdx];
+    if (!set) return;
+    startHold({
+      date,
+      exIdx: idx,
+      setIdx,
+      exerciseId: exercise.exercise_id ?? null,
+      exerciseUuid: exercise.uuid || null,
+      setUuid: set.uuid || null,
+      exerciseName: exercise.exercise_name,
+      // The duration already on the set (prescribed, or carried from last
+      // session) is the target the timer cues at.
+      targetSec: Number(set.duration_sec) || 0,
+    });
+  }
+
+  // A finished hold is applied by the card that owns the set, through the
+  // same updateSet path a tapped tick takes, so rest timer, PR detection and
+  // superset rounds behave identically. Locating by uuid first means a
+  // reorder mid-hold still lands on the right set.
+  $: if ($holdResult && holdMatches($holdResult, { date, exIdx: idx, exercise })) {
+    const r = $holdResult;
+    let target = r.setUuid ? sets.findIndex(s => s.uuid === r.setUuid) : -1;
+    if (target < 0 && sets[r.setIdx]) target = r.setIdx;
+    if (target >= 0) {
+      consumeHoldResult();
+      updateSet(target, { ...sets[target], duration_sec: r.elapsedSec, completed: true });
+    }
+  }
+
   function removeSet(setIdx) {
     dispatch('update', { ...exercise, sets: sets.filter((_, i) => i !== setIdx) });
   }
@@ -413,6 +446,9 @@
           {unit}
           {loadType}
           {setType}
+          holdRunning={holdMatches($holdTimer, { date, exIdx: idx, exercise, setIdx })}
+          on:startHold={() => startHoldFor(setIdx)}
+          on:stopHold={() => stopHold()}
           on:update={e => updateSet(setIdx, e.detail)}
           on:remove={() => removeSet(setIdx)}
         />

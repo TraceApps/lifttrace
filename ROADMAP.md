@@ -411,7 +411,7 @@ Original phase notes:
 - SetRow renders `duration_sec + weight` row when set is time-based, `reps + weight` row when rep-based (current behavior).
 - Volume math + share-card render filter / handle time-based sets appropriately (don't contribute to volume; do contribute to time-under-tension if that becomes a stat).
 
-Phase 2, Active set timer (~3-4 evenings)
+Phase 2, Active set timer (~3-4 evenings) *(done, issue #89: built as a count-up hold timer with a 3s lead-in and a cue at the set's target time, rather than a pure countdown, so holding past the target still logs the real time)*
 
 - Countdown UI for time-based sets. Reuses the rest-timer audio / haptic / Service-Worker-notification plumbing (`src/stores/restTimer.js` pattern). Auto-completes on timer end + writes the actual duration.
 - Pause / resume / manual stop. Lockscreen behaviour already solved by the rest timer's machinery, so this is mostly reuse not new build.
