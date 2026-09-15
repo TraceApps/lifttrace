@@ -3,7 +3,7 @@
   import { trackRpe } from '../../stores/settings.js';
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
-  import { parseDuration, fmtSetDuration } from '../../lib/workout.js';
+  import { parseDuration, fmtSetDuration, maskDurationInput } from '../../lib/workout.js';
 
   export let set;
   export let setNum;
@@ -163,12 +163,11 @@
   $: if (!repsRFocused)  repsRStr  = _fmt(set.reps_r);
   $: if (!durationFocused) durationStr = fmtSetDuration(set.duration_sec);
 
-  // Duration entry. Commits on every keystroke that parses, like reps do,
-  // so tapping the tick straight after typing can never complete the set
-  // with a stale duration. A partial like "1:" simply waits. Bare digits
-  // are seconds ("90" is 1:30): phone number pads have no colon key, and
-  // holds are how people already count. On blur it reformats to m:ss so
-  // the reading is visible immediately.
+  // Duration entry, timer style: digits fill from the right on the number
+  // pad ("130" reads 1:30), shown live as m:ss so nothing is left to guess.
+  // Commits on every keystroke, like reps, so tapping the tick straight
+  // after typing can never complete the set with a stale duration. On blur
+  // an overflowing value such as 0:90 tidies to 1:30.
   function commitDuration(raw) {
     if (raw === '' || raw == null) {
       if (set.duration_sec) update('duration_sec', 0);
@@ -276,7 +275,7 @@
         type="text"
         class="set-input duration-input"
         bind:value={durationStr}
-        on:input={() => commitDuration(durationStr)}
+        on:input={() => { durationStr = maskDurationInput(durationStr); commitDuration(durationStr); }}
         on:focus={(e) => { durationFocused = true; selectOnFocus(e); }}
         on:blur={() => { durationFocused = false; commitDuration(durationStr); durationStr = fmtSetDuration(set.duration_sec); }}
         on:keydown={(e) => { if (e.key === 'Enter') e.target.blur(); }}

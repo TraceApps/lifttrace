@@ -92,7 +92,13 @@ test('timed-by-name list is exact, so real rep exercises are not caught', () => 
 
 test('parseDuration reads the ways people actually type a hold', () => {
   const P = client.parseDuration;
-  assert.equal(P('90'), 90, 'bare digits are seconds (phone number pads have no colon)');
+  // Timer style: digits fill from the right, last two are seconds, so nobody
+  // has to turn "2 minutes" into 120 on a number pad with no colon key.
+  assert.equal(P('45'), 45);
+  assert.equal(P('130'), 90, '130 is 1:30');
+  assert.equal(P('200'), 120, '200 is 2:00');
+  assert.equal(P('90'), 90, 'overflowing seconds carry, as on a microwave');
+  assert.equal(P('0:90'), 90, 'what the mask shows mid-typing must read the same');
   assert.equal(P('1:30'), 90);
   assert.equal(P('1:02:05'), 3725);
   assert.equal(P('45s'), 45);
@@ -100,9 +106,31 @@ test('parseDuration reads the ways people actually type a hold', () => {
   assert.equal(P('2 min'), 120);
   assert.equal(P('1m30s'), 90);
   assert.equal(P(' 0:45 '), 45);
-  for (const bad of ['', '0', 'abc', '1:75', '1:', null, undefined]) {
+  for (const bad of ['', '0', 'abc', '1:', '1:75:00', null, undefined]) {
     assert.equal(P(bad), null, `should reject ${JSON.stringify(bad)}`);
   }
+});
+
+test('the live mask shows m:ss as digits are typed, and agrees with the parser', () => {
+  const M = client.maskDurationInput;
+  assert.deepEqual(['1', '13', '130'].map(M), ['0:01', '0:13', '1:30']);
+  assert.equal(M('1:30'), '1:30', 'a typed colon lands in the same place');
+  assert.equal(M('1:3'), '0:13', 'backspace removes the last digit');
+  assert.equal(M('00045'), '0:45');
+  assert.equal(M(''), '');
+  assert.equal(M('abc'), '');
+  // Whatever the mask displays, the parser must read as the typed digits.
+  for (const typed of ['7', '45', '90', '130', '959', '1000']) {
+    assert.equal(client.parseDuration(M(typed)), client.parseDuration(typed), `mismatch for ${typed}`);
+  }
+});
+
+test('every duration field uses the timer-style mask', () => {
+  assert.match(read('../src/components/diary/SetRow.svelte'), /durationStr = maskDurationInput\(durationStr\)/);
+  assert.match(read('../src/components/programs/TemplateSpecRow.svelte'), /maskDurationInput\(e\.target\.value\)/);
+  const editor = read('../src/routes/WorkoutEditor.svelte');
+  assert.equal((editor.match(/maskDurationInput\(e\.target\.value\)/g) || []).length, 2,
+    'both the superset and standalone uniform duration fields');
 });
 
 test('fmtSetDuration and fmtSetLabel render holds as time, lifts unchanged', () => {

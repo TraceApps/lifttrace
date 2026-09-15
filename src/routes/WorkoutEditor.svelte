@@ -6,7 +6,7 @@
   import { diffTombstones } from '../lib/workout-uuid.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { exerciseLoadTypes, exerciseSetTypes, trackRpe, weightUnit } from '../stores/settings.js';
-  import { resolveLoadType, resolveSetType, parseDuration, defaultSetTypeForName } from '../lib/workout.js';
+  import { resolveLoadType, resolveSetType, parseDuration, defaultSetTypeForName, maskDurationInput, fmtSetDuration } from '../lib/workout.js';
   import TemplateSpecRow from '../components/programs/TemplateSpecRow.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
@@ -904,7 +904,7 @@
                           {#if exSetType(ex) === 'time'}
                             <div class="field">
                               <label>{$_('workout_editor.duration')}</label>
-                              <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => setWeekVal(idx, 'duration', e.target.value)} placeholder="0:00" />
+                              <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => { const v = maskDurationInput(e.target.value); e.target.value = v; setWeekVal(idx, 'duration', v); }} on:blur={e => { const v = fmtSetDuration(parseDuration(e.target.value)); e.target.value = v; setWeekVal(idx, 'duration', v); }} placeholder="0:00" />
                             </div>
                           {:else}
                             <div class="field">
@@ -1055,7 +1055,7 @@
                   {#if exSetType(ex) === 'time'}
                     <div class="field">
                       <label>{$_('workout_editor.duration')}</label>
-                      <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => setWeekVal(idx, 'duration', e.target.value)} placeholder="0:00" />
+                      <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => { const v = maskDurationInput(e.target.value); e.target.value = v; setWeekVal(idx, 'duration', v); }} on:blur={e => { const v = fmtSetDuration(parseDuration(e.target.value)); e.target.value = v; setWeekVal(idx, 'duration', v); }} placeholder="0:00" />
                     </div>
                   {:else}
                     <div class="field">

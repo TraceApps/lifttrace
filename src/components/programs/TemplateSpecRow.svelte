@@ -21,6 +21,7 @@
    * 2425696 (ExerciseCard load menu).
    */
   import { portal } from '../../lib/portal.js';
+  import { maskDurationInput, parseDuration, fmtSetDuration } from '../../lib/workout.js';
 
   export let spec = {};
   export let setIdx = 0;
@@ -174,7 +175,8 @@
   {:else if timed}
     <input class="ps-input" type="text"
       value={spec?.duration ?? ''}
-      on:input={e => onUpdate('duration', e.target.value)}
+      on:input={e => { const v = maskDurationInput(e.target.value); e.target.value = v; onUpdate('duration', v); }}
+      on:blur={e => { const v = fmtSetDuration(parseDuration(e.target.value)); e.target.value = v; onUpdate('duration', v); }}
       placeholder="0:00" inputmode="numeric" aria-label={$_('template_spec.duration')} />
   {:else}
     <input class="ps-input" type="text"

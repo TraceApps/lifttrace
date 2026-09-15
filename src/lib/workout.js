@@ -116,31 +116,59 @@ export function fmtSetDuration(sec) {
 }
 
 /**
- * Parse what someone types into a duration field, to whole seconds.
- * Returns null for anything that isn't a duration.
+ * Parse a typed duration to whole seconds. Returns null for anything that
+ * isn't one.
  *
- *   "1:30" -> 90      "1:02:05" -> 3725
- *   "90"   -> 90      a bare number is seconds, which is how people say holds
- *   "45s"  -> 45      "2m" / "2min" -> 120     "1m30s" -> 90
+ * Bare digits fill from the right like a microwave or a phone timer: the last
+ * two digits are seconds and anything before them is minutes. That is what
+ * the set row's number pad produces, and it avoids making anyone convert
+ * "2 minutes" into 120.
+ *
+ *   "45"   -> 45      "130" -> 90 (1:30)     "200" -> 120 (2:00)
+ *   "90"   -> 90      overflowing seconds carry, as on a microwave
+ *   "1:30" -> 90      "0:90" -> 90           "1:02:05" -> 3725
+ *   "45s"  -> 45      "2m" / "2min" -> 120   "1m30s" -> 90
  */
 export function parseDuration(input) {
   if (input == null) return null;
   const str = String(input).trim().toLowerCase();
   if (!str) return null;
-  if (/^\d+(:\d{1,2}){1,2}$/.test(str)) {
+  // m:ss. Seconds may overflow ("0:90"), because that is exactly what the
+  // digit mask shows mid-typing and the two must read the same.
+  if (/^\d+:\d{1,2}$/.test(str)) {
+    const [m, sec] = str.split(':').map(Number);
+    const total = m * 60 + sec;
+    return total > 0 ? total : null;
+  }
+  if (/^\d+:\d{1,2}:\d{1,2}$/.test(str)) {
     const parts = str.split(':').map(Number);
     if (parts.slice(1).some(p => p >= 60)) return null;
-    const sec = parts.reduce((acc, p) => acc * 60 + p, 0);
-    return sec > 0 ? sec : null;
+    const total = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return total > 0 ? total : null;
   }
-  if (/^\d+(\.\d+)?$/.test(str)) {
-    const sec = Math.round(Number(str));
-    return sec > 0 ? sec : null;
+  if (/^\d+$/.test(str)) {
+    const n = Number(str);
+    const total = Math.floor(n / 100) * 60 + (n % 100);
+    return total > 0 ? total : null;
   }
   const m = str.match(/^(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours))?\s*(?:(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes))?\s*(?:(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds))?$/);
   if (!m || (!m[1] && !m[2] && !m[3])) return null;
   const sec = Math.round((Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0));
   return sec > 0 ? sec : null;
+}
+
+/**
+ * Live display for a duration field as someone types, timer style: digits
+ * fill from the right, so "1" shows 0:01, "13" 0:13, "130" 1:30. Non-digits
+ * are dropped, so a desktop user typing "1:30" lands on the same 1:30, and
+ * backspace simply removes the last digit. Capped at four digits (99:99),
+ * far beyond any hold.
+ */
+export function maskDurationInput(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^0+/, '').slice(0, 4);
+  if (!digits) return '';
+  const n = Number(digits);
+  return `${Math.floor(n / 100)}:${String(n % 100).padStart(2, '0')}`;
 }
 
 /**
