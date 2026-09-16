@@ -13,16 +13,16 @@ function hasCompletedSet(exercises) {
 
 function getWorkouts(userId, start, end) {
   const rows = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date ASC').all(userId, start, end)
-    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND date >= ? AND date <= ? ORDER BY date ASC').all(start, end);
+    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date >= ? AND date <= ? AND deleted_at IS NULL ORDER BY date ASC').all(userId, start, end)
+    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND date >= ? AND date <= ? AND deleted_at IS NULL ORDER BY date ASC').all(start, end);
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   return rows.filter(r => hasCompletedSet(r.exercises));
 }
 
 function getAllWorkouts(userId) {
   const rows = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? ORDER BY date ASC').all(userId)
-    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL ORDER BY date ASC').all();
+    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date ASC').all(userId)
+    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND deleted_at IS NULL ORDER BY date ASC').all();
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   return rows.filter(r => hasCompletedSet(r.exercises));
 }
@@ -329,8 +329,8 @@ router.get('/weekday-distribution', wrap((req, res) => {
 router.get('/earliest-workout-date', wrap((req, res) => {
   const userId = uid(req);
   const row = userId != null
-    ? db.prepare('SELECT MIN(date) as date FROM workout_log WHERE user_id = ?').get(userId)
-    : db.prepare('SELECT MIN(date) as date FROM workout_log').get();
+    ? db.prepare('SELECT MIN(date) as date FROM workout_log WHERE user_id = ? AND deleted_at IS NULL').get(userId)
+    : db.prepare('SELECT MIN(date) as date FROM workout_log WHERE deleted_at IS NULL').get();
   res.json({ date: row?.date || null });
 }));
 

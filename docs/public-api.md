@@ -48,7 +48,7 @@ a token lacking the required scope returns `403`.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/workouts/:date` | One day's workout, every exercise and set. `date` defaults to today. |
+| GET | `/api/v1/workouts/:date` | One day's workout, every exercise and set. Timed sets (planks, holds, carries) carry `duration_sec` in seconds, and each exercise its `set_type`. `date` defaults to today. |
 | GET | `/api/v1/workouts/recent?limit=` | Recent workouts, most recent first. `limit` defaults to 10, max 50. |
 | GET | `/api/v1/records?exercise_name=` | Personal records per exercise: max weight, reps at that weight, date, estimated 1-rep max. Timed exercises (planks, holds, carries) report `maxDuration` (longest hold, in seconds), `maxDurationWeight` and `durationDate` instead. `exercise_name` optionally filters by a case-insensitive substring. |
 | GET | `/api/v1/exercises/:name/progress?start=&end=` | Per-session progress for one exercise (max weight, longest hold as `max_duration_sec`, volume, set count, average RPE) over a date range. `:name` is matched case-insensitively by substring; an ambiguous match returns `{ambiguous: true, candidates: [...]}` instead of guessing. Range defaults to the last 90 days. |

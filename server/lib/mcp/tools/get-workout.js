@@ -40,12 +40,14 @@ export function getWorkoutCore(userId, { date } = {}) {
       exercise_id: ex.exercise_id,
       exercise_name: ex.exercise_name,
       superset_id: ex.superset_id ?? null,
+      set_type: ex.set_type ?? null,
       sets: (ex.sets || []).map(s => ({
         reps: s.reps ?? null,
         weight: s.weight ?? null,
         completed: !!s.completed,
         warmup: !!s.warmup,
         rpe: s.rpe ?? null,
+        duration_sec: s.duration_sec ?? null,
       })),
     })),
   };
@@ -58,7 +60,7 @@ export function registerGetWorkout(server, { userId }) {
       title: 'Get Workout',
       description:
         "Read a day's workout — every exercise and its sets (reps, weight, " +
-        "completed, warmup, RPE). Date defaults to today in the server's " +
+        "completed, warmup, RPE, and duration_sec for timed sets like planks). Date defaults to today in the server's " +
         'timezone; pass an explicit YYYY-MM-DD for calendar accuracy from a ' +
         'different TZ.',
       inputSchema: {

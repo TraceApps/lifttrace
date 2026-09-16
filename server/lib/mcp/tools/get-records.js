@@ -39,7 +39,7 @@ export function hasQualifyingSet(exercises) {
  * already shows.
  */
 export function getRecordsCore(userId, { exercise_name } = {}) {
-  const rows = db.prepare('SELECT * FROM workout_log WHERE user_id = ? ORDER BY date ASC').all(userId);
+  const rows = db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date ASC').all(userId);
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   const withSets = rows.filter(r => hasCompletedSet(r.exercises));
 
