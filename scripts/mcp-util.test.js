@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { safeJson, todayLocal, daysAgoLocal, toolError, toolResult, validateDate, DATE_RE } from '../server/lib/mcp/_util.js';
+import { safeJson, todayLocal, daysAgoLocal, toolError, toolResult, validateDate, validateDateRange, resolveDateRange, DATE_RE } from '../server/lib/mcp/_util.js';
 
 test('safeJson parses valid JSON', () => {
   assert.deepEqual(safeJson('{"a":1}', {}), { a: 1 });
@@ -53,4 +53,25 @@ test('validateDate accepts YYYY-MM-DD and rejects everything else', () => {
   assert.equal(validateDate('2026-9-4'), null);
   assert.equal(validateDate(''), null);
   assert.equal(validateDate(undefined), null);
+});
+
+test('validateDateRange accepts arbitrary ordered ranges and rejects reversed ranges', () => {
+  assert.equal(validateDateRange('2000-01-01', '2099-12-31'), null);
+  assert.equal(validateDateRange('2024-02-29', '2024-03-01'), null);
+  assert.match(validateDateRange('2026-02-31', '2026-03-01'), /YYYY-MM-DD/i);
+  assert.match(validateDateRange('2026-09-02', '2026-09-01'), /on or before/i);
+  assert.match(validateDateRange('not-a-date', '2026-09-01'), /YYYY-MM-DD/i);
+});
+
+test('validateDateRange accepts open sides and rejects invalid supplied bounds', () => {
+  assert.equal(validateDateRange(null, '2020-01-02'), null);
+  assert.equal(validateDateRange('2020-01-02', null), null);
+  assert.match(validateDateRange(null, '2026-02-31'), /YYYY-MM-DD/i);
+});
+
+test('resolveDateRange keeps explicit one-sided bounds open', () => {
+  assert.equal(resolveDateRange('2020-01-02', null).start, '2020-01-02');
+  assert.equal(resolveDateRange('2020-01-02', null).end, todayLocal());
+  assert.equal(resolveDateRange(null, '2020-01-02').start, null);
+  assert.equal(resolveDateRange(null, '2020-01-02').end, '2020-01-02');
 });

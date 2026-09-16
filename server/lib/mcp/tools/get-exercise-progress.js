@@ -11,7 +11,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { setVolume, isTimedSet } from '../../volume.js';
-import { DATE_RE, daysAgoLocal, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, resolveDateRange, toolResult, toolError, validateDateRange } from '../_util.js';
 
 /**
  * Core lookup, shared by the MCP tool below and the public REST API
@@ -21,11 +21,9 @@ import { DATE_RE, daysAgoLocal, todayLocal, toolResult, toolError } from '../_ut
  * something actionable (the candidate list) back.
  */
 export function getExerciseProgressCore(userId, { exercise_name, start, end } = {}) {
-  const rangeEnd = end || todayLocal();
-  const rangeStart = start || daysAgoLocal(90);
-  if (!DATE_RE.test(rangeStart) || !DATE_RE.test(rangeEnd)) {
-    throw new Error('Invalid start/end date; expected YYYY-MM-DD.');
-  }
+  const { start: rangeStart, end: rangeEnd } = resolveDateRange(start, end);
+  const rangeError = validateDateRange(rangeStart, rangeEnd);
+  if (rangeError) throw new Error(rangeError);
 
   const matches = db.prepare(
     `SELECT id, name, load_type FROM exercises WHERE deleted_at IS NULL AND name LIKE ? AND (is_global = 1 OR created_by = ?) ORDER BY name ASC LIMIT 10`
@@ -42,9 +40,19 @@ export function getExerciseProgressCore(userId, { exercise_name, start, end } = 
   }
   const exercise = matches[0];
 
+  const conditions = ['deleted_at IS NULL'];
+  const params = [userId];
+  if (rangeStart != null) {
+    conditions.push('date >= ?');
+    params.push(rangeStart);
+  }
+  if (rangeEnd != null) {
+    conditions.push('date <= ?');
+    params.push(rangeEnd);
+  }
   const rows = db.prepare(
-    'SELECT * FROM workout_log WHERE user_id = ? AND date >= ? AND date <= ? AND deleted_at IS NULL ORDER BY date ASC'
-  ).all(userId, rangeStart, rangeEnd);
+    `SELECT * FROM workout_log WHERE user_id = ? AND ${conditions.join(' AND ')} ORDER BY date ASC`
+  ).all(...params);
 
   const progress = [];
   for (const row of rows) {
@@ -82,7 +90,8 @@ export function registerGetExerciseProgress(server, { userId }) {
         'Per-session progress for one exercise over a date range: max weight, ' +
         'total volume, working-set count, and average RPE when logged. Pass ' +
         'the exercise by name (case-insensitive substring match). Range ' +
-        "defaults to the last 90 days ending today in the server's timezone.",
+        "defaults to the last 90 days ending today in the server's timezone when " +
+        'both bounds are omitted; a supplied bound leaves the other side open.',
       inputSchema: {
         exercise_name: z.string().min(1).max(200),
         start: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),

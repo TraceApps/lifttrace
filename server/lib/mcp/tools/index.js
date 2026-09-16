@@ -13,6 +13,7 @@
  * tools/list at all, so an agent has no way to attempt them.
  */
 import { registerGetWorkout } from './get-workout.js';
+import { registerGetWorkouts } from './get-workouts.js';
 import { registerListRecentWorkouts } from './list-recent-workouts.js';
 import { registerGetRecords } from './get-records.js';
 import { registerGetExerciseProgress } from './get-exercise-progress.js';
@@ -20,6 +21,7 @@ import { registerSearchExercises } from './search-exercises.js';
 import { registerListPrograms } from './list-programs.js';
 import { registerGetActiveProgram } from './get-active-program.js';
 import { registerGetBodyStat } from './get-body-stat.js';
+import { registerGetBodyStats } from './get-body-stats.js';
 import { registerListProgressPhotos } from './list-progress-photos.js';
 import { registerLogSet } from './log-set.js';
 import { registerLogBodyStat } from './log-body-stat.js';
@@ -28,6 +30,7 @@ import { registerDeleteWorkout } from './delete-workout.js';
 
 export function registerReadTools(server, ctx) {
   registerGetWorkout(server, ctx);
+  registerGetWorkouts(server, ctx);
   registerListRecentWorkouts(server, ctx);
   registerGetRecords(server, ctx);
   registerGetExerciseProgress(server, ctx);
@@ -35,6 +38,7 @@ export function registerReadTools(server, ctx) {
   registerListPrograms(server, ctx);
   registerGetActiveProgram(server, ctx);
   registerGetBodyStat(server, ctx);
+  registerGetBodyStats(server, ctx);
   registerListProgressPhotos(server, ctx);
 }
 
