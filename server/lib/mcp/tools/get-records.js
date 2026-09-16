@@ -9,7 +9,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { toolResult } from '../_util.js';
+import { DATE_RE, toolError, toolResult, validateDateRange } from '../_util.js';
 import { isTimedSet, newRecord, accumulateRecord } from '../../volume.js';
 
 export function hasCompletedSet(exercises) {
@@ -38,8 +38,20 @@ export function hasQualifyingSet(exercises) {
  * agree on what "a record" means, matching what the Statistics page
  * already shows.
  */
-export function getRecordsCore(userId, { exercise_name } = {}) {
-  const rows = db.prepare('SELECT * FROM workout_log WHERE user_id = ? ORDER BY date ASC').all(userId);
+export function getRecordsCore(userId, { exercise_name, start, end } = {}) {
+  const rangeError = validateDateRange(start, end);
+  if (rangeError) throw new Error(rangeError);
+  const conditions = ['user_id = ?'];
+  const params = [userId];
+  if (start != null) {
+    conditions.push('date >= ?');
+    params.push(start);
+  }
+  if (end != null) {
+    conditions.push('date <= ?');
+    params.push(end);
+  }
+  const rows = db.prepare(`SELECT * FROM workout_log WHERE ${conditions.join(' AND ')} ORDER BY date ASC`).all(...params);
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   const withSets = rows.filter(r => hasCompletedSet(r.exercises));
 
@@ -70,11 +82,20 @@ export function registerGetRecords(server, { userId }) {
         'count at that weight, the date, and estimated 1-rep max. For timed ' +
         'exercises (planks, holds, carries) maxDuration is the longest hold in ' +
         'seconds and maxDurationWeight the load it was held at. Optionally ' +
-        'filter to one exercise by name (case-insensitive substring match).',
+        'filter to one exercise by name (case-insensitive substring match). ' +
+        'Optional inclusive start/end YYYY-MM-DD bounds limit the source history.',
       inputSchema: {
         exercise_name: z.string().max(200).optional(),
+        start: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
+        end: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
       },
     },
-    async ({ exercise_name }) => toolResult(getRecordsCore(userId, { exercise_name }))
+    async ({ exercise_name, start, end }) => {
+      try {
+        return toolResult(getRecordsCore(userId, { exercise_name, start, end }));
+      } catch (e) {
+        return toolError(e.message);
+      }
+    }
   );
 }
