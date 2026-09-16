@@ -410,7 +410,7 @@
     workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
     statistics:       { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
     catalog:          { titleKey: 'settings.catalog.section',           icon: 'library_books' },
-    trace:            { titleKey: 'settings.trace.section',             icon: 'bolt' },
+    trace:            { titleKey: 'settings.trace.section',             icon: 'smart_toy' },
     radio:            { titleKey: 'settings.radio.section',             icon: 'radio' },
     federation:       { titleKey: 'settings.federation.section',        icon: 'link' },
     serverConnection: { titleKey: 'settings.server.section',            icon: 'cloud' },
@@ -650,7 +650,7 @@
       cards.push({ key: 'program',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.', route: '/programs' });
     }
     if (!$aiEnabled) {
-      cards.push({ key: 'trace',     icon: 'bolt', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
+      cards.push({ key: 'trace',     icon: 'smart_toy', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
     }
     return cards.filter(c => !_onboardingDismissed.has(c.key));
   })();
@@ -707,7 +707,7 @@
 
   <p class="settings-group-label">{$_('settings_main.group_integrations')}</p>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'trace')} class:active={currentSection === 'trace'} aria-current={currentSection === 'trace' ? 'page' : undefined} on:click={() => toggleSection('trace')}>
-    <span class="material-symbols-rounded si">bolt</span>
+    <span class="material-symbols-rounded si">smart_toy</span>
     <span>{$_('settings.trace.section')}</span>
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
