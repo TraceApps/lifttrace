@@ -69,7 +69,7 @@ router.post('/preview', upload.single('file'), wrap((req, res) => {
   // "duplicate" means "would replace/skip the same-named session on
   // commit" rather than "this date already has anything logged." Matches
   // commit's own dedup scope below exactly.
-  const dupeCheckStmt = db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND name = ? LIMIT 1');
+  const dupeCheckStmt = db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND name = ? AND deleted_at IS NULL LIMIT 1');
   const duplicateCount = workouts.filter(w => dupeCheckStmt.get(userId, w.date, w.name || 'Imported')).length;
 
   res.json({
@@ -109,7 +109,7 @@ router.post('/commit', upload.single('file'), wrap((req, res) => {
   // "PM") now imports both instead of the second one silently skipping
   // or replacing the first. A re-import of the SAME file still matches
   // and skips/replaces as before, since it produces the same names.
-  const existingStmt = db.prepare('SELECT id, session_seq FROM workout_log WHERE user_id = ? AND date = ? AND name = ?');
+  const existingStmt = db.prepare('SELECT id, session_seq FROM workout_log WHERE user_id = ? AND date = ? AND name = ? AND deleted_at IS NULL');
   const deleteStmt   = db.prepare('DELETE FROM workout_log WHERE id = ?');
   const nextSeqStmt  = db.prepare('SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE user_id = ? AND date = ?');
   const insertStmt   = db.prepare(

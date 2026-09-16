@@ -82,7 +82,7 @@ async function _sessionsInProgram(programId, assignedAt) {
   if (assignedAt) args.push(assignedAt);
   const row = (await dbQuery(
     `SELECT COUNT(*) AS c FROM workout_log wl
-       WHERE wl.user_id = ? AND wl.completed = 1
+       WHERE wl.user_id = ? AND wl.completed = 1 AND wl.deleted_at IS NULL
          AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
          ${sinceFilter}`,
     args

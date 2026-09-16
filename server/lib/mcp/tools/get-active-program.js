@@ -31,7 +31,7 @@ export function getActiveProgramCore(userId) {
 
   const sessionsInProgram = db.prepare(`
     SELECT COUNT(*) as c FROM workout_log wl
-      WHERE wl.user_id = ? AND wl.completed = 1
+      WHERE wl.user_id = ? AND wl.completed = 1 AND wl.deleted_at IS NULL
         AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
         ${assignment.assigned_at ? 'AND date >= date(?)' : ''}
   `).get(...(assignment.assigned_at ? [userId, assignment.program_id, assignment.assigned_at] : [userId, assignment.program_id]))?.c || 0;

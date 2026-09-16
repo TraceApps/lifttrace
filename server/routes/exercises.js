@@ -73,7 +73,7 @@ router.get('/usage', wrap((req, res) => {
   // exercise list load without a cache.
   const rows = db.prepare(
     `SELECT date, exercises FROM workout_log
-      WHERE user_id = ? AND completed = 1
+      WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL
       ORDER BY date DESC`
   ).all(userId);
   const out = {};

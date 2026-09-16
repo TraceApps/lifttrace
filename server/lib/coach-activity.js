@@ -112,6 +112,7 @@ export function checkMissedPrescriptions() {
           WHERE wl.user_id = cp.member_id
             AND wl.date    = cp.date
             AND wl.completed = 1
+            AND wl.deleted_at IS NULL
             AND (cp.template_id IS NULL OR wl.template_id = cp.template_id)
        )
   `).all(yesterday);

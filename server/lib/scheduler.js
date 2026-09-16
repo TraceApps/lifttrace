@@ -133,8 +133,8 @@ async function _processUser(userId) {
     if (_withinWindow(localTime, time) && !_ranRecently(userId, 'workoutReminder', 3600000)) {
       // Check if workout already logged today
       const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
       if (!logged) {
         // Get active program template name
         let templateName = '';
@@ -161,11 +161,11 @@ async function _processUser(userId) {
     if (_withinWindow(localTime, '10:00', 30) && !_ranRecently(userId, 'restDay', 22 * 3600000)) {
       const yesterday = new Date(Date.now() - 24 * 3600000).toISOString().slice(0, 10);
       const loggedYesterday = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, yesterday)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(yesterday);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, yesterday)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(yesterday);
       const loggedToday = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
       if (loggedYesterday && !loggedToday) {
         await pushNotify(userId, '🧘 Rest Day', 'Time to recover — hydrate, stretch, and refuel. See you tomorrow!', 3);
       }
@@ -178,8 +178,8 @@ async function _processUser(userId) {
     const time = _getUserSetting(userId, 'notifStreakTime', '20:00');
     if (_withinWindow(localTime, time) && !_ranRecently(userId, 'streakAlert', 3600000)) {
       const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
       if (!logged) {
         // Calculate current streak
         let streak = 0;
@@ -188,8 +188,8 @@ async function _processUser(userId) {
         while (true) {
           const ds = checkDate.toISOString().slice(0, 10);
           const row = userId
-            ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, ds)
-            : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(ds);
+            ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, ds)
+            : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(ds);
           if (!row) break;
           streak++;
           checkDate.setDate(checkDate.getDate() - 1);
@@ -210,8 +210,8 @@ async function _processUser(userId) {
     if (currentDay === targetDay && _withinWindow(localTime, targetTime, 30) && !_ranRecently(userId, 'weeklySummary', 6 * 24 * 3600000)) {
       const weekAgo = new Date(Date.now() - 7 * 24 * 3600000).toISOString().slice(0, 10);
       const logs = userId
-        ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date >= ?').all(userId, weekAgo)
-        : db.prepare('SELECT * FROM workout_log WHERE date >= ?').all(weekAgo);
+        ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date >= ? AND deleted_at IS NULL').all(userId, weekAgo)
+        : db.prepare('SELECT * FROM workout_log WHERE date >= ? AND deleted_at IS NULL').all(weekAgo);
 
       const workoutCount = logs.length;
       let totalVolume = 0;

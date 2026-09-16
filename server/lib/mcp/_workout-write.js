@@ -60,9 +60,12 @@ export function mutateWorkoutDay(userId, date, mutator) {
     // lowest surviving" row GET /:date and the PUT route's default path
     // would — correct-by-default for every user who's never created a
     // second session, and deterministic if one exists.
+    // Live sessions only: a deleted workout must not come back, old sets
+    // and all, because a tool added one set to its date. With nothing live
+    // the write starts a new session after any deleted ones.
     const existing = userId != null
-      ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? ORDER BY session_seq ASC, id ASC LIMIT 1').get(date, userId)
-      : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(date);
+      ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(date, userId)
+      : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(date);
     const serverExercises = existing ? ensureExerciseUuids(JSON.parse(existing.exercises || '[]')) : [];
 
     const clientExercises = ensureExerciseUuids(mutator(serverExercises) || []);
@@ -89,15 +92,16 @@ export function mutateWorkoutDay(userId, date, mutator) {
     let targetId;
     if (existing) {
       targetId = existing.id;
-      // deleted_at=NULL resurrects a soft-deleted row on any write —
-      // same policy as PUT /:date (LT v1.2.0, see CHANGELOG).
       db.prepare(
-        `UPDATE workout_log SET exercises=?, deleted_at=NULL WHERE id=?`
+        `UPDATE workout_log SET exercises=? WHERE id=?`
       ).run(exercisesJson, existing.id);
     } else {
+      const seq = (userId != null
+        ? db.prepare('SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
+        : db.prepare('SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE date = ? AND user_id IS NULL').get(date)).n;
       const info = db.prepare(
-        `INSERT INTO workout_log (user_id, date, exercises) VALUES (?, ?, ?)`
-      ).run(userId, date, exercisesJson);
+        `INSERT INTO workout_log (user_id, date, exercises, session_seq) VALUES (?, ?, ?, ?)`
+      ).run(userId, date, exercisesJson, seq);
       targetId = info.lastInsertRowid;
     }
     for (const uuid of newTombstoneExerciseUuids) insertTombstone.run(userId, date, targetId, 'exercise', '', uuid);

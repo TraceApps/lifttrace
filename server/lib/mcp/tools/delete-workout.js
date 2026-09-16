@@ -33,9 +33,11 @@ export function registerDeleteWorkout(server, { userId }) {
     },
     async ({ date, confirm }) => {
       if (!confirm) return toolError('Refusing to delete without confirm: true. This cannot be undone.');
-      const existing = db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id = ? ORDER BY session_seq ASC, id ASC LIMIT 1').get(date, userId);
+      const existing = db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(date, userId);
       if (!existing) return toolResult({ ok: true, deleted: false, date });
-      db.prepare('DELETE FROM workout_log WHERE id = ?').run(existing.id);
+      // Soft delete, like the app's own delete, so synced devices learn the
+      // workout is gone instead of pushing it back (issue #87).
+      db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
       return toolResult({ ok: true, deleted: true, date });
     }
   );

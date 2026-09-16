@@ -72,7 +72,7 @@ router.get('/', wrap((req, res) => {
       if (assigned?.assigned_at) args.push(assigned.assigned_at);
       p.sessions_in_program = db.prepare(`
         SELECT COUNT(*) as c FROM workout_log wl
-          WHERE wl.user_id = ? AND wl.completed = 1
+          WHERE wl.user_id = ? AND wl.completed = 1 AND wl.deleted_at IS NULL
             AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
             ${sinceFilter}
       `).get(...args)?.c || 0;
@@ -142,7 +142,7 @@ function sessionsInProgram(userId, programId, assignedAt) {
   if (assignedAt) args.push(assignedAt);
   return db.prepare(`
     SELECT COUNT(*) as c FROM workout_log wl
-      WHERE ${userFilter} wl.completed = 1
+      WHERE ${userFilter} wl.completed = 1 AND wl.deleted_at IS NULL
         AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
         ${sinceFilter}
   `).get(...args)?.c || 0;
