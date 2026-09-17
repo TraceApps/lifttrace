@@ -526,7 +526,7 @@
     "feature_pwa":           "PWA — installable on any device",
     "feature_privacy":       "No tracking, no ads, no third-party analytics",
     "kofi":                  "Ko-fi",
-    "donations_note":        "LiftTrace is free to self-host. Donations are appreciated but never required.",
+    "donations_note":        "LiftTrace is free to self-host, always. The current goal is a Mac and an iPhone so the Trace apps can run properly on iOS.",
     "disclaimer_heading":    "Disclaimer.",
     "disclaimer_medical":    "LiftTrace is not medical, health, or fitness-professional software. It does not provide medical advice, diagnosis, treatment, or personalized training prescriptions. Exercise library content, Trace AI coaching, program templates, rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight trends) are for informational and self-tracking purposes only.",
     "disclaimer_risk":       "Resistance training carries inherent risk of injury. Exercise selection, load, technique, and progression can interact with medical conditions (heart and cardiovascular conditions, high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis, pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways this app cannot assess. Consult a qualified healthcare professional, certified strength coach, or licensed physical therapist before starting a new training program, returning from injury, or making significant changes to your routine.",

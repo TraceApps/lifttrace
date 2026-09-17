@@ -21,6 +21,11 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
 
 **Jump to:** [What it is](#what-lifttrace-is) · [Features](#features) · [Install](#install) · [Env vars](#env-vars) · [Docs](https://traceapps.github.io/docs/lifttrace/)
 
+<p align="center">
+  <b>iOS fund:</b> the Trace apps have no iOS app yet, because building one needs a Mac and an iPhone.
+  <a href="https://traceapps.github.io/docs/support/">See the goal</a> or <a href="https://ko-fi.com/traceapps">chip in</a>. Self-hosting stays free either way.
+</p>
+
 ---
 
 ## What LiftTrace is
@@ -131,8 +136,17 @@ Part of the **TraceApps** family. Sister apps: [CookTrace](https://github.com/tr
 - [ROADMAP.md](ROADMAP.md) for what's next.
 - [CHANGELOG.md](CHANGELOG.md) for release history.
 - [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request guidance. Translations: see [Contributing → Translations](https://traceapps.github.io/docs/reference/contribute/translations/).
-- [Ko-fi](https://ko-fi.com/traceapps) if LiftTrace has been useful and you'd like to support development. Sponsorship doesn't unlock features (everything stays AGPL and free).
 - AGPL-3.0: see [LICENSE](LICENSE). By contributing you agree your contributions are licensed under the same.
+
+## Support
+
+LiftTrace is free to self-host and always will be. No paid tier, nothing behind a donation, no telemetry. It's built and maintained by one person.
+
+**The current goal is iOS.** None of the Trace apps run properly on an iPhone, because building and testing for iOS needs Apple hardware: a Mac mini ($600), a used iPhone 15 ($500), and the Apple Developer Program ($99 a year). That's $1,200, and the full breakdown is on the [Support page](https://traceapps.github.io/docs/support/).
+
+Helping doesn't have to cost anything: starring the repo, reporting bugs with detail, and translating all count, and stars are how self-hosted projects get found.
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_the_iOS_fund-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/traceapps)
 
 ## Disclaimer
 
