@@ -14,6 +14,7 @@ const SERVER_SETTINGS = new Set([
   'heightCm', 'currentWeightKg', 'dob', 'gender', 'caloriesBurnedEnabled',
   'statsChartType', 'statsYZero', 'statsAvgLine', 'statsTrendLine',
   'aiEnabled', 'aiProvider', 'aiApiKey', 'aiModel', 'aiBaseUrl', 'aiAssistantName', 'aiKeyVerified',
+  'quickLogEnabled', 'smartLogVoiceLang',
   'wgerEnabled', 'exerciseDbApiKey',
   // Appearance/UI prefs
   'appearance', 'accentColor', 'language',
@@ -346,6 +347,11 @@ export const aiAssistantName = createSettingStore('aiAssistantName', 'Trace');
 // on the SettingsTrace connection banner. The Trace FAB is NOT gated
 // on this — see NutriTrace's lesson, gating breaks legacy installs.
 export const aiKeyVerified   = createSettingStore('aiKeyVerified',   false);
+// Smart Log: hold the Trace button and speak a workout. On by default here,
+// since LiftTrace always had hold-to-record before it gained a switch.
+export const quickLogEnabled   = createSettingStore('quickLogEnabled',   true);
+// Language the microphone listens for. 'auto' follows the device locale.
+export const smartLogVoiceLang = createSettingStore('smartLogVoiceLang', 'auto');
 
 // ── NutriTrace federation (workout calorie sync) ─────────────────────────
 // User-entered URL + personal access token for a NutriTrace instance,

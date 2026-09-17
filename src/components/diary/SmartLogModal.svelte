@@ -13,7 +13,14 @@
   import { _ } from 'svelte-i18n';
   import { fly, fade } from 'svelte/transition';
   import { portal } from '../../lib/portal.js';
-  import { weightUnit } from '../../stores/settings.js';
+  import { weightUnit, smartLogVoiceLang } from '../../stores/settings.js';
+
+  // Voice input language from Settings; 'auto' means the device locale.
+  function _resolveVoiceLang() {
+    const v = smartLogVoiceLang.get();
+    if (v && v !== 'auto') return v;
+    return navigator.language || 'en-US';
+  }
   import { showError, showSuccess } from '../../stores/toast.js';
   import { parseInput, matchExercises, mergeIntoWorkout } from '../../lib/smartLogWorkout.js';
 
@@ -51,7 +58,7 @@
       webRecognition = new SR();
       webRecognition.continuous = false;
       webRecognition.interimResults = false;
-      webRecognition.lang = navigator.language || 'en-US';
+      webRecognition.lang = _resolveVoiceLang();
       webRecognition.onresult = (e) => {
         const t = e.results[0]?.[0]?.transcript || '';
         if (t) inputText = (inputText ? inputText + ' ' : '') + t;

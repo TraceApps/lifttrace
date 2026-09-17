@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Trace settings now match NutriTrace.** Smart Log (hold the Trace button and speak a workout) gets its own on/off switch, on by default so nothing changes unless you turn it off, and a Voice Input Language setting for when you speak a different language than your phone is set to; both the hold-to-record button and the Smart Log sheet's microphone listen in that language. On a server where AI is configured through environment variables, the section now says so at the top, the provider, model and base URL are locked, and the API key field is hidden since the server holds it. The key field also says whether your key is stored on this device or on the server.
+
 ### Fixed
 
 - **Android: Trace's Base URL and API Key could not be saved in portrait, and AI settings drifted from the web** ([#94](https://github.com/TraceApps/lifttrace/issues/94), reported by @kgenerozov). Each field had its own Save button beside it, which on a phone in portrait sat past the edge of the screen. Both fields now save when you leave them (or press Enter), testing the connection only when the value changed, the same as NutriTrace. Separately, changing any setting while the phone was offline left that setting marked as waiting to sync on the device for good, so every later change to it from the web was skipped; settings changed elsewhere now arrive once the offline change has gone up. The Trace settings screen also shows synced values straight away instead of what it read when it opened, and a change made on the phone is no longer put back by a sync or app start that lands a moment later.

@@ -7,7 +7,14 @@
   import { portal } from '../../lib/portal.js';
   import { callAI, callAIProxy, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
   import { TOOLS, runTool } from '../../lib/aiTools.js';
-  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, dateFormat, weightUnit, weeklyWorkoutGoal } from '../../stores/settings.js';
+  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, dateFormat, weightUnit, weeklyWorkoutGoal, quickLogEnabled, smartLogVoiceLang } from '../../stores/settings.js';
+
+  // Voice input language from Settings; 'auto' means the device locale.
+  function _resolveVoiceLang() {
+    const v = smartLogVoiceLang.get();
+    if (v && v !== 'auto') return v;
+    return navigator.language || 'en-US';
+  }
   import { currentUser } from '../../stores/auth.js';
   import { DB } from '../../lib/db.js';
   import { LtApi } from '../../lib/api.js';
@@ -249,8 +256,8 @@
   let smartLogPreParsed = null;
   let smartLogText = '';
 
-  // Smart Log is available when Trace itself is available
-  $: smartLogAvailable = isEnabled;
+  // Smart Log (hold to record) needs Trace itself and its own switch.
+  $: smartLogAvailable = isEnabled && $quickLogEnabled;
 
   let _audioCtx = null;
   function _beep(frequency, durationMs) {
@@ -300,7 +307,7 @@
       const rec = new SR();
       rec.continuous = false;
       rec.interimResults = false;
-      rec.lang = navigator.language || 'en-US';
+      rec.lang = _resolveVoiceLang();
       rec.onresult = async (e) => {
         if (!_commitNextTranscript) return;
         const transcript = e.results[0]?.[0]?.transcript || '';

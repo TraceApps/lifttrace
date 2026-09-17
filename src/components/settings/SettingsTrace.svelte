@@ -3,7 +3,8 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
-  import { aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, aiKeyVerified, envLocks as envLocksStore } from '../../stores/settings.js';
+  import { aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, aiKeyVerified, quickLogEnabled, smartLogVoiceLang, envLocks as envLocksStore } from '../../stores/settings.js';
+  import { isNative, getServerUrl } from '../../lib/platform.js';
   import { AI_MODELS, AI_DEFAULT_MODELS, callAI, callAIProxy } from '../../lib/aiChat.js';
   import { showSuccess, showError } from '../../stores/toast.js';
 
@@ -28,6 +29,12 @@
   let testError = '';
 
   $: providerModels = AI_MODELS[$aiProvider] || [];
+
+  // Smart Log voice-input language options, the same list as NutriTrace.
+  // 'auto' uses the device locale.
+  const VOICE_LANG_CODES = ['auto', 'en-US', 'en-GB', 'it-IT', 'es-ES', 'es-MX', 'fr-FR', 'de-DE', 'pt-BR', 'pt-PT',
+    'nl-NL', 'pl-PL', 'ru-RU', 'sv-SE', 'da-DK', 'nb-NO', 'fi-FI', 'cs-CZ', 'tr-TR', 'ja-JP', 'ko-KR', 'zh-CN', 'zh-TW', 'hi-IN', 'ar-SA'];
+  $: VOICE_LANGS = VOICE_LANG_CODES.map(value => ({ value, label: $_(`settings_trace.voice_langs.${value.replace('-', '_')}`) }));
 
   // Branded providers render a <select>. To let users pick a model outside
   // the hardcoded list (e.g. after a vendor renames), the select has a
@@ -207,6 +214,12 @@
   </button>
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
+      {#if envLocks.ai}
+        <div class="env-lock-banner">
+          <span class="material-symbols-rounded">lock</span>
+          {$_('settings_trace.env_lock_banner')}
+        </div>
+      {/if}
       <div class="card">
         {#if _displayedAiEnabled}
           <ConnectionStatus
@@ -227,7 +240,7 @@
         {#if _displayedAiEnabled}
           <div class="setting-row">
             <span class="setting-label">{$_('settings_trace.labels.provider')}</span>
-            <select class="form-select-sm" bind:value={$aiProvider} on:change={_onProviderChange}>
+            <select class="form-select-sm" bind:value={$aiProvider} on:change={_onProviderChange} disabled={envLocks.ai}>
               <option value="claude">{$_('settings_trace.provider_claude')}</option>
               <option value="openai">{$_('settings_trace.provider_openai')}</option>
               <option value="gemini">{$_('settings_trace.provider_gemini')}</option>
@@ -243,13 +256,13 @@
               </div>
               <input class="form-input-sm" style="width:100%;min-width:0" type="url"
                 placeholder={$_('settings_trace.labels.base_url_ph')}
-                bind:value={aiBaseUrlVal} autocomplete="off"
+                bind:value={aiBaseUrlVal} autocomplete="off" disabled={envLocks.ai}
                 on:focus={() => aiBaseUrlFocused = true}
                 on:blur={saveAiBaseUrl} on:keydown={blurOnEnter} />
             </div>
             <div class="setting-row">
               <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-              <input class="form-input-sm" type="text" bind:value={$aiModel} placeholder={$_('settings_trace.labels.model_ph')} />
+              <input class="form-input-sm" type="text" bind:value={$aiModel} placeholder={$_('settings_trace.labels.model_ph')} disabled={envLocks.ai} />
             </div>
             <div style="padding:10px 16px;display:flex;gap:8px;align-items:flex-start;background:color-mix(in srgb,#f59e0b 8%, transparent);border-left:3px solid #f59e0b;border-radius:6px">
               <span class="material-symbols-rounded" style="font-size:18px;color:#f59e0b;flex-shrink:0">info</span>
@@ -260,7 +273,7 @@
           {:else}
             <div class="setting-row">
               <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-              <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={_syncModelFromSelect}>
+              <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={_syncModelFromSelect} disabled={envLocks.ai}>
                 {#each providerModels as m}
                   <option value={m.value}>{m.label}</option>
                 {/each}
@@ -271,7 +284,7 @@
                 <span class="setting-label">{$_('settings_trace.labels.custom_model_id')}</span>
                 <input class="form-input-sm" type="text"
                   placeholder={$aiProvider === 'gemini' ? 'gemini-3.5-flash' : $aiProvider === 'claude' ? 'claude-sonnet-5' : 'gpt-4o'}
-                  bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} />
+                  bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} disabled={envLocks.ai} />
               </div>
               <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:flex-start">
                 <span class="material-symbols-rounded" style="font-size:16px;color:var(--muted);flex-shrink:0;margin-top:2px">info</span>
@@ -282,6 +295,7 @@
             {/if}
           {/if}
 
+          {#if !envLocks.ai}
           <div class="setting-row" style="flex-wrap:wrap;gap:8px">
             <div class="setting-label-group" style="width:100%">
               <span class="setting-label">
@@ -297,6 +311,11 @@
                 {:else if $aiProvider === 'oai-compat'}
                   {$_('settings_trace.labels.key_hint_oai')}
                 {/if}
+                {#if isNative && !getServerUrl()}
+                  {$_('settings_trace.labels.key_stored_device')}
+                {:else}
+                  {$_('settings_trace.labels.key_stored_server')}
+                {/if}
               </span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:100%">
@@ -311,10 +330,31 @@
               </button>
             </div>
           </div>
+          {/if}
           <div class="setting-row">
             <span class="setting-label">{$_('settings_trace.labels.assistant_name')}</span>
             <input class="form-input-sm" type="text" bind:value={$aiAssistantName} placeholder={$_('settings_trace.labels.assistant_name_ph')} />
           </div>
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <span class="setting-label">{$_('settings_trace.labels.smart_log')}</span>
+              <span class="setting-hint">{$_('settings_trace.labels.smart_log_desc')}</span>
+            </div>
+            <Toggle checked={$quickLogEnabled} on:change={e => quickLogEnabled.set(e.detail)} />
+          </div>
+          {#if $quickLogEnabled}
+            <div class="setting-row">
+              <div class="setting-label-group">
+                <span class="setting-label">{$_('settings_trace.labels.voice_lang')}</span>
+                <span class="setting-hint">{$_('settings_trace.labels.voice_lang_desc')}</span>
+              </div>
+              <select class="form-select-sm" value={$smartLogVoiceLang} on:change={e => smartLogVoiceLang.set(e.currentTarget.value)}>
+                {#each VOICE_LANGS as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
         {/if}
       </div>
     </div>
@@ -331,5 +371,15 @@
   }
   .btn-icon-toggle:hover { color: var(--text-1); background: var(--surface-2); }
   .about-link { color: var(--accent); text-decoration: underline; }
+  /* Same look as NutriTrace's Trace settings. */
+  .env-lock-banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    font-size: 13px; color: var(--text-3);
+  }
+  .env-lock-banner .material-symbols-rounded { font-size: 16px; color: var(--accent); flex-shrink: 0; }
   .setting-desc { font-size: 12px; color: var(--text-3); padding: 0 16px; }
 </style>
