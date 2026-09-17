@@ -191,7 +191,7 @@
       {#if smtpLocked}
         <div class="env-lock-banner">
           <span class="material-symbols-rounded" style="font-size:16px">lock</span>
-          Configured via environment variables — changes are disabled.
+          {$_('settings_email.env_lock_banner')}
         </div>
       {/if}
       <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">

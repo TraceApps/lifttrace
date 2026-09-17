@@ -853,6 +853,7 @@
     "smtp_host_required":    "SMTP test failed: host required",
     "invalid_email":         "Enter a valid email address",
     "hint":                  "Used for password resets and user invites",
+    "env_lock_banner":       "Configured via environment variables, changes are disabled.",
     "smtp_host":             "SMTP Host",
     "port":                  "Port",
     "tls":                   "TLS",
