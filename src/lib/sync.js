@@ -548,19 +548,43 @@ async function _applyBodyStats(rows, result) {
   result.tables.bodyStats = rows.length;
 }
 
+/**
+ * Setting keys with a write still queued for the server (made offline).
+ * Those local values are newer than anything the server can send back.
+ */
+export async function queuedSettingKeys() {
+  const keys = new Set();
+  if (!isNative) return keys;
+  try {
+    const rows = await dbQuery(`SELECT payload FROM sync_queue WHERE table_name LIKE '/api/settings%'`, []);
+    for (const r of rows) {
+      try {
+        const p = JSON.parse(r.payload);
+        if (p?.method !== 'PUT' || !p.body || typeof p.body !== 'object') continue;
+        if (typeof p.body.key === 'string' && 'value' in p.body) keys.add(p.body.key);
+        else for (const k of Object.keys(p.body)) keys.add(k);
+      } catch { /* malformed row: flushQueue drops it */ }
+    }
+  } catch { /* no local DB yet */ }
+  return keys;
+}
+
 async function _applySettings(rows, result) {
   if (!rows?.length) { result.tables.settings = 0; return; }
   // Lazy-import DB so the sync module doesn't pull the localStorage helper
   // into every consumer that just needs sync state types.
   const { DB } = await import('./db.js');
+  const { isRecentlyChanged } = await import('../stores/settings.js');
+  // Skip a key only while this device's own change is still on its way:
+  // queued offline, or just edited and not yet saved. The local row's
+  // sync_state is not used for this. Settings reach the server through
+  // the write queue, not /sync/push, so nothing ever cleared 'pending'
+  // and one offline edit blocked every later change to that setting from
+  // the web.
+  const queued = await queuedSettingKeys();
   for (const s of rows) {
     if (!s.key) continue;
-    // Same pending guard as the other appliers but keyed on (user_id, key).
-    const localRows = await dbQuery(
-      `SELECT sync_state FROM user_settings WHERE user_id = 1 AND key = ? LIMIT 1`,
-      [s.key]
-    );
-    if (localRows[0]?.sync_state === 'pending') continue;
+    if (queued.has(s.key) || isRecentlyChanged(s.key)) continue;
     await dbRun(
       `INSERT INTO user_settings (user_id, key, value, updated_at, sync_state)
        VALUES (1, ?, ?, ?, 'clean')

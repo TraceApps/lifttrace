@@ -53,6 +53,7 @@
     const next = (aiModelSelectVal === '__custom__')
       ? aiCustomModelVal.trim()
       : (aiModelSelectVal || '');
+    _shownModel = next;
     $aiModel = next;
     _invalidate();
   }
@@ -62,6 +63,8 @@
     if (!$aiModel || !isPreset) {
       aiModelSelectVal = AI_DEFAULT_MODELS[$aiProvider] || '';
       aiCustomModelVal = '';
+      _shownModel = aiModelSelectVal;
+      _shownProvider = $aiProvider;
       $aiModel = aiModelSelectVal;
     } else {
       aiModelSelectVal = $aiModel;
@@ -78,14 +81,53 @@
   // Reactive invalidation when provider changes.
   $: { $aiProvider; _invalidate(); }
 
+  // The key and base URL save when the field loses focus (or on Enter),
+  // with no Save button: on a phone in portrait an inline button beside the
+  // field ran off the edge of the screen (issue #94). The connection is
+  // tested only when the value actually changed, so tabbing through does
+  // not spend API quota; the status banner's Test button re-tests on demand.
+  let aiKeyFocused = false;
+  let aiBaseUrlFocused = false;
+
   async function saveAiKey() {
+    aiKeyFocused = false;
+    if (aiKeyVal === ($aiApiKey || '')) return;
     aiApiKey.set(aiKeyVal);
-    await testConnection();
+    _invalidate();
+    if (canTest) await testConnection();
   }
 
   async function saveAiBaseUrl() {
-    aiBaseUrl.set(aiBaseUrlVal.trim());
-    await testConnection();
+    aiBaseUrlFocused = false;
+    const trimmed = aiBaseUrlVal.trim();
+    aiBaseUrlVal = trimmed;
+    if (trimmed === ($aiBaseUrl || '')) return;
+    aiBaseUrl.set(trimmed);
+    _invalidate();
+    if (canTest) await testConnection();
+  }
+
+  function blurOnEnter(e) { if (e.key === 'Enter') e.currentTarget.blur(); }
+
+  // Follow values that change underneath this screen (a sync from another
+  // device, or the startup settings load), except while the user is typing
+  // in that field.
+  $: if (!aiKeyFocused) aiKeyVal = $aiApiKey || '';
+  $: if (!aiBaseUrlFocused) aiBaseUrlVal = $aiBaseUrl || '';
+  let _shownModel = $aiModel;
+  let _shownProvider = $aiProvider;
+  $: if ($aiModel !== _shownModel || $aiProvider !== _shownProvider) _followModel($aiModel, $aiProvider);
+  function _followModel(model, provider) {
+    _shownModel = model;
+    _shownProvider = provider;
+    if (provider === 'oai-compat') return;
+    const isPreset = AI_MODELS[provider]?.some(m => m.value === model && m.value !== '__custom__');
+    if (model && !isPreset) {
+      aiModelSelectVal = '__custom__';
+      aiCustomModelVal = model;
+    } else {
+      aiModelSelectVal = model || AI_DEFAULT_MODELS[provider] || '';
+    }
   }
 
   // Required fields for a meaningful test.
@@ -199,14 +241,11 @@
                 <span class="setting-label">{$_('settings_trace.labels.base_url')}</span>
                 <span class="setting-hint">{$_('settings_trace.labels.base_url_desc')}</span>
               </div>
-              <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:100%">
-                <input class="form-input-sm" style="flex:1" type="url"
-                  placeholder={$_('settings_trace.labels.base_url_ph')}
-                  bind:value={aiBaseUrlVal} autocomplete="off" />
-                <button class="btn btn-primary" style="height:36px;font-size:13px;white-space:nowrap" on:click={saveAiBaseUrl} disabled={testing}>
-                  {testing ? $_('settings_trace.labels.testing') : $_('settings_trace.labels.save')}
-                </button>
-              </div>
+              <input class="form-input-sm" style="width:100%;min-width:0" type="url"
+                placeholder={$_('settings_trace.labels.base_url_ph')}
+                bind:value={aiBaseUrlVal} autocomplete="off"
+                on:focus={() => aiBaseUrlFocused = true}
+                on:blur={saveAiBaseUrl} on:keydown={blurOnEnter} />
             </div>
             <div class="setting-row">
               <span class="setting-label">{$_('settings_trace.labels.model')}</span>
@@ -261,16 +300,14 @@
               </span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:100%">
-              {#if aiShowKey}
-                <input class="form-input-sm" style="flex:1" type="text" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off" />
-              {:else}
-                <input class="form-input-sm" style="flex:1" type="password" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off" />
-              {/if}
-              <button class="btn-icon-toggle" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
+              <!-- One input whose type flips, so showing or hiding the key
+                   mid-edit keeps focus and still saves on blur. -->
+              <input class="form-input-sm" style="flex:1;min-width:0" type={aiShowKey ? 'text' : 'password'}
+                value={aiKeyVal} on:input={e => aiKeyVal = e.currentTarget.value}
+                placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off"
+                on:focus={() => aiKeyFocused = true} on:blur={saveAiKey} on:keydown={blurOnEnter} />
+              <button class="btn-icon-toggle" on:mousedown|preventDefault on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
                 <span class="material-symbols-rounded">{aiShowKey ? 'visibility_off' : 'visibility'}</span>
-              </button>
-              <button class="btn btn-primary" style="height:36px;font-size:13px;white-space:nowrap" on:click={saveAiKey} disabled={testing}>
-                {testing ? $_('settings_trace.labels.testing') : $_('settings_trace.labels.save')}
               </button>
             </div>
           </div>

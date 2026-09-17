@@ -43,8 +43,18 @@ const SERVER_SETTINGS = new Set([
 const _saveQueue = {};
 function _isLoggedIn() { return !!localStorage.getItem('wl:userId'); }
 
+// Keys changed on this device in the last few seconds. A sync pull or the
+// startup settings load can land between the edit and its debounced save,
+// and would otherwise put the old server value back on screen.
+const _recentlyChanged = new Map(); // key -> timestamp
+export function isRecentlyChanged(key) {
+  const ts = _recentlyChanged.get(key);
+  return !!ts && Date.now() - ts < 10000;
+}
+
 export function scheduleSave(key, value) {
   if (!SERVER_SETTINGS.has(key)) return;
+  _recentlyChanged.set(key, Date.now());
   clearTimeout(_saveQueue[key]);
   _saveQueue[key] = setTimeout(() => {
     if (!_isLoggedIn()) return;
@@ -80,7 +90,15 @@ export async function loadServerSettings() {
     const res = await fetch('/api/settings', { credentials: 'include' });
     if (!res.ok) return;
     const serverSettings = await res.json();
+    // On Android, a change made offline is still queued for the server,
+    // so the server's copy is older; keep what this device has.
+    let queued = new Set();
+    try {
+      const { isNative } = await import('../lib/platform.js');
+      if (isNative) queued = await (await import('../lib/sync.js')).queuedSettingKeys();
+    } catch { /* web build */ }
     for (const [key, value] of Object.entries(serverSettings)) {
+      if (queued.has(key) || isRecentlyChanged(key)) continue;
       DB.setSetting(key, value);
       // Dispatch with the BARE key — the createSettingStore listener
       // below compares against the bare key, not 'wl_<key>'. The old

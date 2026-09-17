@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Android: Trace's Base URL and API Key could not be saved in portrait, and AI settings drifted from the web** ([#94](https://github.com/TraceApps/lifttrace/issues/94), reported by @kgenerozov). Each field had its own Save button beside it, which on a phone in portrait sat past the edge of the screen. Both fields now save when you leave them (or press Enter), testing the connection only when the value changed, the same as NutriTrace. Separately, changing any setting while the phone was offline left that setting marked as waiting to sync on the device for good, so every later change to it from the web was skipped; settings changed elsewhere now arrive once the offline change has gone up. The Trace settings screen also shows synced values straight away instead of what it read when it opened, and a change made on the phone is no longer put back by a sync or app start that lands a moment later.
+
 ## [1.3.0-dev06] - 2026-09-16
 
 ### Added
