@@ -5,7 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.3.0-dev07] - 2026-09-17
+
+### Added
+
+- **Sync status in the sidebar.** On Android connected to a server, the sidebar now shows a line of its own above your account: Synced, Syncing, Offline, or Can't reach the server. Colour means one thing everywhere now: amber when the phone simply has no network, so nothing is lost and it will go up when you are back, and red when the server is reachable but the sync is failing. The badge on the menu button and the connection banner follow the same rule.
 
 ### Changed
 
