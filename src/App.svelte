@@ -601,7 +601,8 @@
       {#if _syncModeActive && !_serverReachable}
         <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
              red when the server is reachable but the sync is failing. -->
-        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing} aria-label="Offline">
+        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}
+          aria-label={_syncFailing ? $_('sync.sync_failing') : $_('sync.sync_offline')}>
           <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
