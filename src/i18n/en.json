@@ -8,6 +8,11 @@
     "settings":   "Settings"
   },
   "sync": {
+    "synced": "Synced",
+    "syncing": "Syncing…",
+    "sync_offline": "Offline",
+    "sync_failing": "Can't reach the server",
+    "not_synced": "Not synced yet",
     "retry":            "Retry",
     "retrying":         "Retrying…",
     "dismiss_message":  "Dismiss sync message",

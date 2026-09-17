@@ -6,7 +6,8 @@
   import { _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive, logout } from '../../stores/auth.js';
   import { APP_VERSION } from '../../lib/version.js';
-  import { resolveAssetUrl, iconUrl } from '../../lib/platform.js';
+  import { syncState } from '../../lib/sync.js';
+  import { resolveAssetUrl, iconUrl, isNative, getNativeMode } from '../../lib/platform.js';
   import { radioEnabled, radioUrl, radioStationsEnabled } from '../../stores/settings.js';
   import { updateAvailable } from '../../lib/updates.js';
   import { pwaUpdateReady } from '../../lib/pwa-update.js';
@@ -50,6 +51,27 @@
     if (base.startsWith('/progress')) return '/statistics';
     return base;
   })();
+
+  // ── Sync status pill (Android app connected to a server) ──────────
+  // Its own line above the account, so state doesn't run into the version.
+  // Green when everything is up, amber while offline (nothing is lost, it
+  // just hasn't gone yet), red when the server answers but the sync fails.
+  $: syncMode = isNative && getNativeMode() === 'server';
+  $: syncFailing = syncMode && $syncState.online && !!$syncState.connectionIssue;
+  $: syncText = !syncMode ? ''
+    : syncFailing ? $_('sync.sync_failing')
+    : !$syncState.online ? $_('sync.sync_offline')
+    : $syncState.syncing ? $_('sync.syncing')
+    : $syncState.lastSync ? $_('sync.synced')
+    : $_('sync.not_synced');
+  $: syncTone = syncFailing ? 'bad'
+    : (syncMode && !$syncState.online) ? 'wait'
+    : ($syncState.syncing && syncMode) ? 'busy'
+    : 'ok';
+  $: syncIcon = syncTone === 'bad' ? 'cloud_alert'
+    : syncTone === 'wait' ? 'cloud_off'
+    : syncTone === 'busy' ? 'sync'
+    : 'cloud_done';
 </script>
 
 {#if open}
@@ -102,6 +124,12 @@
     </nav>
 
     <div class="sidebar-footer">
+      {#if syncText}
+        <div class="sync-row {syncTone}">
+          <span class="material-symbols-rounded" class:spin={syncTone === 'busy'} aria-hidden="true">{syncIcon}</span>
+          <span class="sync-row-text">{syncText}</span>
+        </div>
+      {/if}
       {#if $userMgmtActive && $currentUser}
         <div class="sidebar-user">
           <div class="user-avatar">
@@ -236,8 +264,8 @@
     padding: 12px 14px;
     border-top: 1px solid var(--border);
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
+    flex-direction: column;
+    align-items: stretch;
   }
   .sidebar-version { font-size: 11px; color: var(--text-3); }
 
@@ -273,4 +301,30 @@
     transition: color var(--dur-fast), background var(--dur-fast);
   }
   .logout-btn:hover { color: var(--danger); background: rgba(255,92,92,0.1); }
+
+  /* Sync state on its own line above the account: status, not version. */
+  .sync-row {
+    display: flex; align-items: center; gap: 7px;
+    margin: 0 0 9px; padding: 6px 9px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--text-1) 5%, transparent);
+    font-size: 11.5px; color: var(--text-2);
+    min-width: 0;
+  }
+  .sync-row .material-symbols-rounded { font-size: 15px; color: var(--text-3); flex-shrink: 0; }
+  .sync-row-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sync-row.ok .material-symbols-rounded { color: var(--success); }
+  .sync-row.wait {
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    color: var(--warning);
+  }
+  .sync-row.wait .material-symbols-rounded { color: var(--warning); }
+  .sync-row.bad {
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
+  }
+  .sync-row.bad .material-symbols-rounded { color: var(--danger); }
+  .sync-row .spin { animation: sidebar-sync-spin 1.1s linear infinite; }
+  @keyframes sidebar-sync-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .sync-row .spin { animation: none; } }
 </style>

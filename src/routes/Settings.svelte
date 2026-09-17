@@ -1225,7 +1225,7 @@
                 <span class="material-symbols-rounded" style="font-size:18px">logout</span>
                 Log Out
               </button>
-              <button class="btn btn-ghost w-full" style="color:var(--error,#f87171)" on:click={disconnectServer}>
+              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer}>
                 <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
                 Disconnect &amp; Use Locally
               </button>
