@@ -407,7 +407,9 @@
       await scheduleNativeReminders();
       window.addEventListener('wl:setting', e => {
         const k = e.detail?.key || '';
-        if (k.startsWith('notif')) scheduleNativeReminders();
+        // The weekly summary reminder is scheduled from weeklySummaryDay and
+        // weeklySummaryTime, which do not carry the notif prefix.
+        if (k.startsWith('notif') || k === 'weeklySummaryDay' || k === 'weeklySummaryTime') scheduleNativeReminders();
       });
     } catch {}
 

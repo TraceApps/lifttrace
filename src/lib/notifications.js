@@ -222,22 +222,28 @@ export async function scheduleNativeReminders() {
     const ids = Object.values(REMINDER_IDS).map(id => ({ id }));
     try { await LocalNotifications.cancel({ notifications: ids }); } catch {}
 
+    // Setting names and defaults have to match the ones the settings layer
+    // actually stores (src/stores/settings.js, and the same keys the server
+    // scheduler reads), or every reminder here silently falls back to its
+    // default and the times chosen in Settings, Notifications never apply.
     const out = [];
     if (DB.getSetting('notifWorkoutReminder', false)) {
-      const time = DB.getSetting('notifWorkoutReminderTime', '17:00');
+      const time = DB.getSetting('notifWorkoutTime', '07:00');
       out.push(_dailyAt(REMINDER_IDS.workout, '🏋️ Time to Train', 'Open LiftTrace and crush today\'s workout.', time));
     }
-    if (DB.getSetting('notifStreakAtRisk', false)) {
-      const time = DB.getSetting('notifStreakAtRiskTime', '20:00');
+    if (DB.getSetting('notifStreakAlert', false)) {
+      const time = DB.getSetting('notifStreakTime', '20:00');
       out.push(_dailyAt(REMINDER_IDS.streakAtRisk, '🔥 Streak at Risk', 'Don\'t break your streak — log a quick session.', time));
     }
     if (DB.getSetting('notifRestDay', false)) {
-      const time = DB.getSetting('notifRestDayTime', '09:00');
-      out.push(_dailyAt(REMINDER_IDS.restDay, '🧘 Rest Day', 'Stretch, hydrate, and recover well today.', time));
+      // No rest-day time in Settings: the server fires this one at a fixed
+      // hour too, so the device keeps its own fixed hour.
+      out.push(_dailyAt(REMINDER_IDS.restDay, '🧘 Rest Day', 'Stretch, hydrate, and recover well today.', '09:00'));
     }
     if (DB.getSetting('notifWeeklySummary', false)) {
-      const time = DB.getSetting('notifWeeklySummaryTime', '18:00');
-      out.push(_dailyAt(REMINDER_IDS.weeklySummary, '📊 Weekly Summary', 'Check this week\'s training volume + PRs.', time));
+      const time = DB.getSetting('weeklySummaryTime', '09:00');
+      const day  = DB.getSetting('weeklySummaryDay', 0);
+      out.push(_weeklyOn(REMINDER_IDS.weeklySummary, '📊 Weekly Summary', 'Check this week\'s training volume + PRs.', time, day));
     }
 
     if (out.length) await LocalNotifications.schedule({ notifications: out });
@@ -247,16 +253,41 @@ export async function scheduleNativeReminders() {
   }
 }
 
+function _hhmm(hhmm, fallbackHour) {
+  const [h, m] = (hhmm || '').split(':').map(Number);
+  return { hour: isNaN(h) ? fallbackHour : h, minute: isNaN(m) ? 0 : m };
+}
+
+// A schedule carrying `every` never reads `on`: the Android plugin repeats from
+// the moment it was scheduled and returns, so the chosen time of day is lost and
+// every app start pushes the alarm another interval out. With `on` alone the
+// plugin takes its cron path, which re-arms itself at the same clock time after
+// each fire.
 function _dailyAt(id, title, body, hhmm) {
-  const [h, m] = (hhmm || '17:00').split(':').map(Number);
   return {
     id,
     title,
     body,
     smallIcon: 'ic_stat_icon_config_sample',
     schedule: {
-      on: { hour: isNaN(h) ? 17 : h, minute: isNaN(m) ? 0 : m },
-      every: 'day',
+      on: _hhmm(hhmm, 17),
+      allowWhileIdle: true,
+    },
+  };
+}
+
+// Weekly summary fires once a week, on the day chosen in Settings. Capacitor
+// counts weekdays from 1 = Sunday, while weeklySummaryDay is 0 = Sunday, the
+// same numbering the server scheduler compares against Date#getDay().
+function _weeklyOn(id, title, body, hhmm, day) {
+  const d = Number(day);
+  return {
+    id,
+    title,
+    body,
+    smallIcon: 'ic_stat_icon_config_sample',
+    schedule: {
+      on: { weekday: (isNaN(d) ? 0 : ((d % 7) + 7) % 7) + 1, ..._hhmm(hhmm, 9) },
       allowWhileIdle: true,
     },
   };
