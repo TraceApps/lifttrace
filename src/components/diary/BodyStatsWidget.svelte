@@ -14,6 +14,7 @@
    * (bodyStatsVisible store), matching the modal's visibleStats
    * gate so the two entry points show the same set of fields.
    */
+  import { replaceOnType } from '../../lib/replaceOnType.js';
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import { bodyStatsVisible, weightUnit } from '../../stores/settings.js';
@@ -83,8 +84,9 @@
     editing = true;
     inputVal = currentWeight != null ? String(currentWeight) : '';
     await Promise.resolve();
+    // Focus only: typing replaces the value (replaceOnType) without
+    // selecting it, which on Android raises the system text toolbar (#95).
     inputEl?.focus();
-    inputEl?.select();
   }
   async function commitWeight() {
     const val = parseFloat(inputVal);
@@ -142,6 +144,7 @@
         <input
           bind:this={inputEl}
           bind:value={inputVal}
+          use:replaceOnType
           on:keydown={onKey}
           type="number"
           step="0.1"

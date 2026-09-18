@@ -4,6 +4,7 @@
   import { trackRpe } from '../../stores/settings.js';
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
+  import { replaceOnType } from '../../lib/replaceOnType.js';
   import { parseDuration, fmtSetDuration, maskDurationInput } from '../../lib/workout.js';
 
   export let set;
@@ -133,8 +134,6 @@
     dispatch('update', { ...set, completed: nowComplete });
   }
 
-  /** Select the whole value on focus so a single tap overwrites it. */
-  function selectOnFocus(e) { e.target?.select?.(); }
 
   // ── Input clobber guard ──────────────────────────────────────────────
   // Each numeric input keeps a local string bound with bind:value. The
@@ -234,7 +233,8 @@
       class="set-input"
       bind:value={weightStr}
       on:input={() => commitNumber('weight', weightStr, parseFloat)}
-      on:focus={(e) => { weightFocused = true; selectOnFocus(e); }}
+      use:replaceOnType
+        on:focus={() => { weightFocused = true; }}
       on:blur={() => { weightFocused = false; commitNumber('weight', weightStr, parseFloat); }}
       placeholder="0"
       inputmode="decimal"
@@ -253,7 +253,8 @@
         class="set-input"
         bind:value={repsLStr}
         on:input={() => commitNumber('reps_l', repsLStr, parseInt)}
-        on:focus={(e) => { repsLFocused = true; selectOnFocus(e); }}
+        use:replaceOnType
+        on:focus={() => { repsLFocused = true; }}
         on:blur={() => { repsLFocused = false; commitNumber('reps_l', repsLStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
@@ -264,7 +265,8 @@
         class="set-input"
         bind:value={repsRStr}
         on:input={() => commitNumber('reps_r', repsRStr, parseInt)}
-        on:focus={(e) => { repsRFocused = true; selectOnFocus(e); }}
+        use:replaceOnType
+        on:focus={() => { repsRFocused = true; }}
         on:blur={() => { repsRFocused = false; commitNumber('reps_r', repsRStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
@@ -280,7 +282,8 @@
         class="set-input duration-input"
         bind:value={durationStr}
         on:input={() => { durationStr = maskDurationInput(durationStr); commitDuration(durationStr); }}
-        on:focus={(e) => { durationFocused = true; selectOnFocus(e); }}
+        use:replaceOnType
+        on:focus={() => { durationFocused = true; }}
         on:blur={() => { durationFocused = false; commitDuration(durationStr); durationStr = fmtSetDuration(set.duration_sec); }}
         on:keydown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
         placeholder="0:00"
@@ -306,7 +309,8 @@
         class="set-input"
         bind:value={repsStr}
         on:input={() => commitNumber('reps', repsStr, parseInt)}
-        on:focus={(e) => { repsFocused = true; selectOnFocus(e); }}
+        use:replaceOnType
+        on:focus={() => { repsFocused = true; }}
         on:blur={() => { repsFocused = false; commitNumber('reps', repsStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
@@ -549,6 +553,10 @@
     text-align: center;
     -moz-appearance: textfield;
   }
+  /* Tapped and not typed in yet: the next digit replaces this value. Dimmed
+     so that is visible without selecting the text, which on Android brings
+     up the system text toolbar over the row (issue #95). */
+  .set-input:global(.replace-pending) { color: var(--text-3); }
   .set-input::-webkit-inner-spin-button,
   .set-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .set-unit { font-size: 11px; color: var(--text-3); white-space: nowrap; }
