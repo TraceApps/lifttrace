@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { push } from 'svelte-spa-router';
+  import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { weightUnit, pageBanners, bannerStyle, bodyStatsVisible } from '../stores/settings.js';
@@ -64,6 +64,12 @@
 
   let metric = 'overview';
   let range = '1M';
+  // Deep links such as the weekly summary email's button open on a given
+  // range: #/statistics?range=1W (issue #98).
+  {
+    const wanted = new URLSearchParams($querystring || '').get('range');
+    if (wanted && Object.prototype.hasOwnProperty.call(RANGES, wanted)) range = wanted;
+  }
   // For the 'All' range we resolve the earliest workout_log date from the
   // server and use that as the start. Avoids the previous 10-year ceiling
   // (which silently chopped older imported data). Loaded lazily.

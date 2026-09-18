@@ -101,6 +101,14 @@ Suggest today's template based on program rotation and last workout date.
 ### RPE trend chart
 "Average RPE at working weight" line chart per exercise. Useful for spotting accumulated fatigue.
 
+### Weekly summary, next steps ([#98](https://github.com/TraceApps/lifttrace/issues/98))
+The summary now reports sessions against the weekly goal, sets, volume, time trained, PRs and sets per muscle group, each against the average week over the month before, with a link into Statistics. Still to come:
+- **Translated emails.** Server emails are English for every locale (the numbers already follow the language setting). A family-wide job, since CookTrace and NutriTrace have the same gap.
+- **Choosing what goes in.** Per-user picks for which metrics and which comparison, before any editable template.
+- **Program-aware comparison.** Week 3 of this block against week 3 of the last one, from the `program_id` and `program_week` already stamped on every workout.
+- **Admin-set schedule.** An instance-wide default day and time, the way scheduled backups are set.
+- **An exact week link.** Statistics only has rolling ranges, so the email opens the last seven days rather than that calendar week.
+
 ---
 
 ## Exercises & Equipment

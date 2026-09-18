@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } from '../lib/volume.js';
+import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -173,25 +174,6 @@ router.get('/muscle-group-volume', wrap((req, res) => {
   res.json(Object.values(out).sort((a, b) => b.volume - a.volume));
 }));
 
-function _normalizeMuscle(m) {
-  const s = (m || '').toLowerCase().trim();
-  // Normalize variants
-  if (s.includes('chest') || s.includes('pec')) return 'chest';
-  if (s.includes('back') || s.includes('lat') || s.includes('trap') || s.includes('rhomboid')) return 'back';
-  if (s.includes('shoulder') || s.includes('delt')) return 'shoulders';
-  if (s.includes('bicep')) return 'biceps';
-  if (s.includes('tricep')) return 'triceps';
-  if (s.includes('forearm')) return 'forearms';
-  if (s.includes('ab') || s.includes('core') || s.includes('oblique')) return 'core';
-  if (s.includes('quad')) return 'quads';
-  if (s.includes('hamstring')) return 'hamstrings';
-  if (s.includes('glute')) return 'glutes';
-  if (s.includes('calf') || s.includes('calve')) return 'calves';
-  if (s.includes('leg')) return 'legs';
-  if (s.includes('arm')) return 'arms';
-  if (s.includes('cardio')) return 'cardio';
-  return s || 'other';
-}
 
 // GET /api/stats/muscle-effective-sets?start=&end=
 //   Effective sets per muscle in the 18-slug body-map vocabulary. Primary
