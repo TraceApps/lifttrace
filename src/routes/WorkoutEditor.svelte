@@ -150,7 +150,16 @@
   function removeFromSuperset(idx) {
     const arr = [...exercises];
     const ssId = arr[idx].superset_id;
-    arr[idx] = { ...arr[idx], superset_id: undefined, superset_size: undefined, superset_position: undefined };
+    const leaving = { ...arr[idx], superset_id: undefined, superset_size: undefined, superset_position: undefined };
+    arr.splice(idx, 1);
+    // Same rule as the Diary: the superset block is a run of consecutive
+    // members, so an exercise leaving from the middle moves below the block
+    // instead of splitting it. Only moves when it would actually split the
+    // group; addToSuperset does the mirror of this on the way in.
+    const remaining = [];
+    if (ssId) arr.forEach((e, i) => { if (e.superset_id === ssId) remaining.push(i); });
+    const splitsGroup = remaining.some(i => i < idx) && remaining.some(i => i >= idx);
+    arr.splice(splitsGroup ? remaining[remaining.length - 1] + 1 : idx, 0, leaving);
     if (ssId) recalcSuperset(arr, ssId);
     commit(arr);
     showSuccess($_('workout_editor.toast.removed_from_ss'));

@@ -1931,7 +1931,19 @@
   async function leaveSuperset(idx) {
     const arr = [...exercises];
     const ssId = arr[idx].superset_id;
-    arr[idx] = { ...arr[idx], superset_id: undefined, superset_size: undefined, superset_position: undefined };
+    const leaving = { ...arr[idx], superset_id: undefined, superset_size: undefined, superset_position: undefined };
+    arr.splice(idx, 1);
+    // A superset is rendered from a run of consecutive members (supersetGroups
+    // above), so an exercise leaving one from the middle has to move out of the
+    // block's span: left where it was it splits that run, and the members left
+    // behind stop being drawn as a superset even though the workout still says
+    // they are one. Only moves when it would actually split the group, so
+    // leaving from either end keeps its place. joinSuperset does the mirror of
+    // this when an exercise comes in.
+    const remaining = [];
+    if (ssId) arr.forEach((e, i) => { if (e.superset_id === ssId) remaining.push(i); });
+    const splitsGroup = remaining.some(i => i < idx) && remaining.some(i => i >= idx);
+    arr.splice(splitsGroup ? remaining[remaining.length - 1] + 1 : idx, 0, leaving);
     if (ssId) _recalcSuperset(arr, ssId);
     await saveWorkout($currentDate, { ...($todayLog || {}), exercises: arr });
     showSuccess($_('diary.toast.removed_from_superset'));
