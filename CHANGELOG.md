@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.3.0-dev09] - 2026-09-19
 
 ### Changed
 
@@ -24,6 +24,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Android: Statistics showed zeros and "Failed to load stats"** ([#101](https://github.com/TraceApps/lifttrace/issues/101), reported and diagnosed by @kgenerozov). The app answers Statistics from the phone's own copy of your data, and that copy had no answer for the body map's numbers, so the whole page failed and fell back to its empty starting values. It had also drifted from the server in other ways: it ignored the date range you picked, started weeks on Sunday instead of Monday, put workouts on the wrong weekday for anyone west of UTC, dropped the current streak to 0 until you trained that day, and counted single-arm and single-leg volume once instead of for both sides. The phone now gives the same numbers as the server (checked side by side across time zones); connected to a server, Statistics asks the server and only uses the phone's copy offline; and a request the phone can't answer goes to the server instead of failing. If a statistic does fail to load, the page now says so with a Retry button, keeps everything that did load instead of showing zeros, and shows one error rather than two.
 - **Delete Workout could leave the workout in place on a day with more than one session.** When the day's first session had already been deleted, deleting again without choosing a session picked that deleted one, so the session on screen stayed. It now deletes the first session that still exists.
 - **Weekly charts put workouts in the wrong week on servers set to a time zone west of UTC.** Weekly volume and workout frequency read each date in the server's local time, so on such a server every week was labelled a Tuesday and Monday workouts were counted in the week before.
+
+### Security
+
+- No dependency changes in this release. A new high-severity `adm-zip` advisory published today ([GHSA-7q85-xj36-vmfc](https://github.com/advisories/GHSA-7q85-xj36-vmfc), denial of service from an archive that declares a huge uncompressed size) is fixed in 0.6.1, which this branch already uses. `npm audit` reports 0 vulnerabilities for both the app and the server.
 
 ## [1.3.0-dev08] - 2026-09-18
 
