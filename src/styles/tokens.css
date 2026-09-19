@@ -103,6 +103,12 @@
   --space-8: 32px;
 
   --nav-h: 64px;
+  /* What currently covers the bottom of the screen besides the nav bar: the
+     Radio mini player and the rest and hold timer bars (each set to 0px when
+     hidden, from App.svelte, RestTimer and HoldTimer). Side columns that size
+     themselves to the window take this off their height, so nothing sits
+     behind them where scrolling can't reach (issue #104). */
+  --bottom-overlays: calc(var(--mini-player-h, 0px) + var(--rest-h, 0px) + var(--hold-h, 0px));
   --page-top: var(--safe-top);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top:    env(safe-area-inset-top, 0px);

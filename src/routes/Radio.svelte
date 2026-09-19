@@ -2112,6 +2112,7 @@
         - 150px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
       padding: 10px 8px;
@@ -2190,6 +2191,7 @@
         - 150px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow: hidden;
       /* Tinted gradient using the cover's dominant color. When the
