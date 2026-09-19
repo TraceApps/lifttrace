@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The container now listens on port 3002, the same as the host port. Action needed when you update.** The image used to listen on 3003 inside the container while the sample compose file published it on 3002, so the two numbers never matched. Both are 3002 now. If your compose file has `"3002:3003"`, change it to `"3002:3002"`; if a reverse proxy or tunnel reaches the container directly (`lifttrace:3003`, or a Traefik `loadbalancer.server.port=3003` label), point it at `3002`. Until you do, LiftTrace won't respond after the update. Installs that set `PORT` themselves are not affected, and the host port stays 3002, so bookmarks and the Android app's server address keep working. The weekly summary email's link, used when no app URL is set, now points at `localhost:3002` too, and running from source starts the server on `:3002`.
+
 ### Fixed
 
 - **Dragging the Trace button or the Diary's add button no longer refreshes the page.** In the Android app connected to a server, dragging either button downward while the page was scrolled to the top was treated as pull-to-refresh and synced. The progress photo compare slider and scrubber had the same problem. Dragging those no longer counts as a pull; pulling down anywhere else still refreshes as before.

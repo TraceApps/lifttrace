@@ -3,7 +3,7 @@ services:
     image: ghcr.io/traceapps/lifttrace:latest
     container_name: lifttrace
     ports:
-      - "3002:3003"
+      - "3002:3002"
     volumes:
       - ${DATA_DB_PATH}:/data/db
       - ${DATA_UPLOADS_PATH}:/data/uploads

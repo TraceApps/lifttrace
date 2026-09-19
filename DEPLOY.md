@@ -29,12 +29,12 @@ origin, exercises a different request path than production.
 ### Path A: Vite dev server (hot reload, day-to-day frontend work)
 
 ```bash
-cd server && node index.js   # API on :3003
-npm run dev                  # Vite on :5173, proxies /api → :3003
+cd server && node index.js   # API on :3002
+npm run dev                  # Vite on :5173, proxies /api → :3002
 ```
 
 Fast HMR, but it runs the frontend on a **separate origin** (`:5173`) from
-the API (`:3003`) via a proxy. This is convenient for iterating on markup
+the API (`:3002`) via a proxy. This is convenient for iterating on markup
 but is the source of the recurring **blank-page-with-only-the-nav-bar**
 symptom (see below).
 
@@ -48,10 +48,10 @@ users hit:
 ```bash
 npm run build                # → dist/  (Vite output)
 rm -rf server/dist && cp -r dist server/dist
-cd server && node index.js   # app + API together on :3003
+cd server && node index.js   # app + API together on :3002
 ```
 
-Open `http://localhost:3003`. Re-run the three lines after any **frontend**
+Open `http://localhost:3002`. Re-run the three lines after any **frontend**
 change; the server pre-templates `dist/index.html` at startup, so a rebuild
 needs a server restart to be picked up. Backend-only changes just need the
 server restarted (or use `npm run dev` in `server/` for `--watch`).
@@ -66,7 +66,7 @@ code bug. Two usual causes:
    while the real route content fails to load. Fix: DevTools → **Application**
    → **Service Workers** → **Unregister**, then **Storage** → **Clear site
    data**, then hard-reload (`Cmd/Ctrl+Shift+R`).
-2. **Cross-origin proxy gap.** `GET /` requests landing on `:3003` (the API
+2. **Cross-origin proxy gap.** `GET /` requests landing on `:3002` (the API
    port, which has no frontend in Path A) or a stalled auth probe leave the
    shell mounted with no data.
 
@@ -131,7 +131,7 @@ services:
   lifttrace:
     image: ghcr.io/traceapps/lifttrace:latest
     ports:
-      - "3002:3003"
+      - "3002:3002"
     volumes:
       - ./data/db:/data/db
       - ./data/uploads:/data/uploads
@@ -149,7 +149,7 @@ services:
   lifttrace:
     image: ghcr.io/traceapps/lifttrace:latest
     ports:
-      - "3002:3003"
+      - "3002:3002"
     volumes:
       - ./data/db:/data/db
       - ./data/uploads:/data/uploads
@@ -185,7 +185,7 @@ services:
 | `UPLOADS_PATH` | Yes | `./uploads` | Path for uploaded exercise images / GIFs / videos, avatars, and progress photos (`body-stats/` subdirectory) |
 | `JWT_SECRET` | Yes (prod) | `dev-secret` | Secret for signing JWT auth tokens — **change this**. Server refuses to start in production with the dev default. |
 | `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key (AES-GCM, HKDF) for OIDC client secrets. By default we derive a key from `JWT_SECRET`, which means rotating `JWT_SECRET` invalidates every stored secret too. Set `TOKEN_ENC_KEY` explicitly if you want to rotate session tokens without forcing admins to re-enter OIDC client secrets. Use a long random string (e.g. `openssl rand -base64 48`). |
-| `PORT` | No | `3003` | Internal Express port (map to host in docker-compose) |
+| `PORT` | No | `3002` | Internal Express port (map to host in docker-compose) |
 | `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. Use `debug` for verbose request and sync output. |
 | `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
@@ -347,6 +347,13 @@ docker compose up -d
 ```
 
 Data is in bind-mounted volumes and persists across updates.
+
+**Upgrading to 1.3.0 or later from an earlier version:** the container now
+listens on `3002` instead of `3003`. Change the right-hand side of your
+compose mapping from `"3002:3003"` to `"3002:3002"`, and point any reverse
+proxy that talks to the container directly (`lifttrace:3003`, a Traefik
+`loadbalancer.server.port` label) at `3002`. If you set `PORT` yourself, nothing
+changes.
 
 ---
 

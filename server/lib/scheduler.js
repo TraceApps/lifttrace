@@ -229,7 +229,7 @@ async function _processUser(userId) {
         const user = userId ? db.prepare('SELECT * FROM users WHERE id = ?').get(userId) : null;
         if (user?.email) {
           try {
-            const origin = db.prepare("SELECT value FROM app_config WHERE key='app_url'").get()?.value || 'http://localhost:3003';
+            const origin = db.prepare("SELECT value FROM app_config WHERE key='app_url'").get()?.value || 'http://localhost:3002';
             await sendWeeklySummary(user.email, user.nickname || user.full_name || user.username, summary, origin, { unit, locale });
           } catch(e) {
             logger.warn(`[scheduler] weekly email failed: ${e.message}`);

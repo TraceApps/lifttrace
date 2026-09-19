@@ -33,6 +33,6 @@ COPY --from=build /app/package.json ./package.json
 # Falls back to reading /app/package.json at runtime.
 ARG APP_VERSION=""
 ENV TRACEAPPS_APP_VERSION=${APP_VERSION}
-EXPOSE 3003
+EXPOSE 3002
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "index.js"]

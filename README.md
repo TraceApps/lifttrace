@@ -83,7 +83,7 @@ services:
     image: ghcr.io/traceapps/lifttrace:latest
     container_name: lifttrace
     ports:
-      - "3002:3003"
+      - "3002:3002"
     volumes:
       - ./data/db:/data/db
       - ./data/uploads:/data/uploads
@@ -116,7 +116,7 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `UPLOADS_PATH` | `./uploads` | Uploaded exercise media directory |
 | `JWT_SECRET` | (required in prod) | JWT signing secret; server refuses to start in prod with the dev default |
 | `TOKEN_ENC_KEY` | derived from `JWT_SECRET` | At-rest encryption key for OIDC client secrets |
-| `PORT` | `3003` | Server port inside the container |
+| `PORT` | `3002` | Server port inside the container (3003 before 1.3.0) |
 | `LOG_LEVEL` | `info` | `error` \| `warn` \| `info` \| `debug` |
 | `EXERCISE_SOURCES` | `wger,free-db` | Sources to auto-seed on first boot (`wger`, `free-db`, `exercisedb`, `exercisedb-oss`) |
 | `EXERCISEDB_OSS_URL` | (upstream) | Point the OSS exercise source at your own mirror |
