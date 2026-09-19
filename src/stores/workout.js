@@ -47,6 +47,17 @@ function _setSnapshot(dateStr, sessionId, workout) {
 /** Load workout log for a specific date — the default session (issue
  *  #76: session 0, or the lowest surviving one). Also pulls the full
  *  session list and any coach prescription. */
+// updated_at comes as "2026-09-19 12:00:00" from the server and as
+// "2026-09-19T12:00:00.000Z" from the device's own writes. Compared as text
+// the server's form always sorts first, so a newer server copy looked older.
+function _tsMs(v) {
+  if (!v) return 0;
+  const s = String(v);
+  const iso = s.includes('T') ? s : `${s.replace(' ', 'T')}Z`;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
   // See the _epoch declaration below saveWorkout (issue #86): bumping it
   // stops a save still pending for whatever date/session the user is
@@ -87,7 +98,7 @@ export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
       // in place without bumping `updated_at`.
       const current = get(todayLog);
       const sameSession = current?.id != null && current.id === (data.workout?.id ?? null);
-      if (sameSession && String(data.workout?.updated_at || '') < String(current.updated_at || '')) {
+      if (sameSession && _tsMs(data.workout?.updated_at) < _tsMs(current.updated_at)) {
         loadWorkoutSessions(dateStr).catch(() => {});
         return;
       }
@@ -200,11 +211,13 @@ export async function startNewSession(dateStr, seedEntry = {}) {
   };
   delete stamped.id; // never continue an existing session
   const saved = await LtApi.saveWorkout(dateStr, stamped);
-  todayLog.set(saved.workout);
-  currentSessionId.set(saved.workout?.id ?? null);
-  _setSnapshot(dateStr, saved.workout?.id ?? null, saved.workout);
+  // A reply without the saved workout must never blank the Diary (#102).
+  const workout = saved?.workout || stamped;
+  todayLog.set(workout);
+  currentSessionId.set(saved?.workout?.id ?? null);
+  if (saved?.workout) _setSnapshot(dateStr, saved.workout.id ?? null, saved.workout);
   await loadWorkoutSessions(dateStr);
-  return saved.workout;
+  return workout;
 }
 
 /** Refetch the server's current workout for `dateStr` and merge the
@@ -277,7 +290,7 @@ async function _mergeAndSave(dateStr, clientEntry) {
   // identical to sessionId for an existing session; resolves the very
   // first save's null to the newly-assigned id so the next edit on this
   // date diffs against the right slot.
-  _setSnapshot(dateStr, saved?.workout?.id ?? sessionId, saved?.workout);
+  if (saved?.workout) _setSnapshot(dateStr, saved.workout.id ?? sessionId, saved.workout);
   return saved;
 }
 
@@ -348,7 +361,9 @@ export function saveWorkout(dateStr, entry) {
         const saved = await _mergeAndSave(dateStr, toSave);
         // Only sync from server if no newer edits are queued, and the
         // user hasn't since switched to a different session/date.
-        if (_latestEntry === toSave && toSaveEpoch === _epoch) {
+        // A reply without the saved workout keeps what is on screen rather
+        // than blanking the Diary (issue #102).
+        if (_latestEntry === toSave && toSaveEpoch === _epoch && saved?.workout) {
           todayLog.set(saved.workout);
           // Resolves currentSessionId once a brand-new day's first save
           // gets its id assigned (issue #76) — a no-op for every
@@ -364,7 +379,7 @@ export function saveWorkout(dateStr, entry) {
           _latestEntry = null;
           _latestDate  = null;
         }
-        resolve(saved.workout);
+        resolve(saved?.workout ?? toSave);
       } catch (e) { reject(e); }
     }, 350);
   });
@@ -381,7 +396,7 @@ export async function flushWorkoutSave(dateStr) {
   const toSaveEpoch = _latestEntryEpoch; // see the _epoch declaration above (issue #86)
   try {
     const saved = await _mergeAndSave(date, toSave);
-    if (_latestEntry === toSave && toSaveEpoch === _epoch) {
+    if (_latestEntry === toSave && toSaveEpoch === _epoch && saved?.workout) {
       todayLog.set(saved.workout);
       currentSessionId.set(saved.workout?.id ?? null);
       loadWorkoutSessions(date).catch(() => {});

@@ -135,6 +135,10 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
 
   try {
     const res = await origFetch(absolute, { ...init, headers, credentials: 'omit' });
+    // A workout save or delete that reached the server also updates the
+    // device's copy, which the Diary reads first, so reopening that day
+    // offline shows what was just saved (issue #102).
+    if (isWrite && res.ok) await _mirrorWorkoutWrite(url, method, res);
     return res;
   } catch (netErr) {
     // Real network failure — TypeError from fetch (DNS, offline, etc.)
@@ -147,13 +151,21 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
           try { body = JSON.parse(init.body); } catch { body = init.body; }
         }
         await enqueueWrite(method, _stripBase(url), body);
-        // Mirror the write to local cache so UI stays consistent.
+        // Mirror the write to local cache so UI stays consistent, and answer
+        // with what the local write returned: callers read the saved record
+        // from the reply (a workout save reads `workout`), and a bare
+        // "queued" reply made the Diary blank the workout on screen when the
+        // connection dropped (issue #102).
+        let local = null;
         try {
           const path = _stripBase(url).split('?')[0];
           const u = new URL(url, 'http://localhost');
           const query = Object.fromEntries(u.searchParams.entries());
-          await LtApiNative.handle(method, path, body, query);
+          local = await LtApiNative.handle(method, path, body, query);
         } catch {}
+        if (local && typeof local === 'object' && !Array.isArray(local)) {
+          return _jsonResponse(200, { ...local, queued: true, offline: true });
+        }
         return _jsonResponse(202, { queued: true, offline: true });
       } catch {
         return _jsonResponse(503, { error: 'Offline and could not enqueue.' });
@@ -162,6 +174,20 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     // Read fallback — try local cache.
     return _dispatchLocal(url, init);
   }
+}
+
+async function _mirrorWorkoutWrite(url, method, res) {
+  try {
+    const { workoutDateOf, mirrorSavedWorkout, reconcileWorkoutDate } = await import('./sync.js');
+    const date = workoutDateOf(_stripBase(url));
+    if (!date) return;
+    if (method === 'PUT') {
+      const data = await res.clone().json();
+      await mirrorSavedWorkout(date, data?.workout);
+    } else if (method === 'DELETE') {
+      await reconcileWorkoutDate(date);
+    }
+  } catch { /* the next pull brings the copy up to date */ }
 }
 
 function _isInterceptable(url) {

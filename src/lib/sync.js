@@ -639,6 +639,76 @@ export async function enqueueWrite(method, path, body) {
   );
 }
 
+// ── Workout cache after this device's own saves (issue #102) ───────────
+//
+// In server mode the Diary reads a workout from the device's copy first, but
+// that copy used to change only when a pull brought the server's version
+// down, and a pull skips rows marked 'pending'. An offline edit marks the row
+// pending and nothing ever cleared it, so from then on the device kept its own
+// stale copy of that workout. These keep the copy in step with the device's
+// own saves: an online save writes the server's answer straight back, and once
+// every queued offline write for a date has gone up, that date's rows are
+// replaced with the server's.
+
+const _WORKOUT_PATH = /^\/api\/workout\/(\d{4}-\d{2}-\d{2})(?:\?|$)/;
+
+/** The workout date a queued or live request path writes to, if any. */
+export function workoutDateOf(path) {
+  const m = _WORKOUT_PATH.exec(String(path || ''));
+  return m ? m[1] : null;
+}
+
+async function _queuedWorkoutDates() {
+  const dates = new Set();
+  const rows = await dbQuery(`SELECT table_name FROM sync_queue WHERE table_name LIKE '/api/workout/%'`, []);
+  for (const r of rows) { const d = workoutDateOf(r.table_name); if (d) dates.add(d); }
+  return dates;
+}
+
+async function _writeServerWorkout(w) {
+  if (!w?.id || !w.date) return;
+  if (w.deleted_at) { await dbRun(`DELETE FROM workout_log WHERE id = ?`, [w.id]); return; }
+  await dbRun(
+    `INSERT OR REPLACE INTO workout_log
+       (id, user_id, date, template_id, program_id, name, exercises,
+        notes, duration_min, completed, program_week, session_seq, created_at, updated_at, sync_state)
+     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
+    [
+      w.id, w.date, w.template_id || null, w.program_id || null,
+      w.name || null,
+      JSON.stringify(Array.isArray(w.exercises) ? w.exercises : _parseMaybe(w.exercises)),
+      w.notes || null, w.duration_min ?? null,
+      w.completed ? 1 : 0,
+      w.program_week ?? null,
+      w.session_seq ?? 0,
+      w.created_at || new Date().toISOString(),
+      w.updated_at || new Date().toISOString(),
+    ]
+  );
+}
+function _parseMaybe(v) { try { return JSON.parse(v || '[]'); } catch { return []; } }
+
+/** After an online save: store the server's copy, unless offline edits for
+ *  that date are still waiting to go up (they will reconcile it instead). */
+export async function mirrorSavedWorkout(date, workout) {
+  if (!isNative || !getServerUrl() || !workout?.id) return;
+  if ((await _queuedWorkoutDates()).has(date)) return;
+  await _writeServerWorkout(workout);
+}
+
+/** Replace a date's local rows with the server's sessions, once nothing for
+ *  that date is left in the write queue. Also removes a session created
+ *  offline under a device-side id, which the server stored under its own. */
+export async function reconcileWorkoutDate(date) {
+  if (!isNative || !getServerUrl() || !date) return false;
+  if ((await _queuedWorkoutDates()).has(date)) return false;
+  const data = await _serverFetch('GET', `/api/workout/${date}/sessions`);
+  const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+  await dbRun(`DELETE FROM workout_log WHERE user_id = 1 AND date = ?`, [date]);
+  for (const w of sessions) await _writeServerWorkout(w);
+  return true;
+}
+
 /**
  * Replay every queued write against the server. On HTTP 4xx the entry is
  * dropped (request was malformed — retrying won't help). On 5xx / network
@@ -649,6 +719,7 @@ export async function flushQueue() {
   if (_flushing) return { ok: false, reason: 'already flushing' };
   _flushing = true;
   const result = { attempted: 0, succeeded: 0, dropped: 0, retained: 0 };
+  const workoutDates = new Set();
 
   try {
     const rows = await dbQuery(
@@ -669,6 +740,8 @@ export async function flushQueue() {
         await _serverFetch(payload.method, payload.path, payload.body);
         await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
         result.succeeded++;
+        const wd = workoutDateOf(payload.path);
+        if (wd) workoutDates.add(wd);
       } catch (e) {
         if (e.status === 401) {
           // Auth lost — clear local auth so the user re-signs-in, and
@@ -687,6 +760,9 @@ export async function flushQueue() {
           // Permanent failure — drop so it doesn't block forever.
           await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
           result.dropped++;
+          // The server refused it, so its copy is the truth for that date.
+          const wdDropped = workoutDateOf(payload.path);
+          if (wdDropped) workoutDates.add(wdDropped);
         } else {
           await dbRun(
             `UPDATE sync_queue SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
@@ -695,6 +771,11 @@ export async function flushQueue() {
           result.retained++;
         }
       }
+    }
+    // Offline edits for these dates are now on the server (or were refused):
+    // bring the device's copy back in line with it (issue #102).
+    for (const d of workoutDates) {
+      try { await reconcileWorkoutDate(d); } catch (e) { _dlog('[sync] reconcile failed', d, e?.message); }
     }
     return result;
   } finally {
