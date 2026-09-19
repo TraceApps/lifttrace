@@ -33,7 +33,7 @@ test('online saves update the device copy; replayed offline saves bring the date
   assert.match(sync, /export async function reconcileWorkoutDate\(date\)/);
   assert.match(sync, /for \(const d of workoutDates\) \{\s*\n\s*try \{ await reconcileWorkoutDate\(d\); \}/);
   // Nothing is overwritten while offline edits for that date are still waiting.
-  assert.equal((sync.match(/\(await _queuedWorkoutDates\(\)\)\.has\(date\)/g) || []).length, 2);
+  assert.equal((sync.match(/\(await _queuedWorkoutDates\(\)\)\.has\(date\)/g) || []).length, 3, 'mirror once, reconcile twice');
 });
 
 test('the date matcher only picks out day-level workout writes', () => {
@@ -52,4 +52,20 @@ test('updated_at compares as a time, whichever format it arrives in', () => {
   assert.equal(_tsMs('2026-09-19 12:00:00'), _tsMs('2026-09-19T12:00:00.000Z'));
   assert.equal(_tsMs(null), 0);
   assert.match(store, /_tsMs\(data\.workout\?\.updated_at\) < _tsMs\(current\.updated_at\)/);
+});
+
+test('a workout created offline keeps its own edits: device ids are swapped for server ids on replay', () => {
+  assert.match(apiFetch, /await noteQueuedLocalId\(queueId, created\)/);
+  assert.match(sync, /export async function noteQueuedLocalId\(queueId, localId\)/);
+  assert.match(sync, /if \(bodyId != null && idMap\.has\(bodyId\)\) \{\s*\n\s*payload\.body = \{ \.\.\.payload\.body, id: idMap\.get\(bodyId\) \};/);
+  assert.match(sync, /waitingIds\.has\(bodyId\) && payload\.localId !== bodyId\) \{\s*\n\s*result\.retained\+\+;/, 'held back until its session exists');
+  assert.match(sync, /if \(bodyId != null && refusedIds\.has\(bodyId\)\) \{/, 'dropped if the server refused the session');
+  assert.match(sync, /new CustomEvent\('lt:workout-ids'/);
+  assert.match(store, /window\.addEventListener\('lt:workout-ids'/, 'the Diary follows the new id');
+});
+
+test('reconciling writes the server rows before removing local ones, and yields to new offline edits', () => {
+  const fn = sync.slice(sync.indexOf('export async function reconcileWorkoutDate'), sync.indexOf('/**', sync.indexOf('export async function reconcileWorkoutDate')));
+  assert.ok(fn.indexOf('_writeServerWorkout(w)') < fn.indexOf('DELETE FROM workout_log'));
+  assert.equal((fn.match(/\(await _queuedWorkoutDates\(\)\)\.has\(date\)/g) || []).length, 2);
 });

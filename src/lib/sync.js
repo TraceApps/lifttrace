@@ -632,11 +632,24 @@ async function _applyChat(rows, result) {
  * flushQueue(). Called by apiFetch.js when a fetch throws or returns 5xx.
  */
 export async function enqueueWrite(method, path, body) {
-  await dbRun(
+  const r = await dbRun(
     `INSERT INTO sync_queue (table_name, row_id, operation, payload)
      VALUES (?, NULL, ?, ?)`,
     [path, method, JSON.stringify({ method, path, body: body == null ? null : body })]
   );
+  return r?.lastId ?? null;
+}
+
+/** A workout created offline got a device-side id; remember it on the
+ *  queued write so the replay can swap it for the server's id (issue #102). */
+export async function noteQueuedLocalId(queueId, localId) {
+  if (queueId == null || localId == null) return;
+  const row = (await dbQuery(`SELECT payload FROM sync_queue WHERE id = ?`, [queueId]))[0];
+  if (!row) return;
+  let payload;
+  try { payload = JSON.parse(row.payload); } catch { return; }
+  payload.localId = localId;
+  await dbRun(`UPDATE sync_queue SET payload = ? WHERE id = ?`, [JSON.stringify(payload), queueId]);
 }
 
 // ── Workout cache after this device's own saves (issue #102) ───────────
@@ -704,8 +717,16 @@ export async function reconcileWorkoutDate(date) {
   if ((await _queuedWorkoutDates()).has(date)) return false;
   const data = await _serverFetch('GET', `/api/workout/${date}/sessions`);
   const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
-  await dbRun(`DELETE FROM workout_log WHERE user_id = 1 AND date = ?`, [date]);
+  // An offline edit made while that request was out: keep the device's copy.
+  if ((await _queuedWorkoutDates()).has(date)) return false;
+  // Server rows first, then drop the local ones it doesn't have, so a failure
+  // part way can't leave the day missing on the device.
   for (const w of sessions) await _writeServerWorkout(w);
+  const keep = sessions.map(w => Number(w.id)).filter(Number.isFinite);
+  await dbRun(
+    `DELETE FROM workout_log WHERE user_id = 1 AND date = ?${keep.length ? ` AND id NOT IN (${keep.map(() => '?').join(',')})` : ''}`,
+    [date, ...keep]
+  );
   return true;
 }
 
@@ -720,6 +741,13 @@ export async function flushQueue() {
   _flushing = true;
   const result = { attempted: 0, succeeded: 0, dropped: 0, retained: 0 };
   const workoutDates = new Set();
+  // A workout created offline has a device-side id until its first write
+  // reaches the server. Later queued writes carry that id, which the server
+  // doesn't know and would apply to the date's first session instead, so
+  // they are re-pointed at the server's id, or held back until it exists.
+  const idMap = new Map();          // device-side id -> server id
+  const waitingIds = new Set();     // device-side ids whose create hasn't gone up yet
+  const refusedIds = new Set();     // device-side ids whose create the server refused
 
   try {
     const rows = await dbQuery(
@@ -727,6 +755,9 @@ export async function flushQueue() {
       []
     );
     _dlog('[sync] flushQueue', rows.length, 'queued writes');
+    for (const row of rows) {
+      try { const p = JSON.parse(row.payload); if (p?.localId != null) waitingIds.add(p.localId); } catch { /* checked below */ }
+    }
     for (const row of rows) {
       result.attempted++;
       let payload;
@@ -736,8 +767,29 @@ export async function flushQueue() {
         result.dropped++;
         continue;
       }
+      const bodyId = payload.body && typeof payload.body === 'object' ? payload.body.id : null;
+      if (bodyId != null && refusedIds.has(bodyId)) {
+        // Edits to a workout the server never accepted: drop them rather
+        // than let them land on another session.
+        await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
+        result.dropped++;
+        const wdRefused = workoutDateOf(payload.path);
+        if (wdRefused) workoutDates.add(wdRefused);
+        continue;
+      }
+      if (bodyId != null && idMap.has(bodyId)) {
+        payload.body = { ...payload.body, id: idMap.get(bodyId) };
+      } else if (bodyId != null && waitingIds.has(bodyId) && payload.localId !== bodyId) {
+        result.retained++;   // its session isn't on the server yet
+        continue;
+      }
       try {
-        await _serverFetch(payload.method, payload.path, payload.body);
+        const sent = await _serverFetch(payload.method, payload.path, payload.body);
+        if (payload.localId != null) {
+          waitingIds.delete(payload.localId);
+          const serverId = sent?.workout?.id;
+          if (serverId != null && serverId !== payload.localId) idMap.set(payload.localId, serverId);
+        }
         await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
         result.succeeded++;
         const wd = workoutDateOf(payload.path);
@@ -761,6 +813,7 @@ export async function flushQueue() {
           await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
           result.dropped++;
           // The server refused it, so its copy is the truth for that date.
+          if (payload.localId != null) { waitingIds.delete(payload.localId); refusedIds.add(payload.localId); }
           const wdDropped = workoutDateOf(payload.path);
           if (wdDropped) workoutDates.add(wdDropped);
         } else {
@@ -771,6 +824,21 @@ export async function flushQueue() {
           result.retained++;
         }
       }
+    }
+    // Writes still queued (held back, or a failed retry) keep the new ids.
+    if (idMap.size) {
+      for (const r of await dbQuery(`SELECT id, payload FROM sync_queue`, [])) {
+        try {
+          const p = JSON.parse(r.payload);
+          const id = p?.body?.id;
+          if (id != null && idMap.has(id)) {
+            p.body.id = idMap.get(id);
+            await dbRun(`UPDATE sync_queue SET payload = ? WHERE id = ?`, [JSON.stringify(p), r.id]);
+          }
+        } catch { /* leave it */ }
+      }
+      // The Diary may still be showing that workout under the device id.
+      try { window.dispatchEvent(new CustomEvent('lt:workout-ids', { detail: { map: [...idMap] } })); } catch { /* no window */ }
     }
     // Offline edits for these dates are now on the server (or were refused):
     // bring the device's copy back in line with it (issue #102).

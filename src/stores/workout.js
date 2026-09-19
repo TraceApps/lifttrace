@@ -126,6 +126,32 @@ export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
   }
 }
 
+// A workout created offline shows under a device-side id until its first save
+// reaches the server, which stores it under its own id. sync.js announces the
+// swap; follow it, so later saves go to that session and not to the date's
+// first one (issue #102).
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('lt:workout-ids', (e) => {
+    const map = new Map(e?.detail?.map || []);
+    if (!map.size) return;
+    const swap = (w) => (w && map.has(w.id) ? { ...w, id: map.get(w.id) } : w);
+    const cur = get(currentSessionId);
+    if (cur != null && map.has(cur)) currentSessionId.set(map.get(cur));
+    todayLog.update(swap);
+    if (_latestEntry) _latestEntry = swap(_latestEntry);
+    for (const [oldId, newId] of map) {
+      for (const [key, ex] of [..._snapshotByDate]) {
+        if (key.endsWith(`:${oldId}`)) {
+          _snapshotByDate.set(key.slice(0, -String(oldId).length) + newId, ex);
+          _snapshotByDate.delete(key);
+        }
+      }
+    }
+    const date = get(currentDate);
+    if (date) loadWorkoutSessions(date).catch(() => {});
+  });
+}
+
 /** Refresh the full list of sessions logged on `dateStr` (issue #76). */
 export async function loadWorkoutSessions(dateStr) {
   const guard = dateStr;

@@ -145,12 +145,12 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     if (isWrite) {
       // Enqueue write for retry, write to local cache, return synthetic 202.
       try {
-        const { enqueueWrite } = await import('./sync.js');
+        const { enqueueWrite, noteQueuedLocalId, workoutDateOf } = await import('./sync.js');
         let body = null;
         if (typeof init.body === 'string') {
           try { body = JSON.parse(init.body); } catch { body = init.body; }
         }
-        await enqueueWrite(method, _stripBase(url), body);
+        const queueId = await enqueueWrite(method, _stripBase(url), body);
         // Mirror the write to local cache so UI stays consistent, and answer
         // with what the local write returned: callers read the saved record
         // from the reply (a workout save reads `workout`), and a bare
@@ -164,6 +164,14 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
           local = await LtApiNative.handle(method, path, body, query);
         } catch {}
         if (local && typeof local === 'object' && !Array.isArray(local)) {
+          // A workout that exists only on the device so far gets a device-side
+          // id; note it on the queued write so the replay can swap in the
+          // server's id.
+          const created = local.workout?.id;
+          const sentId = body && typeof body === 'object' ? body.id : null;
+          if (method === 'PUT' && created != null && created !== sentId && workoutDateOf(_stripBase(url))) {
+            try { await noteQueuedLocalId(queueId, created); } catch { /* replay falls back to the date's session */ }
+          }
           return _jsonResponse(200, { ...local, queued: true, offline: true });
         }
         return _jsonResponse(202, { queued: true, offline: true });
