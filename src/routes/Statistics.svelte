@@ -193,7 +193,9 @@
       const res = await fetch('/api/stats/earliest-workout-date', { credentials: 'include' });
       if (res.ok) { const d = await res.json(); earliestWorkoutDate = d?.date || null; }
     } catch {}
-    await loadData();
+    // The range statement below already loaded once; only All needs a second
+    // pass, because its start date is the earliest workout just fetched.
+    if (range === 'All') await loadData();
 
     _onSyncComplete = () => { loadData(); };
     window.addEventListener('lt:sync-complete', _onSyncComplete);
@@ -205,10 +207,17 @@
 
   $: range, loadData();
 
+  // Each stat loads on its own, so one that fails no longer throws away the
+  // rest, and a failure shows as an error rather than as zeros that look like
+  // real statistics (issue #101). Only the newest load may write results or
+  // report an error, so overlapping loads can't double the toast.
+  let loadError = false;
+  let _loadSeq = 0;
   async function loadData() {
+    const seq = ++_loadSeq;
     loading = true;
     try {
-      const [v, f, r, s, mg, mes, wd, cw, cs] = await Promise.all([
+      const results = await Promise.allSettled([
         LtApi.getVolume(startDate, endDate),
         LtApi.getFrequency(startDate, endDate),
         LtApi.getRecords(),
@@ -219,10 +228,21 @@
         LtApi.getCardioWeekly(startDate, endDate).catch(() => []),
         LtApi.listCardio(startDate, endDate).catch(() => []),
       ]);
-      volume = v; frequency = f; records = r; streaks = s;
-      muscleGroups = mg; muscleLoad = mes || {}; weekdayDist = wd;
+      if (seq !== _loadSeq) return;
+      const [v, f, r, s, mg, mes, wd, cw, cs] = results.map(x => (x.status === 'fulfilled' ? x.value : undefined));
+      const failed = results.filter(x => x.status === 'rejected');
+      failed.forEach(x => console.error(x.reason));
+      if (v !== undefined) volume = v;
+      if (f !== undefined) frequency = f;
+      if (r !== undefined) records = r;
+      if (s !== undefined) streaks = s;
+      if (mg !== undefined) muscleGroups = mg;
+      if (mes !== undefined) muscleLoad = mes || {};
+      if (wd !== undefined) weekdayDist = wd;
       cardioWeekly = Array.isArray(cw) ? cw : [];
       cardioSessions = Array.isArray(cs) ? cs : [];
+      loadError = failed.length > 0;
+      if (loadError) showError($_('statistics.load_failed'));
 
       // Heatmap dates + cached full records (the calorie estimator needs
       // exercises + duration_min, both already in this payload).
@@ -242,9 +262,9 @@
       if (metric === 'progress' && selectedExerciseId) await loadProgress();
     } catch(e) {
       console.error(e);
-      showError($_('statistics.load_failed'));
+      if (seq === _loadSeq) { loadError = true; showError($_('statistics.load_failed')); }
     }
-    loading = false;
+    if (seq === _loadSeq) loading = false;
   }
 
   async function loadBodyWeights() {
@@ -620,6 +640,13 @@
     <div class="loading">{$_('statistics.loading_stats')}</div>
   {:else}
     <div class="content">
+      {#if loadError}
+        <div class="stats-load-error" role="alert">
+          <span class="material-symbols-rounded">error</span>
+          <span class="stats-load-error-text">{$_('statistics.load_failed_detail')}</span>
+          <button class="stats-load-error-btn" on:click={loadData}>{$_('statistics.retry')}</button>
+        </div>
+      {/if}
       <!-- ═════════ OVERVIEW ═════════ -->
       {#if metric === 'overview'}
         <!-- Overview body wrapper — at wide widths becomes a 2-col
@@ -2015,4 +2042,20 @@
   .cs-activity { font-size: 13px; font-weight: 700; color: var(--text-1); }
   .cs-meta { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
   .cs-date { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  /* Shown when some statistics couldn't load, so zeros aren't read as real data. */
+  .stats-load-error {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 12px; padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+    color: var(--text-1); font-size: 13px;
+  }
+  .stats-load-error .material-symbols-rounded { color: var(--danger); font-size: 20px; flex-shrink: 0; }
+  .stats-load-error-text { flex: 1; min-width: 0; }
+  .stats-load-error-btn {
+    flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text-1); border-radius: var(--radius-full); padding: 6px 14px;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
 </style>

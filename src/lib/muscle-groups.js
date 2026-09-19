@@ -2,8 +2,8 @@
  * Collapse the many ways exercise libraries name a muscle ("Pectoralis",
  * "front delts", "Quadriceps") into the groups Muscle Balance shows.
  * Shared by the Statistics route and the weekly summary so both agree.
- * An identical copy lives in src/lib/muscle-groups.js for the Android
- * app's offline Statistics; scripts/muscle-load-parity.test.js compares them.
+ * An identical copy lives in server/lib/muscle-groups.js;
+ * scripts/muscle-load-parity.test.js compares them.
  */
 export function normalizeMuscle(m) {
   const s = (m || '').toLowerCase().trim();

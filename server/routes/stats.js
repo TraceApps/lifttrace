@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } from '../lib/volume.js';
 import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
+import { musclesOf } from '../lib/muscle-load.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -40,6 +41,17 @@ function loadLibraryLoadTypes() {
   return map;
 }
 
+// Monday of a workout's week. Workout dates are calendar days, so the maths
+// runs in UTC on the bare date: parsing them in the server's local time moved
+// every week to a Tuesday and shifted workouts into the wrong week on any
+// server whose TZ is west of UTC (issue #101). api-native's Stats does the same.
+function _weekStart(date) {
+  const d = new Date(`${date}T00:00:00Z`);
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().slice(0, 10);
+}
+
 // GET /api/stats/volume?start=&end=
 router.get('/volume', wrap((req, res) => {
   const { start, end } = req.query;
@@ -47,11 +59,7 @@ router.get('/volume', wrap((req, res) => {
   const libMap = loadLibraryLoadTypes();
   const byWeek = {};
   for (const row of rows) {
-    const d = new Date(row.date);
-    // ISO week start (Monday)
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+    const weekStart = _weekStart(row.date);
     if (!byWeek[weekStart]) byWeek[weekStart] = 0;
     for (const ex of row.exercises) {
       byWeek[weekStart] += exerciseVolume(ex, libMap.get(ex.exercise_id));
@@ -66,10 +74,7 @@ router.get('/frequency', wrap((req, res) => {
   const rows = getWorkouts(uid(req), start, end);
   const byWeek = {};
   for (const row of rows) {
-    const d = new Date(row.date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+    const weekStart = _weekStart(row.date);
     byWeek[weekStart] = (byWeek[weekStart] || 0) + 1;
   }
   res.json(Object.entries(byWeek).map(([week, count]) => ({ week, count })));
@@ -209,87 +214,6 @@ router.get('/muscle-effective-sets', wrap((req, res) => {
   }
   res.json(load);
 }));
-
-// Primary muscle weight = 1.0, secondary = 0.4 (both are per-set, so a 4×8
-// bench weighs four times a single set). Same constant openGym uses.
-const _MUSCLE_SECONDARY = 0.4;
-
-// The 18 muscles the body map can shade. Order matches head-to-toe so any
-// list built off this reads top-down. Kept in sync with client-side muscles.js.
-const _MUSCLES = [
-  'trapezius','deltoids','chest','upper-back','serratus',
-  'biceps','triceps','forearm',
-  'abs','obliques','lower-back',
-  'gluteal','quadriceps','hamstring','adductors','hip-flexors',
-  'calves','tibialis',
-];
-
-// Every spelling that shows up in wger/exerciseDB/free-db + custom imports,
-// folded onto the 18 drawable muscles. null = deliberately not drawable
-// (hands, ankles, cardio) rather than guessed at.
-const _ALIAS = {
-  abs: 'abs', pectorals: 'chest', chest: 'chest', 'upper chest': 'chest',
-  biceps: 'biceps', brachialis: 'biceps',
-  triceps: 'triceps',
-  glutes: 'gluteal', gluteal: 'gluteal', abductors: 'gluteal',
-  delts: 'deltoids', deltoids: 'deltoids', shoulders: 'deltoids',
-  'rear deltoids': 'deltoids', 'rotator cuff': 'deltoids',
-  'upper back': 'upper-back', lats: 'upper-back', 'latissimus dorsi': 'upper-back',
-  back: 'upper-back', rhomboids: 'upper-back',
-  calves: 'calves', soleus: 'calves',
-  quads: 'quadriceps', quadriceps: 'quadriceps',
-  forearms: 'forearm', forearm: 'forearm', wrists: 'forearm',
-  'wrist flexors': 'forearm', 'wrist extensors': 'forearm', 'grip muscles': 'forearm',
-  hamstrings: 'hamstring', hamstring: 'hamstring',
-  spine: 'lower-back', 'lower back': 'lower-back',
-  traps: 'trapezius', trapezius: 'trapezius', 'levator scapulae': 'trapezius',
-  adductors: 'adductors', groin: 'adductors', 'inner thighs': 'adductors',
-  'serratus anterior': 'serratus', serratus: 'serratus',
-  core: 'abs', abdominals: 'abs', 'lower abs': 'abs',
-  obliques: 'obliques',
-  'hip flexors': 'hip-flexors',
-  shins: 'tibialis', tibialis: 'tibialis',
-  'cardiovascular system': null, cardio: null,
-  ankles: null, feet: null, hands: null,
-  'ankle stabilizers': null, sternocleidomastoid: null,
-};
-
-// Fallback when an exercise has no recognised primary muscles — custom
-// exercises often only carry a body-part category. Weights within a group
-// sum to ~1 so "upper legs" spreads across three muscles rather than
-// counting triple.
-const _BY_CATEGORY = {
-  chest: { chest: 1 },
-  back: { 'upper-back': 0.75, 'lower-back': 0.25 },
-  shoulders: { deltoids: 1 },
-  'upper arms': { biceps: 0.5, triceps: 0.5 },
-  arms: { biceps: 0.4, triceps: 0.4, forearm: 0.2 },
-  'lower arms': { forearm: 1 },
-  waist: { abs: 0.7, obliques: 0.3 },
-  core: { abs: 0.7, obliques: 0.3 },
-  'upper legs': { quadriceps: 0.4, hamstring: 0.35, gluteal: 0.25 },
-  legs: { quadriceps: 0.35, hamstring: 0.3, gluteal: 0.2, calves: 0.15 },
-  'lower legs': { calves: 0.8, tibialis: 0.2 },
-  neck: { trapezius: 1 },
-};
-
-// Reduce one exercise's primary + secondary muscles + category fallback to
-// a { slug: 0…1 } map. Takes the max weight per slug (a muscle listed as
-// both primary and secondary counts as primary, not 1.4).
-function musclesOf(info) {
-  const out = {};
-  const add = (name, w) => {
-    const slug = _ALIAS[String(name || '').toLowerCase().trim()];
-    if (slug) out[slug] = Math.max(out[slug] || 0, w);
-  };
-  (info.primary || []).forEach(m => add(m, 1));
-  (info.secondary || []).forEach(m => add(m, _MUSCLE_SECONDARY));
-  if (!Object.keys(out).length && info.category) {
-    const fallback = _BY_CATEGORY[info.category];
-    if (fallback) Object.assign(out, fallback);
-  }
-  return out;
-}
 
 // GET /api/stats/weekday-distribution?start=&end=
 //   Returns workout counts per day of week: [{ day: 0-6, count: N }]

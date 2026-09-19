@@ -71,7 +71,10 @@ const LOCAL_FIRST_GET_PATTERNS = [
   /^\/api\/programs\/\d+(\?|\/?$)/,               // Program detail
   /^\/api\/templates\/\d+(\?|$)/,                 // Workout template
   /^\/api\/body-stats\/[\d-]+(\?|$)/,             // Body stats by date or range
-  /^\/api\/stats\//,                              // Statistics aggregates
+  // Statistics aggregates are deliberately NOT local-first: when the server
+  // is reachable it answers, so the numbers always match the web app. The
+  // device's own copy (api-native Stats) is used offline, through the read
+  // fallback below (issue #101).
 ];
 
 function _isLocalFirstGet(path, method) {
@@ -119,8 +122,12 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
   if (!isWrite && _isLocalFirstGet(url, method)) {
     try {
       const cached = await _dispatchLocal(url, init);
-      _kickBackgroundSync();
-      return cached;
+      // 501 means the device has no local answer for this path; ask the
+      // server rather than failing a request the server can serve (#101).
+      if (cached.status !== 501) {
+        _kickBackgroundSync();
+        return cached;
+      }
     } catch {
       // Local handler threw — fall through to server.
     }

@@ -19,7 +19,9 @@ import {
   setSyncMeta,
 } from './db-native.js';
 import { currentPlanWeek } from './programWeek.js';
-import { isTimedSet } from './workout.js';
+import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
+import { musclesOf } from './muscle-load.js';
+import { normalizeMuscle } from './muscle-groups.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -1043,74 +1045,82 @@ const Stats = {
   _hasCompletedSet(w) {
     return Stats._completedSets(w).length > 0;
   },
+  _inRange(w, from, to) { return (!from || w.date >= from) && (!to || w.date <= to); },
+  // Workout dates are calendar days, so weekday and week maths run in UTC on
+  // the bare date. Parsing them as local time put every workout on the
+  // previous day for anyone west of UTC.
+  _weekday(date) { return new Date(`${date}T00:00:00Z`).getUTCDay(); },
+  _weekStart(date) {   // Monday, like the server
+    const d = new Date(`${date}T00:00:00Z`);
+    const day = d.getUTCDay();
+    d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+    return d.toISOString().slice(0, 10);
+  },
+  async _library() {
+    // Includes cleared library rows (#49) so old sets still resolve.
+    const rows = await dbQuery(`SELECT id, primary_muscles, secondary_muscles, category, load_type FROM exercises`, []);
+    const map = new Map();
+    for (const r of rows) {
+      map.set(Number(r.id), {
+        primary: _parseJson(r.primary_muscles, []),
+        secondary: _parseJson(r.secondary_muscles, []),
+        category: r.category || '',
+        load_type: r.load_type || null,
+      });
+    }
+    return map;
+  },
   async earliestWorkoutDate() {
     const rows = await dbQuery(`SELECT MIN(date) AS d FROM workout_log WHERE user_id = ? AND deleted_at IS NULL`, [ME]);
     return { date: rows[0]?.d || null };
   },
   async streaks() {
-    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).sort((a, b) => a.date.localeCompare(b.date));
+    // Mirror of GET /api/stats/streaks. The current streak survives a day
+    // not trained yet: it counts back from today, or from yesterday when
+    // today has nothing logged so far, as the server does.
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet);
     const dates = new Set(all.map(w => w.date));
-    let longestStreak = 0, currentStreak = 0;
-    let cur = 0;
-    let prev = null;
+    const shift = (date, n) => {
+      const d = new Date(`${date}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    };
+    const today = new Date().toLocaleDateString('sv-SE');
+    let currentStreak = 0;
+    for (let i = 0; i < 365; i++) {
+      if (dates.has(shift(today, -i))) currentStreak++;
+      else if (i > 0) break;
+    }
+    let longestStreak = 0, run = 0, prev = null;
     for (const d of [...dates].sort()) {
-      if (prev) {
-        const gap = (new Date(d) - new Date(prev)) / 86400000;
-        cur = gap === 1 ? cur + 1 : 1;
-      } else cur = 1;
-      longestStreak = Math.max(longestStreak, cur);
+      run = prev && shift(prev, 1) === d ? run + 1 : 1;
+      longestStreak = Math.max(longestStreak, run);
       prev = d;
     }
-    // Current streak: walk back from today
-    const today = new Date().toISOString().slice(0, 10);
-    if (dates.has(today)) {
-      currentStreak = 1;
-      let day = new Date(today);
-      day.setDate(day.getDate() - 1);
-      while (dates.has(day.toISOString().slice(0, 10))) {
-        currentStreak++;
-        day.setDate(day.getDate() - 1);
-      }
-    }
-    // Match the server's shape so Statistics.svelte renders identical
-    // values whether reading from the cache (native) or from the server
-    // (PWA). Previously returned { current, longest } which read as
-    // undefined on the Statistics overview cards.
-    return { currentStreak, longestStreak, totalWorkouts: dates.size };
+    return { currentStreak, longestStreak, totalWorkouts: dates.size, totalSessions: all.length };
   },
   async volume(from, to) {
-    // Server returns [{ week, volume }] bucketed by ISO week start (Monday).
-    // Match it exactly so WeeklyVolumeChart's v.week label rendering works
-    // when the cache is being read instead of the server.
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet)
-      .filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    // Mirror of GET /api/stats/volume: [{ week, volume }] by Monday week,
+    // with each exercise's load type (unilateral counts both sides).
+    const lib = await Stats._library();
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const byWeek = {};
     for (const w of rows) {
-      const d = new Date(w.date);
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);  // Monday-anchored
-      const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
-      if (!byWeek[weekStart]) byWeek[weekStart] = 0;
+      const week = Stats._weekStart(w.date);
+      if (!byWeek[week]) byWeek[week] = 0;
       for (const ex of w.exercises || []) {
-        for (const s of ex.sets || []) {
-          // Timed sets (issue #89) carry no weight x reps volume.
-          if (isTimedSet(ex, s)) continue;
-          if (s.completed && !s.warmup && (Number(s.weight) || 0) > 0 && (Number(s.reps) || 0) > 0) {
-            byWeek[weekStart] += Number(s.weight) * Number(s.reps);
-          }
-        }
+        byWeek[week] += exerciseVolume(ex, { libraryLoadType: lib.get(Number(ex.exercise_id))?.load_type });
       }
     }
     return Object.entries(byWeek).map(([week, volume]) => ({ week, volume }));
   },
   async frequency(from, to) {
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    // Mirror of GET /api/stats/frequency: sessions per Monday week.
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const byWeek = {};
     for (const w of rows) {
-      const d = new Date(w.date);
-      d.setDate(d.getDate() - d.getDay());
-      const key = d.toISOString().slice(0, 10);
-      byWeek[key] = (byWeek[key] || 0) + 1;
+      const week = Stats._weekStart(w.date);
+      byWeek[week] = (byWeek[week] || 0) + 1;
     }
     return Object.entries(byWeek).map(([week, count]) => ({ week, count })).sort((a, b) => a.week.localeCompare(b.week));
   },
@@ -1187,68 +1197,54 @@ const Stats = {
     return out;
   },
   async muscleGroupVolume(from, to) {
-    // Match server shape: [{ muscle, sets, volume }] (sorted by volume desc).
-    // Server normalizes muscle names with a wider set of buckets (biceps,
-    // triceps, forearms, quads, hamstrings, glutes, calves separately) than
-    // the previous native version that collapsed everything to chest/back/
-    // shoulders/arms/legs/core. Keeping the buckets identical keeps the
-    // muscle-group volume chart looking the same on both modes.
-    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet)
-      .filter(w => (!from || w.date >= from) && (!to || w.date <= to));
-    // Includes soft-deleted rows on purpose (#49): sets logged against an
-    // exercise the user later cleared from their library still need their
-    // muscle group to resolve, otherwise every affected set would fall
-    // through to the 'other' bucket and skew Muscle Balance.
-    const exRows = await dbQuery(`SELECT id, primary_muscles, category FROM exercises`, []);
-    const exMap = {};
-    for (const r of exRows) {
-      exMap[r.id] = {
-        muscles: _parseJson(r.primary_muscles, []),
-        category: r.category || 'other',
-      };
-    }
-    const normalize = m => {
-      const s = String(m || '').toLowerCase().trim();
-      if (s.includes('chest') || s.includes('pec')) return 'chest';
-      if (s.includes('back') || s.includes('lat') || s.includes('trap') || s.includes('rhomboid')) return 'back';
-      if (s.includes('shoulder') || s.includes('delt')) return 'shoulders';
-      if (s.includes('bicep')) return 'biceps';
-      if (s.includes('tricep')) return 'triceps';
-      if (s.includes('forearm')) return 'forearms';
-      if (s.includes('ab') || s.includes('core') || s.includes('oblique')) return 'core';
-      if (s.includes('quad')) return 'quads';
-      if (s.includes('hamstring')) return 'hamstrings';
-      if (s.includes('glute')) return 'glutes';
-      if (s.includes('calf') || s.includes('calve')) return 'calves';
-      if (s.includes('leg')) return 'legs';
-      if (s.includes('arm')) return 'arms';
-      if (s.includes('cardio')) return 'cardio';
-      return s || 'other';
-    };
+    // Mirror of GET /api/stats/muscle-group-volume: [{ muscle, sets, volume }]
+    // by volume, with each exercise's load type.
+    const lib = await Stats._library();
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const out = {};
     for (const w of all) {
       for (const ex of w.exercises || []) {
-        const info = exMap[ex.exercise_id] || { muscles: [], category: 'other' };
-        const groups = info.muscles.length ? info.muscles : [info.category];
-        const normalized = [...new Set(groups.map(normalize))];
+        const info = lib.get(Number(ex.exercise_id)) || { primary: [], category: 'other', load_type: null };
+        const groups = info.primary.length ? info.primary : [info.category || 'other'];
+        const normalized = [...new Set(groups.map(normalizeMuscle))];
+        const lt = resolveLoadType(ex, info.load_type);
         for (const s of ex.sets || []) {
-          if (!s.completed || s.warmup || (Number(s.weight) || 0) <= 0 || (Number(s.reps) || 0) <= 0) continue;
-          if (isTimedSet(ex, s)) continue;   // mirror of the server: no volume for a hold
-          const w = Number(s.weight) * Number(s.reps);
+          if (!s.completed || s.warmup || (Number(s.weight) || 0) <= 0) continue;
+          if (isTimedSet(ex, s)) continue;   // a hold has no volume
+          const v = setVolume(s, lt);
+          if (v <= 0) continue;
           for (const g of normalized) {
             if (!out[g]) out[g] = { muscle: g, sets: 0, volume: 0 };
             out[g].sets++;
-            out[g].volume += w;
+            out[g].volume += v;
           }
         }
       }
     }
     return Object.values(out).sort((a, b) => b.volume - a.volume);
   },
+  async muscleEffectiveSets(from, to) {
+    // Mirror of GET /api/stats/muscle-effective-sets, the body map: completed
+    // working sets per drawable muscle, primary 1.0, secondary 0.4. Missing
+    // here, it failed Statistics on Android (issue #101).
+    const lib = await Stats._library();
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
+    const load = {};
+    for (const w of all) {
+      for (const ex of w.exercises || []) {
+        const info = lib.get(Number(ex.exercise_id)) || { primary: [], secondary: [], category: '' };
+        const setCount = (ex.sets || []).filter(s => s.completed && !s.warmup).length;
+        if (!setCount) continue;
+        const per = musclesOf({ primary: info.primary, secondary: info.secondary, category: String(info.category || '').toLowerCase() });
+        for (const slug in per) load[slug] = (load[slug] || 0) + per[slug] * setCount;
+      }
+    }
+    return load;
+  },
   async weekdayDistribution(from, to) {
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const out = [0, 0, 0, 0, 0, 0, 0];
-    for (const w of rows) out[new Date(w.date).getDay()]++;
+    for (const w of rows) out[Stats._weekday(w.date)]++;
     return out.map((count, day) => ({ day, count }));
   },
 };
@@ -1580,13 +1576,17 @@ async function handle(method, path, body, query) {
 
   // ── /api/stats/* ──────────────────────────────────────────────────────
   if (r === 'stats') {
-    const from = query?.from, to = query?.to;
+    // Same range parameters as the server (start/end); from/to kept for any
+    // older caller (issue #101: the Statistics page sends start/end, so the
+    // range used to be ignored here).
+    const from = query?.start ?? query?.from, to = query?.end ?? query?.to;
     if (id === 'earliest-workout-date')  return Stats.earliestWorkoutDate();
     if (id === 'streaks')                return Stats.streaks();
     if (id === 'volume')                 return Stats.volume(from, to);
     if (id === 'frequency')              return Stats.frequency(from, to);
     if (id === 'records')                return Stats.records();
     if (id === 'muscle-group-volume')    return Stats.muscleGroupVolume(from, to);
+    if (id === 'muscle-effective-sets')  return Stats.muscleEffectiveSets(from, to);
     if (id === 'weekday-distribution')   return Stats.weekdayDistribution(from, to);
     if (id === 'progress' && /^\d+$/.test(sub)) return Stats.progressFor(Number(sub), from, to);
   }

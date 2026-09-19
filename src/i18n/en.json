@@ -1206,7 +1206,9 @@
     "showing_100_sessions": "Showing the 100 most recent sessions in this range.",
     "no_exercises_match":   "No exercises match that search.",
     "no_exercises_library": "No exercises in your library yet.",
-    "load_failed":          "Failed to load stats"
+    "load_failed":          "Failed to load stats",
+    "load_failed_detail":   "Some statistics couldn't be loaded, so the numbers below may be incomplete.",
+    "retry":                "Retry"
   },
   "gym_tools": {
     "plates":          "Plates",

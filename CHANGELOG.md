@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Android: Statistics showed zeros and "Failed to load stats"** ([#101](https://github.com/TraceApps/lifttrace/issues/101), reported and diagnosed by @kgenerozov). The app answers Statistics from the phone's own copy of your data, and that copy had no answer for the body map's numbers, so the whole page failed and fell back to its empty starting values. It had also drifted from the server in other ways: it ignored the date range you picked, started weeks on Sunday instead of Monday, put workouts on the wrong weekday for anyone west of UTC, dropped the current streak to 0 until you trained that day, and counted single-arm and single-leg volume once instead of for both sides. The phone now gives the same numbers as the server (checked side by side across time zones); connected to a server, Statistics asks the server and only uses the phone's copy offline; and a request the phone can't answer goes to the server instead of failing. If a statistic does fail to load, the page now says so with a Retry button, keeps everything that did load instead of showing zeros, and shows one error rather than two.
+- **Weekly charts put workouts in the wrong week on servers set to a time zone west of UTC.** Weekly volume and workout frequency read each date in the server's local time, so on such a server every week was labelled a Tuesday and Monday workouts were counted in the week before.
+
 ## [1.3.0-dev08] - 2026-09-18
 
 ### Changed
