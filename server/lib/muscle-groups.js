@@ -3,7 +3,7 @@
  * "front delts", "Quadriceps") into the groups Muscle Balance shows.
  * Shared by the Statistics route and the weekly summary so both agree.
  * An identical copy lives in src/lib/muscle-groups.js for the Android
- * app's offline Statistics; scripts/muscle-load-parity.test.js compares them.
+ * app's offline Statistics; scripts/native-stats-parity.test.js compares them.
  */
 export function normalizeMuscle(m) {
   const s = (m || '').toLowerCase().trim();

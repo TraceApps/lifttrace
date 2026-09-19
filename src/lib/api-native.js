@@ -1038,12 +1038,10 @@ const Stats = {
     );
     return rows.map(_workoutFromRow);
   },
-  _completedSets(w) {
-    const exs = w.exercises || [];
-    return exs.flatMap(ex => (ex.sets || []).filter(s => s?.completed && !s?.warmup).map(s => ({ ...s, exercise_id: ex.exercise_id, exercise_name: ex.exercise_name })));
-  },
+  // Same test as the server's hasCompletedSet (stats.js): any ticked set,
+  // warm-ups included, makes it a workout day for streaks and frequency.
   _hasCompletedSet(w) {
-    return Stats._completedSets(w).length > 0;
+    return (w.exercises || []).some(ex => (ex.sets || []).some(s => s?.completed));
   },
   _inRange(w, from, to) { return (!from || w.date >= from) && (!to || w.date <= to); },
   // Workout dates are calendar days, so weekday and week maths run in UTC on

@@ -143,7 +143,10 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     // it (see _localWrites), so none can see the older version.
     if (isWrite && res.ok) {
       const copy = res.clone();
-      _localWrites = _localWrites.then(() => _mirrorWorkoutWrite(url, method, copy)).catch(() => {});
+      // Capped, so a stuck update can never hold reads for more than a moment.
+      _localWrites = _localWrites
+        .then(() => Promise.race([_mirrorWorkoutWrite(url, method, copy), new Promise(r => setTimeout(r, 3000))]))
+        .catch(() => {});
     }
     return res;
   } catch (netErr) {
@@ -196,14 +199,18 @@ let _localWrites = Promise.resolve();
 
 async function _mirrorWorkoutWrite(url, method, res) {
   try {
-    const { workoutDateOf, mirrorSavedWorkout, reconcileWorkoutDate } = await import('./sync.js');
+    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate } = await import('./sync.js');
     const date = workoutDateOf(_stripBase(url));
     if (!date) return;
     if (method === 'PUT') {
       const data = await res.clone().json();
       await mirrorSavedWorkout(date, data?.workout);
     } else if (method === 'DELETE') {
-      await reconcileWorkoutDate(date);
+      // Local only, so reads never wait on the network; the full refresh of
+      // that day from the server runs on its own afterwards.
+      const id = new URL(url, 'http://localhost').searchParams.get('id');
+      await forgetDeletedWorkout(date, id != null && id !== '' ? Number(id) : null);
+      reconcileWorkoutDate(date).catch(() => {});
     }
   } catch { /* the next pull brings the copy up to date */ }
 }

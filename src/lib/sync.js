@@ -701,12 +701,51 @@ async function _writeServerWorkout(w) {
 }
 function _parseMaybe(v) { try { return JSON.parse(v || '[]'); } catch { return []; } }
 
+/** The workout session a queued workout write targets: body id, or ?id=. */
+function _targetWorkoutId(payload) {
+  const b = payload?.body;
+  if (b && typeof b === 'object' && b.id != null) return b.id;
+  const q = String(payload?.path || '').split('?')[1];
+  if (!q) return null;
+  const id = new URLSearchParams(q).get('id');
+  return id != null && id !== '' && Number.isFinite(Number(id)) ? Number(id) : null;
+}
+
+/** Point a queued workout write at the server's id, wherever it carries one. */
+function _retargetWorkout(payload, serverId) {
+  if (payload.body && typeof payload.body === 'object' && payload.body.id != null) {
+    payload.body = { ...payload.body, id: serverId };
+  }
+  const [base, q] = String(payload.path || '').split('?');
+  if (q) {
+    const params = new URLSearchParams(q);
+    if (params.has('id')) { params.set('id', String(serverId)); payload.path = `${base}?${params}`; }
+  }
+}
+
 /** After an online save: store the server's copy, unless offline edits for
  *  that date are still waiting to go up (they will reconcile it instead). */
 export async function mirrorSavedWorkout(date, workout) {
   if (!isNative || !getServerUrl() || !workout?.id) return;
   if ((await _queuedWorkoutDates()).has(date)) return;
   await _writeServerWorkout(workout);
+}
+
+/** After an online delete: drop that session from the device copy (the
+ *  given id, or the date's first session when none was named, as the server
+ *  resolves it). Local only; reconcileWorkoutDate follows it up. */
+export async function forgetDeletedWorkout(date, id) {
+  if (!isNative || !getServerUrl() || !date) return;
+  if ((await _queuedWorkoutDates()).has(date)) return;
+  if (id != null && Number.isFinite(id)) {
+    await dbRun(`DELETE FROM workout_log WHERE id = ? AND date = ?`, [id, date]);
+    return;
+  }
+  const first = (await dbQuery(
+    `SELECT id FROM workout_log WHERE user_id = 1 AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1`,
+    [date]
+  ))[0];
+  if (first) await dbRun(`DELETE FROM workout_log WHERE id = ?`, [first.id]);
 }
 
 /** Replace a date's local rows with the server's sessions, once nothing for
@@ -777,7 +816,11 @@ export async function flushQueue() {
         result.retained++;   // an earlier write to the same thing is still waiting
         continue;
       }
-      const bodyId = payload.body && typeof payload.body === 'object' ? payload.body.id : null;
+      // Which workout session this write targets: the body's id for a save,
+      // the ?id= on the address for a delete. Only workout writes take part
+      // in the id swap; any other record can happen to have the same number.
+      const isWorkoutWrite = !!workoutDateOf(payload.path);
+      const bodyId = !isWorkoutWrite ? null : _targetWorkoutId(payload);
       if (bodyId != null && refusedIds.has(bodyId)) {
         // Edits to a workout the server never accepted: drop them rather
         // than let them land on another session.
@@ -788,7 +831,7 @@ export async function flushQueue() {
         continue;
       }
       if (bodyId != null && idMap.has(bodyId)) {
-        payload.body = { ...payload.body, id: idMap.get(bodyId) };
+        _retargetWorkout(payload, idMap.get(bodyId));
       } else if (bodyId != null && waitingIds.has(bodyId) && payload.localId !== bodyId) {
         result.retained++;   // its session isn't on the server yet
         blocked.add(orderKey(payload.path));
@@ -842,10 +885,10 @@ export async function flushQueue() {
       for (const r of await dbQuery(`SELECT id, payload FROM sync_queue`, [])) {
         try {
           const p = JSON.parse(r.payload);
-          const id = p?.body?.id;
+          const id = workoutDateOf(p?.path) ? _targetWorkoutId(p) : null;
           if (id != null && idMap.has(id)) {
-            p.body.id = idMap.get(id);
-            await dbRun(`UPDATE sync_queue SET payload = ? WHERE id = ?`, [JSON.stringify(p), r.id]);
+            _retargetWorkout(p, idMap.get(id));
+            await dbRun(`UPDATE sync_queue SET payload = ?, table_name = ? WHERE id = ?`, [JSON.stringify(p), p.path, r.id]);
           }
         } catch { /* leave it */ }
       }

@@ -5,7 +5,7 @@
  *
  * An identical copy lives in server/lib/muscle-load.js so the Android app's offline Statistics
  * give the same body map as the server (issue #101);
- * scripts/muscle-load-parity.test.js fails if the two ever differ.
+ * scripts/native-stats-parity.test.js fails if the two ever differ.
  */
 // Primary muscle weight = 1.0, secondary = 0.4 (both are per-set, so a 4×8
 // bench weighs four times a single set). Same constant openGym uses.

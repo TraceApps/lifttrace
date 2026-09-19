@@ -58,7 +58,11 @@ test('auto-fill and the Last Time row both use it; template precedence is untouc
   assert.match(diary, /getLastSets\(ex\.id, \{ withWarmups: true \}\)/);
   assert.match(diary, /if \(s\.warmup\) next\.warmup = true;/);
   assert.match(diary, /const working = lastSets\.filter\(s => !s\.warmup\);\s*\n\s*targetSets = working\.length;/);
-  assert.equal((diary.match(/await getLastSets\(ex\.exercise_id\)/g) || []).length, 2, 'template load and quick load');
+  assert.equal((diary.match(/await getLastSets\(ex\.exercise_id\)/g) || []).length, 1, 'quick load');
+  // Template load pairs warm-up rows with last time's warm-ups and working
+  // rows with last time's working sets, never by raw position.
+  assert.match(diary, /const lastAll = await getLastSets\(ex\.exercise_id, \{ withWarmups: true \}\);/);
+  assert.match(diary, /const past = spec\.warmup \? lastWarmups\[warmIdx\+\+\] : lastSets\?\.\[workIdx\+\+\];/);
   // Quick load keeps the loaded workout's warm-ups as warm-ups and sizes the
   // working sets from its working sets only.
   const quick = diary.slice(diary.indexOf('async function quickLoad'), diary.indexOf('// ── Exercise management'));

@@ -1059,7 +1059,12 @@
     const planWeek = selectedProgram?.is_active ? (selectedProgram?.current_week || null) : null;
     // Clone the template exercises, auto-filling from last session if enabled
     const templateExercises = await Promise.all((template.exercises || []).map(async ex => {
-      const lastSets = await getLastSets(ex.exercise_id);
+      // Last session split into warm-ups and working sets: a template's
+      // warm-up rows fill from last time's warm-ups and its working rows from
+      // last time's working sets, so the two never trade weights (issue #103).
+      const lastAll = await getLastSets(ex.exercise_id, { withWarmups: true });
+      const lastSets = lastAll ? lastAll.filter(s => !s.warmup) : null;
+      const lastWarmups = lastAll ? lastAll.filter(s => s.warmup) : [];
       // Resolve this week's prescription. When the exercise carries a weeks[]
       // matrix and we're inside the active program, the plan value wins over
       // last-session progressive-overload memory for the current week.
@@ -1068,19 +1073,21 @@
       let sets;
       if (ex.set_specs && ex.set_specs.length > 0) {
         // Per-set targets defined in template — use them as the target weight/reps
-        sets = ex.set_specs.map((spec, i) => {
+        let workIdx = 0, warmIdx = 0;
+        sets = ex.set_specs.map((spec) => {
+          const past = spec.warmup ? lastWarmups[warmIdx++] : lastSets?.[workIdx++];
           const parsedWeight = parseFloat(spec.weight);
           const parsedReps = parseInt(spec.reps);
           const parsedRepsL = parseInt(spec.reps_l);
           const parsedRepsR = parseInt(spec.reps_r);
           const set = {
-            weight: Number.isFinite(parsedWeight) ? parsedWeight : (lastSets?.[i]?.weight ?? 0),
-            reps: Number.isFinite(parsedReps) ? parsedReps : (lastSets?.[i]?.reps ?? 0),
+            weight: Number.isFinite(parsedWeight) ? parsedWeight : (past?.weight ?? 0),
+            reps: Number.isFinite(parsedReps) ? parsedReps : (past?.reps ?? 0),
             completed: false,
             notes: '',
           };
           if (ex.set_type === 'time') {
-            const dur = parseDuration(spec.duration) ?? lastSets?.[i]?.duration_sec ?? 0;
+            const dur = parseDuration(spec.duration) ?? past?.duration_sec ?? 0;
             if (dur) set.duration_sec = dur;
           }
           // Asymmetric supersets: template author can pin a set to a
