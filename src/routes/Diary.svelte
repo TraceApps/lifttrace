@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { withFreshIds } from '../lib/workout-uuid.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
@@ -944,7 +945,7 @@
       await saveWorkout(currentDateBackup, {
         ...($todayLog || {}),
         name: yesterdayName,
-        exercises: yesterdayExercises,
+        exercises: withFreshIds(yesterdayExercises),
       });
       notes = $todayLog?.notes || '';
       showSuccess($_('diary.toast.copied_yesterday'));
@@ -1170,7 +1171,8 @@
       // diary can label it and it stays accurate after the athlete advances.
       program_week: planWeek,
       program_duration_weeks: planWeek ? (selectedProgram?.duration_weeks || null) : null,
-      exercises: withWarmups,
+      // New ids: see withFreshIds (issue #99).
+      exercises: withFreshIds(withWarmups),
     };
     if (mode === 'new_session') {
       await startNewSession($currentDate, payload);
@@ -1265,7 +1267,7 @@
       name: recent.name || '',
       template_id: recent.template_id || null,
       program_id: recent.program_id || null,
-      exercises: filled,
+      exercises: withFreshIds(filled),
     });
     showSuccess($_('diary_extra.toast.loaded_workout', { values: { name: recent.name || $_('diary_extra.toast.workout_fallback') } }));
   }
