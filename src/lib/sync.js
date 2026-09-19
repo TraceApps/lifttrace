@@ -671,6 +671,12 @@ export function workoutDateOf(path) {
   return m ? m[1] : null;
 }
 
+// Bumped whenever this device writes a date's workout rows itself. A
+// server refresh of the date started before such a write is out of date by
+// the time it answers, so it stands down instead of writing over it.
+const _dateGen = new Map();
+const _bumpDate = (date) => _dateGen.set(date, (_dateGen.get(date) || 0) + 1);
+
 async function _queuedWorkoutDates() {
   const dates = new Set();
   const rows = await dbQuery(`SELECT table_name FROM sync_queue WHERE table_name LIKE '/api/workout/%'`, []);
@@ -728,6 +734,7 @@ function _retargetWorkout(payload, serverId) {
 export async function mirrorSavedWorkout(date, workout) {
   if (!isNative || !getServerUrl() || !workout?.id) return;
   if ((await _queuedWorkoutDates()).has(date)) return;
+  _bumpDate(date);
   await _writeServerWorkout(workout);
 }
 
@@ -737,6 +744,7 @@ export async function mirrorSavedWorkout(date, workout) {
 export async function forgetDeletedWorkout(date, id) {
   if (!isNative || !getServerUrl() || !date) return;
   if ((await _queuedWorkoutDates()).has(date)) return;
+  _bumpDate(date);
   if (id != null && Number.isFinite(id)) {
     await dbRun(`DELETE FROM workout_log WHERE id = ? AND date = ?`, [id, date]);
     return;
@@ -754,10 +762,17 @@ export async function forgetDeletedWorkout(date, id) {
 export async function reconcileWorkoutDate(date) {
   if (!isNative || !getServerUrl() || !date) return false;
   if ((await _queuedWorkoutDates()).has(date)) return false;
-  const data = await _serverFetch('GET', `/api/workout/${date}/sessions`);
-  const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
-  // An offline edit made while that request was out: keep the device's copy.
-  if ((await _queuedWorkoutDates()).has(date)) return false;
+  // A save made while the request was out (online, already written here) is
+  // newer than that answer, so ask again; the next answer includes it. An
+  // offline save made meanwhile is still queued, so the device copy stays.
+  let sessions = null;
+  for (let attempt = 0; attempt < 3 && sessions == null; attempt++) {
+    const gen = _dateGen.get(date) || 0;
+    const data = await _serverFetch('GET', `/api/workout/${date}/sessions`);
+    if ((await _queuedWorkoutDates()).has(date)) return false;
+    if ((_dateGen.get(date) || 0) === gen) sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+  }
+  if (sessions == null) return false;   // still changing; the next sync tries again
   // Server rows first, then drop the local ones it doesn't have, so a failure
   // part way can't leave the day missing on the device.
   for (const w of sessions) await _writeServerWorkout(w);

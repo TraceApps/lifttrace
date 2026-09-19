@@ -80,7 +80,7 @@ function put(db, bodyId, name, completed) {
 
 // Mirrors the DELETE /:date handler.
 function del(db, explicitId) {
-  const existing = resolveWorkout(db, explicitId);
+  const existing = resolveWorkout(db, explicitId, { excludeDeleted: true });
   if (!existing) return false;
   db.prepare(`UPDATE workout_log SET deleted_at=datetime('now'), updated_at=datetime('now') WHERE id=?`).run(existing.id);
   return true;
@@ -117,6 +117,18 @@ test('issue #87: DELETE soft-deletes so a subsequent pull sees it', () => {
     assert.equal(pullVisible.length, 1);
     assert.notEqual(pullVisible[0].deleted_at, null);
     assert.equal(pullVisible[0].id, a);
+  } finally { cleanup(); }
+});
+
+test('a delete without an id removes the first LIVE session, not one deleted earlier', () => {
+  const { db, cleanup } = mkdb();
+  try {
+    const first = put(db, 1, 'morning', false);
+    del(db, first);                                   // morning deleted earlier
+    const second = db.prepare('INSERT INTO workout_log (user_id, date, session_seq, name) VALUES (?,?,1,?)').run(USER, DATE, 'evening').lastInsertRowid;
+    assert.equal(del(db, null), true);
+    const evening = db.prepare('SELECT deleted_at FROM workout_log WHERE id = ?').get(second);
+    assert.notEqual(evening.deleted_at, null, 'the session on screen is the one deleted');
   } finally { cleanup(); }
 });
 

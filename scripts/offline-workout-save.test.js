@@ -93,3 +93,16 @@ test('after an online delete, reads never wait on the network', () => {
   assert.match(apiFetch, /Promise\.race\(\[_mirrorWorkoutWrite\(url, method, copy\), new Promise\(r => setTimeout\(r, 3000\)\)\]\)/);
   assert.match(sync, /export async function forgetDeletedWorkout\(date, id\)/);
 });
+
+test('a server refresh of a day asks again if this device wrote to that day meanwhile', () => {
+  const fn = sync.slice(sync.indexOf('export async function reconcileWorkoutDate'), sync.indexOf('/**', sync.indexOf('export async function reconcileWorkoutDate')));
+  assert.match(fn, /for \(let attempt = 0; attempt < 3 && sessions == null; attempt\+\+\) \{/);
+  assert.match(fn, /if \(\(_dateGen\.get\(date\) \|\| 0\) === gen\) sessions = /);
+  assert.match(sync, /_bumpDate\(date\);\s*\n\s*await _writeServerWorkout\(workout\);/, 'online saves mark the day');
+});
+
+test('the server deletes the first live session when no id is given', () => {
+  const server = readFileSync(new URL('../server/routes/workout.js', import.meta.url), 'utf8');
+  const del = server.slice(server.indexOf("router.delete('/:date'"));
+  assert.match(del, /_resolveWorkout\(userId, date, explicitId, \{ excludeDeleted: true \}\)/);
+});

@@ -415,7 +415,9 @@ router.delete('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
   const explicitId = req.query.id != null ? parseInt(req.query.id) : null;
-  const existing = _resolveWorkout(userId, date, explicitId);
+  // Without an id, delete the first LIVE session: the first row overall can
+  // be one deleted earlier, which left the session on screen untouched.
+  const existing = _resolveWorkout(userId, date, explicitId, { excludeDeleted: true });
   if (!existing) return res.json({ ok: true, deleted: false });
   // Soft delete (issue #87): a hard DELETE removed the row before any
   // client could ever pull it. /api/sync/pull finds deletions via
