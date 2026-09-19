@@ -259,6 +259,27 @@ export function calcVolume(exercises, _weightUnit = 'lbs') {
 /**
  * Calculate 1-rep max estimate using Epley formula: w × (1 + r/30)
  */
+/**
+ * The most recent session in an exercise's history (newest first, as
+ * GET /api/workout/history/:id returns it) with at least one completed
+ * working set. History also lists sessions where the exercise was added but
+ * nothing was ticked, such as today's unfinished workout, so the first entry
+ * isn't necessarily the last completed session (issue #103).
+ *
+ * Returns { ...entry, completed, working }: every completed set (the Last
+ * Time row shows these, warm-ups included) and the completed working sets
+ * (what auto-fill copies, since a warm-up weight is not a working weight).
+ * Null when there is no such session.
+ */
+export function lastCompletedSession(history) {
+  for (const entry of history || []) {
+    const completed = (entry?.sets || []).filter(s => s?.completed);
+    const working = completed.filter(s => !s.warmup);
+    if (working.length) return { ...entry, completed, working };
+  }
+  return null;
+}
+
 export function calc1RM(weight, reps) {
   if (!weight || !reps || reps <= 0) return 0;
   if (reps === 1) return weight;

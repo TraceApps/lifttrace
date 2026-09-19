@@ -4,7 +4,7 @@
   import SetRow from './SetRow.svelte';
   import { LtApi } from '../../lib/api.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, exerciseVolume, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration } from '../../lib/workout.js';
+  import { generateWarmupSets, exerciseVolume, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
   import { exerciseLoadTypes, exerciseSetTypes } from '../../stores/settings.js';
   import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
   import { portal } from '../../lib/portal.js';
@@ -44,13 +44,11 @@
   async function loadLastSession() {
     lastSession = null;
     try {
-      const history = await LtApi.getWorkoutHistory(exercise.exercise_id);
-      if (!history || !history.length) return;
-      // Skip the current-day log if it happens to be in history (avoid showing today as "last time")
-      const recent = history.find(h => (h.sets || []).some(s => s.completed));
+      // Same pick as auto-fill (lastCompletedSession, issue #103), so the row
+      // and the pre-filled sets always come from the same session.
+      const recent = lastCompletedSession(await LtApi.getWorkoutHistory(exercise.exercise_id));
       if (!recent) return;
-      const completed = recent.sets.filter(s => s.completed);
-      if (completed.length) lastSession = { date: recent.date, sets: completed, set_type: recent.set_type };
+      lastSession = { date: recent.date, sets: recent.completed, set_type: recent.set_type };
     } catch {}
   }
 

@@ -10,7 +10,7 @@
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
   import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, requestPermission } from '../lib/notifications.js';
-  import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName } from '../lib/workout.js';
+  import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName, lastCompletedSession } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import { startRest as startRestTimer, stopRest } from '../stores/restTimer.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
@@ -1276,11 +1276,10 @@
   async function getLastSets(exerciseId) {
     if (!$autoFillLastWeights || !exerciseId) return null;
     try {
-      const history = await LtApi.getWorkoutHistory(exerciseId);
-      if (history.length > 0) {
-        const lastSets = (history[0].sets || []).filter(s => s.completed);
-        if (lastSets.length > 0) return lastSets;
-      }
+      // The last session with completed working sets, as the Last Time row
+      // uses, not just the newest entry (issue #103); warm-ups aren't copied.
+      const last = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId));
+      if (last) return last.working;
     } catch {}
     return null;
   }
