@@ -19,12 +19,14 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
   <a href="https://github.com/traceapps/lifttrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/lifttrace?style=flat"></a>
 </p>
 
-**Jump to:** [What it is](#what-lifttrace-is) · [Features](#features) · [Install](#install) · [Env vars](#env-vars) · [Docs](https://traceapps.github.io/docs/lifttrace/)
-
 <p align="center">
   <b>iOS fund:</b> the Trace apps have no iOS app yet, because building one needs a Mac and an iPhone.
   <a href="https://traceapps.github.io/docs/support/">See the goal</a> or <a href="https://ko-fi.com/traceapps">chip in</a>. Self-hosting stays free either way.
 </p>
+
+---
+
+**Jump to:** [What it is](#what-lifttrace-is) · [Features](#features) · [Install](#install) · [Env vars](#env-vars) · [Docs](https://traceapps.github.io/docs/lifttrace/)
 
 ---
 
@@ -39,7 +41,11 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **Your data, your hardware.** Everything lives in a single SQLite file and an uploads folder on your machine. Back up either with `cp`, restore with `cp`, migrate to a new server by moving the volume.
 - **AGPL-3.0.** The source is open and the network-use clause keeps it that way.
 
+---
+
 ![LiftTrace diary view](docs/screenshots/01-diary.png)
+
+---
 
 ## Features
 
@@ -55,11 +61,15 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **Multi-user and OIDC SSO.** Role-based access (admin/trainer/member), invites, session policy, plus OIDC 1.0 SSO via Authentik, Keycloak, Pocket ID, Authelia, Google, Auth0, or any compliant provider. → [full guide](https://traceapps.github.io/docs/auth/oidc/)
 - **Native Android app.** Local-only mode with on-device SQLite, or connect to your self-hosted server for sync. Media3 ExoPlayer, WorkManager reminders, biometric sign-in. → [full guide](https://traceapps.github.io/docs/mobile/install/)
 
+---
+
 ## Apps
 
 - **Web (PWA).** Install from any modern browser via the address bar (Chrome) or share menu (Safari). Works offline once cached.
 - **Android.** Sideload the signed APK from the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Release APKs require HTTPS to your server; debug APKs accept plain HTTP. See [DEPLOY.md](DEPLOY.md) for the four supported paths.
 - **iOS.** No native build yet. Install the PWA from Safari (Share → Add to Home Screen).
+
+---
 
 ## Install
 
@@ -92,6 +102,8 @@ See [DEPLOY.md](DEPLOY.md) for image tag conventions, reverse proxies, subpath m
 
 Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone builds also get numbered `-devNN` pre-releases. See [DEPLOY.md](DEPLOY.md) for details.
 
+---
+
 ## Env vars
 
 The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.example), and the [env vars docs page](https://traceapps.github.io/docs/lifttrace/env-vars/).
@@ -114,9 +126,13 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `OIDC_*` / `OIDC_PROVIDER_N_*` | (none) | OIDC SSO declared in env instead of the UI |
 | `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` | (none) | Set to `0` to disable password login server-wide (SSO-only) |
 
+---
+
 ## Data persistence and updating
 
 All data lives in two bind-mounted directories: `/data/db/lifttrace.db` (SQLite) and `/data/uploads/` (exercise media and backup ZIPs). Back up both with `cp -r`, restore by stopping the container and putting them back. Update with `docker compose pull && docker compose up -d`; volumes persist across updates.
+
+---
 
 ## Tech stack
 
@@ -127,9 +143,13 @@ All data lives in two bind-mounted directories: `/data/db/lifttrace.db` (SQLite)
 - **AI:** Multi-provider (Claude, OpenAI, Gemini, OpenAI-compatible) with multimodal image support
 - **Deploy:** Docker multi-stage build, GitHub Actions CI → GHCR
 
+---
+
 ## Trace family
 
 Part of the **TraceApps** family. Sister apps: [CookTrace](https://github.com/traceapps/cooktrace) for recipes and pantry, [NutriTrace](https://github.com/traceapps/nutritrace) for nutrition tracking. Full docs for all three at [traceapps.github.io/docs](https://traceapps.github.io/docs/).
+
+---
 
 ## Roadmap, changelog, contributing, license
 
