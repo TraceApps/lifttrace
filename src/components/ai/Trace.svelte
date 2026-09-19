@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable } from 'svelte/store';
   import { fly, fade } from 'svelte/transition';
@@ -802,7 +803,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
     <!-- ── Panel ──────────────────────────────────────────────────────────── -->
     {#if panelOpen}
       <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <div class="lb-backdrop" transition:fade={{ duration: 200 }} on:click={() => panelOpen = false}></div>
+      <div class="lb-backdrop" transition:fade={{ duration: 200 }} on:click={() => panelOpen = false} use:closeOnBack={() => panelOpen = false}></div>
       <aside
         class="lb-panel"
         transition:fly={{ y: 600, duration: 320, easing: cubicOut }}

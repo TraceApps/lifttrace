@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy } from 'svelte';
   import { withFreshIds } from '../lib/workout-uuid.js';
   import { push } from 'svelte-spa-router';
@@ -2754,7 +2755,7 @@
        widget snippet. Only mounts when the overlay is actually open
        so widgets don't double-instantiate under the pinned aside. -->
   {#if _railMode === 'hidden' && _railOverlay && _wideViewport}
-    <aside use:portal class="diary-right-rail diary-right-rail-overlay" aria-label="Program context">
+    <aside use:portal class="diary-right-rail diary-right-rail-overlay" use:closeOnBack={() => _railOverlay = false} aria-label="Program context">
       {@render railWidgets()}
     </aside>
   {/if}
@@ -3166,7 +3167,7 @@
   {#if showDatePicker}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div use:portal class="dp-backdrop"
+    <div use:portal class="dp-backdrop" use:closeOnBack={() => showDatePicker = false}
       in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}
       on:click={() => showDatePicker = false}>
       <div class="dp-sheet"

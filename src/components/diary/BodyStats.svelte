@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -114,7 +115,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={() => open = false}>
+  <div use:portal class="sheet-backdrop" on:click={() => open = false} use:closeOnBack={() => open = false}>
     <div class="bs-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">

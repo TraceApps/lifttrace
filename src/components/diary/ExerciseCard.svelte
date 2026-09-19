@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher, onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
   import SetRow from './SetRow.svelte';
@@ -322,7 +323,7 @@
          of the exercise card's collapsed state and its overflow: hidden. -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div use:portal class="load-menu-backdrop" on:click={() => loadMenuOpen = false}></div>
+    <div use:portal class="load-menu-backdrop" on:click={() => loadMenuOpen = false} use:closeOnBack={() => loadMenuOpen = false}></div>
     <div use:portal class="load-menu" role="menu" on:click|stopPropagation
          style="top:{loadMenuPos.top}px; left:{loadMenuPos.left}px; width:{loadMenuPos.width}px">
       <div class="load-menu-head">{$_('exercise_card.load_type')}</div>

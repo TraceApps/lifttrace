@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { trackRpe } from '../../stores/settings.js';
@@ -213,7 +214,7 @@
              on the weight column. -->
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked}></div>
+        <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked} use:closeOnBack={() => numOpen = false}></div>
         <div use:portal class="num-picker" style="top:{numPickerPos.top}px; left:{numPickerPos.left}px">
           {#each NUM_VALUES as n}
             <button class="num-opt" class:active={displayNum === n} on:click|stopPropagation={() => pickNum(n)}>{n}</button>
@@ -347,7 +348,7 @@
       {#if rpeOpen}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked}></div>
+        <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked} use:closeOnBack={() => rpeOpen = false}></div>
         <div use:portal class="rpe-picker" style="top:{rpePickerPos.top}px; left:{rpePickerPos.left}px">
           {#each RPE_VALUES as v}
             <button class="rpe-opt" class:active={set.rpe === v} on:click|stopPropagation={() => pickRpe(v)}>@{v}</button>

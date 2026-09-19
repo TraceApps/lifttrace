@@ -11,6 +11,7 @@
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
   import { isPullSyncExempt } from './lib/pull-sync.js';
+  import { handleBack } from './lib/back-stack.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
   import { _, locale } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
@@ -424,6 +425,15 @@
     try {
       if (isNative) {
         const { App } = await import('@capacitor/app');
+        // Android back: an open sheet, dialog or overlay closes first, then the
+        // slide-out sidebar, and only then does back go back a page. Without a
+        // listener Capacitor only went back a page, leaving anything open
+        // showing. At the first page it still does nothing, as before.
+        App.addListener('backButton', ({ canGoBack }) => {
+          if (handleBack()) return;
+          if (sidebarOpen && !sidebarPinned) { sidebarOpen = false; return; }
+          if (canGoBack) window.history.back();
+        });
         App.addListener('appUrlOpen', async ({ url }) => {
           try {
             const { Browser } = await import('@capacitor/browser');

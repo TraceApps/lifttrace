@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -849,7 +850,7 @@
                       {#if loadMenuIdx === idx}
                         <!-- svelte-ignore a11y-click-events-have-key-events -->
                         <!-- svelte-ignore a11y-no-static-element-interactions -->
-                        <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null}></div>
+                        <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null} use:closeOnBack={() => loadMenuIdx = null}></div>
                         <div class="load-menu" on:click|stopPropagation>
                           <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
                           {#each [['bilateral','workout_editor.load_bilateral','workout_editor.load_hint_bilateral'],
@@ -1000,7 +1001,7 @@
               {#if loadMenuIdx === idx}
                 <!-- svelte-ignore a11y-click-events-have-key-events -->
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null}></div>
+                <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null} use:closeOnBack={() => loadMenuIdx = null}></div>
                 <div class="load-menu" on:click|stopPropagation>
                   <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
                   {#each [['bilateral','workout_editor.load_bilateral','workout_editor.load_hint_bilateral'],

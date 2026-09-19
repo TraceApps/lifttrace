@@ -9,6 +9,7 @@
   button is hidden — text input still works.
 -->
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { fly, fade } from 'svelte/transition';
@@ -156,7 +157,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sl-backdrop" on:click={closeAndReset}
+  <div use:portal class="sl-backdrop" on:click={closeAndReset} use:closeOnBack={closeAndReset}
     in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
     <div class="sl-sheet" on:click|stopPropagation
       in:fly={{ y: 40, duration: 240 }} out:fly={{ y: 20, duration: 160 }}>

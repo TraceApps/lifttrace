@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { weightUnit } from '../../stores/settings.js';
@@ -145,7 +146,7 @@
 {:else if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={() => open = false}>
+  <div use:portal class="sheet-backdrop" on:click={() => open = false} use:closeOnBack={() => open = false}>
     <div class="gt-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <button class="gt-close-btn" on:click={() => open = false}
