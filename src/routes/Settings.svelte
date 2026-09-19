@@ -1,3 +1,8 @@
+<script context="module">
+  // Survives the remount between /settings and /settings/<slug> (NutriTrace #227).
+  const _scrollMemo = { page: null, indexTop: 0 };
+</script>
+
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
@@ -403,6 +408,62 @@
   // alone (index view) we render the list of section rows.
   export let params = {};
   $: currentSection = params?.section || null;
+
+  // ── Scroll position between the index and a section (NutriTrace #227) ─
+  // The document is the page's scroller here (not an inner .page-transition
+  // like NT/CT) and moving between /settings and /settings/<slug> doesn't
+  // reset it, so a section opened wherever the index was scrolled to: pick
+  // a category from the bottom of the list and it opened at its bottom. A
+  // section now opens at its top, and going back to the index returns to
+  // where you were on it.
+  //
+  // The router remounts this component between the two routes, so what
+  // has to survive that lives in _scrollMemo (module scope). .page-transition
+  // remounts only when the first path segment changes, so the same element
+  // as last time means we came here from elsewhere in Settings. Moving
+  // between sections keeps the instance and goes through _onSectionChange.
+  // Both run before the search deep-link scroll, which waits a tick plus
+  // 60ms, so a ?q= landing still scrolls to its match.
+  const _pageEl = () => (typeof document !== 'undefined' ? document.querySelector('.page-transition') : null);
+  const _docScroller = () => (typeof document !== 'undefined' ? (document.scrollingElement || document.documentElement) : null);
+  function _placeScroll(section) {
+    const s = _docScroller();
+    // 'instant': a smooth scroll would glide there, and the positions it
+    // passes through would be recorded as the index's place.
+    if (s) s.scrollTo({ top: section ? 0 : _scrollMemo.indexTop, behavior: 'instant' });
+  }
+  let _scrollReady = false;
+  let _shownSection;
+  // #/settings or #/settings?q=..., not #/settings/<slug>.
+  const _onIndexUrl = () => typeof location !== 'undefined' && /^#\/settings\/?(\?|$)/.test(location.hash);
+  // The index's position is recorded as it scrolls: by the time this
+  // component is torn down its content is already gone and the page has
+  // snapped back, so it can't be read on the way out. Only while the URL
+  // is the index itself: once a section is on its way in, the scroll events
+  // of the swap (the page shortening, the jump to the top) aren't the
+  // index's place.
+  function _recordIndexScroll() {
+    if (_onIndexUrl()) _scrollMemo.indexTop = _docScroller()?.scrollTop || 0;
+  }
+  onMount(() => {
+    const page = _pageEl();
+    // A different page element: Settings was opened fresh from elsewhere.
+    if (page && page === _scrollMemo.page) _placeScroll(currentSection);
+    else _scrollMemo.indexTop = 0;
+    _scrollMemo.page = page;
+    window.addEventListener('scroll', _recordIndexScroll, { passive: true });
+    _shownSection = currentSection;
+    _scrollReady = true;
+  });
+  onDestroy(() => { if (typeof window !== 'undefined') window.removeEventListener('scroll', _recordIndexScroll); });
+  $: if (_scrollReady) _onSectionChange(currentSection);
+  async function _onSectionChange(section) {
+    if (section === _shownSection) return;
+    if (!_shownSection) _scrollMemo.indexTop = _docScroller()?.scrollTop || 0;
+    _shownSection = section;
+    await tick();
+    _placeScroll(section);
+  }
 
   const SECTION_META = {
     profile:          { titleKey: 'profile.title',                      icon: 'person' },
