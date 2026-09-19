@@ -11,16 +11,10 @@ Current set:
 - `01-diary.png` — Diary
 - `02-exercises.png` — Exercises library
 - `03-programs.png` — Programs
+- `04-statistics.png` — Statistics overview
 - `05-radio.png` — Radio player
 - `06-trace.png` — Trace AI FAB / chat panel
 - `07-workout-summary.png` — Workout completion summary sheet
-
-## TODO
-
-- `04-statistics.png` is intentionally missing; the old capture pre-dates
-  the current Statistics layout and the new version hasn't been taken
-  yet. Replace with a current-build capture at the same dimensions +
-  dark theme.
 
 See `CONTRIBUTING.md` for the rules when updating a screenshot
 (same dimensions, dark theme, current build).
