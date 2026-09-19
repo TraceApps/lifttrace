@@ -187,6 +187,19 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
+    /* Never taller than the screen above the keyboard, and never up under
+       the status bar. With no cap, the keyboard the fields open pushed the
+       sheet's top (and its close button) under the status bar (same as
+       NutriTrace #228). 90dvh matches the shared Sheet; the safe-top term
+       keeps it clear where the status bar is taller than the other 10%. */
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* The title and close button stay in reach when the fields scroll. */
+  .bs-sheet .sheet-header-row {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--surface-1);
   }
   .bs-sheet-body { padding: 8px 20px 0; }
   .bs-photo-row {

@@ -4212,7 +4212,8 @@
 
   /* ── Calendar date picker ────────────────────────────────────────── */
   .dp-backdrop { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.5); display: flex; align-items: flex-end; }
-  .dp-sheet { background: var(--surface-1); border-radius: var(--radius-xl) var(--radius-xl) 0 0; width: 100%; max-width: 600px; margin: 0 auto; padding-bottom: var(--safe-bottom); }
+  /* Never taller than the screen, and never up under the status bar (same as NutriTrace #228). */
+  .dp-sheet { background: var(--surface-1); border-radius: var(--radius-xl) var(--radius-xl) 0 0; width: 100%; max-width: 600px; margin: 0 auto; padding-bottom: var(--safe-bottom); max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px)); overflow-y: auto; overscroll-behavior: contain; }
   .dp-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 10px auto 0; }
   .dp-nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 8px; }
   .dp-nav-btn { color: var(--text-2); }
