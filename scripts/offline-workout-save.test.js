@@ -28,7 +28,7 @@ test('a save reply without a workout never blanks the Diary', () => {
 });
 
 test('online saves update the device copy; replayed offline saves bring the date back to the server copy', () => {
-  assert.match(apiFetch, /if \(isWrite && res\.ok\) await _mirrorWorkoutWrite\(url, method, res\);/);
+  assert.match(apiFetch, /if \(isWrite && res\.ok\) \{\s*\n\s*const copy = res\.clone\(\);/);
   assert.match(sync, /export async function mirrorSavedWorkout\(date, workout\)/);
   assert.match(sync, /export async function reconcileWorkoutDate\(date\)/);
   assert.match(sync, /for \(const d of workoutDates\) \{\s*\n\s*try \{ await reconcileWorkoutDate\(d\); \}/);
@@ -68,4 +68,16 @@ test('reconciling writes the server rows before removing local ones, and yields 
   const fn = sync.slice(sync.indexOf('export async function reconcileWorkoutDate'), sync.indexOf('/**', sync.indexOf('export async function reconcileWorkoutDate')));
   assert.ok(fn.indexOf('_writeServerWorkout(w)') < fn.indexOf('DELETE FROM workout_log'));
   assert.equal((fn.match(/\(await _queuedWorkoutDates\(\)\)\.has\(date\)/g) || []).length, 2);
+});
+
+test('a write kept for retry holds later writes to the same thing, and only those', () => {
+  assert.match(sync, /const orderKey = \(path\) => \{ const d = workoutDateOf\(path\); return d \? `workout:\$\{d\}` : String\(path \|\| ''\)\.split\('\?'\)\[0\]; \};/);
+  assert.match(sync, /if \(blocked\.has\(orderKey\(payload\.path\)\)\) \{/);
+  assert.match(sync, /result\.retained\+\+;\s*\n\s*blocked\.add\(orderKey\(payload\.path\)\);/);
+});
+
+test('the device-copy update runs behind the save reply, and device reads wait for it', () => {
+  assert.match(apiFetch, /_localWrites = _localWrites\.then\(\(\) => _mirrorWorkoutWrite\(url, method, copy\)\)/);
+  assert.doesNotMatch(apiFetch, /if \(isWrite && res\.ok\) await _mirrorWorkoutWrite/);
+  assert.equal((apiFetch.match(/await _localWrites;\s*\n\s*(const cached = )?(await|return) _dispatchLocal/g) || []).length, 2);
 });

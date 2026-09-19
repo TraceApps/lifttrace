@@ -748,6 +748,12 @@ export async function flushQueue() {
   const idMap = new Map();          // device-side id -> server id
   const waitingIds = new Set();     // device-side ids whose create hasn't gone up yet
   const refusedIds = new Set();     // device-side ids whose create the server refused
+  // Writes to the same thing must reach the server in the order they were
+  // made. Once one is kept for a retry, later writes to the same workout day
+  // (or the same endpoint otherwise) wait behind it instead of overtaking it;
+  // writes to anything else still go through.
+  const orderKey = (path) => { const d = workoutDateOf(path); return d ? `workout:${d}` : String(path || '').split('?')[0]; };
+  const blocked = new Set();
 
   try {
     const rows = await dbQuery(
@@ -767,6 +773,10 @@ export async function flushQueue() {
         result.dropped++;
         continue;
       }
+      if (blocked.has(orderKey(payload.path))) {
+        result.retained++;   // an earlier write to the same thing is still waiting
+        continue;
+      }
       const bodyId = payload.body && typeof payload.body === 'object' ? payload.body.id : null;
       if (bodyId != null && refusedIds.has(bodyId)) {
         // Edits to a workout the server never accepted: drop them rather
@@ -781,6 +791,7 @@ export async function flushQueue() {
         payload.body = { ...payload.body, id: idMap.get(bodyId) };
       } else if (bodyId != null && waitingIds.has(bodyId) && payload.localId !== bodyId) {
         result.retained++;   // its session isn't on the server yet
+        blocked.add(orderKey(payload.path));
         continue;
       }
       try {
@@ -822,6 +833,7 @@ export async function flushQueue() {
             [String(e.message || e).slice(0, 500), row.id]
           );
           result.retained++;
+          blocked.add(orderKey(payload.path));
         }
       }
     }

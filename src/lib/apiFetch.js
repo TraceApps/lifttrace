@@ -121,6 +121,7 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
   // Local-first: serve cache, refresh in background.
   if (!isWrite && _isLocalFirstGet(url, method)) {
     try {
+      await _localWrites;
       const cached = await _dispatchLocal(url, init);
       // 501 means the device has no local answer for this path; ask the
       // server rather than failing a request the server can serve (#101).
@@ -137,8 +138,13 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     const res = await origFetch(absolute, { ...init, headers, credentials: 'omit' });
     // A workout save or delete that reached the server also updates the
     // device's copy, which the Diary reads first, so reopening that day
-    // offline shows what was just saved (issue #102).
-    if (isWrite && res.ok) await _mirrorWorkoutWrite(url, method, res);
+    // offline shows what was just saved (issue #102). It runs behind the
+    // reply so a save isn't slowed by it; reads of the device copy wait for
+    // it (see _localWrites), so none can see the older version.
+    if (isWrite && res.ok) {
+      const copy = res.clone();
+      _localWrites = _localWrites.then(() => _mirrorWorkoutWrite(url, method, copy)).catch(() => {});
+    }
     return res;
   } catch (netErr) {
     // Real network failure — TypeError from fetch (DNS, offline, etc.)
@@ -180,9 +186,13 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
       }
     }
     // Read fallback — try local cache.
+    await _localWrites;
     return _dispatchLocal(url, init);
   }
 }
+
+// Chain of device-copy updates still running behind a server reply.
+let _localWrites = Promise.resolve();
 
 async function _mirrorWorkoutWrite(url, method, res) {
   try {
