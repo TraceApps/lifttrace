@@ -10,6 +10,7 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
+  import { isPullSyncExempt } from './lib/pull-sync.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
   import { _, locale } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
@@ -104,7 +105,9 @@
 
   function _startPullSync(event) {
     if (!_syncModeActive || _pullRefreshing || sidebarOpen || showNativeSetup) return;
-    if (event.target?.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav')) return;
+    // Dialogs, sheets, sidebars, the bottom bar and anything draggable keep
+    // their own touch handling. See src/lib/pull-sync.js.
+    if (isPullSyncExempt(event.target)) return;
     // Walk up from the touch target to the nearest scrolling ancestor.
     // Catches nested overflow containers (should the layout add one later)
     // AND the document itself (LT's current default: no nested scrollers,

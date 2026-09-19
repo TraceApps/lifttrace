@@ -260,6 +260,7 @@
       <div
         class="track"
         bind:this={trackEl}
+        data-no-pull-sync
         on:pointerdown={onPointerDown}
         on:pointermove={onPointerMove}
         on:pointerup={onPointerUp}

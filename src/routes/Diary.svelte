@@ -2929,6 +2929,7 @@
       <button
         class="fab fab-primary"
         on:pointerdown={startAddFabDrag}
+        data-no-pull-sync
         on:click={handleAddFabClick}
         aria-label="Add · drag to reposition"
         title="Tap to add · hold and drag to move"

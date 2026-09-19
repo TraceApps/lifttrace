@@ -744,6 +744,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
       class:cancel-preview={cancelPreview}
       style={fabStyle}
       on:pointerdown={startDrag}
+      data-no-pull-sync
       on:click={handleFabClick}
       on:keydown={e => e.key === 'Enter' && handleFabClick()}
       role="button"

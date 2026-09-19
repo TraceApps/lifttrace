@@ -69,6 +69,7 @@
   <div
     class="frame"
     bind:this={frameEl}
+    data-no-pull-sync
     on:pointerdown={onPointerDown}
     on:pointermove={onPointerMove}
     on:pointerup={onPointerUp}
