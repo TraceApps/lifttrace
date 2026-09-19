@@ -91,8 +91,10 @@ public class ReminderWorker extends Worker {
         String today = String.format(Locale.US, "%04d-%02d-%02d",
             now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH));
 
+        // Setting names and defaults follow src/stores/settings.js, which is
+        // what actually writes the user_settings rows read here.
         if (getBool(db, "notifWorkoutReminder")) {
-            int t = parseHHMM(getString(db, "notifWorkoutReminderTime", "17:00"));
+            int t = parseHHMM(getString(db, "notifWorkoutTime", "07:00"));
             if (inWindow(currentMin, t)
                 && !alreadyFired(ctx, "workout", today)
                 && !hasLoggedToday(db, today)) {
@@ -104,7 +106,7 @@ public class ReminderWorker extends Worker {
         }
 
         if (getBool(db, "notifRestDay")) {
-            int t = parseHHMM(getString(db, "notifRestDayTime", "09:00"));
+            int t = parseHHMM("09:00"); // no rest-day time in Settings, fixed hour here too
             if (inWindow(currentMin, t) && !alreadyFired(ctx, "rest", today)) {
                 postNotification(ctx, ID_REST_DAY,
                     "🧘 Rest Day",
@@ -113,8 +115,8 @@ public class ReminderWorker extends Worker {
             }
         }
 
-        if (getBool(db, "notifStreakAtRisk")) {
-            int t = parseHHMM(getString(db, "notifStreakAtRiskTime", "20:00"));
+        if (getBool(db, "notifStreakAlert")) {
+            int t = parseHHMM(getString(db, "notifStreakTime", "20:00"));
             if (inWindow(currentMin, t)
                 && !alreadyFired(ctx, "streak", today)
                 && streakAtRisk(db, today)) {
@@ -128,10 +130,10 @@ public class ReminderWorker extends Worker {
         // Weekly summary fires on the configured day (default Sunday=1)
         // The JS side stores the weekday as 0=Sun..6=Sat, so map +1.
         if (getBool(db, "notifWeeklySummary")) {
-            String dayStr = getString(db, "notifWeeklySummaryDay", "0"); // 0=Sun
+            String dayStr = getString(db, "weeklySummaryDay", "0"); // 0=Sun
             int targetDay = 1 + parseInt(dayStr, 0);
             if (dayOfWeek == targetDay) {
-                int t = parseHHMM(getString(db, "notifWeeklySummaryTime", "18:00"));
+                int t = parseHHMM(getString(db, "weeklySummaryTime", "09:00"));
                 String weekKey = today + "|wk";
                 if (inWindow(currentMin, t) && !alreadyFired(ctx, "weekly", weekKey)) {
                     postNotification(ctx, ID_WEEKLY_SUMMARY,
