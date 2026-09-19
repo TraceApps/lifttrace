@@ -96,7 +96,7 @@
        gets a centered 720px sheet instead of edge-to-edge content with
        a sea of empty space on the right. */
     max-width: 720px;
-    max-height: 90dvh;
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
     background: var(--surface-1);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     border-top: 1px solid var(--border);

@@ -307,7 +307,7 @@
     border-top: 1px solid var(--border);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 640px;
-    max-height: 90vh; overflow-y: auto;
+    max-height: min(90vh, calc(100dvh - var(--safe-top) - 8px)); overflow-y: auto;
     padding-bottom: calc(var(--safe-bottom) + 12px);
   }
   .sl-handle {

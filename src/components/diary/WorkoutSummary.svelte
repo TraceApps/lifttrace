@@ -334,7 +334,7 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
-    max-height: 85vh; overflow-y: auto;
+    max-height: min(85vh, calc(100dvh - var(--safe-top) - 8px)); overflow-y: auto;
   }
 
   .ws-hero {
