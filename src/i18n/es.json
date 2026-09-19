@@ -1102,7 +1102,19 @@
     "no_exercises_match": "Ningún ejercicio coincide con esa búsqueda.",
     "no_exercises_library": "Todavía no hay ejercicios en tu biblioteca.",
     "load_failed": "No se pudieron cargar las estadísticas",
-    "overlay_none": "Ninguna"
+    "overlay_none": "Ninguna",
+    "rail": {
+      "summary": "General",
+      "progress": "Progreso",
+      "trends": "Tendencias",
+      "range": "Rango",
+      "vs_prior": "frente a {range} anterior",
+      "prior_window_one": "Periodo anterior: {n} sesión",
+      "prior_window_many": "Periodo anterior: {n} sesiones",
+      "prior_window_other": "Periodo anterior: {n} sesiones",
+      "nav_aria": "Secciones de estadísticas",
+      "aside_aria": "Rango y comparación"
+    }
   },
   "gym_tools": {
     "plates": "Discos",
@@ -1741,6 +1753,7 @@
       "revoked": "Token revocado",
       "copied": "Copiado al portapapeles",
       "copy_failed": "No se pudo copiar: selecciona el texto a mano"
-    }
+    },
+    "intro_guide_link": "la guía de configuración de MCP"
   }
 }
