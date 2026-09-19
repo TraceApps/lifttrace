@@ -52,7 +52,19 @@ test('auto-fill and the Last Time row both use it; template precedence is untouc
   const diary = read('../src/routes/Diary.svelte');
   const fn = diary.slice(diary.indexOf('async function getLastSets'), diary.indexOf('let pickerTargetSupersetId'));
   assert.match(fn, /lastCompletedSession\(await LtApi\.getWorkoutHistory\(exerciseId\)\)/);
-  assert.match(fn, /return last\.working;/);
+  assert.match(fn, /return withWarmups \? last\.completed : last\.working;/);
+  // Adding one exercise brings warm-ups back as warm-ups; template and quick
+  // load fill working-set slots, so they take working sets only.
+  assert.match(diary, /getLastSets\(ex\.id, \{ withWarmups: true \}\)/);
+  assert.match(diary, /if \(s\.warmup\) next\.warmup = true;/);
+  assert.match(diary, /const working = lastSets\.filter\(s => !s\.warmup\);\s*\n\s*targetSets = working\.length;/);
+  assert.equal((diary.match(/await getLastSets\(ex\.exercise_id\)/g) || []).length, 2, 'template load and quick load');
+  // Quick load keeps the loaded workout's warm-ups as warm-ups and sizes the
+  // working sets from its working sets only.
+  const quick = diary.slice(diary.indexOf('async function quickLoad'), diary.indexOf('// ── Exercise management'));
+  assert.match(quick, /const numSets = \(ex\.sets \|\| \[\]\)\.filter\(s => !s\?\.warmup\)\.length/);
+  assert.match(quick, /completed: false, notes: '', warmup: true,/);
+  assert.match(quick, /sets = \[\.\.\.warmups, \.\.\.sets\];/);
   assert.doesNotMatch(fn, /history\[0\]/);
   const card = read('../src/components/diary/ExerciseCard.svelte');
   assert.match(card, /lastCompletedSession\(await LtApi\.getWorkoutHistory\(exercise\.exercise_id\)\)/);

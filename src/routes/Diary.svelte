@@ -1245,7 +1245,15 @@
     // Auto-fill from last session if enabled
     const filled = await Promise.all(exs.map(async ex => {
       const lastSets = await getLastSets(ex.exercise_id);
-      const numSets = (ex.sets || []).length || ex.target_sets || 3;
+      // Keep the loaded workout's shape: its warm-ups come back as warm-ups,
+      // and its working sets are filled from the last session's working sets
+      // (issue #103; warm-ups used to come back as working sets).
+      const recentWarmups = (ex.sets || []).filter(s => s?.warmup);
+      const numSets = (ex.sets || []).filter(s => !s?.warmup).length || ex.target_sets || 3;
+      const warmups = recentWarmups.map(s => ({
+        weight: lastSets ? (s.weight || 0) : 0, reps: lastSets ? (s.reps || 0) : 0,
+        completed: false, notes: '', warmup: true,
+      }));
       let sets;
       if (lastSets) {
         sets = Array.from({ length: numSets }, (_, i) => {
@@ -1257,6 +1265,7 @@
       } else {
         sets = Array.from({ length: numSets }, () => ({ weight: 0, reps: 0, completed: false, notes: '' }));
       }
+      sets = [...warmups, ...sets];
       // Regenerated sets would otherwise lose the only evidence an exercise
       // was timed, so carry it on the instance explicitly (issue #89).
       const wasTimed = ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0);
@@ -1273,13 +1282,13 @@
   }
 
   // ── Exercise management ────────────────────────────────────────────
-  async function getLastSets(exerciseId) {
+  async function getLastSets(exerciseId, { withWarmups = false } = {}) {
     if (!$autoFillLastWeights || !exerciseId) return null;
     try {
       // The last session with completed working sets, as the Last Time row
       // uses, not just the newest entry (issue #103); warm-ups aren't copied.
       const last = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId));
-      if (last) return last.working;
+      if (last) return withWarmups ? last.completed : last.working;
     } catch {}
     return null;
   }
@@ -1329,18 +1338,23 @@
       return;
     }
 
-    const lastSets = await getLastSets(ex.id);
+    // Adding one exercise repeats last session as it was, warm-ups included
+    // and still marked as warm-ups (they used to come back as working sets,
+    // counting toward volume and PRs). Targets come from the working sets.
+    const lastSets = await getLastSets(ex.id, { withWarmups: true });
     let sets, targetSets, targetReps, targetWeight;
 
     if (lastSets) {
       sets = lastSets.map(s => {
         const next = { reps: s.reps || 0, weight: s.weight || 0, completed: false };
         if (s.duration_sec) next.duration_sec = s.duration_sec;
+        if (s.warmup) next.warmup = true;
         return next;
       });
-      targetSets = lastSets.length;
-      targetReps = String(lastSets[0]?.reps || 10);
-      targetWeight = String(lastSets[0]?.weight || '');
+      const working = lastSets.filter(s => !s.warmup);
+      targetSets = working.length;
+      targetReps = String(working[0]?.reps || 10);
+      targetWeight = String(working[0]?.weight || '');
     } else {
       sets = [{ reps: 0, weight: 0, completed: false }];
       targetSets = 3;
