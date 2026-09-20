@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   /**
    * TimePicker — in-app time selector. Bottom-sheet on mobile, centered
    * card on desktop. Renders Hour / Minute / AM-PM columns; honors the
@@ -91,7 +92,7 @@
 </button>
 
 {#if open}
-  <div use:portal class="tp-backdrop" role="dialog" aria-modal="true"
+  <div use:portal class="tp-backdrop" role="dialog" aria-modal="true" use:closeOnBack={() => open = false}
     on:click|self={() => open = false} on:keydown={() => {}}>
     <div class="tp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="tp-handle"></div>

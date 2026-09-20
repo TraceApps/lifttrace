@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut }  from 'svelte/easing';
   import { createEventDispatcher } from 'svelte';
@@ -40,7 +41,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={onBackdropClick}
+  <div use:portal class="sheet-backdrop" on:click={onBackdropClick} use:closeOnBack={close}
     in:fade={{ duration: 200 }} out:fade={{ duration: 160 }}>
     <div
       class="sheet-panel"
@@ -95,7 +96,7 @@
        gets a centered 720px sheet instead of edge-to-edge content with
        a sea of empty space on the right. */
     max-width: 720px;
-    max-height: 90dvh;
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
     background: var(--surface-1);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     border-top: 1px solid var(--border);

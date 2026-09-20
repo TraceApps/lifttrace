@@ -12,6 +12,7 @@
  * server-side noise is trimmed. On failure the executor throws; the
  * chat loop catches and relays a `{ error: ... }` payload to the model.
  */
+import { isTimedSet } from './workout.js';
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ function _exerciseVolume(ex) {
   let total = 0;
   for (const s of (ex.sets || [])) {
     if (!s.completed || s.warmup) continue;
+    if (isTimedSet(ex, s)) continue;   // issue #89: holds carry no volume
     total += _setVolume(s, lt);
   }
   return total;
@@ -86,23 +88,40 @@ function _e1rm(weight, reps) {
 function _shapeWorkout(w) {
   if (!w) return null;
   const exercises = (w.exercises || []).map(ex => {
-    const sets = (ex.sets || []).map(s => ({
-      weight: s.weight ?? null,
-      reps: s.reps ?? null,
-      ...(s.rpe != null ? { rpe: s.rpe } : {}),
-      ...(s.warmup ? { warmup: true } : {}),
-      completed: !!s.completed,
-    }));
-    const workingSets = sets.filter(s => s.completed && !s.warmup && s.weight > 0);
-    const topSet = workingSets.reduce(
-      (best, s) => (!best || s.weight > best.weight ? s : best), null,
-    );
+    // Timed sets (issue #89) are shown to the model as a duration, never as
+    // reps, so a 60 second plank cannot be read back as sixty reps.
+    const timedEx = (ex.sets || []).some(s => isTimedSet(ex, s));
+    const sets = (ex.sets || []).map(s => (isTimedSet(ex, s)
+      ? {
+          weight: s.weight ?? null,
+          duration_sec: Number(s.duration_sec) || 0,
+          ...(s.rpe != null ? { rpe: s.rpe } : {}),
+          ...(s.warmup ? { warmup: true } : {}),
+          completed: !!s.completed,
+        }
+      : {
+          weight: s.weight ?? null,
+          reps: s.reps ?? null,
+          ...(s.rpe != null ? { rpe: s.rpe } : {}),
+          ...(s.warmup ? { warmup: true } : {}),
+          completed: !!s.completed,
+        }));
+    const workingSets = timedEx
+      ? sets.filter(s => s.completed && !s.warmup && s.duration_sec > 0)
+      : sets.filter(s => s.completed && !s.warmup && s.weight > 0);
+    const topSet = workingSets.reduce((best, s) => {
+      if (!best) return s;
+      return timedEx ? (s.duration_sec > best.duration_sec ? s : best) : (s.weight > best.weight ? s : best);
+    }, null);
     return {
       name: ex.exercise_name,
       ...(ex.exercise_id ? { exercise_id: ex.exercise_id } : {}),
+      ...(timedEx ? { set_type: 'time' } : {}),
       sets,
       total_volume: Math.round(_exerciseVolume(ex)),
-      ...(topSet ? { top_set: { weight: topSet.weight, reps: topSet.reps } } : {}),
+      ...(topSet ? { top_set: timedEx
+        ? { weight: topSet.weight, duration_sec: topSet.duration_sec }
+        : { weight: topSet.weight, reps: topSet.reps } } : {}),
       ...(ex.notes ? { notes: ex.notes } : {}),
     };
   });
@@ -135,8 +154,8 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        date_from:     { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 30 days ago.' },
-        date_to:       { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+        date_from:     { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 30 days ago, and with exercise_name reaches further back if needed.' },
+        date_to:       { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
         exercise_name: { type: 'string', description: 'Case-insensitive substring match; only workouts containing this exercise are returned.' },
       },
     },
@@ -222,8 +241,52 @@ export const TOOLS = [
       type: 'object',
       properties: {
         stat:      { type: 'string', description: "Optional single-stat filter (e.g. 'weight', 'body_fat', 'chest')." },
-        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to 90 days ago.' },
-        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Defaults to today.' },
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 90 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
+      },
+    },
+  },
+  {
+    name: 'get_progress_photos',
+    description:
+      "List the user's progress photos in a date range: how many, on which dates, and the weight logged that day when there is one. Returns metadata only, never image content, so use it for consistency and trend questions ('how often am I taking photos?', 'when did I last take one?', 'what did I weigh at my first and latest photo?'). You cannot see the images themselves; if the user wants you to look at one, ask them to attach it to a message.",
+    parameters: {
+      type: 'object',
+      properties: {
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 365 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
+      },
+    },
+  },
+  {
+    name: 'get_cardio',
+    description:
+      "Get logged cardio sessions in a date range: activity, duration, distance, average heart rate and notes, plus totals per activity. Cardio is logged separately from lifting and does NOT appear in get_workouts, so check here before commenting on conditioning, weekly training load, or recovery.",
+    parameters: {
+      type: 'object',
+      properties: {
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 30 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
+        activity:  { type: 'string', description: "Optional case-insensitive filter, e.g. 'run', 'cycling'." },
+      },
+    },
+  },
+  {
+    name: 'log_cardio',
+    description:
+      "Log a cardio session. Use for runs, rides, rowing, walking, swimming and similar. Do NOT use log_workout or log_set for these; they are for resistance training.",
+    parameters: {
+      type: 'object',
+      required: ['activity', 'duration_min'],
+      properties: {
+        activity:      { type: 'string', description: "Activity name, e.g. 'Running', 'Cycling'." },
+        duration_min:  { type: 'number', description: 'Duration in whole minutes. Required, must be positive.' },
+        distance:      { type: 'number', description: 'Optional distance covered.' },
+        distance_unit: { type: 'string', description: "'km' or 'mi'. Defaults to km." },
+        avg_hr:        { type: 'number', description: 'Optional average heart rate in bpm.' },
+        notes:         { type: 'string', description: 'Optional free-text note.' },
+        date:          { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
       },
     },
   },
@@ -254,11 +317,12 @@ export const TOOLS = [
   {
     name: 'log_workout',
     description:
-      "Commit a full workout to the diary for a specific date. Each exercise carries its sets [{weight, reps, rpe?, warmup?, completed?}]. Exercise names are resolved case-insensitively against the library; unknown names error out so the user can confirm before a custom row is created. Use when they say 'log today' / 'I did X, Y, Z'.",
+      "Commit a full workout to the diary for a specific date. Each exercise carries its sets [{weight, reps, rpe?, warmup?, completed?}]. For a timed exercise (plank, wall sit, dead hang, carry) send duration_sec in seconds instead of reps. Exercise names are resolved case-insensitively against the library; unknown names error out so the user can confirm before a custom row is created. Use when they say 'log today' / 'I did X, Y, Z'.",
     parameters: {
       type: 'object',
       properties: {
         date:         { type: 'string',  description: 'YYYY-MM-DD.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
         name:         { type: 'string',  description: 'Optional session name.' },
         duration_min: { type: 'number',  description: 'Optional session duration in minutes.' },
         exercises: {
@@ -274,12 +338,13 @@ export const TOOLS = [
                   type: 'object',
                   properties: {
                     weight:    { type: 'number',  description: 'Load in the user\'s unit (kg or lbs).' },
-                    reps:      { type: 'integer', description: 'Reps performed.' },
+                    reps:      { type: 'integer', description: 'Reps performed. Omit for a timed set.' },
+                    duration_sec: { type: 'integer', description: 'Seconds held, for timed exercises (plank, wall sit, dead hang, carry). Send instead of reps.' },
                     rpe:       { type: 'number',  description: 'Optional RPE 1-10.' },
                     warmup:    { type: 'boolean', description: 'Warm-up set (excluded from volume/PRs). Default false.' },
                     completed: { type: 'boolean', description: 'Whether the set was completed. Default true.' },
                   },
-                  required: ['weight', 'reps'],
+                  required: ['weight'],
                 },
               },
             },
@@ -299,6 +364,7 @@ export const TOOLS = [
       properties: {
         exercise_name: { type: 'string', description: 'Exercise name; matched case-insensitively against the library.' },
         date:          { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
       },
       required: ['exercise_name'],
     },
@@ -314,12 +380,13 @@ export const TOOLS = [
         exercise_id:   { type: 'integer', description: 'Position of the exercise within the workout (0-based).' },
         exercise_name: { type: 'string',  description: 'Alternative to exercise_id, resolved by case-insensitive name match.' },
         weight:        { type: 'number',  description: 'Load.' },
-        reps:          { type: 'integer', description: 'Reps.' },
+        reps:          { type: 'integer', description: 'Reps. Omit for a timed set.' },
+        duration_sec:  { type: 'integer', description: 'Seconds held, for a timed exercise (plank, wall sit, dead hang, carry). Send instead of reps.' },
         rpe:           { type: 'number',  description: 'Optional RPE 1-10.' },
         warmup:        { type: 'boolean', description: 'Warm-up set. Default false.' },
         completed:     { type: 'boolean', description: 'Completed. Default true.' },
       },
-      required: ['workout_id', 'weight', 'reps'],
+      required: ['workout_id', 'weight'],
     },
   },
   {
@@ -333,6 +400,7 @@ export const TOOLS = [
         value: { type: 'number',  description: 'Numeric value.' },
         unit:  { type: 'string',  description: "Optional unit override. Defaults: 'kg' for weight, '%' for body_fat." },
         date:  { type: 'string',  description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
         note:  { type: 'string',  description: 'Optional free-text note attached to the entry.' },
       },
       required: ['stat', 'value'],
@@ -348,6 +416,7 @@ export const TOOLS = [
         template_id:   { type: 'integer', description: 'workout_templates.id' },
         template_name: { type: 'string',  description: 'Case-insensitive template name match across the user\'s programs.' },
         date:          { type: 'string',  description: 'YYYY-MM-DD. Defaults to today.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
       },
     },
   },
@@ -373,6 +442,7 @@ export const TOOLS = [
         trainee_id:  { type: 'integer', description: 'The member (users.id) to prescribe to.' },
         template_id: { type: 'integer', description: 'workout_templates.id to prescribe.' },
         target_date: { type: 'string',  description: 'YYYY-MM-DD the trainee should perform the workout.' },
+        date_confirmed: { type: 'boolean', description: 'Only after the user confirmed a date more than 60 days from today.' },
         notes:       { type: 'string',  description: 'Optional coach notes for the trainee.' },
       },
       required: ['trainee_id', 'template_id', 'target_date'],
@@ -382,8 +452,94 @@ export const TOOLS = [
 
 // ── Dispatcher ─────────────────────────────────────────────────────────────
 
-export async function runTool(name, args) {
-  args = args || {};
+// ── Date guard (issue #92) ─────────────────────────────────────────────
+//
+// Models invent dates. Asked to "compare today's bench to previous
+// sessions", a model will happily pass date_from 2024-04-27 when today is
+// 2026-09-15, usually because its own sense of "now" is its training
+// cutoff. The range is empty, and it then tells the user the lift is not in
+// their log. Prompt wording helps but is not enough on its own (mini-class
+// models ignore it), so the executor defends itself:
+//
+//   Reads   A malformed date is dropped so the default applies, a range
+//           that ends in the future is clamped to today, an inverted range
+//           is swapped. If a range the model supplied comes back empty but
+//           the default window does not, the default results are returned
+//           with a note naming today's date, so the model learns its dates
+//           were wrong instead of concluding the data is missing. This does
+//           not rely on guessing how old is "too old": a wrong 2025 is
+//           handled the same as a wrong 2024.
+//   Writes  A date far from today (more than WRITE_WINDOW_DAYS either way)
+//           is refused unless date_confirmed is true, because an invented
+//           year would otherwise file a workout two years back where the
+//           user would never find it. "Log yesterday" and "plan next week"
+//           are well inside the window.
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const WRITE_WINDOW_DAYS = 60;
+const RANGE_TOOLS = new Set(['get_workouts', 'get_prs', 'get_body_stats', 'get_cardio', 'get_progress_photos']);
+const WRITE_DATE_FIELD = {
+  log_workout: 'date',
+  log_body_stat: 'date',
+  log_cardio: 'date',
+  add_exercise_to_diary: 'date',
+  start_workout_from_template: 'date',
+  add_coach_prescription: 'target_date',
+};
+
+function _isRealDate(s) {
+  if (typeof s !== 'string' || !DATE_RE.test(s)) return false;
+  const d = new Date(`${s}T12:00:00`);
+  return !isNaN(d) && d.toISOString().slice(0, 10) === s;
+}
+function _daysFromToday(s) {
+  const a = new Date(`${s}T12:00:00`).getTime();
+  const b = new Date(`${_today()}T12:00:00`).getTime();
+  return Math.round((a - b) / 86400000);
+}
+
+/** Tidy a model-supplied read range; returns the cleaned args. */
+export function cleanRangeArgs(args) {
+  const out = { ...args };
+  for (const k of ['date_from', 'date_to']) {
+    if (out[k] != null && !_isRealDate(out[k])) delete out[k];
+  }
+  const today = _today();
+  if (out.date_to && out.date_to > today) out.date_to = today;
+  if (out.date_from && out.date_from > today) delete out.date_from;
+  if (out.date_from && out.date_to && out.date_from > out.date_to) {
+    [out.date_from, out.date_to] = [out.date_to, out.date_from];
+  }
+  return out;
+}
+
+function _isEmptyResult(r) {
+  if (r == null) return true;
+  if (Array.isArray(r)) return r.length === 0;
+  if (typeof r === 'object') {
+    if (typeof r.count === 'number') return r.count === 0;
+    if (Array.isArray(r.series)) return r.series.length === 0;
+  }
+  return false;
+}
+
+/** Throws a message the model can act on when a write date looks invented. */
+export function checkWriteDate(name, args) {
+  const field = WRITE_DATE_FIELD[name];
+  const value = field ? args?.[field] : null;
+  if (value == null || value === '') return;
+  if (!_isRealDate(value)) throw new Error(`${field} must be a real date in YYYY-MM-DD form.`);
+  const days = _daysFromToday(value);
+  if (Math.abs(days) > WRITE_WINDOW_DAYS && args.date_confirmed !== true) {
+    const when = days < 0 ? `${-days} days ago` : `${days} days from now`;
+    throw new Error(
+      `${value} is ${when} (today is ${_today()}). Do not guess dates or years. ` +
+      'Ask the user to confirm this exact date, then call again with date_confirmed: true.'
+    );
+  }
+}
+
+async function _dispatch(name, args) {
   switch (name) {
     // ── READ ────────────────────────────────────────────────────────────
     case 'get_workouts':   return _getWorkouts(args);
@@ -395,6 +551,8 @@ export async function runTool(name, args) {
     case 'get_active_program':     return _getActiveProgram();
     case 'get_prs':                return _getPrs(args);
     case 'get_body_stats':         return _getBodyStats(args);
+    case 'get_progress_photos':    return _getProgressPhotos(args);
+    case 'get_cardio':             return _getCardio(args);
     case 'get_stats_overview':     return _getStatsOverview(args);
     case 'get_coach_prescription': return _getCoachPrescription(args);
 
@@ -403,11 +561,35 @@ export async function runTool(name, args) {
     case 'add_exercise_to_diary':       return _addExerciseToDiary(args);
     case 'log_set':                     return _logSet(args);
     case 'log_body_stat':               return _logBodyStat(args);
+    case 'log_cardio':                  return _logCardio(args);
     case 'start_workout_from_template': return _startWorkoutFromTemplate(args);
     case 'set_active_program':          return _setActiveProgram(args);
     case 'add_coach_prescription':      return _addCoachPrescription(args);
   }
   throw new Error('Unknown tool: ' + name);
+}
+
+export async function runTool(name, args) {
+  args = args || {};
+  checkWriteDate(name, args);
+  if (!RANGE_TOOLS.has(name)) return _dispatch(name, args);
+
+  const cleaned = cleanRangeArgs(args);
+  const result = await _dispatch(name, cleaned);
+  const modelSetRange = cleaned.date_from || cleaned.date_to;
+  if (!modelSetRange || !_isEmptyResult(result)) return result;
+
+  // The model's own range found nothing. Before letting it tell the user the
+  // data is missing, check the default window.
+  const { date_from, date_to, ...rest } = cleaned;
+  const fallback = await _dispatch(name, rest);
+  if (_isEmptyResult(fallback)) return result;
+  return {
+    note: `Nothing found between ${date_from || 'the start'} and ${date_to || 'today'}. ` +
+      `Today is ${_today()}; unless the user named those dates, they were wrong. ` +
+      'These results use the default window instead.',
+    results: fallback,
+  };
 }
 
 // ── Executors: READ ───────────────────────────────────────────────────────
@@ -422,9 +604,15 @@ async function _getWorkouts({ date_from, date_to, exercise_name } = {}) {
   const rows = await _get('/api/workout/recent?limit=200');
   const filtered = rows.filter(r => r.date >= from && r.date <= to);
   const needle = (exercise_name || '').toLowerCase().trim();
-  const matched = needle
-    ? filtered.filter(r => (r.exercises || []).some(ex => (ex.exercise_name || '').toLowerCase().includes(needle)))
-    : filtered;
+  const hasLift = (r) => (r.exercises || []).some(ex => (ex.exercise_name || '').toLowerCase().includes(needle));
+  const matched = needle ? filtered.filter(hasLift) : filtered;
+  // Issue #92: a lift last trained six weeks ago is not missing from the log
+  // just because the default window is 30 days. With no explicit range,
+  // widen to the most recent sessions of that lift before reporting none.
+  if (needle && !matched.length && !date_from && !date_to) {
+    const older = rows.filter(hasLift).slice(0, 10);
+    if (older.length) return older.map(_shapeWorkout);
+  }
   return matched.map(_shapeWorkout);
 }
 
@@ -588,20 +776,31 @@ async function _getPrs({ exercise_name, date_from, date_to, limit } = {}) {
   const cap = Number(limit) || 20;
   const records = await _get('/api/stats/records');
   const needle = (exercise_name || '').toLowerCase().trim();
+  // A timed exercise (issue #89) has no max weight; its record is the
+  // longest hold. Filtering on maxWeight alone hid every plank PR.
+  const isHold = (r) => !((r.maxWeight || 0) > 0) && (r.maxDuration || 0) > 0;
+  const recDate = (r) => (isHold(r) ? r.durationDate : r.date);
   const filtered = records
-    .filter(r => (r.maxWeight || 0) > 0)
+    .filter(r => (r.maxWeight || 0) > 0 || (r.maxDuration || 0) > 0)
     .filter(r => (!needle || (r.name || '').toLowerCase().includes(needle)))
-    .filter(r => (!date_from || (r.date && r.date >= date_from)))
-    .filter(r => (!date_to   || (r.date && r.date <= date_to)))
+    .filter(r => (!date_from || (recDate(r) && recDate(r) >= date_from)))
+    .filter(r => (!date_to   || (recDate(r) && recDate(r) <= date_to)))
     .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0))
     .slice(0, cap);
-  return filtered.map(r => ({
-    exercise_name: r.name,
-    weight: r.maxWeight,
-    reps: r.maxReps,
-    one_rep_max_estimate: r.e1rm,
-    date: r.date || null,
-  }));
+  return filtered.map(r => (isHold(r)
+    ? {
+        exercise_name: r.name,
+        longest_hold_sec: r.maxDuration,
+        ...(r.maxDurationWeight ? { hold_weight: r.maxDurationWeight } : {}),
+        date: r.durationDate || null,
+      }
+    : {
+        exercise_name: r.name,
+        weight: r.maxWeight,
+        reps: r.maxReps,
+        one_rep_max_estimate: r.e1rm,
+        date: r.date || null,
+      }));
 }
 
 async function _getBodyStats({ stat, date_from, date_to } = {}) {
@@ -642,6 +841,109 @@ function _defaultUnit(stat) {
   if (stat === 'weight') return 'kg';
   if (stat === 'body_fat' || stat === 'bodyfat') return '%';
   return null;
+}
+
+/**
+ * Progress-photo metadata. Deliberately returns no image content and no
+ * fetchable URL: the bytes sit behind an ownership-checked route, and
+ * shipping a user's body photos to whichever third-party model is
+ * configured is not something a convenience tool should do as a side
+ * effect. The user can attach an image to a message when they actually
+ * want that, which is explicit and per-message.
+ */
+async function _getProgressPhotos({ date_from, date_to } = {}) {
+  const from = date_from || _daysAgo(365);
+  const to   = date_to   || _today();
+  const [res, statRows] = await Promise.all([
+    _get(`/api/body-stats/photos?start=${from}&end=${to}`),
+    _get(`/api/body-stats/range?start=${from}&end=${to}`).catch(() => []),
+  ]);
+  const weightByDate = new Map();
+  for (const row of (statRows || [])) {
+    const w = (row.stats || {}).weight;
+    if (w == null || w === '') continue;
+    weightByDate.set(row.date, typeof w === 'object' ? w.value : w);
+  }
+  // Server returns newest first; count per date so several shots on one day
+  // read as one session rather than as separate entries.
+  const byDate = new Map();
+  for (const p of (res?.photos || [])) {
+    byDate.set(p.date, (byDate.get(p.date) || 0) + 1);
+  }
+  const dates = [...byDate.keys()].sort();
+  const entries = dates.map(d => ({
+    date: d,
+    photos: byDate.get(d),
+    ...(weightByDate.has(d) ? { weight: weightByDate.get(d), weight_unit: _defaultUnit('weight') } : {}),
+  }));
+  const first = entries[0] || null;
+  const last  = entries[entries.length - 1] || null;
+  return {
+    start: from,
+    end: to,
+    count: res?.count ?? (res?.photos || []).length,
+    days_with_photos: entries.length,
+    first,
+    latest: last,
+    entries,
+    note: 'Metadata only. Image content is not available to you; ask the user to attach a photo if you need to see one.',
+  };
+}
+
+/**
+ * Cardio lives in its own table, not inside workout_log, so nothing in
+ * get_workouts or get_stats_overview reflects it. Without this tool Trace
+ * would tell a user training five days a week that they had done nothing
+ * since Tuesday.
+ */
+async function _getCardio({ date_from, date_to, activity } = {}) {
+  const from = date_from || _daysAgo(30);
+  const to   = date_to   || _today();
+  const rows = await _get(`/api/cardio?start=${from}&end=${to}`);
+  const needle = (activity || '').toLowerCase().trim();
+  const matched = (rows || []).filter(r => !needle || (r.activity || '').toLowerCase().includes(needle));
+  const sessions = matched.map(r => ({
+    date: r.date,
+    activity: r.activity,
+    duration_min: r.duration_min,
+    ...(r.distance != null ? { distance: r.distance, distance_unit: r.distance_unit || 'km' } : {}),
+    ...(r.avg_hr != null ? { avg_hr: r.avg_hr } : {}),
+    ...(r.notes ? { notes: r.notes } : {}),
+  }));
+  const byActivity = {};
+  let totalMin = 0;
+  for (const c of sessions) {
+    totalMin += c.duration_min || 0;
+    const k = c.activity || 'unknown';
+    byActivity[k] = byActivity[k] || { sessions: 0, minutes: 0 };
+    byActivity[k].sessions += 1;
+    byActivity[k].minutes += c.duration_min || 0;
+  }
+  return {
+    start: from,
+    end: to,
+    count: sessions.length,
+    total_minutes: totalMin,
+    by_activity: byActivity,
+    sessions,
+  };
+}
+
+async function _logCardio({ activity, duration_min, distance, distance_unit, avg_hr, notes, date } = {}) {
+  if (!activity || !String(activity).trim()) throw new Error('activity is required');
+  const mins = Math.floor(Number(duration_min));
+  if (!Number.isFinite(mins) || mins <= 0) throw new Error('duration_min must be a positive number of minutes');
+  const d = date || _today();
+  const saved = await _post('/api/cardio', {
+    date: d,
+    activity: String(activity).trim(),
+    duration_min: mins,
+    distance: distance == null || distance === '' ? null : Number(distance),
+    distance_unit: distance_unit === 'mi' ? 'mi' : 'km',
+    avg_hr: avg_hr == null || avg_hr === '' ? null : Math.floor(Number(avg_hr)),
+    notes: notes || null,
+  });
+  return { id: saved?.id, date: d, activity: String(activity).trim(), duration_min: mins };
 }
 
 async function _getStatsOverview({ range } = {}) {
@@ -758,10 +1060,14 @@ async function _logWorkout({ date, name, duration_min, exercises }) {
     sets: (input.sets || []).map(s => ({
       weight: Number(s.weight) || 0,
       reps:   Number(s.reps)   || 0,
+      ...(Number(s.duration_sec) > 0 ? { duration_sec: Math.round(Number(s.duration_sec)) } : {}),
       completed: s.completed !== false,
       ...(s.warmup ? { warmup: true } : {}),
       ...(s.rpe != null ? { rpe: Number(s.rpe) } : {}),
     })),
+    // Stamp timed exercises explicitly (issue #89) so the diary shows a time
+    // input even before anyone opens the exercise.
+    ...((input.sets || []).some(s => Number(s.duration_sec) > 0) ? { set_type: 'time' } : {}),
   }));
   const merged = existingExs.concat(newExs);
 
@@ -808,7 +1114,7 @@ async function _addExerciseToDiary({ exercise_name, date }) {
   };
 }
 
-async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, rpe, warmup, completed }) {
+async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, duration_sec, rpe, warmup, completed }) {
   if (workout_id == null) throw new Error('workout_id is required');
   // Find the workout by scanning recent rows.
   const rows = await _get('/api/workout/recent?limit=500');
@@ -824,16 +1130,22 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, r
     if (idx < 0) idx = null;
   }
   if (idx == null) throw new Error('exercise_id (position) or exercise_name is required and must match a slot in the workout');
+  const timed = Number(duration_sec) > 0;
   const newSet = {
     weight: Number(weight) || 0,
-    reps:   Number(reps)   || 0,
+    reps:   timed ? 0 : (Number(reps) || 0),
+    ...(timed ? { duration_sec: Math.round(Number(duration_sec)) } : {}),
     completed: completed !== false,
     ...(warmup ? { warmup: true } : {}),
     ...(rpe != null ? { rpe: Number(rpe) } : {}),
   };
+  // Refuse to mix kinds on an exercise whose type was chosen explicitly; the
+  // set would render and count as the wrong thing (issue #89).
+  if (timed && exs[idx].set_type === 'reps') throw new Error(`${exs[idx].exercise_name} is tracked by reps; send reps, not duration_sec`);
+  if (!timed && exs[idx].set_type === 'time') throw new Error(`${exs[idx].exercise_name} is tracked by time; send duration_sec, not reps`);
   const sets = (exs[idx].sets || []).slice();
   sets.push(newSet);
-  exs[idx] = { ...exs[idx], sets };
+  exs[idx] = { ...exs[idx], sets, ...(timed && !exs[idx].set_type ? { set_type: 'time' } : {}) };
   const saved = await _put(`/api/workout/${wRow.date}`, {
     name: wRow.name ?? null,
     duration_min: wRow.duration_min ?? null,

@@ -15,6 +15,30 @@ export function newUuid() {
 }
 
 /**
+ * Exercises copied into a day from somewhere else (a template, a
+ * prescription, yesterday, a recent workout) are new entries on that day,
+ * so they get new ids. Keeping the source's ids broke re-adding (issue #99):
+ * templates keep the same exercise ids forever, so after Clear Workout
+ * tombstoned them for the day, loading the same template again sent ids
+ * the server had been told were deleted, and it dropped every exercise.
+ */
+export function withFreshIds(exercises) {
+  if (!Array.isArray(exercises)) return [];
+  return exercises.map(ex => {
+    if (!ex || typeof ex !== 'object') return ex;
+    const { uuid: _exUuid, ...rest } = ex;
+    const sets = Array.isArray(rest.sets)
+      ? rest.sets.map(s => {
+          if (!s || typeof s !== 'object') return s;
+          const { uuid: _setUuid, ...set } = s;
+          return set;
+        })
+      : rest.sets;
+    return ensureExerciseUuids([{ ...rest, sets }])[0];
+  });
+}
+
+/**
  * Ensure every exercise (and each of its sets) has a uuid. Idempotent:
  * entries with existing uuids pass through untouched. Used defensively
  * in the store so an older cached entry that predates uuids doesn't

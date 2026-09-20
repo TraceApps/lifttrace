@@ -180,7 +180,8 @@
       "body_stats": "Medidas corporales",
       "body_stats_long": "Medidas corporales: registra el peso, la grasa corporal y las medidas",
       "workout_actions": "Acciones del entrenamiento",
-      "workout_options": "Opciones del entrenamiento"
+      "workout_options": "Opciones del entrenamiento",
+      "add_session": "Empezar una sesión nueva"
     },
     "toast": {
       "workout_cleared": "Entrenamiento vaciado",
@@ -189,7 +190,8 @@
       "superset_created": "Superserie creada",
       "superset_removed": "Superserie eliminada",
       "added_to_superset": "Añadido a la superserie",
-      "removed_from_superset": "Quitado de la superserie"
+      "removed_from_superset": "Quitado de la superserie",
+      "workout_deleted": "Entrenamiento eliminado"
     },
     "errors": {
       "no_workout_yesterday": "No hay ningún entrenamiento de ayer",
@@ -239,7 +241,11 @@
       "remove_exercise_msg": "{name} se quitará del entrenamiento de hoy.",
       "remove_superset_title": "¿Quitar la superserie?",
       "remove_superset_msg": "{list} se quitará del entrenamiento de hoy.",
-      "remove_confirm": "Quitar"
+      "remove_confirm": "Quitar",
+      "start_new_session": "Empezar una sesión nueva",
+      "delete_workout_title": "¿Eliminar este entrenamiento?",
+      "delete_workout_msg": "Elimina de forma permanente la sesión entera, con todos sus ejercicios y series. Esto no se puede deshacer.",
+      "delete_workout_confirm": "Eliminar"
     }
   },
   "trace": {
@@ -516,7 +522,11 @@
       "cancel": "Cancelar",
       "hide": "Ocultar",
       "show": "Mostrar",
-      "disable_um_hint": "Elimina todas las cuentas, la aplicación queda de acceso libre"
+      "disable_um_hint": "Elimina todas las cuentas, la aplicación queda de acceso libre",
+      "strong_passwords_desc": "Rechaza las contraseñas débiles (puntuación zxcvbn menor que 3) además de las reglas estándar de 8 caracteres, mayúsculas y minúsculas, número y símbolo. Afecta a los registros nuevos, las invitaciones y los cambios de contraseña. Las contraseñas existentes no se vuelven a comprobar.",
+      "generate_invite_link": "Generar el enlace de invitación",
+      "coach_option": "Entrenador: {name}",
+      "delete_user": "Eliminar el usuario"
     },
     "server": {
       "section": "Conexión con el servidor"
@@ -532,6 +542,9 @@
     },
     "about": {
       "section": "Acerca de"
+    },
+    "api_tokens": {
+      "section": "Tokens de API"
     }
   },
   "workout_editor_ss": {
@@ -554,7 +567,17 @@
     "open_source": "Código abierto",
     "sister_app_prefix": "Aplicación hermana: ",
     "sister_app_suffix": ", registro de nutrición",
-    "support_development": "Apoyar el desarrollo"
+    "support_development": "Apoyar el desarrollo",
+    "disclaimer_medical": "LiftTrace no es software médico, sanitario ni de profesionales del fitness. No ofrece consejo médico, diagnóstico, tratamiento ni prescripciones de entrenamiento personalizadas. El contenido de la biblioteca de ejercicios, el coaching de Trace AI, las plantillas de programas, las indicaciones del temporizador de descanso y cualquier salida analítica (volumen, PRs, frecuencia, tendencias de peso corporal) tienen únicamente fines informativos y de autorregistro.",
+    "donations_note": "LiftTrace es gratuito de autoalojar. Las donaciones se agradecen, pero nunca son obligatorias.",
+    "disclaimer_risk": "El entrenamiento de fuerza conlleva un riesgo inherente de lesión. La selección de ejercicios, la carga, la técnica y la progresión pueden interactuar con condiciones médicas (afecciones cardíacas y cardiovasculares, hipertensión, cirugías previas, hernias, problemas articulares o de columna, osteoporosis, embarazo, trastornos del tejido conectivo, lesiones recientes o procesos de rehabilitación) de formas que esta app no puede evaluar. Consulta a un profesional sanitario cualificado, a un entrenador de fuerza certificado o a un fisioterapeuta titulado antes de empezar un programa de entrenamiento nuevo, volver de una lesión o hacer cambios significativos en tu rutina.",
+    "disclaimer_heading": "Descargo de responsabilidad.",
+    "feature_privacy": "Sin rastreo, sin anuncios, sin analíticas de terceros",
+    "feature_pwa": "PWA: instalable en cualquier dispositivo",
+    "disclaimer_ai": "Las respuestas de Trace AI pueden ser incorrectas o incompletas; trátalas como un punto de partida, no como sustituto del juicio humano o del consejo profesional. Los datos de la biblioteca de ejercicios proceden de bases de datos públicas (wger, Free Exercise DB y, opcionalmente, ExerciseDB vía RapidAPI) y pueden contener imprecisiones. Úsala bajo tu propia responsabilidad.",
+    "description": "Registra cada repetición: tu registro personal de entrenamiento con pesas. LiftTrace es una aplicación de registro de entrenamientos autoalojada y pensada para la privacidad. Tus datos viven en tu servidor, no en la nube. Incluye diario de entrenamiento, creador de programas, biblioteca de ejercicios multifuente, coaching con IA, estadísticas y más.",
+    "kofi": "Ko-fi",
+    "feature_self_hosted": "Autoalojado: tus datos, tu servidor"
   },
   "template_spec": {
     "auto": "Auto",
@@ -579,7 +602,9 @@
   "exercises_page": {
     "all_equipment": "Todo el material",
     "go_to_settings": "Ir a Ajustes",
-    "custom": "Personalizado"
+    "custom": "Personalizado",
+    "density_compact": "Vista compacta",
+    "density_comfortable": "Vista cómoda"
   },
   "coaching_dialogs": {
     "cancel": "Cancelar"
@@ -642,14 +667,23 @@
     "enable_federation": "Activar la federación",
     "instance_url": "URL de la instancia",
     "access_token": "Token de acceso",
-    "wearable_priority": "Prioridad del wearable"
+    "wearable_priority": "Prioridad del wearable",
+    "wearable_priority_hint": "Si llevas un Fitbit / Garmin / Health Connect durante el entrenamiento, NutriTrace prioriza las calorías del wearable para no contarlas dos veces. Los entrenamientos aparecen igualmente en el Historial de entrenamientos de NutriTrace. Se activa en NutriTrace → Ajustes → Bienestar → \"Priorizar los datos del wearable sobre LiftTrace\".",
+    "access_token_hint_suffix": "activado.",
+    "instance_url_hint": "Tu servidor de NutriTrace, p. ej.",
+    "access_token_hint_prefix": "Genéralo en NutriTrace, en Ajustes → Gestión de usuarios → Tokens de API, con el ámbito",
+    "enable_federation_hint": "Registra automáticamente en tu diario de NutriTrace las calorías estimadas de cada entrenamiento completado. Los entrenamientos aparecen en NutriTrace en Ajustes → Bienestar → Historial de entrenamientos."
   },
   "settings_diagnostics": {
     "copy_failed": "No se pudo copiar; selecciona el texto a mano",
     "logs_cleared": "Registros borrados",
     "verbose_logging": "Registro de diagnóstico detallado",
     "view_logs": "Ver los registros de diagnóstico",
-    "github_issue": "issue de GitHub"
+    "github_issue": "issue de GitHub",
+    "view_logs_hint_prefix": "Las últimas 500 líneas de la consola de la app. Útiles para informes de fallos: cópialas o compártelas en un",
+    "view_logs_button": "Ver los registros",
+    "view_logs_hint_suffix": ". El búfer vive solo en memoria; nada se envía a ningún sitio automáticamente.",
+    "verbose_logging_hint": "Activa registros internos detallados de la app (sincronización, ajustes, notificaciones, SQLite). Desactivado por defecto: actívalo mientras reproduces un fallo y expórtalo abajo."
   },
   "smart_log": {
     "voice_failed": "La entrada por voz ha fallado: {reason}",
@@ -689,12 +723,12 @@
     "default_chart_type": "Tipo de gráfica por defecto",
     "type_bar": "Barras",
     "type_line": "Líneas",
-    "lock_y_zero": "Fijar el eje Y en cero",
-    "lock_y_zero_hint": "Empieza siempre el eje Y en 0",
     "show_average": "Mostrar la línea de la media",
     "show_average_hint": "Línea horizontal en el valor medio",
     "show_trend": "Mostrar la línea de tendencia",
-    "show_trend_hint": "Superpone una tendencia suavizada en las gráficas"
+    "show_trend_hint": "Superpone una tendencia suavizada en las gráficas",
+    "lock_y_axis": "Fijar el eje Y en cero",
+    "lock_y_axis_hint": "Empieza siempre el eje Y en 0"
   },
   "settings_catalog": {
     "deleted": "Eliminado",
@@ -728,7 +762,10 @@
     "crossfade": "Fundido cruzado",
     "crossfade_hint": "Mezcla las pistas en las transiciones",
     "off": "Desactivado",
-    "highest_quality": "Reproducción con la máxima calidad"
+    "highest_quality": "Reproducción con la máxima calidad",
+    "streaming_stations_hint": "Escucha radio por internet. Añade emisoras desde el directorio o pega la URL de un stream.",
+    "self_hosted": "Música autoalojada",
+    "self_hosted_hint": "Reproduce desde un servidor compatible con Subsonic (Navidrome, Jellyfin, Airsonic, etc.)"
   },
   "settings_email": {
     "smtp_host_required": "La prueba de SMTP ha fallado: falta el host",
@@ -821,7 +858,9 @@
     "notes_ph": "Notas del entrenamiento...",
     "load_workout": "Cargar el entrenamiento",
     "auto": "Auto",
-    "mark_all_seen": "Marcar todo como visto"
+    "mark_all_seen": "Marcar todo como visto",
+    "add_menu_title": "Añadir",
+    "add_exercise_action": "Añadir ejercicio"
   },
   "native_setup": {
     "toast": {
@@ -957,7 +996,7 @@
       "records": "Récords",
       "volume": "Volumen",
       "freq": "Frecuencia",
-      "weight": "Peso corporal",
+      "weight": "Medidas corporales",
       "cardio": "Cardio"
     },
     "ranges": {
@@ -1010,7 +1049,7 @@
     "streak": "Racha",
     "weekday_dist": "Distribución por día de la semana",
     "change": "Cambio",
-    "body_weight_trend": "Tendencia del peso corporal",
+    "body_weight_trend": "Medidas corporales",
     "history": "Historial",
     "choose_exercise": "Elegir ejercicio",
     "search_exercises_ph": "Buscar ejercicios…",
@@ -1044,6 +1083,7 @@
     "total": "Total",
     "muscle_balance_desc": "Sombreado según las series efectivas, en relación con el músculo más trabajado de este rango.",
     "effective_sets_one": "{n} series efectivas en {m} músculo.",
+    "effective_sets_many": "",
     "effective_sets_other": "{n} series efectivas en {m} músculos.",
     "no_volume_range": "No hay volumen registrado en este rango.",
     "most_active": "Más activo: {day}",
@@ -1061,7 +1101,20 @@
     "showing_100_sessions": "Se muestran las 100 sesiones más recientes de este rango.",
     "no_exercises_match": "Ningún ejercicio coincide con esa búsqueda.",
     "no_exercises_library": "Todavía no hay ejercicios en tu biblioteca.",
-    "load_failed": "No se pudieron cargar las estadísticas"
+    "load_failed": "No se pudieron cargar las estadísticas",
+    "overlay_none": "Ninguna",
+    "rail": {
+      "summary": "General",
+      "progress": "Progreso",
+      "trends": "Tendencias",
+      "range": "Rango",
+      "vs_prior": "frente a {range} anterior",
+      "prior_window_one": "Periodo anterior: {n} sesión",
+      "prior_window_many": "Periodo anterior: {n} sesiones",
+      "prior_window_other": "Periodo anterior: {n} sesiones",
+      "nav_aria": "Secciones de estadísticas",
+      "aside_aria": "Rango y comparación"
+    }
   },
   "gym_tools": {
     "plates": "Discos",
@@ -1433,7 +1486,9 @@
       "keep_awake": "Mantener la pantalla encendida",
       "keep_awake_desc": "Deja la pantalla encendida durante los entrenamientos",
       "calorie_est": "Mostrar la estimación de calorías",
-      "calorie_est_desc": "kcal aproximadas por entrenamiento (TMB de Mifflin-St Jeor + MET). Necesita que tengas puestos la altura, el peso, la fecha de nacimiento y el sexo en el perfil. Las estimaciones de entrenamiento de fuerza tienen un margen amplio, de ±25%, y se muestran como una etiqueta \"~est\" en la interfaz, no como un número exacto."
+      "calorie_est_desc": "kcal aproximadas por entrenamiento (TMB de Mifflin-St Jeor + MET). Necesita que tengas puestos la altura, el peso, la fecha de nacimiento y el sexo en el perfil. Las estimaciones de entrenamiento de fuerza tienen un margen amplio, de ±25%, y se muestran como una etiqueta \"~est\" en la interfaz, no como un número exacto.",
+      "track_cardio_desc": "Registra sesiones de cardio (bici, carrera, remo, etc.) desde el Diario y ve los minutos semanales en Estadísticas. Desactivado por defecto para no estorbar a quien solo levanta. Entrada manual únicamente; la sincronización con dispositivos se queda en NutriTrace.",
+      "track_cardio": "Registrar el cardio"
     },
     "logging": {
       "autofill": "Rellenar con los últimos pesos",
@@ -1472,7 +1527,19 @@
       "tone_desc": "Un pitido breve cuando el temporizador llega a cero",
       "tone_style": "Tipo de tono",
       "tone_style_desc": "Toca una fila para elegirla; toca ▶ para escuchar una muestra",
-      "preview": "Escuchar"
+      "preview": "Escuchar",
+      "tones": {
+        "beeper": "Bíper",
+        "classic_desc": "Pitidos de 880 Hz, con un trino más agudo al llegar a 0",
+        "minimal": "Mínimo",
+        "beeper_desc": "Pitidos cortos y secos de onda cuadrada",
+        "bells": "Campanas",
+        "classic": "Clásico",
+        "bells_desc": "Campanilla musical suave, con final en tercera mayor",
+        "minimal_desc": "Un solo clic suave únicamente al llegar a 0",
+        "gym": "Gimnasio",
+        "gym_desc": "Cuenta atrás de golpes graves, con bocina ascendente al llegar a 0"
+      }
     },
     "body_stats": {
       "toggle_desc": "Elige qué medidas aparecen en la hoja de medidas corporales del diario",
@@ -1621,6 +1688,72 @@
       "copy_failed": "No se pudo copiar. Copia el comando a mano.",
       "view_notes": "Ver las notas de la versión",
       "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de imagen en tu docker-compose.yml (:latest, :1.0, :1, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
+    },
+    "banner_reload": "Recargar",
+    "available_generic": "Hay una versión nueva disponible",
+    "interval": {
+      "every_4h": "Cada 4 horas",
+      "label": "Frecuencia de comprobación",
+      "daily": "Una vez al día",
+      "manual": "Solo manual",
+      "hourly": "Cada hora",
+      "every_12h": "Cada 12 horas",
+      "desc": "Cada cuánto comprueba la app si hay una versión nueva mientras está abierta. Solo manual desactiva todas las comprobaciones automáticas."
     }
+  },
+  "settings_api_tokens": {
+    "intro_before": "Los tokens de acceso personal permiten que un cliente MCP externo (como Claude Desktop",
+    "intro_dev": "u otro agente compatible con MCP",
+    "intro_middle": " se comunique directamente con esta instancia de LiftTrace. Cada token se limita a un conjunto concreto de capacidades y se conecta a",
+    "intro_see": "Consulta",
+    "just_created": {
+      "title": "Token creado:",
+      "warn": "Cópialo ahora: no se volverá a mostrar.",
+      "copy": "Copiar",
+      "saved": "Ya lo he guardado"
+    },
+    "empty": {
+      "title": "Todavía no hay tokens",
+      "desc": "Crea uno para conectar un cliente MCP a esta instancia."
+    },
+    "row": {
+      "scopes_label": "Ámbitos:",
+      "scopes_none": "ninguno",
+      "last_used": "último uso: {when}",
+      "expires": "caduca: {when}",
+      "never": "nunca",
+      "just_now": "ahora mismo",
+      "min_ago": "hace {n} min",
+      "hr_ago": "hace {n} h",
+      "day_ago": "hace {n} d",
+      "revoke_title": "Revocar el token"
+    },
+    "form": {
+      "new_token": "Nuevo token",
+      "name": "Nombre *",
+      "name_ph": "p. ej. Claude Desktop",
+      "scopes": "Ámbitos *",
+      "mcp_disabled": "MCP no está activado en este servidor. Puedes crear el token igualmente, pero no hará nada hasta que se defina MCP_ENABLED=1.",
+      "expires_label": "Caducidad (días, opcional)",
+      "expires_ph": "Déjalo vacío para que no caduque",
+      "cancel": "Cancelar",
+      "create": "Crear token",
+      "creating": "Creando…"
+    },
+    "confirm": {
+      "revoke_title": "¿Revocar \"{name}\"?",
+      "revoke_msg": "Cualquier cliente MCP que use este token perderá el acceso de inmediato. Esto no se puede deshacer.",
+      "revoke_confirm": "Revocar"
+    },
+    "toast": {
+      "load_failed": "No se pudieron cargar los tokens",
+      "scope_required": "Selecciona al menos un ámbito",
+      "create_failed": "No se pudo crear el token",
+      "revoke_failed": "No se pudo revocar el token",
+      "revoked": "Token revocado",
+      "copied": "Copiado al portapapeles",
+      "copy_failed": "No se pudo copiar: selecciona el texto a mano"
+    },
+    "intro_guide_link": "la guía de configuración de MCP"
   }
 }

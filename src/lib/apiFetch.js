@@ -71,7 +71,10 @@ const LOCAL_FIRST_GET_PATTERNS = [
   /^\/api\/programs\/\d+(\?|\/?$)/,               // Program detail
   /^\/api\/templates\/\d+(\?|$)/,                 // Workout template
   /^\/api\/body-stats\/[\d-]+(\?|$)/,             // Body stats by date or range
-  /^\/api\/stats\//,                              // Statistics aggregates
+  // Statistics aggregates are deliberately NOT local-first: when the server
+  // is reachable it answers, so the numbers always match the web app. The
+  // device's own copy (api-native Stats) is used offline, through the read
+  // fallback below (issue #101).
 ];
 
 function _isLocalFirstGet(path, method) {
@@ -118,9 +121,14 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
   // Local-first: serve cache, refresh in background.
   if (!isWrite && _isLocalFirstGet(url, method)) {
     try {
+      await _localWrites;
       const cached = await _dispatchLocal(url, init);
-      _kickBackgroundSync();
-      return cached;
+      // 501 means the device has no local answer for this path; ask the
+      // server rather than failing a request the server can serve (#101).
+      if (cached.status !== 501) {
+        _kickBackgroundSync();
+        return cached;
+      }
     } catch {
       // Local handler threw — fall through to server.
     }
@@ -128,33 +136,83 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
 
   try {
     const res = await origFetch(absolute, { ...init, headers, credentials: 'omit' });
+    // A workout save or delete that reached the server also updates the
+    // device's copy, which the Diary reads first, so reopening that day
+    // offline shows what was just saved (issue #102). It runs behind the
+    // reply so a save isn't slowed by it; reads of the device copy wait for
+    // it (see _localWrites), so none can see the older version.
+    if (isWrite && res.ok) {
+      const copy = res.clone();
+      // Capped, so a stuck update can never hold reads for more than a moment.
+      _localWrites = _localWrites
+        .then(() => Promise.race([_mirrorWorkoutWrite(url, method, copy), new Promise(r => setTimeout(r, 3000))]))
+        .catch(() => {});
+    }
     return res;
   } catch (netErr) {
     // Real network failure — TypeError from fetch (DNS, offline, etc.)
     if (isWrite) {
       // Enqueue write for retry, write to local cache, return synthetic 202.
       try {
-        const { enqueueWrite } = await import('./sync.js');
+        const { enqueueWrite, noteQueuedLocalId, workoutDateOf } = await import('./sync.js');
         let body = null;
         if (typeof init.body === 'string') {
           try { body = JSON.parse(init.body); } catch { body = init.body; }
         }
-        await enqueueWrite(method, _stripBase(url), body);
-        // Mirror the write to local cache so UI stays consistent.
+        const queueId = await enqueueWrite(method, _stripBase(url), body);
+        // Mirror the write to local cache so UI stays consistent, and answer
+        // with what the local write returned: callers read the saved record
+        // from the reply (a workout save reads `workout`), and a bare
+        // "queued" reply made the Diary blank the workout on screen when the
+        // connection dropped (issue #102).
+        let local = null;
         try {
           const path = _stripBase(url).split('?')[0];
           const u = new URL(url, 'http://localhost');
           const query = Object.fromEntries(u.searchParams.entries());
-          await LtApiNative.handle(method, path, body, query);
+          local = await LtApiNative.handle(method, path, body, query);
         } catch {}
+        if (local && typeof local === 'object' && !Array.isArray(local)) {
+          // A workout that exists only on the device so far gets a device-side
+          // id; note it on the queued write so the replay can swap in the
+          // server's id.
+          const created = local.workout?.id;
+          const sentId = body && typeof body === 'object' ? body.id : null;
+          if (method === 'PUT' && created != null && created !== sentId && workoutDateOf(_stripBase(url))) {
+            try { await noteQueuedLocalId(queueId, created); } catch { /* replay falls back to the date's session */ }
+          }
+          return _jsonResponse(200, { ...local, queued: true, offline: true });
+        }
         return _jsonResponse(202, { queued: true, offline: true });
       } catch {
         return _jsonResponse(503, { error: 'Offline and could not enqueue.' });
       }
     }
     // Read fallback — try local cache.
+    await _localWrites;
     return _dispatchLocal(url, init);
   }
+}
+
+// Chain of device-copy updates still running behind a server reply.
+let _localWrites = Promise.resolve();
+
+async function _mirrorWorkoutWrite(url, method, res) {
+  try {
+    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate } = await import('./sync.js');
+    const date = workoutDateOf(_stripBase(url));
+    if (!date) return;
+    if (method === 'PUT') {
+      const data = await res.clone().json();
+      await mirrorSavedWorkout(date, data?.workout);
+    } else if (method === 'DELETE') {
+      // Local only, so reads never wait on the network; the full refresh of
+      // that day from the server runs on its own afterwards.
+      const id = new URL(url, 'http://localhost').searchParams.get('id');
+      await forgetDeletedWorkout(date, id != null && id !== '' ? Number(id) : null);
+      reconcileWorkoutDate(date).catch(() => {});
+    }
+  } catch { /* the next pull brings the copy up to date */ }
 }
 
 function _isInterceptable(url) {

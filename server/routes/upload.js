@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { safeUploadExtension } from '../lib/upload-paths.js';
 import { requireAuth } from '../middleware/auth.js';
 import { assertAllowedMedia } from '../lib/image-magic.js';
 
@@ -11,7 +12,7 @@ fs.mkdirSync(uploadsPath, { recursive: true });
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsPath),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const ext = safeUploadExtension(file.mimetype, file.originalname);
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
   },
 });
@@ -52,7 +53,7 @@ const exerciseMediaStorage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.bin';
+    const ext = safeUploadExtension(file.mimetype, file.originalname);
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
   },
 });
@@ -88,6 +89,48 @@ router.post('/exercise-media', requireAuth, (req, res, next) => {
       mimeType: realMime,
       size: req.file.size,
     });
+  });
+});
+
+// Progress-photo upload. Its own subdirectory rather than the uploads
+// root so this feature's files stay identifiable for backup, cleanup and
+// account deletion. Image-only and 20 MB: a phone camera JPEG runs 3 to
+// 8 MB and a HEIC burst shot rarely tops 15, so this has headroom
+// without inviting video-sized files into a photo timeline.
+const bodyStatMediaStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(uploadsPath, 'body-stats');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = safeUploadExtension(file.mimetype, file.originalname);
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+
+const bodyStatMediaUpload = multer({
+  storage: bodyStatMediaStorage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Images only'));
+  },
+});
+
+router.post('/body-stats', requireAuth, (req, res, next) => {
+  bodyStatMediaUpload.single('file')(req, res, (err) => {
+    if (err) return next(err);
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    // Magic-byte validation, same as the routes above: the client-sent
+    // mimetype is untrusted and SVG stays off the allowlist.
+    try {
+      const realMime = assertAllowedMedia(req.file.path, ['image']);
+      res.json({ url: `/uploads/body-stats/${req.file.filename}`, mimeType: realMime });
+    } catch (e) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      res.status(400).json({ error: e.message });
+    }
   });
 });
 

@@ -99,30 +99,99 @@ test('regression: LT 2026-08-11 shape — stale client with empty exercises must
   assert.equal(merged.reduce((sum, e) => sum + e.sets.length, 0), 32);
 });
 
+test('regression: issue #85, reordering a uuid-less legacy template must not duplicate it', () => {
+  // A template/workout saved before uuid tagging existed has no uuid on
+  // any exercise. Reordering it (WorkoutEditor.svelte's moveUp/moveDown
+  // preserve object references, uuid included) and saving used to
+  // duplicate the whole list: _dedupe mints a FRESH random uuid for
+  // every uuid-less entry on every call, so the server's stored copy
+  // and the client's resent copy could never be recognized as "the
+  // same" exercises no matter how many times either side was uuid-
+  // stamped independently. mergeEntries now detects a fully uuid-less
+  // server side and trusts the client's resent list outright instead.
+  const server = [
+    { name: 'Squat', sets: [] }, { name: 'Bench', sets: [] }, { name: 'Row', sets: [] },
+  ];
+  const reordered = [server[2], server[0], server[1]]; // same object refs, just reordered
+  const { merged } = mergeExercises(server, reordered, [], [], {}, {});
+  assert.equal(merged.length, 3);
+  assert.deepEqual(merged.map(e => e.name), ['Row', 'Squat', 'Bench']);
+});
+
+test('regression: issue #85, omitting an exercise from a uuid-less legacy list deletes it (no tombstone possible yet)', () => {
+  const server = [{ name: 'Squat', sets: [] }, { name: 'Bench', sets: [] }, { name: 'Row', sets: [] }];
+  const withoutBench = [server[0], server[2]];
+  const { merged } = mergeExercises(server, withoutBench, [], [], {}, {});
+  assert.equal(merged.length, 2);
+  assert.ok(!merged.some(e => e.name === 'Bench'));
+});
+
+test('regression: issue #85, once bootstrapped, normal concurrent-edit protection resumes', () => {
+  // After the first (bootstrap) save, entries carry real uuids. A later
+  // save that omits one WITHOUT an explicit tombstone must still be
+  // treated as a possible concurrent addition from another device and
+  // preserved -- the one-time trust-the-client bootstrap must not
+  // become a permanent bypass of Option C's core safety guarantee.
+  const tagged = [_ex('a', { name: 'Squat' }), _ex('b', { name: 'Bench' }), _ex('c', { name: 'Row' })];
+  const omitsBenchNoTombstone = [tagged[0], tagged[2]];
+  const { merged } = mergeExercises(tagged, omitsBenchNoTombstone, [], [], {}, {});
+  assert.equal(merged.length, 3);
+  assert.ok(merged.some(e => e.name === 'Bench'));
+});
+
+test('regression: issue #85, mixed identity (one tagged, one not) does not trigger the bootstrap', () => {
+  const mixed = [_ex('x1', { name: 'Tagged' }), { name: 'Untagged', sets: [] }];
+  const client = [mixed[1], mixed[0]]; // reorder only
+  const { merged } = mergeExercises(mixed, client, [], [], {}, {});
+  assert.equal(merged.filter(e => e.name === 'Tagged').length, 1);
+});
+
+// Key names here match BODY_STAT_KEYS in workout-merge.js (weight,
+// bodyFat, waist, ...) — the actual production shape, not placeholder
+// names, since mergeStatsObject now allowlists against that exact set.
 test('mergeStatsObject preserves keys not mentioned by client', () => {
-  const server = { weight_kg: 92.5, body_fat_pct: 15.0, waist_cm: 88 };
-  const client = { weight_kg: 92.0 }; // only updating weight
+  const server = { weight: 92.5, bodyFat: 15.0, waist: 88 };
+  const client = { weight: 92.0 }; // only updating weight
   const merged = mergeStatsObject(server, client);
-  assert.deepEqual(merged, { weight_kg: 92.0, body_fat_pct: 15.0, waist_cm: 88 });
+  assert.deepEqual(merged, { weight: 92.0, bodyFat: 15.0, waist: 88 });
 });
 
 test('mergeStatsObject treats explicit null as clear', () => {
-  const server = { weight_kg: 92, body_fat_pct: 15, waist_cm: 88 };
-  const client = { body_fat_pct: null }; // user cleared body fat
+  const server = { weight: 92, bodyFat: 15, waist: 88 };
+  const client = { bodyFat: null }; // user cleared body fat
   const merged = mergeStatsObject(server, client);
-  assert.deepEqual(merged, { weight_kg: 92, waist_cm: 88 });
+  assert.deepEqual(merged, { weight: 92, waist: 88 });
 });
 
 test('mergeStatsObject with empty client preserves everything (the primary safety property)', () => {
-  const server = { weight_kg: 92, body_fat_pct: 15, waist_cm: 88 };
+  const server = { weight: 92, bodyFat: 15, waist: 88 };
   const merged = mergeStatsObject(server, {});
   assert.deepEqual(merged, server);
 });
 
 test('mergeStatsObject with undefined client returns server unchanged', () => {
-  const server = { weight_kg: 92 };
+  const server = { weight: 92 };
   assert.deepEqual(mergeStatsObject(server, undefined), server);
   assert.deepEqual(mergeStatsObject(server, null), server);
+});
+
+// Regression for issue #80: before the client-side read fix, a client
+// that had hit the wire-shape bug would PUT back { id, user_id, date,
+// stats: {...}, weight: val } — the whole row it had misread as the
+// measurements object, plus its own edit. mergeStatsObject must not
+// let any of those stray keys land in the stored blob.
+test('mergeStatsObject drops keys outside the known body-stat set (issue #80 corruption guard)', () => {
+  const server = { weight: 183 };
+  const client = { id: 42, user_id: 7, date: '2026-09-01', stats: { weight: 183, bodyFat: 20 }, weight: 185 };
+  const merged = mergeStatsObject(server, client);
+  assert.deepEqual(merged, { weight: 185 });
+});
+
+test('mergeStatsObject still merges every known key correctly alongside a rejected unknown one', () => {
+  const server = { weight: 183, bodyFat: 20 };
+  const client = { weight: 185, waist: 34, rogueKey: 'nope' };
+  const merged = mergeStatsObject(server, client);
+  assert.deepEqual(merged, { weight: 185, bodyFat: 20, waist: 34 });
 });
 
 test('ensureExerciseUuids assigns uuids at exercise AND set level', () => {
@@ -156,4 +225,63 @@ test('ensureUuids assigns uuids only to entries missing one', () => {
   assert.equal(out.length, 2);
   assert.equal(out[0].uuid, 'a');
   assert.ok(out[1].uuid);
+});
+
+// Regression for the "reorder visibly applies then snaps back" bug
+// (#71-class, diagnosed 2026-08-31): a JS Map does not move an existing
+// key on re-.set(), so seeding the merge from server order and only
+// overwriting values silently discarded every client-side reorder.
+// Order must follow the CLIENT's array — it's the authoritative full
+// list on every save, not an incremental diff.
+test('mergeExercises follows client order when the client reorders two existing exercises', () => {
+  const server = [_ex('a'), _ex('b'), _ex('c')];
+  const client = [_ex('c'), _ex('a'), _ex('b')]; // c moved to the front
+  const { merged } = mergeExercises(server, client, [], [], {}, {});
+  assert.deepEqual(merged.map(e => e.uuid), ['c', 'a', 'b']);
+});
+
+test('mergeEntries (the flat helper) follows client order on a plain swap', () => {
+  const server = [{ uuid: 'a' }, { uuid: 'b' }];
+  const client = [{ uuid: 'b' }, { uuid: 'a' }];
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.deepEqual(merged.map(e => e.uuid), ['b', 'a']);
+});
+
+test('mergeExercises: joining a superset moves the exercise adjacent to its new siblings', () => {
+  // Mirrors joinSuperset() in Diary.svelte: the exercise's array
+  // position moves next to the target group, and its superset_id is
+  // set to match. Both the content change AND the position change
+  // must survive the merge for the client's consecutive-run superset
+  // grouping (Diary.svelte's supersetGroups) to render it correctly.
+  const server = [
+    _ex('x', { superset_id: 'ss1', superset_size: 2 }),
+    _ex('y', { superset_id: 'ss1', superset_size: 2 }),
+    _ex('a'), // the exercise being joined into the superset
+  ];
+  const client = [
+    _ex('x', { superset_id: 'ss1', superset_size: 3 }),
+    _ex('y', { superset_id: 'ss1', superset_size: 3 }),
+    _ex('a', { superset_id: 'ss1', superset_size: 3 }), // moved + relabeled
+  ];
+  const { merged } = mergeExercises(server, client, [], [], {}, {});
+  assert.deepEqual(merged.map(e => e.uuid), ['x', 'y', 'a']);
+  assert.equal(merged[2].superset_id, 'ss1');
+});
+
+test('mergeExercises: server-only concurrent addition is appended after client order, not interleaved', () => {
+  const server = [_ex('a'), _ex('b'), _ex('c')]; // 'c' was added by another device
+  const client = [_ex('b'), _ex('a')]; // this client only knows about a/b, and reordered them
+  const { merged } = mergeExercises(server, client, [], [], {}, {});
+  assert.deepEqual(merged.map(e => e.uuid), ['b', 'a', 'c']);
+});
+
+test('mergeEntries: duplicate uuid in client list de-dupes to one slot at its first position', () => {
+  const server = [];
+  const client = [
+    { uuid: 'a', name: 'first',  updatedAt: '2026-08-10T10:00Z' },
+    { uuid: 'a', name: 'second', updatedAt: '2026-08-10T11:00Z' },
+  ];
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].name, 'second');
 });

@@ -40,15 +40,19 @@ import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/wo
 // Same shape as workout.js — duplicated here to keep both routes
 // self-contained. If we grow more callers, promote to a shared module.
 function _tsWhere(u) { return u == null ? 'user_id IS NULL' : 'user_id = ?'; }
-function _loadExUuidsForDate(u, date) {
+// workoutId scopes a tombstone to one session vs another on the same
+// date (issue #76) — matches the column's own NOT NULL DEFAULT 0 in
+// db.js; every call site below has a real workout_log row by the time
+// these run, so workoutId is always the row's actual id.
+function _loadExUuidsForDate(u, date, workoutId) {
   const where = _tsWhere(u);
-  const stmt = db.prepare(`SELECT uuid FROM workout_tombstones WHERE ${where} AND date = ? AND kind = 'exercise'`);
-  return (u == null ? stmt.all(date) : stmt.all(u, date)).map(r => r.uuid);
+  const stmt = db.prepare(`SELECT uuid FROM workout_tombstones WHERE ${where} AND date = ? AND workout_id = ? AND kind = 'exercise'`);
+  return (u == null ? stmt.all(date, workoutId) : stmt.all(u, date, workoutId)).map(r => r.uuid);
 }
-function _loadSetUuidsByExForDate(u, date) {
+function _loadSetUuidsByExForDate(u, date, workoutId) {
   const where = _tsWhere(u);
-  const stmt = db.prepare(`SELECT ex_uuid, uuid FROM workout_tombstones WHERE ${where} AND date = ? AND kind = 'set'`);
-  const rows = u == null ? stmt.all(date) : stmt.all(u, date);
+  const stmt = db.prepare(`SELECT ex_uuid, uuid FROM workout_tombstones WHERE ${where} AND date = ? AND workout_id = ? AND kind = 'set'`);
+  const rows = u == null ? stmt.all(date, workoutId) : stmt.all(u, date, workoutId);
   const out = {};
   for (const r of rows) (out[r.ex_uuid] = out[r.ex_uuid] || []).push(r.uuid);
   return out;
@@ -60,7 +64,9 @@ function _loadTemplateTombstones(templateId, kind) {
 }
 function _loadTombstonesSince(u, sinceSql) {
   const where = _tsWhere(u);
-  const stmt = db.prepare(`SELECT date, kind, ex_uuid, uuid, deleted_at FROM workout_tombstones WHERE ${where} AND deleted_at >= ? ORDER BY deleted_at`);
+  // workout_id included so the client's own local tombstone mirror (also
+  // scoped by workout_id post-#76) can apply this to the right session.
+  const stmt = db.prepare(`SELECT date, workout_id, kind, ex_uuid, uuid, deleted_at FROM workout_tombstones WHERE ${where} AND deleted_at >= ? ORDER BY deleted_at`);
   return u == null ? stmt.all(sinceSql) : stmt.all(u, sinceSql);
 }
 
@@ -155,6 +161,10 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM body_stats_log WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(sinceSql, ...userParams).map(parseRow);
 
+  const body_stat_media = db.prepare(
+    `SELECT * FROM body_stat_media WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
+  ).all(sinceSql, ...userParams).map(parseRow);
+
   // user_settings — only the current user's keys; never push admin-only
   // keys (none yet, but the filter is a hook for future).
   const settings = u != null
@@ -187,6 +197,7 @@ router.get('/pull', wrap((req, res) => {
     program_assignments,
     workout_log,
     body_stats_log,
+    body_stat_media,
     workout_tombstones,
     user_settings: settings,
     ai_chat_history,
@@ -212,7 +223,7 @@ router.post('/push', wrap((req, res) => {
   const body = req.body || {};
   const result = {
     exercises: [], programs: [], workout_templates: [], program_assignments: [],
-    workout_log: [], body_stats_log: [], user_settings: [], ai_chat_history: [],
+    workout_log: [], body_stats_log: [], body_stat_media: [], user_settings: [], ai_chat_history: [],
   };
 
   const norm = ts => ts ? toSqlTime(ts) : '';
@@ -301,7 +312,10 @@ router.post('/push', wrap((req, res) => {
           if (t.deleted_at) {
             db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
           } else {
-            // Per-uuid merge instead of wholesale replace.
+            // Per-uuid merge instead of wholesale replace. Note (issue
+            // #85): serverExs is intentionally NOT pre-backfilled -- see
+            // workout-merge.js's mergeEntries() for the uuid-less-server
+            // bootstrap this would otherwise defeat.
             const serverExs = JSON.parse(existing.exercises || '[]');
             const priorExTs = _loadTemplateTombstones(t.server_id, 'template_exercise').map(r => r.uuid);
             const priorSetTsByEx = {};
@@ -341,25 +355,50 @@ router.post('/push', wrap((req, res) => {
       }
     }
 
-    // ── workout_log (UNIQUE(user_id, date) — date is the natural key) ─
+    // ── workout_log (issue #76: no longer UNIQUE(user_id,date) — a date
+    // can have multiple sessions, addressed by id like every other
+    // entity in this file) ─
     //
     // Option C: exercises + sets merge per-uuid instead of wholesale
     // replace. See project_traceapps_diary_merge_port. Removed the
     // silent-DELETE-on-empty behavior that used to live in the PUT
     // route; day-level deletion is now solely driven by explicit
     // `deleted_at` (soft delete) on the pushed row.
+    //
+    // Identity: prefer w.server_id (same convention every other entity
+    // in this file already uses) so a second session pushes as its own
+    // row instead of colliding with the first. Only legacy queued
+    // payloads from a pre-#76 client (no server_id yet) fall back to the
+    // old (user_id, date) lookup, which now picks the lowest
+    // session_seq/id — reproducing exactly what that client already
+    // believes is "the" workout for that date.
     for (const w of (body.workout_log || [])) {
-      const existing = db.prepare(
-        `SELECT * FROM workout_log WHERE user_id ${u != null ? '= ?' : 'IS NULL'} AND date = ?`
-      ).get(...(u != null ? [u, w.date] : [w.date]));
+      let existing = w.server_id
+        ? db.prepare('SELECT * FROM workout_log WHERE id = ?').get(w.server_id)
+        : null;
+      // Issue #87: a server_id that does NOT resolve (stale device-
+      // cached id, a row that no longer exists) falls back to the same
+      // live-default lookup legacy pre-#76 clients already use, instead
+      // of falling through to the insert branch below and creating a
+      // duplicate live session_seq=0 row for this date. Excludes soft-
+      // deleted rows (a real bug this same pass turned up: without it,
+      // a push could resolve onto an already-deleted row and write
+      // fresh content into it via the merge branch below, which does
+      // not clear deleted_at, silently corrupting a "deleted" session
+      // instead of leaving it deleted or starting a fresh one).
+      if (!existing) {
+        existing = db.prepare(
+          `SELECT * FROM workout_log WHERE user_id ${u != null ? '= ?' : 'IS NULL'} AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1`
+        ).get(...(u != null ? [u, w.date] : [w.date]));
+      }
 
       const dr = w.deleted_uuids;
       const delExUuids = Array.isArray(dr?.exercises) ? dr.exercises : (Array.isArray(dr) ? dr : []);
       const delSetsByEx = (dr && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
 
       const insertTs = db.prepare(
-        `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))`
+        `INSERT OR IGNORE INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
       );
 
       if (existing) {
@@ -367,9 +406,12 @@ router.post('/push', wrap((req, res) => {
           if (w.deleted_at) {
             db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
           } else {
+            // Note (issue #85): serverExs is intentionally NOT
+            // pre-backfilled -- see workout-merge.js's mergeEntries()
+            // for the uuid-less-server bootstrap this would defeat.
             const serverExs = JSON.parse(existing.exercises || '[]');
-            const priorExTs = _loadExUuidsForDate(u, w.date);
-            const priorSetTsByEx = _loadSetUuidsByExForDate(u, w.date);
+            const priorExTs = _loadExUuidsForDate(u, w.date, existing.id);
+            const priorSetTsByEx = _loadSetUuidsByExForDate(u, w.date, existing.id);
             const {
               merged, newTombstoneExerciseUuids, newTombstoneSetUuidsByExercise,
             } = mergeExercises(
@@ -380,20 +422,25 @@ router.post('/push', wrap((req, res) => {
             db.prepare(
               `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, program_week=?, updated_at=datetime('now') WHERE id=?`
             ).run(w.name || null, JSON.stringify(merged), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, existing.id);
-            for (const uuid of newTombstoneExerciseUuids) insertTs.run(u, w.date, 'exercise', '', uuid);
+            for (const uuid of newTombstoneExerciseUuids) insertTs.run(u, w.date, existing.id, 'exercise', '', uuid);
             for (const [exUuid, uuids] of Object.entries(newTombstoneSetUuidsByExercise)) {
-              for (const uuid of uuids) insertTs.run(u, w.date, 'set', exUuid, uuid);
+              for (const uuid of uuids) insertTs.run(u, w.date, existing.id, 'set', exUuid, uuid);
             }
           }
         }
         result.workout_log.push({ client_id: w.client_id, server_id: existing.id });
       } else if (!w.deleted_at) {
         // Fresh insert: ensure uuids so subsequent merges have identity.
+        // session_seq comes from the pushed row when the client set one
+        // (its own local session-creation logic decided it); legacy
+        // clients that predate #76 never send it, defaulting to 0 —
+        // identical to pre-#76 behavior since that was always the only
+        // possible value.
         const exs = ensureExerciseUuids(w.exercises || []);
         const r = db.prepare(
-          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, program_week, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-        ).run(u, w.date, w.name || null, JSON.stringify(exs), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null);
+          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, program_week, session_seq, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(u, w.date, w.name || null, JSON.stringify(exs), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, w.session_seq ?? 0);
         result.workout_log.push({ client_id: w.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -424,6 +471,30 @@ router.post('/push', wrap((req, res) => {
           `INSERT INTO body_stats_log (user_id, date, stats, updated_at) VALUES (?, ?, ?, datetime('now'))`
         ).run(u, b.date, JSON.stringify(b.stats || {}));
         result.body_stats_log.push({ client_id: b.client_id, server_id: r.lastInsertRowid });
+      }
+    }
+
+    // ── body_stat_media (progress photos) ──────────────────────────────
+    //
+    // Keyed by server_id, not (user_id, date) like body_stats_log above:
+    // a date can hold several photos, so the date is not an identity.
+    // A photo row is immutable once written, the only update that can
+    // arrive is a soft-delete, so there is no field merge here.
+    for (const p of (body.body_stat_media || [])) {
+      const existing = p.server_id
+        ? db.prepare(`SELECT * FROM body_stat_media WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+            .get(...(u != null ? [p.server_id, u] : [p.server_id]))
+        : null;
+      if (existing) {
+        if (p.deleted_at && !existing.deleted_at && wins(p.updated_at, existing.updated_at)) {
+          db.prepare(`UPDATE body_stat_media SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+        }
+        result.body_stat_media.push({ client_id: p.client_id, server_id: existing.id });
+      } else if (!p.deleted_at && p.url && p.date) {
+        const r = db.prepare(
+          `INSERT INTO body_stat_media (user_id, date, kind, url, created_at, updated_at) VALUES (?, ?, 'photo', ?, datetime('now'), datetime('now'))`
+        ).run(u, p.date, p.url);
+        result.body_stat_media.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
     }
 

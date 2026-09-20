@@ -4,6 +4,10 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { onWorkoutCompleted } from '../lib/coach-activity.js';
 import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
+import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
+import { getRecordsCore, hasQualifyingSet } from '../lib/mcp/tools/get-records.js';
+import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -34,11 +38,74 @@ router.get('/history/:exerciseId', wrap((req, res) => {
     const exercises = JSON.parse(row.exercises || '[]');
     const match = exercises.find(e => e.exercise_id === exerciseId);
     if (match) {
-      history.push({ date: row.date, sets: match.sets || [], notes: match.notes });
+      history.push({ date: row.date, sets: match.sets || [], notes: match.notes, ...(match.set_type ? { set_type: match.set_type } : {}) });
     }
   }
   res.json(history);
 }));
+
+// Default-session lookup (issue #76): a date can now have multiple
+// workout_log rows. Every route that doesn't take an explicit session
+// selector picks the lowest session_seq (0 = the original/only session),
+// falling back to the lowest id if session 0 was ever deleted — so a
+// caller that never asks about sessions keeps hitting the one row that
+// exists for anyone who's never created a second session. Mirrors PUT/
+// DELETE's pre-#76 behavior of not filtering deleted_at, so a soft-deleted
+// row can still be found/resurrected by an explicit save.
+function _defaultWorkout(userId, date, { excludeDeleted = false } = {}) {
+  const delClause = excludeDeleted ? 'AND deleted_at IS NULL' : '';
+  return userId != null
+    ? db.prepare(`SELECT * FROM workout_log WHERE date = ? AND user_id = ? ${delClause} ORDER BY session_seq ASC, id ASC LIMIT 1`).get(date, userId)
+    : db.prepare(`SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL ${delClause} ORDER BY session_seq ASC, id ASC LIMIT 1`).get(date);
+}
+
+// Resolve which row a request targets: explicit ?id=/body.id wins (must
+// still belong to this user + date, so a client can't cross-target
+// another day's or another user's row), otherwise the default session.
+//
+// opts.fallbackToDefault (issue #87): an explicit id that does NOT
+// resolve to a live row for this user+date -- a stale Android local
+// id, a hard-to-refresh cached id after a delete, or a value that
+// simply never existed here -- falls back to the live default session
+// instead of the caller treating "not found" as "create one". Without
+// this, a PUT/push carrying a slightly-stale id silently inserted a
+// duplicate live session_seq=0 row: every completed-set tick or reps
+// change whose cached id had drifted spawned a brand new workout tab.
+// Off by default since a GET for a SPECIFIC unknown id should still
+// report "not found" rather than silently substituting another
+// session's data.
+function _resolveWorkout(userId, date, explicitId, opts = {}) {
+  if (explicitId != null) {
+    const row = userId != null
+      ? db.prepare('SELECT * FROM workout_log WHERE id = ? AND user_id = ? AND date = ?').get(explicitId, userId, date)
+      : db.prepare('SELECT * FROM workout_log WHERE id = ? AND user_id IS NULL AND date = ?').get(explicitId, date);
+    if (row || !opts.fallbackToDefault) return row;
+    return _defaultWorkout(userId, date, opts);
+  }
+  return _defaultWorkout(userId, date, opts);
+}
+
+function _enrichWorkout(workout) {
+  if (!workout) return workout;
+  workout.exercises = JSON.parse(workout.exercises || '[]');
+  // Surface the program's plan length alongside the stamped program_week so
+  // the diary can render "Week N of M" without a second request.
+  if (workout.program_id) {
+    workout.program_duration_weeks =
+      db.prepare('SELECT duration_weeks FROM programs WHERE id = ?').get(workout.program_id)?.duration_weeks ?? null;
+  }
+  // Include any coach feedback left on this workout so the member's diary
+  // can render it inline (workout-level banner + per-exercise notes).
+  workout.feedback = db.prepare(`
+    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.note, cf.updated_at,
+           COALESCE(u.nickname, u.full_name, u.username) AS trainer_name
+      FROM coach_feedback cf
+      LEFT JOIN users u ON u.id = cf.trainer_id
+     WHERE cf.workout_id = ?
+     ORDER BY cf.updated_at DESC
+  `).all(workout.id);
+  return workout;
+}
 
 // GET /api/workout/:date/feedback — coach notes attached to that day's
 // workout. Returned separately from the workout GET because the diary
@@ -46,13 +113,13 @@ router.get('/history/:exerciseId', wrap((req, res) => {
 // local SQLite which doesn't have the coach_feedback table), so feedback
 // would be invisible until a cache miss. This path is NOT in the local-
 // first pattern list, so the client always reaches the server when
-// online and renders feedback fresh.
+// online and renders feedback fresh. Optional ?id= targets a specific
+// session; default is the same session GET /:date would return.
 router.get('/:date/feedback', wrap((req, res) => {
   const userId = uid(req);
   if (userId == null) return res.json([]);
-  const workout = db.prepare(
-    'SELECT id FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL'
-  ).get(req.params.date, userId);
+  const explicitId = req.query.id != null ? parseInt(req.query.id) : null;
+  const workout = _resolveWorkout(userId, req.params.date, explicitId, { excludeDeleted: true });
   if (!workout) return res.json([]);
   const rows = db.prepare(`
     SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.note, cf.updated_at,
@@ -71,60 +138,65 @@ router.get('/:date/feedback', wrap((req, res) => {
   res.json(rows);
 }));
 
-// GET /api/workout/:date
+// GET /api/workout/:date/sessions — every session logged that date
+// (issue #76), each enriched exactly like the single-session GET below.
+// Excludes soft-deleted rows — a deleted session isn't something a
+// session-switcher UI should ever offer to switch to.
+router.get('/:date/sessions', wrap((req, res) => {
+  const { date } = req.params;
+  const userId = uid(req);
+  const rows = userId != null
+    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC').all(date, userId)
+    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC').all(date);
+  res.json({ sessions: rows.map(_enrichWorkout) });
+}));
+
+// GET /api/workout/:date — returns the default session (issue #76: a
+// date may have more than one; session-aware callers use the
+// /:date/sessions list above, or pass ?id= for a specific one — e.g.
+// stores/workout.js's _mergeAndSave safety-refetch, which must re-fetch
+// the SAME session it's about to save over, not silently fall back to
+// the default when the client is actively editing a non-default one).
+// Zero response-shape change for every existing caller when there's
+// exactly one session that date and no ?id= is given.
 router.get('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
-  const workout = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(date, userId)
-    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(date);
-
-  if (workout) {
-    workout.exercises = JSON.parse(workout.exercises || '[]');
-    // Surface the program's plan length alongside the stamped program_week so
-    // the diary can render "Week N of M" without a second request.
-    if (workout.program_id) {
-      workout.program_duration_weeks =
-        db.prepare('SELECT duration_weeks FROM programs WHERE id = ?').get(workout.program_id)?.duration_weeks ?? null;
-    }
-    // Include any coach feedback left on this workout so the member's diary
-    // can render it inline (workout-level banner + per-exercise notes).
-    workout.feedback = db.prepare(`
-      SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.note, cf.updated_at,
-             COALESCE(u.nickname, u.full_name, u.username) AS trainer_name
-        FROM coach_feedback cf
-        LEFT JOIN users u ON u.id = cf.trainer_id
-       WHERE cf.workout_id = ?
-       ORDER BY cf.updated_at DESC
-    `).all(workout.id);
-  }
-  res.json({ workout: workout || null });
+  const explicitId = req.query.id != null ? parseInt(req.query.id) : null;
+  const workout = explicitId != null
+    ? _resolveWorkout(userId, date, explicitId, { excludeDeleted: true })
+    : _defaultWorkout(userId, date, { excludeDeleted: true });
+  res.json({ workout: _enrichWorkout(workout) || null });
 }));
 
 // ── Tombstone helpers (Option C) ─────────────────────────────────────────
 // Loaded here rather than in a shared module to keep this route file
-// self-contained; sync.js has its own copies for the same reason.
+// self-contained; sync.js and _workout-write.js have their own copies for
+// the same reason. Scoped by workout_id (issue #76) so a deletion
+// tombstone applies to one session, not every session on that date — 0 is
+// the sentinel for tombstone kinds with no specific row (matches the
+// column's own NOT NULL DEFAULT 0 in db.js).
 function _tsWhere(u) { return u == null ? 'user_id IS NULL' : 'user_id = ?'; }
-function _loadExerciseTombstoneUuids(u, date) {
+function _loadExerciseTombstoneUuids(u, date, workoutId) {
   const where = _tsWhere(u);
-  const stmt = db.prepare(`SELECT uuid FROM workout_tombstones WHERE ${where} AND date = ? AND kind = 'exercise'`);
-  const rows = u == null ? stmt.all(date) : stmt.all(u, date);
+  const stmt = db.prepare(`SELECT uuid FROM workout_tombstones WHERE ${where} AND date = ? AND workout_id = ? AND kind = 'exercise'`);
+  const rows = u == null ? stmt.all(date, workoutId) : stmt.all(u, date, workoutId);
   return rows.map(r => r.uuid);
 }
-function _loadSetTombstoneUuidsByExercise(u, date) {
+function _loadSetTombstoneUuidsByExercise(u, date, workoutId) {
   const where = _tsWhere(u);
-  const stmt = db.prepare(`SELECT ex_uuid, uuid FROM workout_tombstones WHERE ${where} AND date = ? AND kind = 'set'`);
-  const rows = u == null ? stmt.all(date) : stmt.all(u, date);
+  const stmt = db.prepare(`SELECT ex_uuid, uuid FROM workout_tombstones WHERE ${where} AND date = ? AND workout_id = ? AND kind = 'set'`);
+  const rows = u == null ? stmt.all(date, workoutId) : stmt.all(u, date, workoutId);
   const out = {};
   for (const r of rows) {
     (out[r.ex_uuid] = out[r.ex_uuid] || []).push(r.uuid);
   }
   return out;
 }
-function _loadTombstones(u, date) {
+function _loadTombstones(u, date, workoutId) {
   const where = _tsWhere(u);
-  const stmt = db.prepare(`SELECT kind, ex_uuid, uuid, deleted_at FROM workout_tombstones WHERE ${where} AND date = ?`);
-  return u == null ? stmt.all(date) : stmt.all(u, date);
+  const stmt = db.prepare(`SELECT kind, ex_uuid, uuid, deleted_at FROM workout_tombstones WHERE ${where} AND date = ? AND workout_id = ?`);
+  return u == null ? stmt.all(date, workoutId) : stmt.all(u, date, workoutId);
 }
 
 // PUT /api/workout/:date — save/update
@@ -139,7 +211,7 @@ function _loadTombstones(u, date) {
 router.put('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
-  const { template_id, program_id, name, exercises, notes, duration_min, completed, program_week } = req.body;
+  const { template_id, program_id, name, exercises, notes, duration_min, completed, program_week, id: bodyId, new_session } = req.body;
 
   // Parse per-uuid deletions in either shape (per-kind object or a flat
   // exercise-only list from an older client).
@@ -151,13 +223,29 @@ router.put('/:date', wrap((req, res) => {
     ? deletedRaw.sets
     : {};
 
-  const existing = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
-    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
+  // Resolve the target row (issue #76). new_session:true always creates a
+  // fresh row, bypassing the existing-row lookup entirely, so "start a
+  // new session" can never accidentally land on one that already exists.
+  // Otherwise an explicit id targets that specific session; absent both,
+  // the default-session lookup reproduces pre-#76 single-row behavior
+  // exactly (including resurrecting a soft-deleted row on save).
+  //
+  // fallbackToDefault + excludeDeleted (issue #87): a bodyId that is
+  // stale/unknown falls back to the live default session for this date
+  // rather than being treated as "create a new one" -- excludeDeleted
+  // so a soft-deleted session isn't silently resurrected by a client
+  // that no longer has a specific id in mind (that's what the resurrect-
+  // on-save behavior just below is for, and it only applies to an EXACT
+  // id match, a client that still knows precisely which row it means).
+  const existing = new_session ? null : _resolveWorkout(userId, date, bodyId ?? null, { fallbackToDefault: true, excludeDeleted: true });
+  // Note (issue #85): serverExercises is intentionally NOT pre-backfilled
+  // with ensureExerciseUuids. See templates.js's PUT route and
+  // workout-merge.js's mergeEntries() for why -- pre-tagging here would
+  // defeat mergeEntries()'s own uuid-less-server bootstrap.
   const serverExercises = existing ? JSON.parse(existing.exercises || '[]') : [];
 
-  const priorExTombstones  = _loadExerciseTombstoneUuids(userId, date);
-  const priorSetTombstones = _loadSetTombstoneUuidsByExercise(userId, date);
+  const priorExTombstones  = existing ? _loadExerciseTombstoneUuids(userId, date, existing.id) : [];
+  const priorSetTombstones = existing ? _loadSetTombstoneUuidsByExercise(userId, date, existing.id) : {};
 
   const {
     merged: mergedExercises,
@@ -176,13 +264,36 @@ router.put('/:date', wrap((req, res) => {
   const wasCompleted = existing ? !!existing.completed : false;
   const exercisesJson = JSON.stringify(mergedExercises);
 
+  // pr.set / program.advanced webhook snapshots (issue #79), taken
+  // BEFORE the transaction below so the "before" state genuinely
+  // predates this save. pr.set is independent of the day-level
+  // `completed` flag: a set can be completed even if the workout as a
+  // whole isn't marked done, and that's still a real PR the moment it's
+  // saved. Cheap early-exit guard (hasQualifyingSet) so a save that only
+  // edits notes or duration never pays for a full-history records scan.
+  let _recordsBefore = null;
+  if (Array.isArray(exercises) && hasQualifyingSet(exercises)) {
+    try { _recordsBefore = getRecordsCore(userId).records; } catch { _recordsBefore = null; }
+  }
+  // program.advanced only matters when this session belongs to a
+  // program at all; the actual week comparison happens after the save,
+  // nested in the completed 0-to-1 transition below, since session
+  // count (and therefore current week) only changes on a newly-
+  // completed session.
+  let _programBefore = null;
+  if (program_id) {
+    try { _programBefore = getActiveProgramCore(userId); } catch { _programBefore = null; }
+  }
+
   const insertTombstone = db.prepare(
-    `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT OR IGNORE INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   );
 
+  let targetId;
   db.transaction(() => {
     if (existing) {
+      targetId = existing.id;
       // Clear deleted_at on save so an explicit UPDATE resurrects a
       // row that a client had previously soft-deleted (sync-push at
       // sync.js line 368). Without this, GETs would keep filtering it
@@ -192,21 +303,29 @@ router.put('/:date', wrap((req, res) => {
          WHERE id=?`
       ).run(template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null, existing.id);
     } else {
-      db.prepare(
-        `INSERT INTO workout_log (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(userId, date, template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null);
+      // A brand-new row: either the very first session for this date
+      // (default path, session_seq=0 — identical to pre-#76 behavior) or
+      // an explicit additional session (new_session:true, next
+      // session_seq for this date).
+      const seqRow = new_session
+        ? (userId != null
+            ? db.prepare('SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
+            : db.prepare('SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE date = ? AND user_id IS NULL').get(date))
+        : null;
+      const nextSeq = seqRow ? seqRow.n : 0;
+      const info = db.prepare(
+        `INSERT INTO workout_log (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week, session_seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(userId, date, template_id || null, program_id || null, name || null, exercisesJson, notes || null, duration_min || null, completed ? 1 : 0, program_week ?? null, nextSeq);
+      targetId = info.lastInsertRowid;
     }
-    for (const uuid of newExTombstones) insertTombstone.run(userId, date, 'exercise', '', uuid);
+    for (const uuid of newExTombstones) insertTombstone.run(userId, date, targetId, 'exercise', '', uuid);
     for (const [exUuid, uuids] of Object.entries(newSetTombstones)) {
-      for (const uuid of uuids) insertTombstone.run(userId, date, 'set', exUuid, uuid);
+      for (const uuid of uuids) insertTombstone.run(userId, date, targetId, 'set', exUuid, uuid);
     }
   })();
 
-  const workout = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
-    : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
-  if (workout) workout.exercises = JSON.parse(workout.exercises || '[]');
+  const workout = _enrichWorkout(db.prepare('SELECT * FROM workout_log WHERE id = ?').get(targetId));
 
   // Fire coach activity / push for prescribed workouts when the save flips
   // the row to completed. Idempotent on the DB side via UNIQUE(prescription_id,
@@ -214,12 +333,78 @@ router.put('/:date', wrap((req, res) => {
   if (workout && workout.completed && !wasCompleted) {
     try { onWorkoutCompleted(workout); }
     catch (e) { /* never let a notification failure block the save */ }
+
+    // workout.completed webhook (issue #79). Reuses getWorkoutCore so
+    // the payload matches exactly what GET /api/v1/workouts/:date and
+    // MCP's get_workout tool already return, one shape everywhere.
+    try { dispatchWebhookEvent(userId, 'workout.completed', getWorkoutCore(userId, { date })); }
+    catch (e) { /* never let a webhook failure block the save */ }
+
+    // program.advanced webhook (issue #79). Only meaningful when this
+    // session belongs to the program that was active before the save
+    // (_programBefore, snapshotted above). Comparing current_week here
+    // (not before the save) is deliberate: session count, and therefore
+    // current_week, only changes once this save has actually committed.
+    if (_programBefore?.active && _programBefore.program_id === program_id) {
+      try {
+        const programAfter = getActiveProgramCore(userId);
+        if (programAfter?.active && programAfter.current_week !== _programBefore.current_week) {
+          dispatchWebhookEvent(userId, 'program.advanced', {
+            program_id: programAfter.program_id,
+            program_name: programAfter.name,
+            previous_week: _programBefore.current_week,
+            new_week: programAfter.current_week,
+            duration_weeks: programAfter.duration_weeks,
+          });
+        }
+      } catch (e) { /* never let a webhook failure block the save */ }
+    }
   }
 
-  res.json({ workout, tombstones: _loadTombstones(userId, date) });
+  // pr.set webhook (issue #79). Independent of the completed 0-to-1
+  // transition above, see the _recordsBefore snapshot's own comment for
+  // why. Fires once per exercise whose max weight or estimated 1-rep
+  // max improved on this save, reusing the exact record definition
+  // get-records.js already uses for GET /api/v1/records and the
+  // Statistics page, so all three agree on what "a record" means.
+  if (_recordsBefore) {
+    try {
+      const recordsAfter = getRecordsCore(userId).records;
+      const beforeByExercise = new Map(_recordsBefore.map(r => [r.exercise_id, r]));
+      for (const after of recordsAfter) {
+        const before = beforeByExercise.get(after.exercise_id);
+        const improvedWeight = after.maxWeight > (before?.maxWeight ?? 0);
+        const improvedE1rm = after.e1rm > (before?.e1rm ?? 0);
+        // Longest hold on a timed exercise (issue #89).
+        const improvedDuration = (after.maxDuration || 0) > (before?.maxDuration ?? 0);
+        if (improvedWeight || improvedE1rm || improvedDuration) {
+          dispatchWebhookEvent(userId, 'pr.set', {
+            exercise_id: after.exercise_id,
+            exercise_name: after.name,
+            date,
+            new_max_weight: after.maxWeight,
+            new_max_reps: after.maxReps,
+            new_e1rm: after.e1rm,
+            previous_max_weight: before?.maxWeight ?? 0,
+            previous_e1rm: before?.e1rm ?? 0,
+            new_max_duration_sec: after.maxDuration || 0,
+            previous_max_duration_sec: before?.maxDuration ?? 0,
+          });
+        }
+      }
+    } catch (e) { /* never let a webhook failure block the save */ }
+  }
+
+  res.json({ workout, tombstones: _loadTombstones(userId, date, targetId) });
 }));
 
-// DELETE /api/workout/:date — explicit day-level deletion.
+// DELETE /api/workout/:date — explicit day-level deletion. Optional ?id=
+// targets a specific session (issue #76); absent, deletes the same
+// default session GET /:date would return — if an old client that has no
+// concept of a second session fires this on a date that now has several,
+// deleting only the default one (not all of them) is the conservative
+// behavior; silently wiping sessions that client doesn't know exist would
+// be far worse.
 //
 // Replaces the old "empty exercises array on PUT deletes the row"
 // shortcut, which was the shape that let a stale mobile client wipe an
@@ -229,11 +414,21 @@ router.put('/:date', wrap((req, res) => {
 router.delete('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
-  const existing = userId != null
-    ? db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)
-    : db.prepare('SELECT id FROM workout_log WHERE date = ? AND user_id IS NULL').get(date);
+  const explicitId = req.query.id != null ? parseInt(req.query.id) : null;
+  // Without an id, delete the first LIVE session: the first row overall can
+  // be one deleted earlier, which left the session on screen untouched.
+  const existing = _resolveWorkout(userId, date, explicitId, { excludeDeleted: true });
   if (!existing) return res.json({ ok: true, deleted: false });
-  db.prepare('DELETE FROM workout_log WHERE id = ?').run(existing.id);
+  // Soft delete (issue #87): a hard DELETE removed the row before any
+  // client could ever pull it. /api/sync/pull finds deletions via
+  // `WHERE updated_at >= ?`, which requires the row to still exist with
+  // deleted_at set -- a hard-deleted row can never match that query, so
+  // Android never learned the session was gone, and its next autosave
+  // (still holding the now-unknown id) recreated it. Matches the same
+  // soft-delete shape sync-push already uses when a client sends
+  // deleted_at, and the PUT handler above already knows how to clear
+  // deleted_at again on an explicit save to resurrect one.
+  db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
   res.json({ ok: true, deleted: true });
 }));
 

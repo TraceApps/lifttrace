@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { portal } from '../../lib/portal.js';
@@ -89,7 +90,7 @@
   <div use:portal>
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="fp-backdrop" on:click={() => open = false}
+    <div class="fp-backdrop" on:click={() => open = false} use:closeOnBack={() => open = false}
       transition:fly={{ y: 0, duration: 200 }}></div>
     <div class="fp-panel" transition:fly={{ y: 600, duration: 320, easing: cubicOut }}
          style:--fp-tint={backdropColor || 'transparent'}>

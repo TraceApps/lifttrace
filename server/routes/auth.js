@@ -8,6 +8,7 @@ import { isPasswordLoginEnabled, listProviders as oidcListProviders, publicProvi
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
 import { claimAnonymousData, releaseDataBeforeDisable, purgeUserRows } from '../lib/claim-anonymous-data.js';
+import { deleteMediaForUser } from '../lib/body-stat-media.js';
 
 const router = Router();
 
@@ -224,6 +225,9 @@ router.delete('/me', requireAuth, wrap((req, res) => {
   }
   db.prepare('DELETE FROM workout_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM body_stats_log WHERE user_id = ?').run(id);
+  // Progress photos own files on disk, so they need the file-aware
+  // helper rather than a plain row delete, or the images are orphaned.
+  deleteMediaForUser(id);
   db.prepare('DELETE FROM program_assignments WHERE assigned_to = ?').run(id);
   db.prepare('DELETE FROM coach_prescriptions WHERE trainer_id = ? OR member_id = ?').run(id, id);
   db.prepare('DELETE FROM ai_chat_history WHERE user_id = ?').run(id);
@@ -241,6 +245,9 @@ router.delete('/users/:id', requireAuth, requireAdmin, wrap((req, res) => {
   if (id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself — use Delete My Account' });
   db.prepare('DELETE FROM workout_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM body_stats_log WHERE user_id = ?').run(id);
+  // Progress photos own files on disk, so they need the file-aware
+  // helper rather than a plain row delete, or the images are orphaned.
+  deleteMediaForUser(id);
   db.prepare('DELETE FROM program_assignments WHERE assigned_to = ?').run(id);
   db.prepare('DELETE FROM coach_prescriptions WHERE trainer_id = ? OR member_id = ?').run(id, id);
   db.prepare('DELETE FROM ai_chat_history WHERE user_id = ?').run(id);

@@ -21,7 +21,7 @@ Output ONLY valid JSON matching this schema:
   "exercises": [
     {
       "name": "exercise name exactly as user said it",
-      "sets": [ { "reps": N, "weight": N, "rpe": N|null, "amrap": true|false, "bodyweight": true|false } ],
+      "sets": [ { "reps": N, "weight": N, "duration_sec": N|null, "rpe": N|null, "amrap": true|false, "bodyweight": true|false } ],
       "superset_group": "A"|"B"|null,   // fill only when user groups exercises (A1/A2/B1/B2 etc.)
       "notes": string|null
     }
@@ -34,6 +34,7 @@ Rules:
 - "BW" or "bodyweight" → set bodyweight:true and weight:0 (unless user said "BW+25" → bodyweight:true, weight:25).
 - "@8" or "RPE 8" → rpe:8.
 - "AMRAP" or "as many as possible" → amrap:true and reps:0.
+- Timed holds and carries are logged by duration, not reps: "plank 3x45s", "plank 3x1:00", "wall sit 90 seconds", "dead hang 2 min". Put the time in duration_sec as whole seconds and set reps:0. "3x45s" means 3 sets of {duration_sec:45}. A bare "x60" on a plank, wall sit, hold, hang or carry means 60 seconds, not 60 reps. "farmer carry 3x40s @ 50" is duration_sec:40, weight:50.
 - "A1: bench, A2: row, 3 rounds" — emit bench AND row with 3 sets each, superset_group:"A".
 - Assume pounds unless user says "kg". Do NOT convert units.
 - If user gives a range like "3x8-10", pick the midpoint (9).
@@ -178,6 +179,7 @@ export function mergeIntoWorkout(matched, existingLog) {
       sets: (m.sets || []).map(s => ({
         reps: s.reps || 0,
         weight: s.weight || 0,
+        ...(Number(s.duration_sec) > 0 ? { duration_sec: Math.round(Number(s.duration_sec)) } : {}),
         completed: false,
         notes: s.notes || '',
         ...(s.amrap ? { amrap: true } : {}),
@@ -189,6 +191,13 @@ export function mergeIntoWorkout(matched, existingLog) {
       target_weight: (m.sets?.[0]?.weight) || null,
       notes: m.notes || '',
     };
+    // Timed exercise (issue #89): stamp the type so the diary opens it with a
+    // time input, and give it a duration target rather than a reps one.
+    if ((m.sets || []).some(s => Number(s.duration_sec) > 0)) {
+      row.set_type = 'time';
+      row.target_reps = null;
+      row.target_duration = String(Math.round(Number(m.sets[0]?.duration_sec) || 0) || '');
+    }
     if (m.superset_group) {
       if (!groupIds[m.superset_group]) groupIds[m.superset_group] = nextSupersetId();
       row.superset_id = groupIds[m.superset_group];

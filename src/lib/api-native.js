@@ -19,6 +19,9 @@ import {
   setSyncMeta,
 } from './db-native.js';
 import { currentPlanWeek } from './programWeek.js';
+import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
+import { musclesOf } from './muscle-load.js';
+import { normalizeMuscle } from './muscle-groups.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -29,6 +32,9 @@ const _KNOWN_LOAD_TYPES = new Set(['bilateral', 'paired', 'unilateral']);
 function _cleanLoadType(v) {
   if (v == null || v === '') return null;
   return _KNOWN_LOAD_TYPES.has(v) ? v : null;
+}
+function _cleanSetType(v) {
+  return v === 'reps' || v === 'time' ? v : null;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -78,7 +84,7 @@ async function _sessionsInProgram(programId, assignedAt) {
   if (assignedAt) args.push(assignedAt);
   const row = (await dbQuery(
     `SELECT COUNT(*) AS c FROM workout_log wl
-       WHERE wl.user_id = ? AND wl.completed = 1
+       WHERE wl.user_id = ? AND wl.completed = 1 AND wl.deleted_at IS NULL
          AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
          ${sinceFilter}`,
     args
@@ -259,8 +265,8 @@ const Exercises = {
     const r = await dbRun(
       `INSERT INTO exercises
         (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips,
-         img_url, gif_url, video_url, load_type, source, is_global, created_by, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         img_url, gif_url, video_url, load_type, set_type, source, is_global, created_by, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         body.name,
         body.category || null,
@@ -273,6 +279,7 @@ const Exercises = {
         body.gif_url || null,
         body.video_url || null,
         _cleanLoadType(body.load_type),
+        _cleanSetType(body.set_type),
         body.source || 'custom',
         body.is_global ? 1 : 0,
         ME,
@@ -297,6 +304,10 @@ const Exercises = {
     if (body.load_type !== undefined) {
       sets.push(`load_type = ?`);
       args.push(body.load_type === null ? null : _cleanLoadType(body.load_type));
+    }
+    if (body.set_type !== undefined) {
+      sets.push(`set_type = ?`);
+      args.push(body.set_type === null ? null : _cleanSetType(body.set_type));
     }
     sets.push(`updated_at = ?`); args.push(_now());
     sets.push(`sync_state = 'pending'`);
@@ -706,12 +717,34 @@ const Templates = {
 };
 
 const Workout = {
-  async byDate(date) {
+  // Default-session lookup (issue #76): a date can now have more than one
+  // row. Picks the lowest session_seq (0 = the original/only session),
+  // falling back to the lowest id if session 0 was ever deleted — matches
+  // the server's GET /:date exactly, so a caller that never asks about
+  // sessions keeps hitting the one row that exists for anyone who's never
+  // created a second session.
+  async _defaultRow(date) {
     const rows = await dbQuery(
-      `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
+      `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL
+        ORDER BY session_seq ASC, id ASC LIMIT 1`,
       [ME, date]
     );
-    const w = _workoutFromRow(rows[0]);
+    return rows[0] || null;
+  },
+  // Resolve which row a request targets: explicit id wins (must still
+  // belong to this user + date), otherwise the default session.
+  async _resolve(date, explicitId) {
+    if (explicitId != null) {
+      const rows = await dbQuery(
+        `SELECT * FROM workout_log WHERE id = ? AND user_id = ? AND date = ?`,
+        [explicitId, ME, date]
+      );
+      return rows[0] || null;
+    }
+    return Workout._defaultRow(date);
+  },
+  async _enrich(row) {
+    const w = _workoutFromRow(row);
     if (!w) return null;
     // Surface the program's plan length alongside the stamped program_week so
     // the diary can render "Week N of M" (matches the server's GET /:date).
@@ -723,63 +756,46 @@ const Workout = {
     }
     return w;
   },
+  // explicitId mirrors the server's GET /:date?id= — used by
+  // stores/workout.js's merge-safety refetch, which must re-fetch the
+  // SAME session it's about to save over, not silently fall back to the
+  // default when the client is editing a non-default one (issue #76).
+  async byDate(date, explicitId = null) {
+    const row = explicitId != null ? await Workout._resolve(date, explicitId) : await Workout._defaultRow(date);
+    return Workout._enrich(row);
+  },
+  // GET /api/workout/:date/sessions (issue #76) — every session logged
+  // that date, each enriched like byDate. Excludes soft-deleted rows —
+  // a deleted session isn't something a session-switcher should offer.
+  async sessions(date) {
+    const rows = await dbQuery(
+      `SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL
+        ORDER BY session_seq ASC, id ASC`,
+      [ME, date]
+    );
+    const out = [];
+    for (const r of rows) out.push(await Workout._enrich(r));
+    return out;
+  },
   async upsert(date, body) {
     const exercises = body.exercises || [];
-    const hasAny = exercises.some(ex =>
-      Array.isArray(ex?.sets) && ex.sets.some(s => s?.completed && !s?.warmup)
-    );
 
-    // Option C (2026-08-11): persist any explicit per-entry deletions
-    // as pending tombstones in the local mirror. Sync push includes
-    // these so the server-side merge treats them as deleted rather
-    // than preserving-by-default. Without this, a delete performed
-    // while offline would silently fail to propagate on reconnect.
-    const dr = body.deleted_uuids;
-    if (dr) {
-      const del = dr.exercises || (Array.isArray(dr) ? dr : []);
-      const setsByEx = (dr.sets && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
-      const ts = _now();
-      for (const uuid of del) {
-        if (typeof uuid === 'string' && uuid) {
-          await dbRun(
-            `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
-             VALUES (?, ?, 'exercise', '', ?, ?, 'pending')`,
-            [ME, date, uuid, ts]
-          );
-        }
-      }
-      for (const [exUuid, uuids] of Object.entries(setsByEx)) {
-        for (const uuid of (uuids || [])) {
-          if (typeof uuid === 'string' && uuid) {
-            await dbRun(
-              `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
-               VALUES (?, ?, 'set', ?, ?, ?, 'pending')`,
-              [ME, date, exUuid, uuid, ts]
-            );
-          }
-        }
-      }
-    }
+    // Resolve the target row (issue #76): new_session:true always creates
+    // a fresh row, bypassing the existing-row lookup entirely, so "start
+    // a new session" can never accidentally land on one that already
+    // exists. Otherwise an explicit id targets that specific session;
+    // absent both, the default-session lookup reproduces pre-#76
+    // single-row behavior exactly.
+    const existing = body.new_session ? null : await Workout._resolve(date, body.id ?? null);
 
-    // (Auto-delete-empty-entries shortcut removed — the server dropped
-    // it when Option C landed on 2026-08-11 in workout.js; day-level
-    // deletion now requires an explicit DELETE /api/workout/:date on
-    // both sides. Leaving it here caused a Load Workout on Android
-    // native-server mode to soft-delete the local row (fresh template
-    // sets have completed:false → hasAny was false → row got
-    // soft-deleted locally even though the server preserved it), so
-    // any subsequent load returned null from local-first cache and
-    // the diary UI blanked. The user then re-added, and because the
-    // client snapshot was empty, deleted_uuids came out empty, and
-    // the server merge stacked the new exercises on top of the ones
-    // the server had preserved. See issue-report thread 2026-08-24.)
-    const existing = await Workout.byDate(date);
+    let targetId;
     if (existing) {
+      targetId = existing.id;
       await dbRun(
         `UPDATE workout_log
             SET template_id = ?, program_id = ?, name = ?, exercises = ?,
                 notes = ?, duration_min = ?, completed = ?, program_week = ?, updated_at = ?, sync_state = 'pending'
-          WHERE user_id = ? AND date = ?`,
+          WHERE id = ?`,
         [
           body.template_id ?? existing.template_id ?? null,
           body.program_id  ?? existing.program_id  ?? null,
@@ -789,15 +805,27 @@ const Workout = {
           body.duration_min ?? existing.duration_min ?? null,
           body.completed ? 1 : 0,
           body.program_week ?? existing.program_week ?? null,
-          _now(), ME, date,
+          _now(), targetId,
         ]
       );
     } else {
-      await dbRun(
+      // A brand-new row: either the very first session for this date
+      // (default path, session_seq=0 — identical to pre-#76 behavior) or
+      // an explicit additional session (new_session:true, next
+      // session_seq for this date).
+      let nextSeq = 0;
+      if (body.new_session) {
+        const r = (await dbQuery(
+          `SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE user_id = ? AND date = ?`,
+          [ME, date]
+        ))[0];
+        nextSeq = r?.n ?? 0;
+      }
+      const ins = await dbRun(
         `INSERT INTO workout_log
           (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week,
-           created_at, updated_at, sync_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+           session_seq, created_at, updated_at, sync_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
         [
           ME, date,
           body.template_id ?? null,
@@ -808,11 +836,64 @@ const Workout = {
           body.duration_min ?? null,
           body.completed ? 1 : 0,
           body.program_week ?? null,
+          nextSeq,
           _now(), _now(),
         ]
       );
+      targetId = ins.lastId;
     }
-    return Workout.byDate(date);
+
+    // Option C (2026-08-11): persist any explicit per-entry deletions
+    // as pending tombstones in the local mirror, scoped to the resolved
+    // session's workout_id (issue #76) so a deletion in one session
+    // doesn't affect another same-date session's tombstone lookups. Sync
+    // push includes these so the server-side merge treats them as
+    // deleted rather than preserving-by-default. Without this, a delete
+    // performed while offline would silently fail to propagate on
+    // reconnect.
+    const dr = body.deleted_uuids;
+    if (dr) {
+      const del = dr.exercises || (Array.isArray(dr) ? dr : []);
+      const setsByEx = (dr.sets && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
+      const ts = _now();
+      for (const uuid of del) {
+        if (typeof uuid === 'string' && uuid) {
+          await dbRun(
+            `INSERT OR IGNORE INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state)
+             VALUES (?, ?, ?, 'exercise', '', ?, ?, 'pending')`,
+            [ME, date, targetId, uuid, ts]
+          );
+        }
+      }
+      for (const [exUuid, uuids] of Object.entries(setsByEx)) {
+        for (const uuid of (uuids || [])) {
+          if (typeof uuid === 'string' && uuid) {
+            await dbRun(
+              `INSERT OR IGNORE INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state)
+               VALUES (?, ?, ?, 'set', ?, ?, ?, 'pending')`,
+              [ME, date, targetId, exUuid, uuid, ts]
+            );
+          }
+        }
+      }
+    }
+
+    return Workout._enrich(await (async () => {
+      const rows = await dbQuery(`SELECT * FROM workout_log WHERE id = ?`, [targetId]);
+      return rows[0] || null;
+    })());
+  },
+  // DELETE /api/workout/:date — explicit day-level deletion. Optional
+  // explicitId targets a specific session (issue #76); absent, deletes
+  // the same default session byDate would return. Previously unsupported
+  // in standalone mode at all (fell through to the generic 501) — added
+  // now since a session-aware UI needs to be able to remove one session
+  // without a server.
+  async del(date, explicitId) {
+    const existing = await Workout._resolve(date, explicitId ?? null);
+    if (!existing) return { ok: true, deleted: false };
+    await dbRun(`DELETE FROM workout_log WHERE id = ?`, [existing.id]);
+    return { ok: true, deleted: true };
   },
   async recent(limit = 30) {
     const rows = await dbQuery(
@@ -957,79 +1038,87 @@ const Stats = {
     );
     return rows.map(_workoutFromRow);
   },
-  _completedSets(w) {
-    const exs = w.exercises || [];
-    return exs.flatMap(ex => (ex.sets || []).filter(s => s?.completed && !s?.warmup).map(s => ({ ...s, exercise_id: ex.exercise_id, exercise_name: ex.exercise_name })));
-  },
+  // Same test as the server's hasCompletedSet (stats.js): any ticked set,
+  // warm-ups included, makes it a workout day for streaks and frequency.
   _hasCompletedSet(w) {
-    return Stats._completedSets(w).length > 0;
+    return (w.exercises || []).some(ex => (ex.sets || []).some(s => s?.completed));
+  },
+  _inRange(w, from, to) { return (!from || w.date >= from) && (!to || w.date <= to); },
+  // Workout dates are calendar days, so weekday and week maths run in UTC on
+  // the bare date. Parsing them as local time put every workout on the
+  // previous day for anyone west of UTC.
+  _weekday(date) { return new Date(`${date}T00:00:00Z`).getUTCDay(); },
+  _weekStart(date) {   // Monday, like the server
+    const d = new Date(`${date}T00:00:00Z`);
+    const day = d.getUTCDay();
+    d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+    return d.toISOString().slice(0, 10);
+  },
+  async _library() {
+    // Includes cleared library rows (#49) so old sets still resolve.
+    const rows = await dbQuery(`SELECT id, primary_muscles, secondary_muscles, category, load_type FROM exercises`, []);
+    const map = new Map();
+    for (const r of rows) {
+      map.set(Number(r.id), {
+        primary: _parseJson(r.primary_muscles, []),
+        secondary: _parseJson(r.secondary_muscles, []),
+        category: r.category || '',
+        load_type: r.load_type || null,
+      });
+    }
+    return map;
   },
   async earliestWorkoutDate() {
     const rows = await dbQuery(`SELECT MIN(date) AS d FROM workout_log WHERE user_id = ? AND deleted_at IS NULL`, [ME]);
     return { date: rows[0]?.d || null };
   },
   async streaks() {
-    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).sort((a, b) => a.date.localeCompare(b.date));
+    // Mirror of GET /api/stats/streaks. The current streak survives a day
+    // not trained yet: it counts back from today, or from yesterday when
+    // today has nothing logged so far, as the server does.
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet);
     const dates = new Set(all.map(w => w.date));
-    let longestStreak = 0, currentStreak = 0;
-    let cur = 0;
-    let prev = null;
+    const shift = (date, n) => {
+      const d = new Date(`${date}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    };
+    const today = new Date().toLocaleDateString('sv-SE');
+    let currentStreak = 0;
+    for (let i = 0; i < 365; i++) {
+      if (dates.has(shift(today, -i))) currentStreak++;
+      else if (i > 0) break;
+    }
+    let longestStreak = 0, run = 0, prev = null;
     for (const d of [...dates].sort()) {
-      if (prev) {
-        const gap = (new Date(d) - new Date(prev)) / 86400000;
-        cur = gap === 1 ? cur + 1 : 1;
-      } else cur = 1;
-      longestStreak = Math.max(longestStreak, cur);
+      run = prev && shift(prev, 1) === d ? run + 1 : 1;
+      longestStreak = Math.max(longestStreak, run);
       prev = d;
     }
-    // Current streak: walk back from today
-    const today = new Date().toISOString().slice(0, 10);
-    if (dates.has(today)) {
-      currentStreak = 1;
-      let day = new Date(today);
-      day.setDate(day.getDate() - 1);
-      while (dates.has(day.toISOString().slice(0, 10))) {
-        currentStreak++;
-        day.setDate(day.getDate() - 1);
-      }
-    }
-    // Match the server's shape so Statistics.svelte renders identical
-    // values whether reading from the cache (native) or from the server
-    // (PWA). Previously returned { current, longest } which read as
-    // undefined on the Statistics overview cards.
-    return { currentStreak, longestStreak, totalWorkouts: dates.size };
+    return { currentStreak, longestStreak, totalWorkouts: dates.size, totalSessions: all.length };
   },
   async volume(from, to) {
-    // Server returns [{ week, volume }] bucketed by ISO week start (Monday).
-    // Match it exactly so WeeklyVolumeChart's v.week label rendering works
-    // when the cache is being read instead of the server.
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet)
-      .filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    // Mirror of GET /api/stats/volume: [{ week, volume }] by Monday week,
+    // with each exercise's load type (unilateral counts both sides).
+    const lib = await Stats._library();
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const byWeek = {};
     for (const w of rows) {
-      const d = new Date(w.date);
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);  // Monday-anchored
-      const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
-      if (!byWeek[weekStart]) byWeek[weekStart] = 0;
+      const week = Stats._weekStart(w.date);
+      if (!byWeek[week]) byWeek[week] = 0;
       for (const ex of w.exercises || []) {
-        for (const s of ex.sets || []) {
-          if (s.completed && !s.warmup && (Number(s.weight) || 0) > 0 && (Number(s.reps) || 0) > 0) {
-            byWeek[weekStart] += Number(s.weight) * Number(s.reps);
-          }
-        }
+        byWeek[week] += exerciseVolume(ex, { libraryLoadType: lib.get(Number(ex.exercise_id))?.load_type });
       }
     }
     return Object.entries(byWeek).map(([week, volume]) => ({ week, volume }));
   },
   async frequency(from, to) {
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    // Mirror of GET /api/stats/frequency: sessions per Monday week.
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const byWeek = {};
     for (const w of rows) {
-      const d = new Date(w.date);
-      d.setDate(d.getDate() - d.getDay());
-      const key = d.toISOString().slice(0, 10);
-      byWeek[key] = (byWeek[key] || 0) + 1;
+      const week = Stats._weekStart(w.date);
+      byWeek[week] = (byWeek[week] || 0) + 1;
     }
     return Object.entries(byWeek).map(([week, count]) => ({ week, count })).sort((a, b) => a.week.localeCompare(b.week));
   },
@@ -1044,9 +1133,21 @@ const Stats = {
     for (const w of all) {
       for (const ex of w.exercises || []) {
         const id = ex.exercise_id || ex.exercise_name;
-        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0 };
+        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, durationDate: '' };
         for (const s of ex.sets || []) {
           if (!s.completed || s.warmup) continue;
+          // Mirror of accumulateRecord in server/lib/volume.js: a timed set
+          // moves the longest-hold fields and never the rep fields.
+          if (isTimedSet(ex, s)) {
+            const sec = Number(s.duration_sec) || 0;
+            if (sec <= 0) continue;
+            const hw = Number(s.weight) || 0;
+            const r = records[id];
+            if (sec > r.maxDuration || (sec === r.maxDuration && hw > r.maxDurationWeight)) {
+              r.maxDuration = sec; r.maxDurationWeight = hw; r.durationDate = w.date;
+            }
+            continue;
+          }
           const wt = Number(s.weight) || 0;
           const reps = Number(s.reps) || 0;
           if (wt <= 0) continue;
@@ -1073,82 +1174,75 @@ const Stats = {
     for (const w of rows) {
       const ex = (w.exercises || []).find(e => Number(e.exercise_id) === Number(exerciseId));
       if (!ex) continue;
-      const completed = (ex.sets || []).filter(s => s.completed && !s.warmup && (Number(s.weight) || 0) > 0);
+      // Mirror of GET /api/stats/progress (issue #89): timed sets chart by
+      // longest hold whatever the load; rep sets still need real weight.
+      const working = (ex.sets || []).filter(s => s.completed && !s.warmup);
+      const timedSets = working.filter(s => isTimedSet(ex, s) && (Number(s.duration_sec) || 0) > 0);
+      const repSets = working.filter(s => !isTimedSet(ex, s) && (Number(s.weight) || 0) > 0);
+      const completed = [...repSets, ...timedSets];
       if (!completed.length) continue;
-      const maxWeight = Math.max(...completed.map(s => Number(s.weight) || 0));
-      const totalVolume = completed.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
+      const maxWeight = repSets.length ? Math.max(...repSets.map(s => Number(s.weight) || 0)) : 0;
+      const maxDuration = timedSets.length ? Math.max(...timedSets.map(s => Number(s.duration_sec) || 0)) : 0;
+      const totalVolume = repSets.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
       const rpeValues = completed
         .map(s => parseFloat(s.rpe))
         .filter(n => Number.isFinite(n) && n > 0);
       const avgRpe = rpeValues.length
         ? Math.round((rpeValues.reduce((a, b) => a + b, 0) / rpeValues.length) * 10) / 10
         : null;
-      out.push({ date: w.date, maxWeight, totalVolume, sets: completed.length, avgRpe });
+      out.push({ date: w.date, maxWeight, maxDuration, totalVolume, sets: completed.length, avgRpe });
     }
     return out;
   },
   async muscleGroupVolume(from, to) {
-    // Match server shape: [{ muscle, sets, volume }] (sorted by volume desc).
-    // Server normalizes muscle names with a wider set of buckets (biceps,
-    // triceps, forearms, quads, hamstrings, glutes, calves separately) than
-    // the previous native version that collapsed everything to chest/back/
-    // shoulders/arms/legs/core. Keeping the buckets identical keeps the
-    // muscle-group volume chart looking the same on both modes.
-    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet)
-      .filter(w => (!from || w.date >= from) && (!to || w.date <= to));
-    // Includes soft-deleted rows on purpose (#49): sets logged against an
-    // exercise the user later cleared from their library still need their
-    // muscle group to resolve, otherwise every affected set would fall
-    // through to the 'other' bucket and skew Muscle Balance.
-    const exRows = await dbQuery(`SELECT id, primary_muscles, category FROM exercises`, []);
-    const exMap = {};
-    for (const r of exRows) {
-      exMap[r.id] = {
-        muscles: _parseJson(r.primary_muscles, []),
-        category: r.category || 'other',
-      };
-    }
-    const normalize = m => {
-      const s = String(m || '').toLowerCase().trim();
-      if (s.includes('chest') || s.includes('pec')) return 'chest';
-      if (s.includes('back') || s.includes('lat') || s.includes('trap') || s.includes('rhomboid')) return 'back';
-      if (s.includes('shoulder') || s.includes('delt')) return 'shoulders';
-      if (s.includes('bicep')) return 'biceps';
-      if (s.includes('tricep')) return 'triceps';
-      if (s.includes('forearm')) return 'forearms';
-      if (s.includes('ab') || s.includes('core') || s.includes('oblique')) return 'core';
-      if (s.includes('quad')) return 'quads';
-      if (s.includes('hamstring')) return 'hamstrings';
-      if (s.includes('glute')) return 'glutes';
-      if (s.includes('calf') || s.includes('calve')) return 'calves';
-      if (s.includes('leg')) return 'legs';
-      if (s.includes('arm')) return 'arms';
-      if (s.includes('cardio')) return 'cardio';
-      return s || 'other';
-    };
+    // Mirror of GET /api/stats/muscle-group-volume: [{ muscle, sets, volume }]
+    // by volume, with each exercise's load type.
+    const lib = await Stats._library();
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const out = {};
     for (const w of all) {
       for (const ex of w.exercises || []) {
-        const info = exMap[ex.exercise_id] || { muscles: [], category: 'other' };
-        const groups = info.muscles.length ? info.muscles : [info.category];
-        const normalized = [...new Set(groups.map(normalize))];
+        const info = lib.get(Number(ex.exercise_id)) || { primary: [], category: 'other', load_type: null };
+        const groups = info.primary.length ? info.primary : [info.category || 'other'];
+        const normalized = [...new Set(groups.map(normalizeMuscle))];
+        const lt = resolveLoadType(ex, info.load_type);
         for (const s of ex.sets || []) {
-          if (!s.completed || s.warmup || (Number(s.weight) || 0) <= 0 || (Number(s.reps) || 0) <= 0) continue;
-          const w = Number(s.weight) * Number(s.reps);
+          if (!s.completed || s.warmup || (Number(s.weight) || 0) <= 0) continue;
+          if (isTimedSet(ex, s)) continue;   // a hold has no volume
+          const v = setVolume(s, lt);
+          if (v <= 0) continue;
           for (const g of normalized) {
             if (!out[g]) out[g] = { muscle: g, sets: 0, volume: 0 };
             out[g].sets++;
-            out[g].volume += w;
+            out[g].volume += v;
           }
         }
       }
     }
     return Object.values(out).sort((a, b) => b.volume - a.volume);
   },
+  async muscleEffectiveSets(from, to) {
+    // Mirror of GET /api/stats/muscle-effective-sets, the body map: completed
+    // working sets per drawable muscle, primary 1.0, secondary 0.4. Missing
+    // here, it failed Statistics on Android (issue #101).
+    const lib = await Stats._library();
+    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
+    const load = {};
+    for (const w of all) {
+      for (const ex of w.exercises || []) {
+        const info = lib.get(Number(ex.exercise_id)) || { primary: [], secondary: [], category: '' };
+        const setCount = (ex.sets || []).filter(s => s.completed && !s.warmup).length;
+        if (!setCount) continue;
+        const per = musclesOf({ primary: info.primary, secondary: info.secondary, category: String(info.category || '').toLowerCase() });
+        for (const slug in per) load[slug] = (load[slug] || 0) + per[slug] * setCount;
+      }
+    }
+    return load;
+  },
   async weekdayDistribution(from, to) {
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => (!from || w.date >= from) && (!to || w.date <= to));
+    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
     const out = [0, 0, 0, 0, 0, 0, 0];
-    for (const w of rows) out[new Date(w.date).getDay()]++;
+    for (const w of rows) out[Stats._weekday(w.date)]++;
     return out.map((count, day) => ({ day, count }));
   },
 };
@@ -1450,8 +1544,11 @@ async function handle(method, path, body, query) {
     // /api/workout/:date/feedback — no local store for feedback in
     // standalone; return empty list so the diary renders cleanly.
     if (id && sub === 'feedback' && m === 'GET') return [];
-    if (id              && m === 'GET') return { workout: await Workout.byDate(id) };
-    if (id              && m === 'PUT') return { workout: await Workout.upsert(id, body || {}) };
+    // /api/workout/:date/sessions (issue #76) — every session that date.
+    if (id && sub === 'sessions' && m === 'GET') return { sessions: await Workout.sessions(id) };
+    if (id              && m === 'GET')    return { workout: await Workout.byDate(id, query?.id != null ? Number(query.id) : null) };
+    if (id              && m === 'PUT')    return { workout: await Workout.upsert(id, body || {}) };
+    if (id              && m === 'DELETE') return Workout.del(id, query?.id != null ? Number(query.id) : null);
   }
 
   // ── /api/body-stats/:date | /api/body-stats/range ─────────────────────
@@ -1477,13 +1574,17 @@ async function handle(method, path, body, query) {
 
   // ── /api/stats/* ──────────────────────────────────────────────────────
   if (r === 'stats') {
-    const from = query?.from, to = query?.to;
+    // Same range parameters as the server (start/end); from/to kept for any
+    // older caller (issue #101: the Statistics page sends start/end, so the
+    // range used to be ignored here).
+    const from = query?.start ?? query?.from, to = query?.end ?? query?.to;
     if (id === 'earliest-workout-date')  return Stats.earliestWorkoutDate();
     if (id === 'streaks')                return Stats.streaks();
     if (id === 'volume')                 return Stats.volume(from, to);
     if (id === 'frequency')              return Stats.frequency(from, to);
     if (id === 'records')                return Stats.records();
     if (id === 'muscle-group-volume')    return Stats.muscleGroupVolume(from, to);
+    if (id === 'muscle-effective-sets')  return Stats.muscleEffectiveSets(from, to);
     if (id === 'weekday-distribution')   return Stats.weekdayDistribution(from, to);
     if (id === 'progress' && /^\d+$/.test(sub)) return Stats.progressFor(Number(sub), from, to);
   }
@@ -1677,6 +1778,7 @@ async function handle(method, path, body, query) {
             sets:          ex.sets,
             superset_id:   ex.superset_id ?? null,
             superset_size: ex.superset_size || 1,
+            ...(ex.set_type ? { set_type: ex.set_type } : {}),
           };
         });
         await dbRun(

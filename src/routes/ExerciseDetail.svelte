@@ -4,6 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { weightUnit } from '../stores/settings.js';
+  import { isTimedSet, fmtSetDuration } from '../lib/workout.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
@@ -77,11 +78,29 @@
 
   onMount(load);
 
-  $: pr = (() => {
+  // Timed exercise (issue #89): judged by what the most recent session was,
+  // so an exercise switched to Time shows its hold record and hold chart.
+  $: detailTimed = (() => {
+    const latest = history.find(h => (h.sets || []).some(s => s.completed && !s.warmup));
+    return !!latest && (latest.sets || []).some(s => s.completed && isTimedSet({ set_type: latest.set_type }, s));
+  })();
+
+  $: pr = detailTimed ? (() => {
+    let maxDur = 0, atWeight = 0, prDate = '';
+    for (const h of history) {
+      for (const s of h.sets || []) {
+        if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
+        const d = Number(s.duration_sec) || 0;
+        if (d > maxDur || (d === maxDur && (s.weight || 0) > atWeight)) { maxDur = d; atWeight = s.weight || 0; prDate = h.date; }
+      }
+    }
+    if (!maxDur) return null;
+    return { label: atWeight ? `${fmtSetDuration(maxDur)} @ ${atWeight} ${$weightUnit}` : fmtSetDuration(maxDur), date: prDate };
+  })() : (() => {
     let max = 0, prDate = '';
     for (const h of history) {
       for (const s of h.sets || []) {
-        if (s.completed && s.weight > max) { max = s.weight; prDate = h.date; }
+        if (s.completed && s.weight > max && !isTimedSet({ set_type: h.set_type }, s)) { max = s.weight; prDate = h.date; }
       }
     }
     return max > 0 ? { weight: max, date: prDate, unit: $weightUnit } : null;
@@ -96,7 +115,12 @@
       let top = 0, topReps = 0;
       for (const s of (h.sets || [])) {
         if (!s.completed || s.warmup) continue;
-        if ((s.weight || 0) > top) { top = s.weight; topReps = s.reps || 0; }
+        const timedSet = isTimedSet({ set_type: h.set_type }, s);
+        // Plot the same kind of set the header describes: longest hold for
+        // a timed exercise, heaviest set otherwise.
+        if (detailTimed !== timedSet) continue;
+        const v = timedSet ? (Number(s.duration_sec) || 0) : (s.weight || 0);
+        if (v > top) { top = v; topReps = s.reps || 0; }
       }
       if (top > 0) arr.push({ date: h.date, weight: top, reps: topReps });
     }
@@ -176,7 +200,7 @@
       {#if progressSvg}
         <div class="progress-card">
           <div class="progress-head">
-            <h3 class="progress-title">{$_('exercise_detail.top_set_over_time')}</h3>
+            <h3 class="progress-title">{detailTimed ? $_('exercise_detail.longest_hold_over_time') : $_('exercise_detail.top_set_over_time')}</h3>
             <span class="progress-meta">{progressPoints.length} sessions</span>
           </div>
           <svg class="progress-svg" viewBox="0 0 {progressSvg.W} {progressSvg.H}" preserveAspectRatio="none">
@@ -188,8 +212,8 @@
             {/each}
           </svg>
           <div class="progress-footer">
-            <span>{progressSvg.pts[0].date} · {progressSvg.pts[0].weight} {$weightUnit}</span>
-            <span>{progressSvg.pts.at(-1).date} · {progressSvg.pts.at(-1).weight} {$weightUnit}</span>
+            <span>{progressSvg.pts[0].date} · {detailTimed ? fmtSetDuration(progressSvg.pts[0].weight) : `${progressSvg.pts[0].weight} ${$weightUnit}`}</span>
+            <span>{progressSvg.pts.at(-1).date} · {detailTimed ? fmtSetDuration(progressSvg.pts.at(-1).weight) : `${progressSvg.pts.at(-1).weight} ${$weightUnit}`}</span>
           </div>
         </div>
       {/if}

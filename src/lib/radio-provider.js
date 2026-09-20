@@ -35,7 +35,16 @@ async function _proxyJson(path, params = {}) {
 // ── Jellyfin ─────────────────────────────────────────────────────────────────
 const jellyfin = {
   async ping() {
-    await _proxyJson('/jf/System/Info/Public');
+    // Sign in for real: the public info page answers without credentials,
+    // so testing against it passed with a wrong password (issue #100).
+    // /Users/Me is on Jellyfin 10.8 and later; older servers fall back to
+    // /System/Info, which also needs a signed-in user.
+    try {
+      await _proxyJson('/jf/Users/Me');
+    } catch (e) {
+      if (!/\b404\b/.test(e.message)) throw e;
+      await _proxyJson('/jf/System/Info');
+    }
     return true;
   },
   async getArtists() {

@@ -101,6 +101,14 @@ Suggest today's template based on program rotation and last workout date.
 ### RPE trend chart
 "Average RPE at working weight" line chart per exercise. Useful for spotting accumulated fatigue.
 
+### Weekly summary, next steps ([#98](https://github.com/TraceApps/lifttrace/issues/98))
+The summary now reports sessions against the weekly goal, sets, volume, time trained, PRs and sets per muscle group, each against the average week over the month before, with a link into Statistics. Still to come:
+- **Translated emails.** Server emails are English for every locale (the numbers already follow the language setting). A family-wide job, since CookTrace and NutriTrace have the same gap.
+- **Choosing what goes in.** Per-user picks for which metrics and which comparison, before any editable template.
+- **Program-aware comparison.** Week 3 of this block against week 3 of the last one, from the `program_id` and `program_week` already stamped on every workout.
+- **Admin-set schedule.** An instance-wide default day and time, the way scheduled backups are set.
+- **An exact week link.** Statistics only has rolling ranges, so the email opens the last seven days rather than that calendar week.
+
 ---
 
 ## Exercises & Equipment
@@ -169,8 +177,15 @@ The Strong / Hevy importers currently stash RPE into set notes as `"RPE 8"`. Pro
 
 ### ~~Body stats~~ *(done, v0.9.x)*
 
-### Progress photos timeline
-Dated photos stored under body-stats, swipeable before/after view.
+### ~~Progress photos timeline~~ *(done)*
+Dated photos on their own `/progress` page, reached from Statistics and the Body Stats sheet, with a drag-to-compare before/after view. Photos never expire; they are the long-term record the feature exists for. Coaching clips (#57) are a separate concern with a separate lifetime, see that issue.
+
+### Photo notes
+A free-text note per photo, not per date. The deciding case is the pose label ("front relaxed", "side flexed"): the table deliberately allows several photos on one date, and a pose is inherently per-photo, while a date-level note ("start of cut") degrades perfectly well into a per-photo one. The implication only runs one way, so the photo is the right owner, and one notes field beats two.
+
+Deliberately free text rather than a structured pose picker for now. A taxonomy chosen before anyone has formed a habit is a UI plus a migration betting on a guess, and free text stays fuzzy-matchable if smart compare (offering like against like) ever earns its place.
+
+Bigger than the one nullable column suggests: notes are the first thing that makes a photo row editable, so this adds an update verb across the app route, the MCP tool and the REST route, plus the sync-push and backup-restore column lists. Full plan in `docs/plans/photo-notes.md`.
 
 ---
 
@@ -316,6 +331,42 @@ Speculative. LiftTrace is currently free everywhere (self-host + free signed APK
 
 ---
 
+## Offline
+
+### Offline PWA editing (family-wide, after the next main release)
+
+Bring NoteTrace's browser offline model here, so the installed web app works in a
+dead zone the way the Android app does. This is set for every Trace app once the
+next main release is out.
+
+The pattern to copy (NoteTrace `src/lib/offline-api.js` + `offline-edits.js`):
+Workbox caches the app shell, an IndexedDB mirror answers reads when the server
+can't be reached, an outbox holds edits and shows them at once, new rows get
+temporary ids that are mapped to real ids after they go up, and the queue is sent
+through the existing sync push endpoint so the server merges browser edits exactly
+as it merges the phone's. A Web Lock stops two tabs sending at once and a
+BroadcastChannel keeps them in step.
+
+Deliberately NOT the Service Worker Background Sync API: Safari doesn't support
+it, and iOS is the main reason for the work. Flush from the page instead, with
+retries backing off from 3s to 30s plus `online` events.
+
+The sidebar sync pill and the amber / red colour rule are already in place here,
+so the state has somewhere to show.
+
+iOS caveats to plan for: Safari evicts site data after about 7 days of no use
+unless the PWA is on the Home Screen, so queued-but-unsent work needs to be
+visible and installing needs a nudge.
+
+LiftTrace specifics:
+
+- Cover workouts, sets, exercises, programs, and settings.
+- Still online afterwards: media uploads, Trace AI, radio, and anything admin.
+- First slice: log a workout offline, which is the whole point in a gym basement
+  with no signal.
+
+---
+
 ## Tech debt
 
 ### Emby provider `/emby/*` route split
@@ -394,13 +445,17 @@ Both paths are backward-compatible; existing workouts (no new fields) render exa
 
 **Implementation phases** (each independently testable)
 
-Phase 1, Schema + SetRow input rendering (~2-3 evenings)
+Phase 1, Schema + SetRow input rendering (~2-3 evenings) *(done, issue #89)*
+
+Shipped as the timed-sets slice of Bundle A, without deciding the rest-framing question below: the fields it needs (`set.duration_sec`, and a `set_type` of `'reps' | 'time'` on the exercise instance and the library row) are the same under Option 1 and Option 2, so that decision is still open. Named `set_type` rather than `default_set_type` to match the existing `load_type`, which has the same per-instance / library / remembered-preference layering. Recorded set data outranks every default, so history never changes shape. Covered: Diary chip and set row, exercise editor, templates (a real `duration` field through the weeks matrix and per-set specs), Statistics and exercise detail (longest hold), records and the `pr.set` webhook, CSV export, Strong and Hevy import, Smart-Add, Trace, MCP and the REST API.
+
+Original phase notes:
 
 - Add the columns + ALTER migration.
 - SetRow renders `duration_sec + weight` row when set is time-based, `reps + weight` row when rep-based (current behavior).
 - Volume math + share-card render filter / handle time-based sets appropriately (don't contribute to volume; do contribute to time-under-tension if that becomes a stat).
 
-Phase 2, Active set timer (~3-4 evenings)
+Phase 2, Active set timer (~3-4 evenings) *(done, issue #89: built as a count-up hold timer with a 3s lead-in and a cue at the set's target time, rather than a pure countdown, so holding past the target still logs the real time)*
 
 - Countdown UI for time-based sets. Reuses the rest-timer audio / haptic / Service-Worker-notification plumbing (`src/stores/restTimer.js` pattern). Auto-completes on timer end + writes the actual duration.
 - Pause / resume / manual stop. Lockscreen behaviour already solved by the rest timer's machinery, so this is mostly reuse not new build.

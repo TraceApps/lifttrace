@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { weightUnit, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../../stores/settings.js';
@@ -8,7 +9,7 @@
   import { exportWorkoutCsv } from '../../lib/workoutCsv.js';
   import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
-  import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume } from '../../lib/workout.js';
+  import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume, fmtSetLabel } from '../../lib/workout.js';
   import { timerState, timerMs } from '../../stores/workoutTimer.js';
 
   export let open = false;
@@ -166,7 +167,7 @@
 {#if open && workout}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={() => open = false}>
+  <div use:portal class="sheet-backdrop" on:click={() => open = false} use:closeOnBack={() => open = false}>
     <div class="ws-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <button class="ws-close-btn" on:click={() => open = false}
@@ -274,7 +275,7 @@
                 <div class="ws-ex-row ss-member">
                   <span class="ws-ex-name">{ex.exercise_name}</span>
                   <span class="ws-ex-sets">
-                    {completed.map(s => `${s.weight}×${s.reps}`).join(' · ')}
+                    {completed.map(s => fmtSetLabel(ex, s)).join(' · ')}
                   </span>
                 </div>
               {/each}
@@ -284,7 +285,7 @@
             <div class="ws-ex-row">
               <span class="ws-ex-name">{group.exercise.exercise_name}</span>
               <span class="ws-ex-sets">
-                {completed.map(s => `${s.weight}×${s.reps}`).join(' · ')}
+                {completed.map(s => fmtSetLabel(group.exercise, s)).join(' · ')}
               </span>
             </div>
           {/if}
@@ -333,7 +334,7 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
-    max-height: 85vh; overflow-y: auto;
+    max-height: min(85vh, calc(100dvh - var(--safe-top) - 8px)); overflow-y: auto;
   }
 
   .ws-hero {

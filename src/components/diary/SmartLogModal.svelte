@@ -9,11 +9,19 @@
   button is hidden — text input still works.
 -->
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { fly, fade } from 'svelte/transition';
   import { portal } from '../../lib/portal.js';
-  import { weightUnit } from '../../stores/settings.js';
+  import { weightUnit, smartLogVoiceLang } from '../../stores/settings.js';
+
+  // Voice input language from Settings; 'auto' means the device locale.
+  function _resolveVoiceLang() {
+    const v = smartLogVoiceLang.get();
+    if (v && v !== 'auto') return v;
+    return navigator.language || 'en-US';
+  }
   import { showError, showSuccess } from '../../stores/toast.js';
   import { parseInput, matchExercises, mergeIntoWorkout } from '../../lib/smartLogWorkout.js';
 
@@ -51,7 +59,7 @@
       webRecognition = new SR();
       webRecognition.continuous = false;
       webRecognition.interimResults = false;
-      webRecognition.lang = navigator.language || 'en-US';
+      webRecognition.lang = _resolveVoiceLang();
       webRecognition.onresult = (e) => {
         const t = e.results[0]?.[0]?.transcript || '';
         if (t) inputText = (inputText ? inputText + ' ' : '') + t;
@@ -149,7 +157,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sl-backdrop" on:click={closeAndReset}
+  <div use:portal class="sl-backdrop" on:click={closeAndReset} use:closeOnBack={closeAndReset}
     in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
     <div class="sl-sheet" on:click|stopPropagation
       in:fly={{ y: 40, duration: 240 }} out:fly={{ y: 20, duration: 160 }}>
@@ -299,7 +307,7 @@
     border-top: 1px solid var(--border);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 640px;
-    max-height: 90vh; overflow-y: auto;
+    max-height: min(90vh, calc(100dvh - var(--safe-top) - 8px)); overflow-y: auto;
     padding-bottom: calc(var(--safe-bottom) + 12px);
   }
   .sl-handle {

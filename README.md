@@ -55,6 +55,7 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **Programs and templates.** Starter templates (Push/Pull/Legs, Upper/Lower, Full Body 3x), multi-week progression with Sessions or Calendar advance modes (v1.0.1). → [full guide](https://traceapps.github.io/docs/lifttrace/programs/)
 - **Exercise library.** Four sources: wger (~600, CC-BY-SA), Free Exercise DB (~870, public domain), ExerciseDB (~1,300, RapidAPI BYO key), and ExerciseDB Open Source (self-hostable mirror, no key). Plus custom exercises and XLSX bulk import. → [full guide](https://traceapps.github.io/docs/lifttrace/exercises/)
 - **Statistics and PRs.** Metric-pill layout with Overview, Exercise Progress, Records, Volume, Frequency, and Body Weight views; automatic PR detection. → [full guide](https://traceapps.github.io/docs/lifttrace/statistics/)
+- **Progress photos.** Dated photos alongside your body stats, with a drag-to-compare before/after view for any two dates. Photos never expire, sync across devices, and are included in full backups. → [full guide](https://traceapps.github.io/docs/lifttrace/progress/)
 - **Trace AI coach.** Reads your workouts, programs, PRs, body stats, and coach prescriptions; can log a workout, prescribe (if you are a coach), start a program template, or update your active program, all conversationally. 18 tools total. Multi-provider (Claude / OpenAI / Gemini / any OpenAI-compatible endpoint). Hold-to-record voice log, FFT visualizer. → [full guide](https://traceapps.github.io/docs/lifttrace/trace/)
 - **Radio player.** Stream from Subsonic (Navidrome, Airsonic, Funkwhale, Gonic), Jellyfin, Plex, Emby, plus Icecast/Shoutcast/HLS internet radio with now-playing metadata. → [full guide](https://traceapps.github.io/docs/lifttrace/radio/)
 - **Coaching.** Trainer accounts prescribe workouts to athletes; prescriptions surface in Diary on the right day. → [full guide](https://traceapps.github.io/docs/lifttrace/coaching/)
@@ -82,7 +83,7 @@ services:
     image: ghcr.io/traceapps/lifttrace:latest
     container_name: lifttrace
     ports:
-      - "3002:3003"
+      - "3002:3002"
     volumes:
       - ./data/db:/data/db
       - ./data/uploads:/data/uploads
@@ -115,7 +116,7 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `UPLOADS_PATH` | `./uploads` | Uploaded exercise media directory |
 | `JWT_SECRET` | (required in prod) | JWT signing secret; server refuses to start in prod with the dev default |
 | `TOKEN_ENC_KEY` | derived from `JWT_SECRET` | At-rest encryption key for OIDC client secrets |
-| `PORT` | `3003` | Server port inside the container |
+| `PORT` | `3002` | Server port inside the container (3003 before 1.3.0) |
 | `LOG_LEVEL` | `info` | `error` \| `warn` \| `info` \| `debug` |
 | `EXERCISE_SOURCES` | `wger,free-db` | Sources to auto-seed on first boot (`wger`, `free-db`, `exercisedb`, `exercisedb-oss`) |
 | `EXERCISEDB_OSS_URL` | (upstream) | Point the OSS exercise source at your own mirror |

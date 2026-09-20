@@ -10,9 +10,10 @@
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
   import Dialog from '../components/ui/Dialog.svelte';
-  import { pageBanners, bannerStyle, favoriteExercises, customEquipment, weightUnit } from '../stores/settings.js';
+  import { pageBanners, bannerStyle, favoriteExercises, customEquipment, weightUnit, exerciseBrowserDensity } from '../stores/settings.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
   import { readSharedExerciseFile, fetchSharedExerciseUrl, importSharedExercise } from '../lib/exerciseShare.js';
+  import { portal } from '../lib/portal.js';
 
   let showEditor = false;
   let addMenuOpen = false;
@@ -188,7 +189,54 @@
     _wideMq.addEventListener?.('change', _syncWide);
   }
 
-  // Inline detail pane state — mirrors the picker's info-pane setup
+  // Detail pane positioning. Was plain position:sticky inside the grid,
+  // which looked right in isolation but never actually stuck: the route
+  // wrapper Svelte's fade transition applies to every page sets
+  // will-change:opacity on .page-transition and leaves it there, and
+  // that alone is enough to make it establish a new containing block,
+  // silently scoping the sticky panel to the wrong ancestor. Confirmed
+  // live, by walking the ancestor chain via getComputedStyle in the
+  // browser, rather than assumed. Diary.svelte's right rail hit the
+  // exact same class of bug already, fixed via use:portal (escapes the
+  // problem ancestor entirely) plus position:fixed with JS-measured CSS
+  // vars instead of trusting the grid to size or position it, since a
+  // portaled element is no longer a grid item and cannot inherit column
+  // geometry.
+  let _detailStickyTopPx = 0;   // exposed as --ex-detail-top
+  let _detailFixedLeftPx = 0;   // exposed as --ex-detail-left
+  let _detailFixedWidthPx = 380; // exposed as --ex-detail-width
+  let _contentEl = null;
+  let _detailResizeObs = null;
+  function _measureDetailPane() {
+    if (!_contentEl) return;
+    const gridRect = _contentEl.getBoundingClientRect();
+    const colWidth = _detailFixedWidthPx;
+    const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const pad = parseFloat(getComputedStyle(_contentEl).paddingTop || '0') || 0;
+    const naturalDocTop = gridRect.top + scrollY + pad;
+    const rootCS = getComputedStyle(document.documentElement);
+    const pageTop = parseFloat(rootCS.getPropertyValue('--page-top') || rootCS.getPropertyValue('--safe-top') || '0') || 0;
+    const hamRow  = parseFloat(rootCS.getPropertyValue('--hamburger-row') || '0') || 0;
+    const topPx = Math.max(0, Math.round(naturalDocTop - pageTop - hamRow));
+    if (topPx  !== _detailStickyTopPx)  _detailStickyTopPx  = topPx;
+    if (leftPx !== _detailFixedLeftPx)  _detailFixedLeftPx  = leftPx;
+  }
+  onMount(() => {
+    requestAnimationFrame(() => requestAnimationFrame(_measureDetailPane));
+    try {
+      _detailResizeObs = new ResizeObserver(_measureDetailPane);
+      if (_contentEl) _detailResizeObs.observe(_contentEl);
+    } catch { /* ResizeObserver unavailable, one-shot measurement stands */ }
+    const onResize = () => { _syncWide(); _measureDetailPane(); };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      try { _detailResizeObs?.disconnect(); } catch { /* ignore */ }
+    };
+  });
+
+  // Inline detail pane state, mirrors the picker's info-pane setup
   // so the two surfaces feel like one system.
   let _detailSelected = null;
   let _detailHistory = [];
@@ -380,10 +428,25 @@
     <div class="search-bar">
       <span class="material-symbols-rounded search-icon">search</span>
       <input class="search-input" type="text" placeholder="Search exercises..." bind:value={search} />
-      <!-- Sort menu lives inside the search bar so the chip rows below
-           stay focused on filters (Category / Equipment). Most users only
-           touch sort occasionally; tucking it behind an icon keeps the
-           filter bar light. -->
+    </div>
+
+    <!-- Category chips + sort + display density (issue #74) share one
+         row: chips scroll on the left, sort and the density toggle sit
+         pinned on the right with sort immediately to the left of the
+         view toggle. Sort used to live in the search bar; moved here so
+         it reads as one filter/sort/view control cluster instead of
+         being split across two rows. -->
+    <div class="category-row">
+      <div class="category-chips">
+        <button class="chip" class:active={!selectedCategory} on:click={() => selectedCategory = ''}>All</button>
+        {#each CATEGORIES.filter(c => categoryCounts[c.id]) as cat}
+          <button class="chip" class:active={selectedCategory === cat.id} on:click={() => selectedCategory = cat.id}>
+            <span class="material-symbols-rounded chip-icon">{cat.icon}</span>
+            {cat.label}
+          </button>
+        {/each}
+      </div>
+
       <div class="sort-menu-wrap" use:clickOutside={() => sortMenuOpen = false}>
         <button class="sort-icon-btn" class:active={sortMode !== 'alpha'}
                 on:click|stopPropagation={() => sortMenuOpen = !sortMenuOpen}
@@ -408,16 +471,31 @@
           </div>
         {/if}
       </div>
-    </div>
 
-    <div class="category-chips">
-      <button class="chip" class:active={!selectedCategory} on:click={() => selectedCategory = ''}>All</button>
-      {#each CATEGORIES.filter(c => categoryCounts[c.id]) as cat}
-        <button class="chip" class:active={selectedCategory === cat.id} on:click={() => selectedCategory = cat.id}>
-          <span class="material-symbols-rounded chip-icon">{cat.icon}</span>
-          {cat.label}
-        </button>
-      {/each}
+      {#if _wideMode}
+        <div class="density-toggle" role="group" aria-label="Display density">
+          <button
+            class="density-btn"
+            class:active={$exerciseBrowserDensity === 'compact'}
+            on:click={() => exerciseBrowserDensity.set('compact')}
+            title={$_('exercises_page.density_compact')}
+            aria-label={$_('exercises_page.density_compact')}
+            aria-pressed={$exerciseBrowserDensity === 'compact'}
+          >
+            <span class="material-symbols-rounded">view_list</span>
+          </button>
+          <button
+            class="density-btn"
+            class:active={$exerciseBrowserDensity === 'comfortable'}
+            on:click={() => exerciseBrowserDensity.set('comfortable')}
+            title={$_('exercises_page.density_comfortable')}
+            aria-label={$_('exercises_page.density_comfortable')}
+            aria-pressed={$exerciseBrowserDensity === 'comfortable'}
+          >
+            <span class="material-symbols-rounded">grid_view</span>
+          </button>
+        </div>
+      {/if}
     </div>
 
     {#if availableEquipment.length > 1}
@@ -438,7 +516,7 @@
   </div>
   </div>
 
-  <div class="content">
+  <div class="content" bind:this={_contentEl}>
     <!-- Center list column — at wide widths sits alongside the inline
          detail pane in the grid. On mobile this is a plain block. -->
     <div class="ex-list-col">
@@ -462,7 +540,7 @@
       {#each Object.entries(grouped) as [category, exs]}
         <div class="group">
           {#if category}<h3 class="group-title">{category}</h3>{/if}
-          <div class="group-list">
+          <div class="group-list" class:comfortable={_wideMode && $exerciseBrowserDensity === 'comfortable'}>
             {#each exs.sort(_sortFn()) as ex}
               {@const u = usage[ex.id]}
               <div class="exercise-row" class:selected-for-detail={_wideMode && _detailSelected?.id === ex.id}>
@@ -509,7 +587,8 @@
          that jumps to the /exercise/:id route for deeper analytics
          (charts, per-session breakdown). Mirrors the picker's info
          pane so the two surfaces feel like one system. -->
-    <aside class="ex-detail-pane">
+    <aside class="ex-detail-pane" use:portal
+      style="--ex-detail-top:{_detailStickyTopPx}px; --ex-detail-left:{_detailFixedLeftPx}px; --ex-detail-width:{_detailFixedWidthPx}px">
       {#if _detailSelected}
         <div class="edp-head">
           <h3 class="edp-title">{_detailSelected.name}</h3>
@@ -600,11 +679,20 @@
   .search-icon { font-size: 20px; color: var(--text-3); }
   .search-input { flex: 1; background: none; border: none; outline: none; color: var(--text-1); font-size: 15px; padding: 12px 0; font-family: inherit; }
 
+  /* Category chips + display density (issue #74) share one row now,
+     chips scrolling on the left and the toggle pinned on the right.
+     Matches CookTrace Pantry's actual .filter-row, where its grid/list
+     toggle sits alongside the category chips in one row, not stacked
+     above or below them. */
+  .category-row {
+    display: flex; align-items: center; gap: 4px;
+  }
   .category-chips {
     display: flex; gap: 6px; padding: 12px var(--page-px);
     overflow-x: auto; scrollbar-width: none;
     /* Cap the row at viewport width so chips can't push the page wide. */
     max-width: 100%; min-width: 0;
+    flex: 1;
   }
   .category-chips::-webkit-scrollbar { display: none; }
   .chip {
@@ -616,6 +704,30 @@
   }
   .chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .chip-icon { font-size: 16px; }
+
+  /* Display density toggle (issue #74). Icon-only two-up segmented
+     control, matching CookTrace Pantry's grid/list toggle exactly:
+     lives alongside the category chips rather than its own row.
+     Each button rounds its own outer corner directly, rather than
+     clipping a square corner with overflow:hidden on the wrapper,
+     so the active button's own background fills all the way into
+     the curve instead of leaving an unfilled notch where the clip
+     would otherwise cut the square corner off. */
+  .density-toggle {
+    display: inline-flex; gap: 0; flex-shrink: 0;
+    margin-right: var(--page-px);
+  }
+  .density-btn {
+    display: flex; align-items: center; justify-content: center;
+    padding: 6px 10px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    color: var(--text-2); cursor: pointer;
+    transition: all var(--dur-fast);
+  }
+  .density-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+  .density-btn:not(:first-child) { margin-left: -1px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .density-btn.active { position: relative; z-index: 1; background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .density-btn .material-symbols-rounded { font-size: 18px; }
 
   /* Wrapper exists so the fade gradients can sit outside the scrolling
      area — otherwise they'd move with the content. */
@@ -696,6 +808,18 @@
   }
   .ex-thumb img { width: 100%; height: 100%; object-fit: cover; }
   .ex-thumb .material-symbols-rounded { font-size: 22px; }
+
+  /* Comfortable density (issue #74). Desktop only, opt-in via the
+     toggle next to the filter chips. Same row structure as compact,
+     just a bigger thumbnail and more breathing room, rather than a
+     full card-grid rebuild: matches the issue's own "taller row or
+     card" framing without touching markup structure. */
+  .group-list.comfortable { gap: 8px; }
+  .group-list.comfortable .ex-row-main { padding: 14px 14px 14px 0; gap: 16px; }
+  .group-list.comfortable .ex-thumb { width: 96px; height: 96px; }
+  .group-list.comfortable .ex-thumb .material-symbols-rounded { font-size: 36px; }
+  .group-list.comfortable .ex-name { font-size: 15px; white-space: normal; }
+  .group-list.comfortable .ex-meta { font-size: 13px; white-space: normal; }
 
   /* Sort menu — anchored inside the search bar via a small icon button.
      Replaces the old chip-row so the filter bar stays focused on
@@ -827,8 +951,18 @@
       border-color: var(--accent);
       background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
     }
-    /* Right detail pane — sticky below the sticky filter chrome. */
-    :global(html:not(.force-mobile-layout)) .content > .ex-detail-pane {
+    /* Right detail pane, fixed below the sticky filter chrome.
+       Portaled to body (use:portal on the element) and positioned via
+       JS-measured CSS vars rather than plain position:sticky inside
+       the grid: .page-transition's will-change:opacity (Svelte's fade
+       transition on every route) silently scopes sticky positioning to
+       the wrong ancestor, so it never actually held in place. Diary's
+       right rail solved the identical problem the same way. No .content
+       ancestor in this selector on purpose: once portaled, the aside is
+       a direct child of body, not a grid item. Grid still reserves the
+       380px column because its track size is explicit, so the list
+       column doesn't reflow when the aside leaves flow. */
+    :global(html:not(.force-mobile-layout)) .ex-detail-pane {
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -836,14 +970,18 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       padding: 14px;
-      position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 220px + var(--hamburger-row, 0px));
-      align-self: start;
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--ex-detail-top, 220px) + var(--hamburger-row, 0px));
+      left: var(--ex-detail-left, auto);
+      width: var(--ex-detail-width, 380px);
+      z-index: 5;
       max-height: calc(100vh
         - var(--page-top, var(--safe-top))
-        - 240px
+        - var(--ex-detail-top, 220px)
+        - 20px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
     }

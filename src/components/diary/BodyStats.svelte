@@ -1,11 +1,36 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount } from 'svelte';
+  import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { bodyStatsVisible, weightUnit, dateFormat } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { currentDate } from '../../stores/workout.js';
+  import { uploadAndAttachPhoto } from '../../lib/progress-photo-upload.js';
 
   export let open = false;
+
+  // Progress photo capture for the date this sheet is editing. The
+  // timeline and comparison live on /progress; this is the shortcut for
+  // someone already logging today's measurements.
+  let photoInput;
+  let photoUploading = false;
+
+  async function onPhotoFile(e) {
+    const file = e.target.files?.[0];
+    if (photoInput) photoInput.value = '';
+    if (!file) return;
+    photoUploading = true;
+    try {
+      await uploadAndAttachPhoto(file, $currentDate);
+      showSuccess($_('progress.toast.added'));
+    } catch (err) {
+      showError(err.message || $_('progress.toast.add_failed'));
+    } finally {
+      photoUploading = false;
+    }
+  }
 
   // Title case for the label, unit comes from getUnit() so each label
   // renders as e.g. "Weight (lbs)" or "Body Fat (%)". The previous
@@ -53,7 +78,11 @@
       const res = await fetch(`/api/body-stats/${$currentDate}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        stats = data.stats ? (typeof data.stats === 'string' ? JSON.parse(data.stats) : data.stats) : {};
+        // See BodyStatsWidget.svelte's load() for the wire-shape rationale
+        // (issue #80): the actual measurements sit one level deeper, at
+        // data.stats.stats, not data.stats itself.
+        const raw = typeof data.stats === 'string' ? JSON.parse(data.stats) : data.stats;
+        stats = raw?.stats ?? raw ?? {};
       } else {
         stats = {};
       }
@@ -86,7 +115,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={() => open = false}>
+  <div use:portal class="sheet-backdrop" on:click={() => open = false} use:closeOnBack={() => open = false}>
     <div class="bs-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">
@@ -110,6 +139,20 @@
         {#if visibleStats.length === 0}
           <p class="bs-empty">No measurements enabled. Go to Settings → Workout to choose which stats to track.</p>
         {/if}
+
+        <!-- Progress photo for this same date. The full timeline and the
+             before/after comparison live on the Progress page; this is
+             just the "while I'm logging today" shortcut. -->
+        <div class="bs-photo-row">
+          <button class="btn btn-secondary bs-photo-btn" disabled={photoUploading} on:click={() => photoInput?.click()}>
+            <span class="material-symbols-rounded">add_a_photo</span>
+            {photoUploading ? $_('progress.adding') : $_('progress.add_photo')}
+          </button>
+          <button class="bs-photo-link" on:click={() => { open = false; push('/progress'); }}>
+            {$_('progress.view_timeline')}
+          </button>
+        </div>
+        <input type="file" accept="image/*" bind:this={photoInput} on:change={onPhotoFile} style="display:none" />
       </div>
       <div class="bs-sheet-footer">
         <button class="btn btn-primary w-full" on:click={save} disabled={saving}>
@@ -144,8 +187,30 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
+    /* Never taller than the screen above the keyboard, and never up under
+       the status bar. With no cap, the keyboard the fields open pushed the
+       sheet's top (and its close button) under the status bar (same as
+       NutriTrace #228). 90dvh matches the shared Sheet; the safe-top term
+       keeps it clear where the status bar is taller than the other 10%. */
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* The title and close button stay in reach when the fields scroll. */
+  .bs-sheet .sheet-header-row {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--surface-1);
   }
   .bs-sheet-body { padding: 8px 20px 0; }
+  .bs-photo-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 14px; flex-wrap: wrap;
+  }
+  .bs-photo-btn { flex: 1; min-width: 160px; }
+  .bs-photo-link {
+    background: none; border: none; padding: 4px 2px;
+    font-size: 12px; color: var(--accent); cursor: pointer;
+  }
   .bs-sheet-footer { padding: 16px 20px; }
   .bs-grid {
     display: grid;

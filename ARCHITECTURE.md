@@ -9,7 +9,7 @@ house conventions that aren't obvious from reading the source.
 - **Frontend:** Svelte 5 (compat mode: `runes: false` + `componentApi: 4`), Vite 6, svelte-spa-router v4 (hash routing)
 - **Server:** Node + Express 5, better-sqlite3, bcryptjs 3
 - **Mobile:** PWA + Capacitor 8 (Android)
-- **Deploy:** `docker compose up -d`, serves on port 3002 (internal 3003)
+- **Deploy:** `docker compose up -d`, serves on port 3002 (host and container)
 - **License:** AGPL-3.0
 
 ## Layout

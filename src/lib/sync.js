@@ -241,6 +241,20 @@ export async function pullSnapshot(silent = false) {
   const result = { ok: true, tables: {}, errors: [] };
 
   try {
+    // Issue #76: if db-native.js's multi-session schema rebuild failed on
+    // this device (flagged rather than left half-applied — see
+    // _migrateMultiSession's doc comment), force a full re-pull instead
+    // of trusting the local mirror's watermark. A server-connected device
+    // can always recover this way; only genuinely standalone (no server)
+    // installs can't, which is exactly why db-native.js also backs up the
+    // raw file before attempting that rebuild.
+    if ((await getSyncMeta('schema_migration_v76_failed')) === '1') {
+      await setSyncMeta('last_server_time', '');
+      await setSyncMeta('last_pull_at', '');
+      await setSyncMeta('schema_migration_v76_failed', '');
+      console.warn('[sync] local schema migration (#76) had failed — forcing a full re-pull');
+    }
+
     // Use the previous pull's server_time as `since` (server gives us a
     // monotonic timestamp on every response). Fall back to last_pull_at
     // for installs that synced under the old snapshot path; fall back
@@ -339,8 +353,9 @@ async function _applyExercises(rows, result) {
       `INSERT OR REPLACE INTO exercises
          (id, name, category, primary_muscles, secondary_muscles, equipment,
           instructions, tips, img_url, gif_url, video_url,
-          external_id, source, is_global, created_by, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
+          external_id, source, is_global, created_by, created_at, updated_at,
+          load_type, set_type, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
       [
         e.id, e.name, e.category || null,
         JSON.stringify(e.primary_muscles || []),
@@ -352,6 +367,12 @@ async function _applyExercises(rows, result) {
         e.is_global ? 1 : 0, e.created_by || null,
         e.created_at || new Date().toISOString(),
         e.updated_at || new Date().toISOString(),
+        // INSERT OR REPLACE rewrites the whole row, so any column left out
+        // here is reset to its default on every pull. load_type used to be
+        // missing, which silently cleared a library load type on Android
+        // each sync; set_type (issue #89) would have gone the same way.
+        e.load_type ?? null,
+        e.set_type ?? null,
       ]
     );
   }
@@ -455,33 +476,41 @@ async function _applyWorkouts(rows, result) {
  */
 async function _applyWorkoutTombstones(rows, result) {
   if (!rows?.length) { result.tables.workoutTombstones = 0; return; }
-  const byDate = new Map();
+  const byWorkout = new Map(); // key: `${date}::${workoutId}`
   for (const t of rows) {
     if (!t || !t.date || !t.kind || !t.uuid) continue;
+    const workoutId = t.workout_id || 0;
     await dbRun(
-      `INSERT INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at, sync_state)
-       VALUES (1, ?, ?, ?, ?, ?, 'clean')
-       ON CONFLICT(user_id, date, kind, ex_uuid, uuid) DO UPDATE SET
+      `INSERT INTO workout_tombstones (user_id, date, workout_id, kind, ex_uuid, uuid, deleted_at, sync_state)
+       VALUES (1, ?, ?, ?, ?, ?, ?, 'clean')
+       ON CONFLICT(user_id, date, workout_id, kind, ex_uuid, uuid) DO UPDATE SET
          deleted_at = excluded.deleted_at, sync_state = 'clean'`,
-      [t.date, t.kind, t.ex_uuid || '', t.uuid, t.deleted_at || new Date().toISOString()]
+      [t.date, workoutId, t.kind, t.ex_uuid || '', t.uuid, t.deleted_at || new Date().toISOString()]
     );
-    // Only exercise/set kinds filter the daily workout row locally;
-    // template tombstones affect a separate table.
+    // Only exercise/set kinds filter a workout row locally; template
+    // tombstones (workoutId 0, synthetic date) affect a separate table.
     if (t.kind !== 'exercise' && t.kind !== 'set') continue;
-    const g = byDate.get(t.date) || { exUuids: new Set(), setsByEx: new Map() };
+    const key = `${t.date}::${workoutId}`;
+    const g = byWorkout.get(key) || { date: t.date, workoutId, exUuids: new Set(), setsByEx: new Map() };
     if (t.kind === 'exercise') g.exUuids.add(t.uuid);
     else {
       const set = g.setsByEx.get(t.ex_uuid) || new Set();
       set.add(t.uuid);
       g.setsByEx.set(t.ex_uuid, set);
     }
-    byDate.set(t.date, g);
+    byWorkout.set(key, g);
   }
-  for (const [date, g] of byDate) {
-    const rows2 = await dbQuery(
-      `SELECT id, exercises FROM workout_log WHERE user_id = 1 AND date = ?`,
-      [date]
-    );
+  for (const g of byWorkout.values()) {
+    // workoutId scopes the tombstone to its own session (issue #82) so a
+    // deletion on one same-day session never touches another; falls back
+    // to a bare date lookup only for tombstones that predate the #76
+    // migration's workout_id backfill (workoutId 0 with an exercise/set
+    // kind should not normally occur post-backfill, but degrades safely
+    // to the pre-#76 single-row-per-date behavior rather than dropping
+    // the tombstone).
+    const rows2 = g.workoutId
+      ? await dbQuery(`SELECT id, exercises FROM workout_log WHERE user_id = 1 AND id = ? AND date = ?`, [g.workoutId, g.date])
+      : await dbQuery(`SELECT id, exercises FROM workout_log WHERE user_id = 1 AND date = ?`, [g.date]);
     const row = rows2?.[0];
     if (!row) continue;
     let exercises;
@@ -519,19 +548,43 @@ async function _applyBodyStats(rows, result) {
   result.tables.bodyStats = rows.length;
 }
 
+/**
+ * Setting keys with a write still queued for the server (made offline).
+ * Those local values are newer than anything the server can send back.
+ */
+export async function queuedSettingKeys() {
+  const keys = new Set();
+  if (!isNative) return keys;
+  try {
+    const rows = await dbQuery(`SELECT payload FROM sync_queue WHERE table_name LIKE '/api/settings%'`, []);
+    for (const r of rows) {
+      try {
+        const p = JSON.parse(r.payload);
+        if (p?.method !== 'PUT' || !p.body || typeof p.body !== 'object') continue;
+        if (typeof p.body.key === 'string' && 'value' in p.body) keys.add(p.body.key);
+        else for (const k of Object.keys(p.body)) keys.add(k);
+      } catch { /* malformed row: flushQueue drops it */ }
+    }
+  } catch { /* no local DB yet */ }
+  return keys;
+}
+
 async function _applySettings(rows, result) {
   if (!rows?.length) { result.tables.settings = 0; return; }
   // Lazy-import DB so the sync module doesn't pull the localStorage helper
   // into every consumer that just needs sync state types.
   const { DB } = await import('./db.js');
+  const { isRecentlyChanged } = await import('../stores/settings.js');
+  // Skip a key only while this device's own change is still on its way:
+  // queued offline, or just edited and not yet saved. The local row's
+  // sync_state is not used for this. Settings reach the server through
+  // the write queue, not /sync/push, so nothing ever cleared 'pending'
+  // and one offline edit blocked every later change to that setting from
+  // the web.
+  const queued = await queuedSettingKeys();
   for (const s of rows) {
     if (!s.key) continue;
-    // Same pending guard as the other appliers but keyed on (user_id, key).
-    const localRows = await dbQuery(
-      `SELECT sync_state FROM user_settings WHERE user_id = 1 AND key = ? LIMIT 1`,
-      [s.key]
-    );
-    if (localRows[0]?.sync_state === 'pending') continue;
+    if (queued.has(s.key) || isRecentlyChanged(s.key)) continue;
     await dbRun(
       `INSERT INTO user_settings (user_id, key, value, updated_at, sync_state)
        VALUES (1, ?, ?, ?, 'clean')
@@ -579,11 +632,156 @@ async function _applyChat(rows, result) {
  * flushQueue(). Called by apiFetch.js when a fetch throws or returns 5xx.
  */
 export async function enqueueWrite(method, path, body) {
-  await dbRun(
+  const r = await dbRun(
     `INSERT INTO sync_queue (table_name, row_id, operation, payload)
      VALUES (?, NULL, ?, ?)`,
     [path, method, JSON.stringify({ method, path, body: body == null ? null : body })]
   );
+  return r?.lastId ?? null;
+}
+
+/** A workout created offline got a device-side id; remember it on the
+ *  queued write so the replay can swap it for the server's id (issue #102). */
+export async function noteQueuedLocalId(queueId, localId) {
+  if (queueId == null || localId == null) return;
+  const row = (await dbQuery(`SELECT payload FROM sync_queue WHERE id = ?`, [queueId]))[0];
+  if (!row) return;
+  let payload;
+  try { payload = JSON.parse(row.payload); } catch { return; }
+  payload.localId = localId;
+  await dbRun(`UPDATE sync_queue SET payload = ? WHERE id = ?`, [JSON.stringify(payload), queueId]);
+}
+
+// ── Workout cache after this device's own saves (issue #102) ───────────
+//
+// In server mode the Diary reads a workout from the device's copy first, but
+// that copy used to change only when a pull brought the server's version
+// down, and a pull skips rows marked 'pending'. An offline edit marks the row
+// pending and nothing ever cleared it, so from then on the device kept its own
+// stale copy of that workout. These keep the copy in step with the device's
+// own saves: an online save writes the server's answer straight back, and once
+// every queued offline write for a date has gone up, that date's rows are
+// replaced with the server's.
+
+const _WORKOUT_PATH = /^\/api\/workout\/(\d{4}-\d{2}-\d{2})(?:\?|$)/;
+
+/** The workout date a queued or live request path writes to, if any. */
+export function workoutDateOf(path) {
+  const m = _WORKOUT_PATH.exec(String(path || ''));
+  return m ? m[1] : null;
+}
+
+// Bumped whenever this device writes a date's workout rows itself. A
+// server refresh of the date started before such a write is out of date by
+// the time it answers, so it stands down instead of writing over it.
+const _dateGen = new Map();
+const _bumpDate = (date) => _dateGen.set(date, (_dateGen.get(date) || 0) + 1);
+
+async function _queuedWorkoutDates() {
+  const dates = new Set();
+  const rows = await dbQuery(`SELECT table_name FROM sync_queue WHERE table_name LIKE '/api/workout/%'`, []);
+  for (const r of rows) { const d = workoutDateOf(r.table_name); if (d) dates.add(d); }
+  return dates;
+}
+
+async function _writeServerWorkout(w) {
+  if (!w?.id || !w.date) return;
+  if (w.deleted_at) { await dbRun(`DELETE FROM workout_log WHERE id = ?`, [w.id]); return; }
+  await dbRun(
+    `INSERT OR REPLACE INTO workout_log
+       (id, user_id, date, template_id, program_id, name, exercises,
+        notes, duration_min, completed, program_week, session_seq, created_at, updated_at, sync_state)
+     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'clean')`,
+    [
+      w.id, w.date, w.template_id || null, w.program_id || null,
+      w.name || null,
+      JSON.stringify(Array.isArray(w.exercises) ? w.exercises : _parseMaybe(w.exercises)),
+      w.notes || null, w.duration_min ?? null,
+      w.completed ? 1 : 0,
+      w.program_week ?? null,
+      w.session_seq ?? 0,
+      w.created_at || new Date().toISOString(),
+      w.updated_at || new Date().toISOString(),
+    ]
+  );
+}
+function _parseMaybe(v) { try { return JSON.parse(v || '[]'); } catch { return []; } }
+
+/** The workout session a queued workout write targets: body id, or ?id=. */
+function _targetWorkoutId(payload) {
+  const b = payload?.body;
+  if (b && typeof b === 'object' && b.id != null) return b.id;
+  const q = String(payload?.path || '').split('?')[1];
+  if (!q) return null;
+  const id = new URLSearchParams(q).get('id');
+  return id != null && id !== '' && Number.isFinite(Number(id)) ? Number(id) : null;
+}
+
+/** Point a queued workout write at the server's id, wherever it carries one. */
+function _retargetWorkout(payload, serverId) {
+  if (payload.body && typeof payload.body === 'object' && payload.body.id != null) {
+    payload.body = { ...payload.body, id: serverId };
+  }
+  const [base, q] = String(payload.path || '').split('?');
+  if (q) {
+    const params = new URLSearchParams(q);
+    if (params.has('id')) { params.set('id', String(serverId)); payload.path = `${base}?${params}`; }
+  }
+}
+
+/** After an online save: store the server's copy, unless offline edits for
+ *  that date are still waiting to go up (they will reconcile it instead). */
+export async function mirrorSavedWorkout(date, workout) {
+  if (!isNative || !getServerUrl() || !workout?.id) return;
+  if ((await _queuedWorkoutDates()).has(date)) return;
+  _bumpDate(date);
+  await _writeServerWorkout(workout);
+}
+
+/** After an online delete: drop that session from the device copy (the
+ *  given id, or the date's first session when none was named, as the server
+ *  resolves it). Local only; reconcileWorkoutDate follows it up. */
+export async function forgetDeletedWorkout(date, id) {
+  if (!isNative || !getServerUrl() || !date) return;
+  if ((await _queuedWorkoutDates()).has(date)) return;
+  _bumpDate(date);
+  if (id != null && Number.isFinite(id)) {
+    await dbRun(`DELETE FROM workout_log WHERE id = ? AND date = ?`, [id, date]);
+    return;
+  }
+  const first = (await dbQuery(
+    `SELECT id FROM workout_log WHERE user_id = 1 AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1`,
+    [date]
+  ))[0];
+  if (first) await dbRun(`DELETE FROM workout_log WHERE id = ?`, [first.id]);
+}
+
+/** Replace a date's local rows with the server's sessions, once nothing for
+ *  that date is left in the write queue. Also removes a session created
+ *  offline under a device-side id, which the server stored under its own. */
+export async function reconcileWorkoutDate(date) {
+  if (!isNative || !getServerUrl() || !date) return false;
+  if ((await _queuedWorkoutDates()).has(date)) return false;
+  // A save made while the request was out (online, already written here) is
+  // newer than that answer, so ask again; the next answer includes it. An
+  // offline save made meanwhile is still queued, so the device copy stays.
+  let sessions = null;
+  for (let attempt = 0; attempt < 3 && sessions == null; attempt++) {
+    const gen = _dateGen.get(date) || 0;
+    const data = await _serverFetch('GET', `/api/workout/${date}/sessions`);
+    if ((await _queuedWorkoutDates()).has(date)) return false;
+    if ((_dateGen.get(date) || 0) === gen) sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+  }
+  if (sessions == null) return false;   // still changing; the next sync tries again
+  // Server rows first, then drop the local ones it doesn't have, so a failure
+  // part way can't leave the day missing on the device.
+  for (const w of sessions) await _writeServerWorkout(w);
+  const keep = sessions.map(w => Number(w.id)).filter(Number.isFinite);
+  await dbRun(
+    `DELETE FROM workout_log WHERE user_id = 1 AND date = ?${keep.length ? ` AND id NOT IN (${keep.map(() => '?').join(',')})` : ''}`,
+    [date, ...keep]
+  );
+  return true;
 }
 
 /**
@@ -596,6 +794,20 @@ export async function flushQueue() {
   if (_flushing) return { ok: false, reason: 'already flushing' };
   _flushing = true;
   const result = { attempted: 0, succeeded: 0, dropped: 0, retained: 0 };
+  const workoutDates = new Set();
+  // A workout created offline has a device-side id until its first write
+  // reaches the server. Later queued writes carry that id, which the server
+  // doesn't know and would apply to the date's first session instead, so
+  // they are re-pointed at the server's id, or held back until it exists.
+  const idMap = new Map();          // device-side id -> server id
+  const waitingIds = new Set();     // device-side ids whose create hasn't gone up yet
+  const refusedIds = new Set();     // device-side ids whose create the server refused
+  // Writes to the same thing must reach the server in the order they were
+  // made. Once one is kept for a retry, later writes to the same workout day
+  // (or the same endpoint otherwise) wait behind it instead of overtaking it;
+  // writes to anything else still go through.
+  const orderKey = (path) => { const d = workoutDateOf(path); return d ? `workout:${d}` : String(path || '').split('?')[0]; };
+  const blocked = new Set();
 
   try {
     const rows = await dbQuery(
@@ -603,6 +815,9 @@ export async function flushQueue() {
       []
     );
     _dlog('[sync] flushQueue', rows.length, 'queued writes');
+    for (const row of rows) {
+      try { const p = JSON.parse(row.payload); if (p?.localId != null) waitingIds.add(p.localId); } catch { /* checked below */ }
+    }
     for (const row of rows) {
       result.attempted++;
       let payload;
@@ -612,10 +827,42 @@ export async function flushQueue() {
         result.dropped++;
         continue;
       }
+      if (blocked.has(orderKey(payload.path))) {
+        result.retained++;   // an earlier write to the same thing is still waiting
+        continue;
+      }
+      // Which workout session this write targets: the body's id for a save,
+      // the ?id= on the address for a delete. Only workout writes take part
+      // in the id swap; any other record can happen to have the same number.
+      const isWorkoutWrite = !!workoutDateOf(payload.path);
+      const bodyId = !isWorkoutWrite ? null : _targetWorkoutId(payload);
+      if (bodyId != null && refusedIds.has(bodyId)) {
+        // Edits to a workout the server never accepted: drop them rather
+        // than let them land on another session.
+        await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
+        result.dropped++;
+        const wdRefused = workoutDateOf(payload.path);
+        if (wdRefused) workoutDates.add(wdRefused);
+        continue;
+      }
+      if (bodyId != null && idMap.has(bodyId)) {
+        _retargetWorkout(payload, idMap.get(bodyId));
+      } else if (bodyId != null && waitingIds.has(bodyId) && payload.localId !== bodyId) {
+        result.retained++;   // its session isn't on the server yet
+        blocked.add(orderKey(payload.path));
+        continue;
+      }
       try {
-        await _serverFetch(payload.method, payload.path, payload.body);
+        const sent = await _serverFetch(payload.method, payload.path, payload.body);
+        if (payload.localId != null) {
+          waitingIds.delete(payload.localId);
+          const serverId = sent?.workout?.id;
+          if (serverId != null && serverId !== payload.localId) idMap.set(payload.localId, serverId);
+        }
         await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
         result.succeeded++;
+        const wd = workoutDateOf(payload.path);
+        if (wd) workoutDates.add(wd);
       } catch (e) {
         if (e.status === 401) {
           // Auth lost — clear local auth so the user re-signs-in, and
@@ -634,14 +881,39 @@ export async function flushQueue() {
           // Permanent failure — drop so it doesn't block forever.
           await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
           result.dropped++;
+          // The server refused it, so its copy is the truth for that date.
+          if (payload.localId != null) { waitingIds.delete(payload.localId); refusedIds.add(payload.localId); }
+          const wdDropped = workoutDateOf(payload.path);
+          if (wdDropped) workoutDates.add(wdDropped);
         } else {
           await dbRun(
             `UPDATE sync_queue SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
             [String(e.message || e).slice(0, 500), row.id]
           );
           result.retained++;
+          blocked.add(orderKey(payload.path));
         }
       }
+    }
+    // Writes still queued (held back, or a failed retry) keep the new ids.
+    if (idMap.size) {
+      for (const r of await dbQuery(`SELECT id, payload FROM sync_queue`, [])) {
+        try {
+          const p = JSON.parse(r.payload);
+          const id = workoutDateOf(p?.path) ? _targetWorkoutId(p) : null;
+          if (id != null && idMap.has(id)) {
+            _retargetWorkout(p, idMap.get(id));
+            await dbRun(`UPDATE sync_queue SET payload = ?, table_name = ? WHERE id = ?`, [JSON.stringify(p), p.path, r.id]);
+          }
+        } catch { /* leave it */ }
+      }
+      // The Diary may still be showing that workout under the device id.
+      try { window.dispatchEvent(new CustomEvent('lt:workout-ids', { detail: { map: [...idMap] } })); } catch { /* no window */ }
+    }
+    // Offline edits for these dates are now on the server (or were refused):
+    // bring the device's copy back in line with it (issue #102).
+    for (const d of workoutDates) {
+      try { await reconcileWorkoutDate(d); } catch (e) { _dlog('[sync] reconcile failed', d, e?.message); }
     }
     return result;
   } finally {

@@ -14,6 +14,7 @@ const SERVER_SETTINGS = new Set([
   'heightCm', 'currentWeightKg', 'dob', 'gender', 'caloriesBurnedEnabled',
   'statsChartType', 'statsYZero', 'statsAvgLine', 'statsTrendLine',
   'aiEnabled', 'aiProvider', 'aiApiKey', 'aiModel', 'aiBaseUrl', 'aiAssistantName', 'aiKeyVerified',
+  'quickLogEnabled', 'smartLogVoiceLang',
   'wgerEnabled', 'exerciseDbApiKey',
   // Appearance/UI prefs
   'appearance', 'accentColor', 'language',
@@ -34,7 +35,7 @@ const SERVER_SETTINGS = new Set([
   'notifWorkoutComplete', 'notifPRCelebrations',
   'notifMemberCompletes', 'notifMemberMissed', 'notifMemberReply', 'notifCoachFeedback',
   'notifWeeklySummary', 'weeklySummaryDay', 'weeklySummaryTime',
-  'bodyStatsVisible', 'exerciseLoadTypes',
+  'bodyStatsVisible', 'exerciseLoadTypes', 'exerciseSetTypes',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
   'radioStationsEnabled',
   'updateCheckInterval', // hours between checks: 1, 4, 12, 24, or 0 for manual only
@@ -43,8 +44,18 @@ const SERVER_SETTINGS = new Set([
 const _saveQueue = {};
 function _isLoggedIn() { return !!localStorage.getItem('wl:userId'); }
 
+// Keys changed on this device in the last few seconds. A sync pull or the
+// startup settings load can land between the edit and its debounced save,
+// and would otherwise put the old server value back on screen.
+const _recentlyChanged = new Map(); // key -> timestamp
+export function isRecentlyChanged(key) {
+  const ts = _recentlyChanged.get(key);
+  return !!ts && Date.now() - ts < 10000;
+}
+
 export function scheduleSave(key, value) {
   if (!SERVER_SETTINGS.has(key)) return;
+  _recentlyChanged.set(key, Date.now());
   clearTimeout(_saveQueue[key]);
   _saveQueue[key] = setTimeout(() => {
     if (!_isLoggedIn()) return;
@@ -80,7 +91,15 @@ export async function loadServerSettings() {
     const res = await fetch('/api/settings', { credentials: 'include' });
     if (!res.ok) return;
     const serverSettings = await res.json();
+    // On Android, a change made offline is still queued for the server,
+    // so the server's copy is older; keep what this device has.
+    let queued = new Set();
+    try {
+      const { isNative } = await import('../lib/platform.js');
+      if (isNative) queued = await (await import('../lib/sync.js')).queuedSettingKeys();
+    } catch { /* web build */ }
     for (const [key, value] of Object.entries(serverSettings)) {
+      if (queued.has(key) || isRecentlyChanged(key)) continue;
       DB.setSetting(key, value);
       // Dispatch with the BARE key — the createSettingStore listener
       // below compares against the bare key, not 'wl_<key>'. The old
@@ -182,6 +201,9 @@ export const favoriteExercises = createSettingStore('favoriteExercises', []);
 // a user's home-gym kit follows them between devices.
 export const customEquipment = createSettingStore('customEquipment', []);
 export const exerciseReorderMethod = createSettingStore('exerciseReorderMethod', 'both'); // 'drag' | 'buttons' | 'both'
+// Exercises tab display density (issue #74). Desktop only, so mobile's
+// existing compact list is untouched.
+export const exerciseBrowserDensity = createSettingStore('exerciseBrowserDensity', 'compact'); // 'compact' | 'comfortable'
 export const autoCollapseCompleted = createSettingStore('autoCollapseCompleted', true);
 export const autoNameWorkouts = createSettingStore('autoNameWorkouts', true);
 export const confirmExerciseRemoval = createSettingStore('confirmExerciseRemoval', true);
@@ -244,6 +266,12 @@ export const bodyStatsVisible = createSettingStore('bodyStatsVisible', [
 // next time the same exercise gets added the load_type pre-fills.
 // Shape: { [exercise_id]: 'bilateral' | 'paired' | 'unilateral' }
 export const exerciseLoadTypes = createSettingStore('exerciseLoadTypes', {});
+
+// Per-exercise remembered set type (issue #89), set by the same "Remember
+// for this exercise" tickbox on the Diary chip. Shape: { [exercise_id]:
+// 'reps' | 'time' }. Only consulted when an exercise has no data and no
+// library default; see resolveSetType in src/lib/workout.js.
+export const exerciseSetTypes = createSettingStore('exerciseSetTypes', {});
 
 // Radio / Music
 export const radioEnabled  = createSettingStore('radioEnabled',  false);
@@ -319,6 +347,11 @@ export const aiAssistantName = createSettingStore('aiAssistantName', 'Trace');
 // on the SettingsTrace connection banner. The Trace FAB is NOT gated
 // on this — see NutriTrace's lesson, gating breaks legacy installs.
 export const aiKeyVerified   = createSettingStore('aiKeyVerified',   false);
+// Smart Log: hold the Trace button and speak a workout. On by default here,
+// since LiftTrace always had hold-to-record before it gained a switch.
+export const quickLogEnabled   = createSettingStore('quickLogEnabled',   true);
+// Language the microphone listens for. 'auto' follows the device locale.
+export const smartLogVoiceLang = createSettingStore('smartLogVoiceLang', 'auto');
 
 // ── NutriTrace federation (workout calorie sync) ─────────────────────────
 // User-entered URL + personal access token for a NutriTrace instance,

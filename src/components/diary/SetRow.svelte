@@ -1,8 +1,12 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { trackRpe } from '../../stores/settings.js';
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
+  import { replaceOnType } from '../../lib/replaceOnType.js';
+  import { parseDuration, fmtSetDuration, maskDurationInput } from '../../lib/workout.js';
 
   export let set;
   export let setNum;
@@ -22,6 +26,13 @@
    *    - Whether the reps cell offers an L/R split (unilateral only).
    */
   export let loadType = 'bilateral';
+  /** 'reps' (default) or 'time' (issue #89). A timed set logs a duration
+   *  in place of reps; weight stays, for weighted holds and carries. */
+  export let setType = 'reps';
+  $: timed = setType === 'time';
+  /** True while the hold timer is running for this set (issue #89). The
+   *  parent card decides, since only it knows which exercise this row is. */
+  export let holdRunning = false;
 
   $: weightHint = loadType === 'paired' ? `${unit} ea`
                 : loadType === 'unilateral' ? `${unit}`
@@ -29,7 +40,7 @@
   // L/R split is only meaningful for unilateral exercises. When the user
   // taps the split icon we flip into split-mode where reps_l + reps_r are
   // edited separately; clearing both falls back to the single `reps` value.
-  $: isSplit = loadType === 'unilateral' && (set.reps_l != null || set.reps_r != null);
+  $: isSplit = !timed && loadType === 'unilateral' && (set.reps_l != null || set.reps_r != null);
   function toggleSplit() {
     if (isSplit) {
       // Collapse split → keep the higher of the two as the single rep count.
@@ -124,8 +135,6 @@
     dispatch('update', { ...set, completed: nowComplete });
   }
 
-  /** Select the whole value on focus so a single tap overwrites it. */
-  function selectOnFocus(e) { e.target?.select?.(); }
 
   // ── Input clobber guard ──────────────────────────────────────────────
   // Each numeric input keeps a local string bound with bind:value. The
@@ -139,11 +148,13 @@
   let repsFocused = false;
   let repsLFocused = false;
   let repsRFocused = false;
+  let durationFocused = false;
 
   let weightStr = _fmt(set.weight);
   let repsStr = _fmt(set.reps);
   let repsLStr = _fmt(set.reps_l);
   let repsRStr = _fmt(set.reps_r);
+  let durationStr = fmtSetDuration(set.duration_sec);
 
   function _fmt(v) { return v == null || Number.isNaN(v) ? '' : String(v); }
 
@@ -154,6 +165,22 @@
   $: if (!repsFocused)   repsStr   = _fmt(set.reps);
   $: if (!repsLFocused)  repsLStr  = _fmt(set.reps_l);
   $: if (!repsRFocused)  repsRStr  = _fmt(set.reps_r);
+  $: if (!durationFocused) durationStr = fmtSetDuration(set.duration_sec);
+
+  // Duration entry, timer style: digits fill from the right on the number
+  // pad ("130" reads 1:30), shown live as m:ss so nothing is left to guess.
+  // Commits on every keystroke, like reps, so tapping the tick straight
+  // after typing can never complete the set with a stale duration. On blur
+  // an overflowing value such as 0:90 tidies to 1:30.
+  function commitDuration(raw) {
+    if (raw === '' || raw == null) {
+      if (set.duration_sec) update('duration_sec', 0);
+      return;
+    }
+    const sec = parseDuration(raw);
+    if (sec == null) return;
+    if (sec !== set.duration_sec) update('duration_sec', sec);
+  }
 
   function commitNumber(field, raw, parser) {
     // Empty string commits as 0 (matches the old behaviour). Otherwise
@@ -187,7 +214,7 @@
              on the weight column. -->
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked}></div>
+        <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked} use:closeOnBack={() => numOpen = false}></div>
         <div use:portal class="num-picker" style="top:{numPickerPos.top}px; left:{numPickerPos.left}px">
           {#each NUM_VALUES as n}
             <button class="num-opt" class:active={displayNum === n} on:click|stopPropagation={() => pickNum(n)}>{n}</button>
@@ -207,7 +234,8 @@
       class="set-input"
       bind:value={weightStr}
       on:input={() => commitNumber('weight', weightStr, parseFloat)}
-      on:focus={(e) => { weightFocused = true; selectOnFocus(e); }}
+      use:replaceOnType
+        on:focus={() => { weightFocused = true; }}
       on:blur={() => { weightFocused = false; commitNumber('weight', weightStr, parseFloat); }}
       placeholder="0"
       inputmode="decimal"
@@ -226,7 +254,8 @@
         class="set-input"
         bind:value={repsLStr}
         on:input={() => commitNumber('reps_l', repsLStr, parseInt)}
-        on:focus={(e) => { repsLFocused = true; selectOnFocus(e); }}
+        use:replaceOnType
+        on:focus={() => { repsLFocused = true; }}
         on:blur={() => { repsLFocused = false; commitNumber('reps_l', repsLStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
@@ -237,7 +266,8 @@
         class="set-input"
         bind:value={repsRStr}
         on:input={() => commitNumber('reps_r', repsRStr, parseInt)}
-        on:focus={(e) => { repsRFocused = true; selectOnFocus(e); }}
+        use:replaceOnType
+        on:focus={() => { repsRFocused = true; }}
         on:blur={() => { repsRFocused = false; commitNumber('reps_r', repsRStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
@@ -246,6 +276,33 @@
         <span class="material-symbols-rounded">link_off</span>
       </button>
     </div>
+  {:else if timed}
+    <div class="set-field">
+      <input
+        type="text"
+        class="set-input duration-input"
+        bind:value={durationStr}
+        on:input={() => { durationStr = maskDurationInput(durationStr); commitDuration(durationStr); }}
+        use:replaceOnType
+        on:focus={() => { durationFocused = true; }}
+        on:blur={() => { durationFocused = false; commitDuration(durationStr); durationStr = fmtSetDuration(set.duration_sec); }}
+        on:keydown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        placeholder="0:00"
+        inputmode="numeric"
+        autocomplete="off"
+        aria-label="Duration"
+      />
+      <!-- Hold timer: sits inside the field like the L/R split button does
+           in the reps field, so the row gets no wider on a narrow phone. -->
+      {#if !set.completed || holdRunning}
+        <button class="split-btn hold-btn" class:active={holdRunning}
+          on:click={() => dispatch(holdRunning ? 'stopHold' : 'startHold')}
+          title={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}
+          aria-label={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}>
+          <span class="material-symbols-rounded">{holdRunning ? 'stop_circle' : 'timer'}</span>
+        </button>
+      {/if}
+    </div>
   {:else}
     <div class="set-field">
       <input
@@ -253,12 +310,19 @@
         class="set-input"
         bind:value={repsStr}
         on:input={() => commitNumber('reps', repsStr, parseInt)}
-        on:focus={(e) => { repsFocused = true; selectOnFocus(e); }}
+        use:replaceOnType
+        on:focus={() => { repsFocused = true; }}
         on:blur={() => { repsFocused = false; commitNumber('reps', repsStr, parseInt); }}
         placeholder="0"
         inputmode="numeric"
       />
-      <span class="set-unit">reps</span>
+      <!-- No "reps" unit label here — the sets-header column above
+           every SetRow already reads REPS (ExerciseCard.svelte), so
+           the per-row label was purely redundant. Removing it matters
+           in practice: at narrow phone widths with RPE tracking on,
+           the reps input's flex track has almost no slack left after
+           the RPE chip's auto column, and the label's own width +
+           gap was routinely eating the entire input (issue #75). -->
       {#if loadType === 'unilateral'}
         <button class="split-btn" on:click={toggleSplit} title="Split L/R reps" aria-label="Split L/R reps">
           <span class="material-symbols-rounded">add_link</span>
@@ -284,7 +348,7 @@
       {#if rpeOpen}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked}></div>
+        <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked} use:closeOnBack={() => rpeOpen = false}></div>
         <div use:portal class="rpe-picker" style="top:{rpePickerPos.top}px; left:{rpePickerPos.left}px">
           {#each RPE_VALUES as v}
             <button class="rpe-opt" class:active={set.rpe === v} on:click|stopPropagation={() => pickRpe(v)}>@{v}</button>
@@ -490,9 +554,19 @@
     text-align: center;
     -moz-appearance: textfield;
   }
+  /* Tapped and not typed in yet: the next digit replaces this value. Dimmed
+     so that is visible without selecting the text, which on Android brings
+     up the system text toolbar over the row (issue #95). */
+  .set-input:global(.replace-pending) { color: var(--text-3); }
   .set-input::-webkit-inner-spin-button,
   .set-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .set-unit { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+  /* Durations change width as they tick up (0:45 -> 1:00); tabular figures
+     stop the column shifting while typing. */
+  .duration-input { font-variant-numeric: tabular-nums; }
+  .hold-btn.active { color: var(--danger, #FF5C5C); animation: hold-blink 1s ease-in-out infinite; }
+  @keyframes hold-blink { 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .hold-btn.active { animation: none; } }
 
   /* Unilateral L/R split — two inputs in the reps slot with tiny L/R
      labels. The chain icon at the end toggles split-mode on/off. */

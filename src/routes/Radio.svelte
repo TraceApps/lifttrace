@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -1497,7 +1498,7 @@
 {#if ctxTrack}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="ctx-backdrop" on:click={() => ctxTrack = null}></div>
+  <div class="ctx-backdrop" on:click={() => ctxTrack = null} use:closeOnBack={() => ctxTrack = null}></div>
   <div class="ctx-menu" bind:this={ctxMenuEl} style="left:{ctxPos.x}px;top:{ctxPos.y}px">
     <button class="ctx-item" on:click={ctxPlayNext}>
       <span class="material-symbols-rounded" style="font-size:18px">skip_next</span> Play next
@@ -2112,6 +2113,7 @@
         - 150px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
       padding: 10px 8px;
@@ -2190,6 +2192,7 @@
         - 150px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow: hidden;
       /* Tinted gradient using the cover's dominant color. When the

@@ -47,6 +47,10 @@ export function parseHevy(csvText, userUnit) {
 
     const weight = convertWeight(row[f.weightKg] || '0', 'kg', userUnit);
     const reps = parseInt(row[f.reps] || '0', 10) || 0;
+    // Timed set (issue #89): Hevy exports holds with duration_seconds and no
+    // reps. Previously read and discarded, so they arrived as empty sets.
+    const durationSec = Math.round(parseFloat(row[f.durationSec] || '0')) || 0;
+    const timed = durationSec > 0 && reps === 0;
     const rpe = parseFloat(row[f.rpe] || '') || null;
     const setType = (row[f.setType] || 'normal').toLowerCase();
     const exerciseNotes = row[f.exerciseNotes] || '';
@@ -73,6 +77,7 @@ export function parseHevy(csvText, userUnit) {
     }
     workout.byExercise.get(exName).sets.push({
       reps, weight, completed: true,
+      ...(timed ? { duration_sec: durationSec } : {}),
       notes: rpe ? `${setType !== 'normal' ? setType + ' ' : ''}RPE ${rpe}`.trim()
                  : (setType !== 'normal' ? setType : ''),
       rpe,
@@ -100,6 +105,7 @@ export function parseHevy(csvText, userUnit) {
         superset_id: mySsId,
         superset_size: 1,     // back-fill below
         sets: ex.sets,
+        ...(ex.sets.length && ex.sets.every(s => s.duration_sec > 0) ? { set_type: 'time' } : {}),
       });
     }
     // Back-fill superset_size

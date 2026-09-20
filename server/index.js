@@ -38,8 +38,13 @@ import coachFeedbackRoutes from './routes/coach-feedback.js';
 import syncRoutes         from './routes/sync.js';
 import oidcRoutes        from './routes/oidc.js';
 import oidcAdminRoutes   from './routes/oidc-admin.js';
+import apiTokensRoutes   from './routes/api-tokens.js';
+import mcpRoutes         from './routes/mcp.js';
+import publicApiRoutes   from './routes/public-api.js';
+import webhooksRoutes    from './routes/webhooks.js';
 import { logger }        from './logger.js';
 import { authenticate }  from './middleware/auth.js';
+import { isPrivateUploadPath, UPLOAD_RESPONSE_HEADERS } from './lib/upload-paths.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv }   from './ai.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
@@ -65,7 +70,7 @@ autoSeed().catch(e => logger.warn('[seed] Auto-seed failed:', e.message));
 startScheduler();
 
 const app  = express();
-const PORT = process.env.PORT || 3003;
+const PORT = process.env.PORT || 3002;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Reverse-proxy / subpath support ───────────────────────────────────────
@@ -142,8 +147,27 @@ router.use((req, res, next) => {
 // Static uploads — kept BEFORE auth so images are publicly readable
 // (Android WebView can't send Authorization headers on <img src> requests).
 const uploadsPath = process.env.UPLOADS_PATH || './uploads';
+// Progress photos are never public. They stay under UPLOADS_PATH so full
+// backup (which walks the whole tree) keeps picking them up, but the only
+// way to read one is GET /api/body-stats/photos/:id/file, which runs behind
+// requireAuth and checks the row's owner before streaming bytes.
+//
+// The guard tests the RESOLVED path rather than the URL text. A prefix
+// route on '/uploads/body-stats' looks equivalent and is not: express.static
+// percent-decodes before opening the file while the router matches the raw
+// path, so `/uploads/%62ody-stats/x.jpg`, `/uploads/body%2Dstats/x.jpg` and
+// `/uploads//body-stats/x.jpg` all read straight through it. Verified by
+// probe, not assumed.
+//
+// A flat 404 rather than a 401, so the response says nothing about whether
+// a given filename exists.
+router.use('/uploads', (req, res, next) => {
+  if (isPrivateUploadPath(req.path)) return res.status(404).json({ error: 'Not found' });
+  next();
+});
+
 router.use('/uploads', express.static(uploadsPath, {
-  setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); }
+  setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); res.set(UPLOAD_RESPONSE_HEADERS); }
 }));
 
 // No-cache API responses
@@ -177,6 +201,17 @@ router.use('/api/trainer',      trainerRoutes);
 router.use('/api/prescriptions', prescriptionRoutes);
 router.use('/api/coach-feedback', coachFeedbackRoutes);
 router.use('/api/sync',          syncRoutes);
+router.use('/api/admin/api-tokens', apiTokensRoutes);
+router.use('/api/webhooks', webhooksRoutes);
+// Model Context Protocol endpoint — Bearer-token auth, scope 'mcp:read'.
+// 404s (not just an empty tool list) when the endpoint isn't reachable
+// unless MCP_ENABLED=1 in the server env. See server/routes/mcp.js and
+// server/lib/mcp/ for the tool implementations. Issue #78.
+router.use('/api/mcp', mcpRoutes);
+// Versioned public REST API, off by default, shares the same bearer
+// token + mcp:* scopes as MCP. Serves scripts/automations that just
+// want a plain JSON HTTP endpoint rather than the MCP protocol. Issue #77.
+router.use('/api/v1', publicApiRoutes);
 router.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Serve Svelte frontend (production build) — anything except index.html.

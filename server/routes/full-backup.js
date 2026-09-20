@@ -217,6 +217,7 @@ function restoreFromZip(zip) {
     db.prepare('DELETE FROM app_config').run();
     db.prepare('DELETE FROM workout_log').run();
     db.prepare('DELETE FROM body_stats_log').run();
+    db.prepare('DELETE FROM body_stat_media').run();
     db.prepare('DELETE FROM coach_prescriptions').run();
     db.prepare('DELETE FROM workout_templates').run();
     db.prepare('DELETE FROM program_assignments').run();
@@ -234,8 +235,8 @@ function restoreFromZip(zip) {
     for (const u of data.users || []) if (u.trainer_id) linkTrainer.run(u.trainer_id, u.id);
 
     // Restore custom exercises (user-created, not global seeds)
-    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type)`);
-    for (const e of data.exercises || []) insExercise.run({ load_type: null, ...e });
+    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type)`);
+    for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, ...e });
 
     const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete)`);
     for (const p of data.programs || []) insProgram.run(_withProgramDefaults(p));
@@ -284,6 +285,17 @@ function restoreFromZip(zip) {
 
     const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats) VALUES (@id,@user_id,@date,@stats)`);
     for (const b of data.body_stats_log || []) insBody.run(b);
+
+    // Progress photos. The image files themselves already ride along in
+    // the zip (createBackup walks all of uploads/ recursively), so only
+    // the rows pointing at them need restoring, without these the files
+    // would land on disk with nothing referencing them. Every column is
+    // carried through, including the sync columns, so a soft-deleted
+    // photo stays deleted after a restore.
+    const insPhoto = db.prepare(`INSERT OR IGNORE INTO body_stat_media (id,user_id,date,kind,url,created_at,updated_at,deleted_at) VALUES (@id,@user_id,@date,@kind,@url,@created_at,@updated_at,@deleted_at)`);
+    for (const p of data.body_stat_media || []) {
+      insPhoto.run({ kind: 'photo', created_at: null, updated_at: null, deleted_at: null, ...p });
+    }
 
     // Cardio sessions. Legacy backups (pre-v1.1.0) have no cardio_log key
     // so `data.cardio_log || []` handles the gap silently. Wipe first so
@@ -375,6 +387,7 @@ function dumpDatabase() {
     coach_activity:      safe('SELECT * FROM coach_activity'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
+    body_stat_media:     safe('SELECT * FROM body_stat_media'),
     cardio_log:          safe('SELECT * FROM cardio_log'),
     user_settings:       db.prepare('SELECT * FROM user_settings').all(),
     app_config:          db.prepare('SELECT * FROM app_config').all(),

@@ -11,6 +11,7 @@
  *
  * Pure helper — no DB / fetch. Caller passes in workouts + exercises.
  */
+import { isTimedSet } from './workout.js';
 
 export const MUSCLE_BUCKETS = [
   'chest', 'back', 'shoulders',
@@ -30,7 +31,12 @@ export const FRESHNESS = [
 ];
 
 export function freshnessFor(hoursAgo) {
-  if (hoursAgo == null) return { label: 'Untrained', color: 'var(--surface-2)' };
+  // Distinct from the body fill on purpose: an untrained muscle should still
+  // show as a region. Matching the silhouette hid the whole map for anyone
+  // with no completed sets in the window, which is what a new user sees.
+  if (hoursAgo == null) {
+    return { label: 'Untrained', color: 'color-mix(in srgb, var(--text-3) 34%, transparent)' };
+  }
   for (const t of FRESHNESS) if (hoursAgo < t.maxHours) return t;
   return FRESHNESS[FRESHNESS.length - 1];
 }
@@ -99,8 +105,11 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
         if (!set.completed || set.warmup) continue;
         const weight = +set.weight || 0;
         const reps = +set.reps || 0;
-        if (weight <= 0 || reps <= 0) continue;
-        const vol = weight * reps;
+        // A timed set (issue #89) is real training for recovery purposes, a
+        // plank works the core, but it carries no weight x reps volume.
+        const timed = isTimedSet(ex, set) && (+set.duration_sec || 0) > 0;
+        if (!timed && (weight <= 0 || reps <= 0)) continue;
+        const vol = timed ? 0 : weight * reps;
 
         for (const g of groups) {
           if (!out[g]) out[g] = { lastDate: w.date, lastTs: ts, sets: 0, volume: 0 };

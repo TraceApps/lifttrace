@@ -58,23 +58,90 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
 
   const tombstoneSet = new Set([...priorTombstones, ...deleted]);
 
+  // Legacy bootstrap (issue #85): a server-side list that predates uuid
+  // tagging entirely has no stable identity to merge against -- _dedupe
+  // below mints every uuid-less entry a FRESH random uuid on every call,
+  // so a server list with no identity can never be recognized as "the
+  // same" exercises the client is resending, no matter how many times
+  // either side is uuid-stamped independently. The result used to be
+  // every client entry treated as new AND every server entry kept as
+  // "server-only", i.e. the whole list duplicated, and a client-side
+  // delete could never match an identity either so it silently
+  // resurrected. The client always resends its complete list on every
+  // save (see saveWorkout in stores/workout.js and WorkoutEditor's
+  // save flow), so when the server side has no identity to protect,
+  // trust the client's list outright instead of unioning it with
+  // entries that can never be recognized as duplicates of it. Entries
+  // the client already tagged (e.g. this same edit adding something
+  // new) keep their own uuid; only untagged ones get a fresh one here.
+  if (server.length > 0 && server.every(e => !e || typeof e !== 'object' || !e.uuid)) {
+    const seen = new Set();
+    const bootstrapped = [];
+    for (let entry of client) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (!entry.uuid || typeof entry.uuid !== 'string') entry = { ...entry, uuid: randomUUID() };
+      if (tombstoneSet.has(entry.uuid)) continue;
+      const priorIdx = seen.has(entry.uuid) ? bootstrapped.findIndex(e => e.uuid === entry.uuid) : -1;
+      if (priorIdx >= 0) {
+        if (_tsOf(entry) >= _tsOf(bootstrapped[priorIdx])) bootstrapped[priorIdx] = entry;
+        continue;
+      }
+      seen.add(entry.uuid);
+      bootstrapped.push(entry);
+    }
+    return { merged: bootstrapped, newTombstoneUuids: deleted.filter(u => !priorTombstones.includes(u)) };
+  }
+
   const serverDeduped = _dedupe(server, tombstoneSet);
   const serverByUuid = new Map(serverDeduped.map(e => [e.uuid, e]));
 
+  // Order follows the CLIENT's array, not the server's. The client
+  // always resends its complete list on every save (see saveWorkout in
+  // stores/workout.js), so it's the authoritative ordering for
+  // whatever the user is actively arranging this session — reordering
+  // within a superset, moving an exercise into/out of one, or the
+  // plain ↑/↓ reorder buttons. A JS Map does NOT move an existing key
+  // when .set() is called again on it, so building the merged array
+  // from server-insertion order and only overwriting values (the old
+  // approach) silently discarded every client-side reorder: the value
+  // updated but the position snapped back to wherever the server had
+  // it. Symptom in the app: a reorder visibly applies for a moment,
+  // then reverts once the debounced save round-trips.
+  // posByUuid tracks each uuid's slot in `ordered` so a duplicate uuid
+  // within the client's own array (legacy client bug, or a race that
+  // sent the same entry twice) collapses to one slot at its FIRST
+  // occurrence, with later duplicates only allowed to overwrite the
+  // value there if they win on timestamp — matching what the old
+  // Map-based version did for client-side duplicates (a second
+  // `.set()` on the same key updates the value without moving it).
+  const posByUuid = new Map();
+  const ordered = [];
   for (let entry of client) {
     if (!entry || typeof entry !== 'object') continue;
     if (!entry.uuid || typeof entry.uuid !== 'string') {
       entry = { ...entry, uuid: randomUUID() };
     }
     if (tombstoneSet.has(entry.uuid)) continue;
-    const existing = serverByUuid.get(entry.uuid);
-    if (!existing || _tsOf(entry) >= _tsOf(existing)) {
-      serverByUuid.set(entry.uuid, entry);
+    const priorIdx = posByUuid.get(entry.uuid);
+    if (priorIdx !== undefined) {
+      if (_tsOf(entry) >= _tsOf(ordered[priorIdx])) ordered[priorIdx] = entry;
+      continue;
     }
+    const existing = serverByUuid.get(entry.uuid);
+    const winner = (!existing || _tsOf(entry) >= _tsOf(existing)) ? entry : existing;
+    posByUuid.set(entry.uuid, ordered.length);
+    ordered.push(winner);
+  }
+  // Server-only entries — concurrent additions from another device that
+  // this client's payload never included (the actual reason Option C
+  // merges instead of blob-replacing). Appended after the client's own
+  // ordering, in their original server-relative order.
+  for (const [uuid, entry] of serverByUuid) {
+    if (!posByUuid.has(uuid)) ordered.push(entry);
   }
 
   return {
-    merged: Array.from(serverByUuid.values()),
+    merged: ordered,
     newTombstoneUuids: deleted.filter(u => !priorTombstones.includes(u)),
   };
 }
@@ -146,11 +213,31 @@ export function mergeExercises(
   };
 }
 
+// The only fields that ever belong inside body_stats_log.stats. Mirrors
+// BodyStatsWidget.svelte's ROWS + Statistics.svelte's OVERLAY_METRICS —
+// same list, same maintenance burden as those two.
+//
+// Guards against a specific corruption shape (issue #80): the GET
+// /api/body-stats/:date response wraps the row one level deeper than
+// the client read (data.stats.stats holds the measurements, not
+// data.stats), and before that read bug was fixed, a client that had
+// hit it would spread the whole row — including id / user_id / date
+// and a nested stats object — into what it PUT back. mergeStatsObject
+// used to copy every key it was handed, so that malformed shape would
+// have landed inside the stored JSON blob verbatim. The read fix
+// removes the way this gets constructed client-side; this allowlist
+// means it can't land in the stored data even if a similar bug shows
+// up in some future client entry point.
+const BODY_STAT_KEYS = new Set([
+  'weight', 'bodyFat', 'neck', 'chest', 'waist', 'hips', 'biceps', 'thighs', 'calves',
+]);
+
 /**
  * Per-key merge for a flat object (used for body_stats_log.stats).
  * Empty incoming object preserves everything; incoming keys with
  * defined values overwrite; incoming keys explicitly set to null are
- * treated as deletions (user cleared that stat).
+ * treated as deletions (user cleared that stat). Client keys outside
+ * BODY_STAT_KEYS are ignored rather than merged — see the comment above.
  *
  * Simpler than the array merge because keys ARE the identity — no
  * uuids needed.
@@ -160,6 +247,7 @@ export function mergeStatsObject(serverStats, clientStats) {
   const client = (clientStats && typeof clientStats === 'object') ? clientStats : {};
   const out = { ...server };
   for (const [k, v] of Object.entries(client)) {
+    if (!BODY_STAT_KEYS.has(k)) continue;
     if (v === null) delete out[k];   // explicit clear
     else if (v !== undefined) out[k] = v;
   }

@@ -10,6 +10,8 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
+  import { isPullSyncExempt } from './lib/pull-sync.js';
+  import { handleBack } from './lib/back-stack.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
   import { _, locale } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
@@ -33,14 +35,16 @@
   // hasn't flagged a structured issue. Drives the red cloud badge and
   // banner suppression — matches NT's exact predicate.
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
+  // The server answers but the sync is failing, as opposed to no network at all.
+  $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
   // Reactive copy build for the smart connection banner. Falls back to
   // the generic "Sync error" title when a non-connection error is
   // surfaced with showFailureBanner=true.
   $: _connectionCopy = describeConnectionIssue($syncState.connectionIssue, $_, true);
   $: _syncBannerCopy = $syncState.showErrorBanner && _connectionCopy
-    ? { ..._connectionCopy, icon: 'cloud_off' }
+    ? { ..._connectionCopy, icon: _connectionCopy.tone === 'wait' ? 'cloud_off' : 'cloud_alert' }
     : ($syncState.showErrorBanner && $syncState.error
-      ? { title: $_('sync.error_title'), detail: $syncState.error, icon: 'error' }
+      ? { title: $_('sync.error_title'), detail: $syncState.error, icon: 'error', tone: 'bad' }
       : null);
 
   // Pull-to-refresh gesture (native server mode). Mirrors NT App.svelte.
@@ -102,7 +106,9 @@
 
   function _startPullSync(event) {
     if (!_syncModeActive || _pullRefreshing || sidebarOpen || showNativeSetup) return;
-    if (event.target?.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav')) return;
+    // Dialogs, sheets, sidebars, the bottom bar and anything draggable keep
+    // their own touch handling. See src/lib/pull-sync.js.
+    if (isPullSyncExempt(event.target)) return;
     // Walk up from the touch target to the nearest scrolling ancestor.
     // Catches nested overflow containers (should the layout add one later)
     // AND the document itself (LT's current default: no nested scrollers,
@@ -172,6 +178,7 @@
   import ProgramDetail   from './routes/ProgramDetail.svelte';
   import WorkoutEditor   from './routes/WorkoutEditor.svelte';
   import Statistics      from './routes/Statistics.svelte';
+  import Progress        from './routes/Progress.svelte';
   import Radio           from './routes/Radio.svelte';
   import Settings        from './routes/Settings.svelte';
   import Coaching        from './routes/Coaching.svelte';
@@ -196,6 +203,9 @@
     '/programs/:id':          ProgramDetail,
     '/programs/:programId/template/:templateId': WorkoutEditor,
     '/statistics':            Statistics,
+    // Reached from Statistics and the Body Stats sheet rather than the
+    // nav bar: occasional-use content, but a real page with its own URL.
+    '/progress':              Progress,
     '/radio':                 Radio,
     '/settings':              Settings,
     '/settings/:section':     Settings,
@@ -401,7 +411,9 @@
       await scheduleNativeReminders();
       window.addEventListener('wl:setting', e => {
         const k = e.detail?.key || '';
-        if (k.startsWith('notif')) scheduleNativeReminders();
+        // The weekly summary reminder is scheduled from weeklySummaryDay and
+        // weeklySummaryTime, which do not carry the notif prefix.
+        if (k.startsWith('notif') || k === 'weeklySummaryDay' || k === 'weeklySummaryTime') scheduleNativeReminders();
       });
     } catch {}
 
@@ -413,6 +425,15 @@
     try {
       if (isNative) {
         const { App } = await import('@capacitor/app');
+        // Android back: an open sheet, dialog or overlay closes first, then the
+        // slide-out sidebar, and only then does back go back a page. Without a
+        // listener Capacitor only went back a page, leaving anything open
+        // showing. At the first page it still does nothing, as before.
+        App.addListener('backButton', ({ canGoBack }) => {
+          if (handleBack()) return;
+          if (sidebarOpen && !sidebarPinned) { sidebarOpen = false; return; }
+          if (canGoBack) window.history.back();
+        });
         App.addListener('appUrlOpen', async ({ url }) => {
           try {
             const { Browser } = await import('@capacitor/browser');
@@ -593,8 +614,11 @@
     >
       <span class="material-symbols-rounded">menu</span>
       {#if _syncModeActive && !_serverReachable}
-        <span class="conn-badge conn-offline" aria-label="Offline">
-          <span class="material-symbols-rounded" style="font-size:10px">cloud_off</span>
+        <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
+             red when the server is reachable but the sync is failing. -->
+        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}
+          aria-label={_syncFailing ? $_('sync.sync_failing') : $_('sync.sync_offline')}>
+          <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
     </button>
@@ -607,7 +631,7 @@
 {#if !needsLogin}<UpdateBanner />{/if}
 
 {#if _syncModeActive && !needsLogin && _syncBannerCopy}
-  <div class="sync-connection-banner"
+  <div class="sync-connection-banner {_syncBannerCopy.tone || 'bad'}"
     use:portal
     transition:slide={{ duration: $disableAnimations ? 0 : 200 }}>
     <span class="material-symbols-rounded sync-banner-icon">{_syncBannerCopy.icon}</span>
@@ -728,13 +752,26 @@
     transition: background 0.3s;
   }
   .conn-offline {
-    background: var(--error, #ef4444);
+    background: var(--warning);
+    color: #1b1300;
+  }
+  .conn-failing {
+    background: var(--danger);
     color: #fff;
   }
 
   /* Smart connection banner. Ported from NT so it sits BELOW the
      device status bar and the app's compact header instead of covering
      the clock / hamburger on Android. */
+  /* Same rule as the sidebar and the rest of the app: amber when there is no
+     network, red when the server can't be reached or is answering with errors. */
+  .sync-connection-banner.wait {
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 8%, var(--surface-2));
+    border-color: color-mix(in srgb, var(--warning) 25%, var(--border));
+  }
+  .sync-connection-banner.wait .sync-banner-btn { color: var(--warning); }
+
   .sync-connection-banner {
     position: fixed;
     top: calc(var(--safe-top) + 60px);
@@ -743,9 +780,9 @@
     z-index: 250;
     display: flex; align-items: center; gap: 10px;
     padding: 10px 12px;
-    color: var(--error, #ef4444);
-    background: color-mix(in srgb, var(--error, #ef4444) 8%, var(--surface-2));
-    border: 1px solid color-mix(in srgb, var(--error, #ef4444) 25%, var(--border));
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     font-size: 12px;
@@ -766,7 +803,7 @@
   .sync-banner-btn {
     flex: 0 0 auto;
     border: 0;
-    color: var(--error, #ef4444);
+    color: var(--danger);
     background: transparent;
     font: inherit; font-weight: 600;
     cursor: pointer;

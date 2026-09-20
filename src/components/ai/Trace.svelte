@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable } from 'svelte/store';
   import { fly, fade } from 'svelte/transition';
@@ -7,7 +8,14 @@
   import { portal } from '../../lib/portal.js';
   import { callAI, callAIProxy, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
   import { TOOLS, runTool } from '../../lib/aiTools.js';
-  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, dateFormat, weightUnit, weeklyWorkoutGoal } from '../../stores/settings.js';
+  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, dateFormat, weightUnit, weeklyWorkoutGoal, quickLogEnabled, smartLogVoiceLang } from '../../stores/settings.js';
+
+  // Voice input language from Settings; 'auto' means the device locale.
+  function _resolveVoiceLang() {
+    const v = smartLogVoiceLang.get();
+    if (v && v !== 'auto') return v;
+    return navigator.language || 'en-US';
+  }
   import { currentUser } from '../../stores/auth.js';
   import { DB } from '../../lib/db.js';
   import { LtApi } from '../../lib/api.js';
@@ -249,8 +257,8 @@
   let smartLogPreParsed = null;
   let smartLogText = '';
 
-  // Smart Log is available when Trace itself is available
-  $: smartLogAvailable = isEnabled;
+  // Smart Log (hold to record) needs Trace itself and its own switch.
+  $: smartLogAvailable = isEnabled && $quickLogEnabled;
 
   let _audioCtx = null;
   function _beep(frequency, durationMs) {
@@ -300,7 +308,7 @@
       const rec = new SR();
       rec.continuous = false;
       rec.interimResults = false;
-      rec.lang = navigator.language || 'en-US';
+      rec.lang = _resolveVoiceLang();
       rec.onresult = async (e) => {
         if (!_commitNextTranscript) return;
         const transcript = e.results[0]?.[0]?.transcript || '';
@@ -594,23 +602,35 @@
       const profile = buildUserProfile();
       // Context trimmed 2026-07-27: Trace now uses tool-use for live data (see aiTools.js).
       // Only stable + never-would-fetch-on-demand values stay in the prompt.
-      const _today = new Date($currentDate + 'T12:00:00');
-      const _dow = _today.toLocaleDateString(undefined, { weekday: 'long' });
+      // The real date, not the date the diary happens to be showing (issue #92):
+      // telling the model "today" is a browsed-to day last month is exactly
+      // how it ends up querying the wrong period.
+      const _realNow = new Date();
+      const _realToday = _realNow.toLocaleDateString('sv-SE');
+      const _realDow = _realNow.toLocaleDateString(undefined, { weekday: 'long' });
       const systemPrompt = `You are ${botName}, an AI weightlifting coach inside LiftTrace.
 
 Style: concise, practical, encouraging. Simple language. Give specific cues on form questions. Keep replies under 200 words unless the user asks for more detail. The user tracks weight in ${$weightUnit}. Weekly workout goal: ${$weeklyWorkoutGoal}/week.
 
-Today is ${_dow}, ${$currentDate}.
+Today is ${_realDow}, ${_realToday}.${$currentDate !== _realToday ? ` The diary is currently open on ${$currentDate}; use that date when the user says "this workout" or "log this".` : ''}
+
+Dates: only pass date_from, date_to or date when the user named a specific date or period. Otherwise leave them out so the tool defaults apply. Never guess a year. If a tool result carries a note saying your dates found nothing, believe the note and use its results; do not tell the user the data is missing.
 
 USER PROFILE (facts about the user, not numbers to hallucinate around; when asked "what's my name / age / gender", answer directly from this block; don't say you don't know):
 ${profile || '(no profile data set yet; if the user asks about their name, age, or gender, politely tell them to fill it in via Settings, My Profile)'}
 ${ctx}
 
 You have live tools for everything else. Prefer a tool call over guessing:
-- Reads: get_workouts, get_workout, get_exercises, get_exercise, get_programs, get_program, get_active_program, get_prs, get_body_stats, get_stats_overview, get_coach_prescription.
-- Writes: log_workout, add_exercise_to_diary, log_set, log_body_stat, start_workout_from_template, set_active_program, add_coach_prescription (coaches only).
+- Reads: get_workouts, get_workout, get_exercises, get_exercise, get_programs, get_program, get_active_program, get_prs, get_body_stats, get_progress_photos, get_cardio, get_stats_overview, get_coach_prescription.
+- Writes: log_workout, add_exercise_to_diary, log_set, log_body_stat, log_cardio, start_workout_from_template, set_active_program, add_coach_prescription (coaches only).
 
 Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
+
+Timed exercises (plank, wall sit, dead hang, carries) are logged by duration, not reps: tool results show them with duration_sec, and log_set / log_workout take duration_sec in seconds instead of reps. Never report a hold's seconds as reps.
+
+Cardio is logged in its own table and does NOT appear in get_workouts or get_stats_overview. Call get_cardio before commenting on weekly training load, conditioning or recovery, and use log_cardio (not log_workout) for runs, rides, rows and walks.
+
+get_progress_photos returns dates, counts and the weight logged that day, never image content. You cannot see a user's progress photos. If they want your eyes on one, ask them to attach it to a message.
 
 Data annotations you may see in tool results: "225lbs×5 @8" carries an RPE 6-10 suffix (higher = closer to failure); rising RPE on the same load across sessions signals accumulating fatigue and suggests a deload. Warm-up sets are already excluded from volume and PR counts.
 
@@ -619,6 +639,8 @@ Workout format: after any workout you prescribe, add ONE plain text line beginni
 Examples:
   PLAN: bench press 3x5 @ 185lbs, OHP 3x8 @ 95lbs, dips 3x10 @ BW, tricep pushdown 3x12 @ 50lbs
   PLAN: squat 5x5 @ 225lbs, RDL 3x8 @ 185lbs, leg press 3x12 @ 270lbs, calf raise 4x15 @ BW
+  PLAN: deadlift 3x5 @ 315lbs, plank 3x60s @ BW, farmer carry 3x40s @ 70lbs
+Timed exercises (planks, holds, carries) take a duration with an "s" suffix in place of reps, as in the last example.
 
 Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choices. The app surfaces a one-tap "Use This Workout" button under any reply containing a PLAN line, so the line MUST be parseable Smart-Add syntax. For general questions (form, recovery, programming theory) DO NOT include a PLAN line; only emit one when the user is actually asking for a session to perform.`;
 
@@ -723,6 +745,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
       class:cancel-preview={cancelPreview}
       style={fabStyle}
       on:pointerdown={startDrag}
+      data-no-pull-sync
       on:click={handleFabClick}
       on:keydown={e => e.key === 'Enter' && handleFabClick()}
       role="button"
@@ -780,7 +803,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
     <!-- ── Panel ──────────────────────────────────────────────────────────── -->
     {#if panelOpen}
       <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <div class="lb-backdrop" transition:fade={{ duration: 200 }} on:click={() => panelOpen = false}></div>
+      <div class="lb-backdrop" transition:fade={{ duration: 200 }} on:click={() => panelOpen = false} use:closeOnBack={() => panelOpen = false}></div>
       <aside
         class="lb-panel"
         transition:fly={{ y: 600, duration: 320, easing: cubicOut }}

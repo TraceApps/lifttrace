@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { fade, slide } from 'svelte/transition';
@@ -582,7 +583,7 @@
 {#if skipModal}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="skip-modal-backdrop" on:click|self={() => skipModal = false}>
+  <div class="skip-modal-backdrop" on:click|self={() => skipModal = false} use:closeOnBack={() => skipModal = false}>
     <div class="skip-modal" on:click|stopPropagation>
       <h3 class="skip-modal-title">{$_('wizard.skip_modal.title')}</h3>
       <p class="skip-modal-desc">{$_('wizard.skip_modal.desc')}</p>

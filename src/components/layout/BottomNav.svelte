@@ -22,8 +22,12 @@
 
   $: activeIdx = (() => {
     const base = $location.split('?')[0];
-    // Coaching lives under the Programs tab in nav terms
-    const normalized = base.startsWith('/coaching') ? '/programs' : base;
+    // Routes with no tab of their own map onto the tab they belong under,
+    // otherwise the fallback below lights up Diary for pages that have
+    // nothing to do with it.
+    let normalized = base;
+    if (base.startsWith('/coaching')) normalized = '/programs';
+    else if (base.startsWith('/progress')) normalized = '/statistics';
     // exact match first
     const exact = TABS.findIndex(t => t.path === normalized);
     if (exact >= 0) return exact;

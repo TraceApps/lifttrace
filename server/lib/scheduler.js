@@ -3,7 +3,7 @@ import { logger } from '../logger.js';
 import { pushNotify } from './push-notify.js';
 import { sendWeeklySummary, isEmailConfigured } from '../email.js';
 import { checkMissedPrescriptions } from './coach-activity.js';
-import { setVolume } from './volume.js';
+import { buildWeeklySummary, summaryLine } from './weekly-summary.js';
 
 /**
  * Server-side scheduler — runs every 15 minutes.
@@ -133,8 +133,8 @@ async function _processUser(userId) {
     if (_withinWindow(localTime, time) && !_ranRecently(userId, 'workoutReminder', 3600000)) {
       // Check if workout already logged today
       const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
       if (!logged) {
         // Get active program template name
         let templateName = '';
@@ -161,11 +161,11 @@ async function _processUser(userId) {
     if (_withinWindow(localTime, '10:00', 30) && !_ranRecently(userId, 'restDay', 22 * 3600000)) {
       const yesterday = new Date(Date.now() - 24 * 3600000).toISOString().slice(0, 10);
       const loggedYesterday = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, yesterday)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(yesterday);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, yesterday)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(yesterday);
       const loggedToday = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
       if (loggedYesterday && !loggedToday) {
         await pushNotify(userId, '🧘 Rest Day', 'Time to recover — hydrate, stretch, and refuel. See you tomorrow!', 3);
       }
@@ -178,8 +178,8 @@ async function _processUser(userId) {
     const time = _getUserSetting(userId, 'notifStreakTime', '20:00');
     if (_withinWindow(localTime, time) && !_ranRecently(userId, 'streakAlert', 3600000)) {
       const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
       if (!logged) {
         // Calculate current streak
         let streak = 0;
@@ -188,8 +188,8 @@ async function _processUser(userId) {
         while (true) {
           const ds = checkDate.toISOString().slice(0, 10);
           const row = userId
-            ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ?').get(userId, ds)
-            : db.prepare('SELECT 1 FROM workout_log WHERE date = ?').get(ds);
+            ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, ds)
+            : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(ds);
           if (!row) break;
           streak++;
           checkDate.setDate(checkDate.getDate() - 1);
@@ -201,43 +201,36 @@ async function _processUser(userId) {
     }
   }
 
-  // ── Weekly summary ────────────────────────────────────────────────────
+  // Weekly summary (issue #98): sessions against the weekly goal, sets,
+  // volume with its unit, time trained, PRs and sets per muscle group, each
+  // compared with the user's average week over the month before.
   const weeklySummary = _getUserSetting(userId, 'notifWeeklySummary', false);
   if (weeklySummary) {
-    const targetDay = _getUserSetting(userId, 'weeklySummaryDay', 0);
+    const targetDay = Number(_getUserSetting(userId, 'weeklySummaryDay', 0));
     const targetTime = _getUserSetting(userId, 'weeklySummaryTime', '09:00');
-    const currentDay = new Date().getDay();
-    if (currentDay === targetDay && _withinWindow(localTime, targetTime, 30) && !_ranRecently(userId, 'weeklySummary', 6 * 24 * 3600000)) {
-      const weekAgo = new Date(Date.now() - 7 * 24 * 3600000).toISOString().slice(0, 10);
-      const logs = userId
-        ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date >= ?').all(userId, weekAgo)
-        : db.prepare('SELECT * FROM workout_log WHERE date >= ?').all(weekAgo);
+    // The user's own weekday, not the server's: the two disagree for part of
+    // every day whenever they sit in different time zones.
+    if (_localWeekday(tz) === targetDay && _withinWindow(localTime, targetTime, 30) && !_ranRecently(userId, 'weeklySummary', 6 * 24 * 3600000)) {
+      const workouts = userId
+        ? db.prepare('SELECT date, exercises, duration_min FROM workout_log WHERE user_id = ? AND deleted_at IS NULL').all(userId)
+        : db.prepare('SELECT date, exercises, duration_min FROM workout_log WHERE deleted_at IS NULL').all();
+      const summary = buildWeeklySummary({
+        workouts,
+        library: _exerciseLibrary(),
+        today,
+        goal: _getUserSetting(userId, 'weeklyWorkoutGoal', 4),
+      });
+      const unit = _getUserSetting(userId, 'weightUnit', 'lbs') === 'kg' ? 'kg' : 'lbs';
+      const locale = String(_getUserSetting(userId, 'language', 'en') || 'en');
 
-      const workoutCount = logs.length;
-      let totalVolume = 0;
-      let prCount = 0;
-      for (const log of logs) {
-        const exercises = JSON.parse(log.exercises || '[]');
-        for (const ex of exercises) {
-          const lt = ex.load_type || 'bilateral';
-          for (const set of (ex.sets || [])) {
-            // Warm-up sets don't count toward reported volume (consistent
-            // with all the other stats routes).
-            if (set.completed && !set.warmup) totalVolume += setVolume(set, lt);
-          }
-        }
-      }
+      await pushNotify(userId, '📊 Weekly Summary', summaryLine(summary, { unit, locale }), 4);
 
-      const summaryMsg = `This week: ${workoutCount} workouts, ${Math.round(totalVolume).toLocaleString()} volume lifted. Keep pushing!`;
-      await pushNotify(userId, '📊 Weekly Summary', summaryMsg, 4);
-
-      // Also send email if configured
       if (isEmailConfigured()) {
         const user = userId ? db.prepare('SELECT * FROM users WHERE id = ?').get(userId) : null;
         if (user?.email) {
           try {
-            const origin = db.prepare("SELECT value FROM app_config WHERE key='app_url'").get()?.value || 'http://localhost:3003';
-            await sendWeeklySummary(user.email, user.full_name || user.username, { workoutCount, totalVolume }, origin);
+            const origin = db.prepare("SELECT value FROM app_config WHERE key='app_url'").get()?.value || 'http://localhost:3002';
+            await sendWeeklySummary(user.email, user.nickname || user.full_name || user.username, summary, origin, { unit, locale });
           } catch(e) {
             logger.warn(`[scheduler] weekly email failed: ${e.message}`);
           }
@@ -245,6 +238,27 @@ async function _processUser(userId) {
       }
     }
   }
+}
+
+function _localWeekday(timezone) {
+  try {
+    const name = new Intl.DateTimeFormat('en-US', { timeZone: timezone || 'UTC', weekday: 'short' }).format(new Date());
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(name);
+  } catch {
+    return new Date().getDay();
+  }
+}
+
+// exercise_id -> { muscles, category, load_type }. Includes cleared library
+// rows, as Muscle Balance does, so sets logged against them still resolve.
+function _exerciseLibrary() {
+  const map = new Map();
+  for (const ex of db.prepare('SELECT id, primary_muscles, category, load_type FROM exercises').all()) {
+    let muscles = [];
+    try { muscles = JSON.parse(ex.primary_muscles || '[]'); } catch {}
+    map.set(ex.id, { muscles, category: ex.category || 'other', load_type: ex.load_type || null });
+  }
+  return map;
 }
 
 export function startScheduler() {

@@ -27,6 +27,164 @@ export function resolveLoadType(exercise, libraryLoadType, clientPrefs) {
   return 'bilateral';
 }
 
+// ── Set type: reps or time (issue #89) ─────────────────────────────────
+//
+// Most sets are weight x reps. Isometric holds (plank, wall sit, dead hang)
+// and timed carries are logged by duration instead, stored on the set as
+// whole seconds in `duration_sec`. Weight stays meaningful for both: a
+// weighted plank is "25 lbs for 1:00", a bodyweight one leaves weight empty.
+//
+// The mirror of these helpers for the server lives in server/lib/volume.js.
+// scripts/set-type.test.js runs the same cases through both so the two
+// cannot disagree about what counts as a timed set.
+
+export const SET_TYPES = ['reps', 'time'];
+
+function _cleanSetType(v) {
+  return v === 'time' || v === 'reps' ? v : null;
+}
+
+/**
+ * True when this set should be treated as a timed set by any math: volume,
+ * 1RM, PRs, charts.
+ *
+ * An explicit choice on the exercise instance always wins. Without one, the
+ * set's own data decides: a set carrying a duration is timed. That order is
+ * what lets a user flip an exercise to Time without losing the reps they had
+ * already typed (they stay on the set, ignored), and flip back to get them.
+ */
+export function isTimedSet(exercise, set) {
+  const t = _cleanSetType(exercise?.set_type);
+  if (t) return t === 'time';
+  return Number(set?.duration_sec) > 0;
+}
+
+/**
+ * Exercises that are timed by nature, matched by exact normalised name.
+ *
+ * Deliberately exact rather than a pattern: in the free-exercise-db catalogue
+ * "hang" also matches Hang Clean and Hang Snatch, "bridge" matches Glute
+ * Bridge and "plank" matches Push Up to Side Plank, all rep exercises. This
+ * is only a starting default for an exercise with no data, no library
+ * setting and no remembered choice; any of those overrides it.
+ */
+const TIMED_BY_NAME = new Set([
+  'plank', 'side plank', 'side bridge', 'copenhagen plank',
+  'wall sit', 'dead hang', 'bar hang', 'one handed hang', 'flexed arm hang',
+  'hollow hold', 'hollow body hold', 'l sit',
+  'farmers walk', 'farmer walk', 'farmers carry', 'suitcase carry', 'rickshaw carry',
+]);
+export function defaultSetTypeForName(name) {
+  const key = String(name || '').toLowerCase().replace(/[’'`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  return TIMED_BY_NAME.has(key) ? 'time' : null;
+}
+
+/**
+ * Which input a workout-instance exercise shows: 'reps' or 'time'.
+ *
+ *   1. Per-instance choice (`exercise.set_type`), made from the Diary chip.
+ *   2. The data already recorded on it. This outranks every default below,
+ *      so marking an exercise as timed in the library can never change the
+ *      shape of history someone has already logged with reps.
+ *   3. Library default (`librarySetType`, from the exercises table).
+ *   4. The user's remembered preference for this exercise.
+ *   5. A short list of exercises timed by nature (see defaultSetTypeForName).
+ *   6. 'reps'.
+ */
+export function resolveSetType(exercise, librarySetType, clientPrefs) {
+  const own = _cleanSetType(exercise?.set_type);
+  if (own) return own;
+  const sets = exercise?.sets || [];
+  if (sets.some(s => Number(s?.duration_sec) > 0)) return 'time';
+  if (sets.some(s => Number(s?.reps) > 0)) return 'reps';
+  const lib = _cleanSetType(librarySetType);
+  if (lib) return lib;
+  const exId = exercise?.exercise_id;
+  const pref = clientPrefs && exId != null ? _cleanSetType(clientPrefs[exId]) : null;
+  return pref || defaultSetTypeForName(exercise?.exercise_name) || 'reps';
+}
+
+/** 75 -> "1:15", 45 -> "0:45", 3725 -> "1:02:05". Empty for no duration. */
+export function fmtSetDuration(sec) {
+  const n = Math.round(Number(sec));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const h = Math.floor(n / 3600);
+  const m = Math.floor((n % 3600) / 60);
+  const s = n % 60;
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * Parse a typed duration to whole seconds. Returns null for anything that
+ * isn't one.
+ *
+ * Bare digits fill from the right like a microwave or a phone timer: the last
+ * two digits are seconds and anything before them is minutes. That is what
+ * the set row's number pad produces, and it avoids making anyone convert
+ * "2 minutes" into 120.
+ *
+ *   "45"   -> 45      "130" -> 90 (1:30)     "200" -> 120 (2:00)
+ *   "90"   -> 90      overflowing seconds carry, as on a microwave
+ *   "1:30" -> 90      "0:90" -> 90           "1:02:05" -> 3725
+ *   "45s"  -> 45      "2m" / "2min" -> 120   "1m30s" -> 90
+ */
+export function parseDuration(input) {
+  if (input == null) return null;
+  const str = String(input).trim().toLowerCase();
+  if (!str) return null;
+  // m:ss. Seconds may overflow ("0:90"), because that is exactly what the
+  // digit mask shows mid-typing and the two must read the same.
+  if (/^\d+:\d{1,2}$/.test(str)) {
+    const [m, sec] = str.split(':').map(Number);
+    const total = m * 60 + sec;
+    return total > 0 ? total : null;
+  }
+  if (/^\d+:\d{1,2}:\d{1,2}$/.test(str)) {
+    const parts = str.split(':').map(Number);
+    if (parts.slice(1).some(p => p >= 60)) return null;
+    const total = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return total > 0 ? total : null;
+  }
+  if (/^\d+$/.test(str)) {
+    const n = Number(str);
+    const total = Math.floor(n / 100) * 60 + (n % 100);
+    return total > 0 ? total : null;
+  }
+  const m = str.match(/^(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours))?\s*(?:(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes))?\s*(?:(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds))?$/);
+  if (!m || (!m[1] && !m[2] && !m[3])) return null;
+  const sec = Math.round((Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0));
+  return sec > 0 ? sec : null;
+}
+
+/**
+ * Live display for a duration field as someone types, timer style: digits
+ * fill from the right, so "1" shows 0:01, "13" 0:13, "130" 1:30. Non-digits
+ * are dropped, so a desktop user typing "1:30" lands on the same 1:30, and
+ * backspace simply removes the last digit. Capped at four digits (99:99),
+ * far beyond any hold.
+ */
+export function maskDurationInput(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '').replace(/^0+/, '').slice(0, 4);
+  if (!digits) return '';
+  const n = Number(digits);
+  return `${Math.floor(n / 100)}:${String(n % 100).padStart(2, '0')}`;
+}
+
+/**
+ * Compact label for one logged set, as used in history lists and summaries:
+ * "135×8" for reps, "25×1:00" for a weighted hold, "1:00" for a bodyweight
+ * one. Unilateral splits are left to callers that render them specially.
+ */
+export function fmtSetLabel(exercise, set) {
+  if (!set) return '';
+  if (isTimedSet(exercise, set)) {
+    const t = fmtSetDuration(set.duration_sec) || '0:00';
+    return set.weight ? `${set.weight}×${t}` : t;
+  }
+  return `${set.weight || 0}×${set.reps || 0}`;
+}
+
 /**
  * Per-set volume that honors the exercise's load_type. Three modes:
  *   - 'bilateral'  (default): weight × reps                — one load, both sides work together
@@ -76,6 +234,9 @@ export function exerciseVolume(exercise, opts = {}) {
   let total = 0;
   for (const s of (exercise.sets || [])) {
     if (!s.completed || s.warmup) continue;
+    // Timed sets are not weight x reps work. Leftover reps on a set whose
+    // exercise was flipped to Time must not sneak back into volume.
+    if (isTimedSet(exercise, s)) continue;
     total += setVolume(s, loadType);
   }
   return total;
@@ -98,6 +259,27 @@ export function calcVolume(exercises, _weightUnit = 'lbs') {
 /**
  * Calculate 1-rep max estimate using Epley formula: w × (1 + r/30)
  */
+/**
+ * The most recent session in an exercise's history (newest first, as
+ * GET /api/workout/history/:id returns it) with at least one completed
+ * working set. History also lists sessions where the exercise was added but
+ * nothing was ticked, such as today's unfinished workout, so the first entry
+ * isn't necessarily the last completed session (issue #103).
+ *
+ * Returns { ...entry, completed, working }: every completed set (the Last
+ * Time row shows these, warm-ups included) and the completed working sets
+ * (what auto-fill copies, since a warm-up weight is not a working weight).
+ * Null when there is no such session.
+ */
+export function lastCompletedSession(history) {
+  for (const entry of history || []) {
+    const completed = (entry?.sets || []).filter(s => s?.completed);
+    const working = completed.filter(s => !s.warmup);
+    if (working.length) return { ...entry, completed, working };
+  }
+  return null;
+}
+
 export function calc1RM(weight, reps) {
   if (!weight || !reps || reps <= 0) return 0;
   if (reps === 1) return weight;

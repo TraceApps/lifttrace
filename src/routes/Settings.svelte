@@ -1,4 +1,10 @@
+<script context="module">
+  // Survives the remount between /settings and /settings/<slug> (NutriTrace #227).
+  const _scrollMemo = { page: null, indexTop: 0 };
+</script>
+
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
   import { slide, fade } from 'svelte/transition';
   import { push, querystring } from 'svelte-spa-router';
@@ -23,6 +29,8 @@
   import SettingsEmail from '../components/settings/SettingsEmail.svelte';
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
   import SettingsAuth from '../components/settings/SettingsAuth.svelte';
+  import SettingsApiTokens from '../components/settings/SettingsApiTokens.svelte';
+  import SettingsWebhooks from '../components/settings/SettingsWebhooks.svelte';
   import SettingsDiagnostics from '../components/settings/SettingsDiagnostics.svelte';
   // Profile is a route in its own right, but the desktop welcome hero
   // embeds it inline so users can edit their info without navigating
@@ -370,7 +378,7 @@
     workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill'],
     units:          ['language','languages','units','measurement','measurement system','format','date','time','12h','24h','locale','region','regional','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
-    trace:          ['trace','ai','assistant','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image'],
+    trace:          ['trace','ai','assistant','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image','voice language','voice input','language','environment','env','locked'],
     radio:          ['radio','music','player','subsonic','navidrome','jellyfin','streaming','audio','playlist'],
     federation:     ['federation','nutritrace','nt','sync','integration','calorie sync','log workouts','log calories','api','api token','access token','instance','wearable','double count'],
     catalog:        ['catalog','catalogue','exercise','exercises','source','sources','wger','free','db','exercisedb','rapidapi','import','sync','library','custom','custom exercise','custom exercises','my exercises','create exercise','offline','offline exercise library','image cache'],
@@ -380,6 +388,8 @@
     email:          ['email','smtp','mail','host','port','tls','password reset','invite','test','test email','send test','recipient','change password','stored password'],
     users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
+    apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
+    webhooks:       ['webhook','webhooks','outgoing webhook','automation','automations','home assistant','n8n','integration','integrations','event','events','signature','hmac','secret','payload','pr','personal record','workout completed','program advanced','test webhook'],
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
@@ -399,6 +409,62 @@
   export let params = {};
   $: currentSection = params?.section || null;
 
+  // ── Scroll position between the index and a section (NutriTrace #227) ─
+  // The document is the page's scroller here (not an inner .page-transition
+  // like NT/CT) and moving between /settings and /settings/<slug> doesn't
+  // reset it, so a section opened wherever the index was scrolled to: pick
+  // a category from the bottom of the list and it opened at its bottom. A
+  // section now opens at its top, and going back to the index returns to
+  // where you were on it.
+  //
+  // The router remounts this component between the two routes, so what
+  // has to survive that lives in _scrollMemo (module scope). .page-transition
+  // remounts only when the first path segment changes, so the same element
+  // as last time means we came here from elsewhere in Settings. Moving
+  // between sections keeps the instance and goes through _onSectionChange.
+  // Both run before the search deep-link scroll, which waits a tick plus
+  // 60ms, so a ?q= landing still scrolls to its match.
+  const _pageEl = () => (typeof document !== 'undefined' ? document.querySelector('.page-transition') : null);
+  const _docScroller = () => (typeof document !== 'undefined' ? (document.scrollingElement || document.documentElement) : null);
+  function _placeScroll(section) {
+    const s = _docScroller();
+    // 'instant': a smooth scroll would glide there, and the positions it
+    // passes through would be recorded as the index's place.
+    if (s) s.scrollTo({ top: section ? 0 : _scrollMemo.indexTop, behavior: 'instant' });
+  }
+  let _scrollReady = false;
+  let _shownSection;
+  // #/settings or #/settings?q=..., not #/settings/<slug>.
+  const _onIndexUrl = () => typeof location !== 'undefined' && /^#\/settings\/?(\?|$)/.test(location.hash);
+  // The index's position is recorded as it scrolls: by the time this
+  // component is torn down its content is already gone and the page has
+  // snapped back, so it can't be read on the way out. Only while the URL
+  // is the index itself: once a section is on its way in, the scroll events
+  // of the swap (the page shortening, the jump to the top) aren't the
+  // index's place.
+  function _recordIndexScroll() {
+    if (_onIndexUrl()) _scrollMemo.indexTop = _docScroller()?.scrollTop || 0;
+  }
+  onMount(() => {
+    const page = _pageEl();
+    // A different page element: Settings was opened fresh from elsewhere.
+    if (page && page === _scrollMemo.page) _placeScroll(currentSection);
+    else _scrollMemo.indexTop = 0;
+    _scrollMemo.page = page;
+    window.addEventListener('scroll', _recordIndexScroll, { passive: true });
+    _shownSection = currentSection;
+    _scrollReady = true;
+  });
+  onDestroy(() => { if (typeof window !== 'undefined') window.removeEventListener('scroll', _recordIndexScroll); });
+  $: if (_scrollReady) _onSectionChange(currentSection);
+  async function _onSectionChange(section) {
+    if (section === _shownSection) return;
+    if (!_shownSection) _scrollMemo.indexTop = _docScroller()?.scrollTop || 0;
+    _shownSection = section;
+    await tick();
+    _placeScroll(section);
+  }
+
   const SECTION_META = {
     profile:          { titleKey: 'profile.title',                      icon: 'person' },
     appearance:       { titleKey: 'settings.appearance.section',        icon: 'contrast' },
@@ -406,7 +472,7 @@
     workout:          { titleKey: 'settings.workout.section',           icon: 'fitness_center' },
     statistics:       { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
     catalog:          { titleKey: 'settings.catalog.section',           icon: 'library_books' },
-    trace:            { titleKey: 'settings.trace.section',             icon: 'bolt' },
+    trace:            { titleKey: 'settings.trace.section',             icon: 'smart_toy' },
     radio:            { titleKey: 'settings.radio.section',             icon: 'radio' },
     federation:       { titleKey: 'settings.federation.section',        icon: 'link' },
     serverConnection: { titleKey: 'settings.server.section',            icon: 'cloud' },
@@ -417,6 +483,8 @@
     helpImprove:      { titleKey: 'settings.diagnostics.section',       icon: 'troubleshoot' },
     users:            { titleKey: 'settings.users.section',             icon: 'group' },
     authentication:   { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
+    apiTokens:        { titleKey: 'settings.api_tokens.section',        icon: 'key' },
+    webhooks:         { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
     email:            { titleKey: 'settings.email.section',             icon: 'mail' },
     about:            { titleKey: 'settings.about.section',             icon: 'info' },
   };
@@ -493,6 +561,8 @@
     email: false,
     users: false,
     authentication: false,
+    apiTokens: false,
+    webhooks: false,
     updates: false,
     helpImprove: false,
     about: false,
@@ -642,7 +712,7 @@
       cards.push({ key: 'program',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.', route: '/programs' });
     }
     if (!$aiEnabled) {
-      cards.push({ key: 'trace',     icon: 'bolt', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
+      cards.push({ key: 'trace',     icon: 'smart_toy', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
     }
     return cards.filter(c => !_onboardingDismissed.has(c.key));
   })();
@@ -699,7 +769,7 @@
 
   <p class="settings-group-label">{$_('settings_main.group_integrations')}</p>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'trace')} class:active={currentSection === 'trace'} aria-current={currentSection === 'trace' ? 'page' : undefined} on:click={() => toggleSection('trace')}>
-    <span class="material-symbols-rounded si">bolt</span>
+    <span class="material-symbols-rounded si">smart_toy</span>
     <span>{$_('settings.trace.section')}</span>
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
@@ -753,6 +823,27 @@
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'authentication')} class:active={currentSection === 'authentication'} aria-current={currentSection === 'authentication' ? 'page' : undefined} on:click={() => toggleSection('authentication')}>
       <span class="material-symbols-rounded si">shield_person</span>
       <span>{$_('settings.authentication.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <!-- API Tokens (issue #78: MCP server). Strictly gated on real
+         multi-user mode with a signed-in admin — NOT the broader
+         single-user-counts-as-admin pattern the rest of this group
+         uses, because a token needs a real user_id to own it and
+         single-user mode has zero rows in `users`. See
+         server/routes/api-tokens.js for the matching server-side
+         guard. -->
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
+      <span class="material-symbols-rounded si">key</span>
+      <span>{$_('settings.api_tokens.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+    <!-- Webhooks (issue #79). Same real-multi-user-mode-plus-admin
+         posture as API Tokens just above: a webhook needs a real
+         user_id to own it. See server/routes/webhooks.js for the
+         matching server-side guard. -->
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'webhooks')} class:active={currentSection === 'webhooks'} aria-current={currentSection === 'webhooks' ? 'page' : undefined} on:click={() => toggleSection('webhooks')}>
+      <span class="material-symbols-rounded si">webhook</span>
+      <span>{$_('settings.webhooks.section')}</span>
       <span class="material-symbols-rounded chevron">chevron_right</span>
     </button>
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'email')} class:active={currentSection === 'email'} aria-current={currentSection === 'email' ? 'page' : undefined} on:click={() => toggleSection('email')}>
@@ -1023,6 +1114,30 @@
             <SettingsUserManagement visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'authentication'}
             <SettingsAuth visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'apiTokens'}
+            <!-- SettingsApiTokens is body-only (matches NT), not the
+                 visible/expanded/onToggle prop shape SettingsAuth etc.
+                 use — same reason SettingsUpdates below needs its own
+                 explicit header wrapper. -->
+            <button class="section-toggle" on:click={backToIndex}>
+              <span class="material-symbols-rounded si">key</span>
+              <span class="section-name">{$_('settings.api_tokens.section')}</span>
+              <span class="material-symbols-rounded chevron rotated">expand_more</span>
+            </button>
+            <div class="section-body">
+              <SettingsApiTokens expanded={true} />
+            </div>
+          {:else if currentSection === 'webhooks'}
+            <!-- SettingsWebhooks is body-only, same shape as
+                 SettingsApiTokens just above. -->
+            <button class="section-toggle" on:click={backToIndex}>
+              <span class="material-symbols-rounded si">webhook</span>
+              <span class="section-name">{$_('settings.webhooks.section')}</span>
+              <span class="material-symbols-rounded chevron rotated">expand_more</span>
+            </button>
+            <div class="section-body">
+              <SettingsWebhooks expanded={true} />
+            </div>
           {:else if currentSection === 'email'}
             <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'about'}
@@ -1172,7 +1287,7 @@
                 <span class="material-symbols-rounded" style="font-size:18px">logout</span>
                 Log Out
               </button>
-              <button class="btn btn-ghost w-full" style="color:var(--error,#f87171)" on:click={disconnectServer}>
+              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer}>
                 <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
                 Disconnect &amp; Use Locally
               </button>
@@ -1290,6 +1405,40 @@
           expanded={expanded.authentication}
           onToggle={() => toggleSection('authentication')}
         />
+
+        <!-- API Tokens (issue #78: MCP server) — body-only component
+             like SettingsUpdates above, doesn't take the visible/
+             expanded/onToggle prop shape. Strictly gated on real
+             multi-user mode + admin, same as SettingsAuth just above:
+             a token needs a real user_id to own it. -->
+        {#if sectionVisible(settingsQuery, 'apiTokens')}
+          <button class="section-toggle" on:click={() => toggleSection('apiTokens')}>
+            <span class="material-symbols-rounded si">key</span>
+            <span class="section-name">{$_('settings.api_tokens.section')}</span>
+            <span class="material-symbols-rounded chevron" class:rotated={openSections.apiTokens}>expand_more</span>
+          </button>
+          {#if expanded.apiTokens}
+            <div class="section-body" transition:slide={{ duration: 180 }}>
+              <SettingsApiTokens expanded={true} />
+            </div>
+          {/if}
+        {/if}
+
+        <!-- Webhooks (issue #79), body-only component, same shape and
+             gating as API Tokens just above: a webhook needs a real
+             user_id to own it. -->
+        {#if sectionVisible(settingsQuery, 'webhooks')}
+          <button class="section-toggle" on:click={() => toggleSection('webhooks')}>
+            <span class="material-symbols-rounded si">webhook</span>
+            <span class="section-name">{$_('settings.webhooks.section')}</span>
+            <span class="material-symbols-rounded chevron" class:rotated={openSections.webhooks}>expand_more</span>
+          </button>
+          {#if expanded.webhooks}
+            <div class="section-body" transition:slide={{ duration: 180 }}>
+              <SettingsWebhooks expanded={true} />
+            </div>
+          {/if}
+        {/if}
       {/if}
 
       <SettingsEmail
@@ -1319,7 +1468,7 @@
 
 <!-- Merge dialog (shown when connecting to server with existing local data) -->
 {#if mergeStep === 'ask-settings'}
-  <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }}>
+  <div class="merge-overlay" use:portal use:closeOnBack={() => {}} transition:fade={{ duration: 150 }}>
     <div class="merge-dialog">
       <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">{$_('settings_main.merge.title')}</h3>
       <p style="font-size:13px;color:var(--text-3);margin:0 0 12px;line-height:1.5">
@@ -1365,7 +1514,7 @@
     </div>
   </div>
 {:else if mergeStep === 'syncing'}
-  <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }}>
+  <div class="merge-overlay" use:portal use:closeOnBack={() => {}} transition:fade={{ duration: 150 }}>
     <div class="merge-dialog" style="text-align:center">
       <span class="material-symbols-rounded" style="font-size:36px;color:var(--accent);animation:settings-spin 1.2s linear infinite">sync</span>
       <p style="font-size:15px;color:var(--text-1);margin:12px 0 4px;font-weight:600">Syncing…</p>
@@ -1378,7 +1527,7 @@
     </div>
   </div>
 {:else if mergeStep === 'summary' && migrationSummary}
-  <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }}>
+  <div class="merge-overlay" use:portal use:closeOnBack={() => {}} transition:fade={{ duration: 150 }}>
     <div class="merge-dialog">
       <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">
         {migrationSummary.errors.length === 0 ? 'Upload complete' : 'Upload finished with issues'}
@@ -2168,6 +2317,7 @@
         - 150px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
       padding: 10px 8px;

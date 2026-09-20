@@ -27,8 +27,8 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-group">
-            <span class="setting-label">{$_('settings_statistics.lock_y_zero')}</span>
-            <span class="setting-hint">{$_('settings_statistics.lock_y_zero_hint')}</span>
+            <span class="setting-label">{$_('settings_statistics.lock_y_axis')}</span>
+            <span class="setting-hint">{$_('settings_statistics.lock_y_axis_hint')}</span>
           </div>
           <Toggle bind:checked={$statsYZero} />
         </div>

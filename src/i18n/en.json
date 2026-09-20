@@ -8,6 +8,11 @@
     "settings":   "Settings"
   },
   "sync": {
+    "synced": "Synced",
+    "syncing": "Syncing…",
+    "sync_offline": "Offline",
+    "sync_failing": "Can't reach the server",
+    "not_synced": "Not synced yet",
     "retry":            "Retry",
     "retrying":         "Retrying…",
     "dismiss_message":  "Dismiss sync message",
@@ -31,6 +36,7 @@
     "program_detail":  { "title": "Program" },
     "workout_editor":  { "title": "Workout Editor" },
     "statistics":      { "title": "Statistics" },
+    "progress":        { "title": "Progress" },
     "radio":           { "title": "Radio" },
     "coaching":        { "title": "Coaching" },
     "settings":        { "title": "Settings" },
@@ -153,15 +159,17 @@
       "jump_to_today": "Jump to today"
     },
     "actions": {
-      "gym_tools":         "Gym tools",
-      "gym_tools_long":    "Gym Tools — plate calculator & unit converter",
-      "body_stats":        "Body stats",
-      "body_stats_long":   "Body Stats — log weight, body fat, and measurements",
-      "workout_actions":   "Workout actions",
-      "workout_options":   "Workout options"
+      "gym_tools":         "Gym Tools",
+      "gym_tools_long":    "Gym Tools: plate calculator & unit converter",
+      "body_stats":        "Body Stats",
+      "body_stats_long":   "Body Stats: log weight, body fat, and measurements",
+      "workout_actions":   "Workout Actions",
+      "workout_options":   "Workout Options",
+      "add_session":       "Start a new session"
     },
     "toast": {
       "workout_cleared":       "Workout cleared",
+      "workout_deleted":       "Workout deleted",
       "timer_reset":           "Timer reset",
       "copied_yesterday":      "Copied workout from yesterday",
       "superset_created":      "Superset created",
@@ -210,9 +218,13 @@
       "delete_reply_msg":        "Your reply to this note will be removed.",
       "replace_workout_title":   "Replace workout?",
       "replace_confirm":         "Replace",
+      "start_new_session":       "Start a New Session",
       "replace_suggested_msg":   "Loading the suggested workout will overwrite your current workout for today.",
       "replace_template_msg":    "Picking a new template will overwrite your current workout for today.",
       "replace_prescribed_msg":  "Loading the prescribed workout will overwrite your current workout for today.",
+      "delete_workout_title":    "Delete this workout?",
+      "delete_workout_msg":      "This permanently deletes the entire session, every exercise and set. This cannot be undone.",
+      "delete_workout_confirm":  "Delete",
       "remove_exercise_title":   "Remove exercise?",
       "remove_exercise_msg":     "{name} will be removed from today's workout.",
       "remove_superset_title":   "Remove superset?",
@@ -380,6 +392,8 @@
     "notifications":   { "section": "Notifications" },
     "email":           { "section": "Email (SMTP)" },
     "authentication":  { "section": "Authentication" },
+    "api_tokens":      { "section": "API Tokens" },
+    "webhooks":        { "section": "Webhooks" },
     "profile_hero": {
       "label_fallback":  "My Profile",
       "subtitle_empty":  "Tap to add your name and photo"
@@ -512,7 +526,7 @@
     "feature_pwa":           "PWA — installable on any device",
     "feature_privacy":       "No tracking, no ads, no third-party analytics",
     "kofi":                  "Ko-fi",
-    "donations_note":        "LiftTrace is free to self-host. Donations are appreciated but never required.",
+    "donations_note":        "LiftTrace is free to self-host, always. The current goal is a Mac and an iPhone so the Trace apps can run properly on iOS.",
     "disclaimer_heading":    "Disclaimer.",
     "disclaimer_medical":    "LiftTrace is not medical, health, or fitness-professional software. It does not provide medical advice, diagnosis, treatment, or personalized training prescriptions. Exercise library content, Trace AI coaching, program templates, rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight trends) are for informational and self-tracking purposes only.",
     "disclaimer_risk":       "Resistance training carries inherent risk of injury. Exercise selection, load, technique, and progression can interact with medical conditions (heart and cardiovascular conditions, high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis, pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways this app cannot assess. Consult a qualified healthcare professional, certified strength coach, or licensed physical therapist before starting a new training program, returning from injury, or making significant changes to your routine.",
@@ -522,13 +536,32 @@
     "auto":                  "Auto",
     "weight":                "Weight",
     "reps":                  "Reps",
-    "clear":                 "Clear"
+    "clear":                 "Clear",
+    "duration": "Time"
   },
   "exercise_card": {
     "load_type":             "Load Type",
     "remember_for_exercise": "Remember for this exercise",
     "weight":                "Weight",
-    "reps":                  "Reps"
+    "reps":                  "Reps",
+    "time":                  "Time",
+    "tracked_by":            "Tracked By",
+    "set_type_reps":         "Reps",
+    "set_type_reps_hint":    "weight and reps: bench press, squat, curls",
+    "set_type_time":         "Time",
+    "set_type_time_hint":    "a duration you hold or carry: plank, wall sit, dead hang"
+  },
+  "hold_timer": {
+    "label":          "HOLD",
+    "start":          "Start hold timer",
+    "stop":           "Stop",
+    "cancel":         "Cancel",
+    "get_ready":      "Get into position · tap to start now",
+    "skip_lead_in":   "Start the hold now",
+    "target":         "Target {time}",
+    "target_reached": "Target {time} reached · keep going",
+    "open_date":      "Open {date} to stop",
+    "set_not_found":  "Couldn't find that set. You held {time}."
   },
   "trace_ai": {
     "voice_error":           "Voice error: {reason}",
@@ -541,7 +574,9 @@
   "exercises_page": {
     "all_equipment":         "All Equipment",
     "go_to_settings":        "Go to Settings",
-    "custom":                "Custom"
+    "custom":                "Custom",
+    "density_compact":       "Compact",
+    "density_comfortable":   "Comfortable"
   },
   "coaching_dialogs": {
     "cancel":                "Cancel"
@@ -591,6 +626,7 @@
   "exercise_detail": {
     "deleted":               "Exercise deleted",
     "top_set_over_time":     "Top Set Over Time",
+    "longest_hold_over_time": "Longest Hold Over Time",
     "similar_exercises":     "Similar Exercises",
     "try_again":             "Try Again",
     "back_to_exercises":     "Back to Exercises",
@@ -610,6 +646,120 @@
     "access_token_hint_suffix": "scope.",
     "wearable_priority":     "Wearable Priority",
     "wearable_priority_hint": "If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → \"Prefer Wearable Data Over LiftTrace\"."
+  },
+  "settings_api_tokens": {
+    "intro_before": "Personal access tokens let an external MCP client (like Claude Desktop",
+    "intro_dev": "or another MCP-aware agent",
+    "intro_middle": " talk to this LiftTrace instance directly. Tokens are scoped to a specific set of capabilities and connect to",
+    "intro_see": "See",
+    "intro_guide_link": "the MCP setup guide",
+    "just_created": {
+      "title": "Token created:",
+      "warn": "Copy this now — it will not be shown again.",
+      "copy": "Copy",
+      "saved": "I've saved it"
+    },
+    "empty": {
+      "title": "No tokens yet",
+      "desc": "Create one to connect an MCP client to this instance."
+    },
+    "row": {
+      "scopes_label": "Scopes:",
+      "scopes_none": "none",
+      "last_used": "last used {when}",
+      "expires": "expires {when}",
+      "never": "never",
+      "just_now": "just now",
+      "min_ago": "{n}m ago",
+      "hr_ago": "{n}h ago",
+      "day_ago": "{n}d ago",
+      "min_in": "in {n}m",
+      "hr_in": "in {n}h",
+      "day_in": "in {n}d",
+      "revoke_title": "Revoke token"
+    },
+    "form": {
+      "new_token": "New Token",
+      "name": "Name *",
+      "name_ph": "e.g. Claude Desktop",
+      "scopes": "Scopes *",
+      "mcp_disabled": "MCP is not enabled on this server. A token can still be created, but it won't do anything until MCP_ENABLED=1 is set.",
+      "expires_label": "Expires After (Days, Optional)",
+      "expires_ph": "Leave empty to never expire",
+      "cancel": "Cancel",
+      "create": "Create Token",
+      "creating": "Creating…"
+    },
+    "confirm": {
+      "revoke_title": "Revoke \"{name}\"?",
+      "revoke_msg": "Any MCP client using this token will immediately lose access. This cannot be undone.",
+      "revoke_confirm": "Revoke"
+    },
+    "toast": {
+      "load_failed": "Could not load tokens",
+      "scope_required": "Select at least one scope",
+      "create_failed": "Could not create token",
+      "revoke_failed": "Could not revoke token",
+      "revoked": "Token revoked",
+      "copied": "Copied to clipboard",
+      "copy_failed": "Could not copy — select the text manually"
+    }
+  },
+  "settings_webhooks": {
+    "intro": "Outgoing webhooks notify another service the instant something happens in LiftTrace: a workout completed, a personal record set, a program week advanced, or a body stat logged. Each webhook fires a signed HTTP POST to a URL you provide.",
+    "disabled_notice": "Webhooks are not enabled on this server. A webhook can still be created, but it won't fire until WEBHOOKS_ENABLED=1 is set.",
+    "just_created": {
+      "title": "Webhook created:",
+      "warn": "Copy this secret now. It will not be shown again, and you'll need it to verify the signature on deliveries.",
+      "copy": "Copy",
+      "saved": "I've saved it"
+    },
+    "empty": {
+      "title": "No webhooks yet",
+      "desc": "Create one to notify another service when something happens."
+    },
+    "row": {
+      "last_delivery": "last delivery {when}",
+      "never": "never",
+      "just_now": "just now",
+      "min_ago": "{n}m ago",
+      "hr_ago": "{n}h ago",
+      "day_ago": "{n}d ago",
+      "status_success": "delivered",
+      "status_failed": "failed",
+      "test_title": "Send a test event",
+      "enabled_title": "Enabled",
+      "delete_title": "Delete webhook"
+    },
+    "form": {
+      "new_webhook": "New Webhook",
+      "url": "Target URL *",
+      "url_ph": "https://example.com/webhook",
+      "events": "Events *",
+      "secret_label": "Secret (Optional)",
+      "secret_ph": "Leave empty to generate one",
+      "cancel": "Cancel",
+      "create": "Create Webhook",
+      "creating": "Creating…"
+    },
+    "confirm": {
+      "delete_title": "Delete this webhook?",
+      "delete_msg": "This cannot be undone. The target will stop receiving events immediately.",
+      "delete_confirm": "Delete"
+    },
+    "toast": {
+      "load_failed": "Could not load webhooks",
+      "url_required": "Enter a target URL",
+      "event_required": "Select at least one event",
+      "create_failed": "Could not create webhook",
+      "update_failed": "Could not update webhook",
+      "delete_failed": "Could not delete webhook",
+      "deleted": "Webhook deleted",
+      "test_failed": "Test delivery failed",
+      "test_delivered": "Test event delivered",
+      "copied": "Copied to clipboard",
+      "copy_failed": "Could not copy, select the text manually"
+    }
   },
   "settings_diagnostics": {
     "copy_failed":           "Copy failed, select the text manually",
@@ -660,8 +810,8 @@
     "default_chart_type":    "Default Chart Type",
     "type_bar":              "Bar",
     "type_line":             "Line",
-    "lock_y_zero":           "Lock Y-Axis to Zero",
-    "lock_y_zero_hint":      "Always start the Y-axis at 0",
+    "lock_y_axis":           "Lock Y-Axis to Zero",
+    "lock_y_axis_hint":      "Always start the Y-axis at 0",
     "show_average":          "Show Average Line",
     "show_average_hint":     "Horizontal line at the average value",
     "show_trend":            "Show Trend Line",
@@ -708,6 +858,7 @@
     "smtp_host_required":    "SMTP test failed: host required",
     "invalid_email":         "Enter a valid email address",
     "hint":                  "Used for password resets and user invites",
+    "env_lock_banner":       "Configured via environment variables, changes are disabled.",
     "smtp_host":             "SMTP Host",
     "port":                  "Port",
     "tls":                   "TLS",
@@ -768,7 +919,9 @@
     "tips":                   "Tips",
     "tips_optional":          "(optional)",
     "tips_ph":                "Common mistakes, breathing, progression notes…",
-    "cancel":                 "Cancel"
+    "cancel":                 "Cancel",
+    "tracked_by":             "Tracked By",
+    "set_type_unset":         "Unset"
   },
   "diary_extra": {
     "toast": {
@@ -795,7 +948,9 @@
     "notes_ph":                "Workout notes...",
     "load_workout":            "Load Workout",
     "auto":                    "Auto",
-    "mark_all_seen":           "Mark All Seen"
+    "mark_all_seen":           "Mark All Seen",
+    "add_menu_title":          "Add",
+    "add_exercise_action":     "Add Exercise"
   },
   "native_setup": {
     "toast": {
@@ -922,7 +1077,8 @@
     "rest":                 "Rest",
     "rest_ph":              "e.g. 90",
     "per_set_link":         "Different weight or reps per set…",
-    "add_exercise":         "Add Exercise"
+    "add_exercise":         "Add Exercise",
+    "duration": "Time"
   },
   "statistics": {
     "tabs": {
@@ -931,7 +1087,7 @@
       "records":  "Records",
       "volume":   "Volume",
       "freq":     "Frequency",
-      "weight":   "Body Weight",
+      "weight":   "Body Measurements",
       "cardio":   "Cardio"
     },
     "ranges": {
@@ -941,6 +1097,17 @@
       "m6":  "6M",
       "y1":  "1Y",
       "all": "All"
+    },
+    "rail": {
+      "summary":    "Summary",
+      "progress":   "Progress",
+      "trends":     "Trends",
+      "range":      "Range",
+      "vs_prior":   "vs Prior {range}",
+      "prior_window_one":   "Prior window: {n} session",
+      "prior_window_other": "Prior window: {n} sessions",
+      "nav_aria":   "Statistics sections",
+      "aside_aria": "Range + comparison"
     },
     "categories": {
       "chest":     "Chest",
@@ -971,6 +1138,7 @@
     "no_sets":           "No completed sets for {name} in this range.",
     "sessions":          "Sessions",
     "top_set":           "Top Set Over Time",
+    "longest_hold": "Longest Hold",
     "session_history":   "Session History",
     "open_exercise":     "Open Exercise",
     "peak_week":         "Peak Week",
@@ -984,7 +1152,8 @@
     "streak":            "Streak",
     "weekday_dist":      "Weekday Distribution",
     "change":            "Change",
-    "body_weight_trend": "Body Weight Trend",
+    "body_weight_trend": "Body Measurements",
+    "overlay_none":      "None",
     "history":           "History",
     "choose_exercise":   "Choose Exercise",
     "search_exercises_ph": "Search exercises…",
@@ -1023,6 +1192,8 @@
     "most_active":          "Most active: {day}",
     "no_workouts_in_range": "No workouts in this range.",
     "no_body_weight":       "No body weight logged yet. Tap the scale icon in the diary to log your weight.",
+    "progress_link":        "Progress Photos",
+    "progress_link_sub":    "See your timeline and compare two dates",
     "current":              "Current",
     "no_cardio_range":      "No cardio logged in this range. Add sessions from the Diary.",
     "on_target":            "On target",
@@ -1035,7 +1206,9 @@
     "showing_100_sessions": "Showing the 100 most recent sessions in this range.",
     "no_exercises_match":   "No exercises match that search.",
     "no_exercises_library": "No exercises in your library yet.",
-    "load_failed":          "Failed to load stats"
+    "load_failed":          "Failed to load stats",
+    "load_failed_detail":   "Some statistics couldn't be loaded, so the numbers below may be incomplete.",
+    "retry":                "Retry"
   },
   "gym_tools": {
     "plates":          "Plates",
@@ -1052,6 +1225,57 @@
     "pounds":          "Pounds",
     "kilograms":       "Kilograms",
     "weight_ph":       "Enter weight"
+  },
+  "progress": {
+    "add_photo":      "Add Photo",
+    "adding":         "Adding…",
+    "view_timeline":  "View Timeline",
+    "compare_ends":   "Compare First and Latest",
+    "compare_pick":   "Compare Two",
+    "compare_cancel": "Cancel",
+    "compare_hint":   "Pick two photos to compare ({n}/2 selected)",
+    "delete_title":   "Delete photo",
+    "empty": {
+      "title": "No progress photos yet",
+      "desc":  "Add a photo every few weeks and compare any two dates side by side to see how far you have come."
+    },
+    "compare": {
+      "title":        "Before and After",
+      "before_alt":   "Earlier photo",
+      "after_alt":    "Later photo",
+      "handle_label": "Drag to compare"
+    },
+    "date_today":    "Today",
+    "date_for_next": "Date for the next photo",
+    "scrub": {
+      "title":        "Photo Timeline",
+      "handle_label": "Drag to move through time",
+      "play":         "Play",
+      "pause":        "Pause",
+      "day_n":        "Day {n}",
+      "since":        "{delta} {unit} since {date}"
+    },
+    "weight": {
+      "label":       "Weight",
+      "add":         "Add weight",
+      "save":        "Save",
+      "saving":      "Saving…",
+      "saved":       "Weight saved",
+      "save_failed": "Could not save weight",
+      "prompt":      "No weight logged for {date}. Add it?"
+    },
+    "confirm": {
+      "delete_title":   "Delete this photo?",
+      "delete_msg":     "This removes the photo from your timeline and deletes the file. This cannot be undone.",
+      "delete_confirm": "Delete"
+    },
+    "toast": {
+      "added":         "Photo added",
+      "add_failed":    "Could not add photo",
+      "deleted":       "Photo deleted",
+      "delete_failed": "Could not delete photo",
+      "load_failed":   "Could not load progress photos"
+    }
   },
   "coaching": {
     "toast": {
@@ -1228,6 +1452,7 @@
       "fill_required":     "Fill in provider, API key, and model first"
     },
     "provider_env_locked": "Environment-locked",
+    "env_lock_banner": "Configured via environment variables, changes are disabled.",
     "provider_claude":     "Anthropic Claude",
     "provider_openai":     "OpenAI",
     "provider_gemini":     "Google Gemini",
@@ -1258,7 +1483,40 @@
       "hide":              "Hide",
       "show":              "Show",
       "assistant_name":    "Assistant Name",
-      "assistant_name_ph": "Trace"
+      "assistant_name_ph": "Trace",
+      "key_stored_device": "Your key is stored on this device.",
+      "key_stored_server": "Your key is stored securely on the server.",
+      "smart_log": "Smart Log",
+      "smart_log_desc": "Hold the assistant button and speak your workout. Trace parses the exercises, sets, reps and weights, matches your exercise library, then confirms before saving.",
+      "voice_lang": "Voice Input Language",
+      "voice_lang_desc": "Language the microphone listens for. Defaults to your device language, override if you speak a different language than your device is set to."
+    },
+    "voice_langs": {
+      "auto": "Auto (use device language)",
+      "en_US": "English (US)",
+      "en_GB": "English (UK)",
+      "it_IT": "Italian",
+      "es_ES": "Spanish (Spain)",
+      "es_MX": "Spanish (Mexico)",
+      "fr_FR": "French",
+      "de_DE": "German",
+      "pt_BR": "Portuguese (Brazil)",
+      "pt_PT": "Portuguese (Portugal)",
+      "nl_NL": "Dutch",
+      "pl_PL": "Polish",
+      "ru_RU": "Russian",
+      "sv_SE": "Swedish",
+      "da_DK": "Danish",
+      "nb_NO": "Norwegian",
+      "fi_FI": "Finnish",
+      "cs_CZ": "Czech",
+      "tr_TR": "Turkish",
+      "ja_JP": "Japanese",
+      "ko_KR": "Korean",
+      "zh_CN": "Chinese (Simplified)",
+      "zh_TW": "Chinese (Traditional)",
+      "hi_IN": "Hindi",
+      "ar_SA": "Arabic"
     }
   },
   "settings_auth": {

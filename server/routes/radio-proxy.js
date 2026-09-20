@@ -1,92 +1,35 @@
 import { Router } from 'express';
-import dns from 'dns/promises';
-import net from 'net';
 import { logger } from '../logger.js';
+import { assertSafeUrl as _sharedAssertSafeUrl } from '../lib/ssrf-guard.js';
 
 const router = Router();
 
-// ── SSRF guard ──────────────────────────────────────────────────────────────
-// The radio proxy fetches user-supplied URLs server-side. Without a guard a
-// member could submit a station URL pointing at the cloud-metadata endpoint
-// (169.254.169.254) and exfiltrate IAM credentials, or probe internal LAN
-// services. Tiered defaults:
-//   * Link-local / IPv6 link-local — ALWAYS blocked. Never legitimate.
-//   * Loopback + RFC1918 + IPv6 ULA — blocked by default; opt out via
-//     ALLOW_PRIVATE_RADIO_URLS=1 for self-hosters running internal Icecast
-//     on the same LAN / Docker network.
+// SSRF guard. The radio proxy fetches user-supplied URLs server-side.
+// Without a guard a member could submit a station URL pointing at the
+// cloud-metadata endpoint (169.254.169.254) and exfiltrate IAM
+// credentials, or probe internal LAN services. Logic lives in
+// server/lib/ssrf-guard.js (shared with outgoing webhooks, issue #79);
+// this is a thin same-signature wrapper so the 8 call sites below
+// needed zero changes when the guard was extracted.
 const ALLOW_PRIVATE_RADIO_URLS =
   process.env.ALLOW_PRIVATE_RADIO_URLS === '1' ||
   process.env.ALLOW_PRIVATE_RADIO_URLS === 'true';
 if (ALLOW_PRIVATE_RADIO_URLS) {
-  logger.warn('[radio-proxy] ALLOW_PRIVATE_RADIO_URLS=1 — proxy will fetch private/loopback addresses. Disable in cloud deployments.');
-}
-
-function _isLinkLocalOrCloudMeta(ip) {
-  if (net.isIPv4(ip)) return ip.startsWith('169.254.');
-  if (net.isIPv6(ip)) {
-    const lo = ip.toLowerCase();
-    // fe80::/10 = fe80..febf in the first hextet
-    if (/^fe[89ab]/.test(lo)) return true;
-    // IPv4-mapped link-local (e.g. ::ffff:169.254.169.254)
-    if (lo.startsWith('::ffff:169.254.')) return true;
-  }
-  return false;
-}
-
-function _isPrivateOrLoopback(ip) {
-  if (net.isIPv4(ip)) {
-    if (ip === '0.0.0.0') return true;
-    if (ip.startsWith('127.')) return true;
-    if (ip.startsWith('10.')) return true;
-    if (ip.startsWith('192.168.')) return true;
-    if (ip.startsWith('172.')) {
-      const second = parseInt(ip.split('.')[1], 10);
-      if (second >= 16 && second <= 31) return true;
-    }
-    return false;
-  }
-  if (net.isIPv6(ip)) {
-    const lo = ip.toLowerCase();
-    if (lo === '::1' || lo === '::' || lo === '0:0:0:0:0:0:0:1') return true;
-    // Unique-local addresses fc00::/7 = fc00..fdff
-    if (/^f[cd]/.test(lo)) return true;
-    // IPv4-mapped private
-    if (/^::ffff:(127|10|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\./i.test(lo)) return true;
-  }
-  return false;
+  logger.warn('[radio-proxy] ALLOW_PRIVATE_RADIO_URLS=1: proxy will fetch private/loopback addresses. Disable in cloud deployments.');
 }
 
 /**
- * Resolve the URL's hostname and reject anything that lands on a blocked IP.
- * Returns a parsed URL on success; throws Error with a friendly message on
- * failure. Caller should map to 400 / silent-skip as appropriate.
- *
- * Note on DNS rebinding: this function resolves once. A determined attacker
- * could DNS-rebind between this lookup and the fetch. For audio streams the
- * exfiltration surface is tiny (we return bytes to a single user who already
- * controls the URL), so we accept the residual risk.
+ * Note on DNS rebinding (residual risk, unchanged from before this was
+ * extracted): this resolves once, a determined attacker could DNS-rebind
+ * between this lookup and the fetch. For audio streams the exfiltration
+ * surface is tiny (bytes are returned to a single user who already
+ * controls the URL), so that risk is accepted here.
  */
 async function assertSafeUrl(url) {
-  let parsed;
-  try { parsed = new URL(url); }
-  catch { throw new Error('Invalid URL'); }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('Only http and https URLs are allowed');
-  }
-  let address;
-  try {
-    const r = await dns.lookup(parsed.hostname, { all: false });
-    address = r.address;
-  } catch {
-    throw new Error('Could not resolve host');
-  }
-  if (_isLinkLocalOrCloudMeta(address)) {
-    throw new Error('Link-local / cloud-metadata addresses are not allowed');
-  }
-  if (!ALLOW_PRIVATE_RADIO_URLS && _isPrivateOrLoopback(address)) {
-    throw new Error('Private / loopback addresses are blocked. Set ALLOW_PRIVATE_RADIO_URLS=1 to enable LAN streams.');
-  }
-  return parsed;
+  return _sharedAssertSafeUrl(url, {
+    allowPrivate: ALLOW_PRIVATE_RADIO_URLS,
+    allowPrivateEnvHint: 'ALLOW_PRIVATE_RADIO_URLS',
+  });
 }
 
 // ── Now-playing cache (keyed by upstream URL) ───────────────────────────────

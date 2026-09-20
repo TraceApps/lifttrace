@@ -38,6 +38,7 @@ installApiFetch();
 // above the page banner. SplashScreen is configured via capacitor.config.ts
 // to auto-hide after 1.2s; calling hide() explicitly here as belt-and-suspenders.
 import { Capacitor } from '@capacitor/core';
+import { purgeLegacyPhotoCache } from './lib/photo-blobs.js';
 if (Capacitor.isNativePlatform()) {
   (async () => {
     try {
@@ -82,3 +83,8 @@ DB.init()
         </button>
       </div>`;
   });
+
+
+// See purgeLegacyPhotoCache: clears photo bytes cached by the service
+// worker back when /uploads served them publicly. Runs once per install.
+purgeLegacyPhotoCache();

@@ -34,13 +34,18 @@ export function parseFitnotes(csvText, userUnit) {
     const category = (row['category'] || '').trim();
     const reps = parseInt(row['reps'] || '0', 10) || 0;
     const weight = convertWeight(row[weightKey] || '0', sourceUnit, userUnit);
+    // Timed set (issue #89): FitNotes records holds in its Time column
+    // ("h:mm:ss", "mm:ss" or plain seconds). Timed only with no reps, the
+    // same rule the Strong and Hevy importers use.
+    const seconds = _fitnotesSeconds(row['time']);
+    const timed = seconds > 0 && reps === 0;
     const comment = (row['comment'] || '').trim();
 
     if (!byDate.has(date)) byDate.set(date, { categories: new Set(), exercises: new Map() });
     const day = byDate.get(date);
     if (category) day.categories.add(category);
     if (!day.exercises.has(exName)) day.exercises.set(exName, []);
-    day.exercises.get(exName).push({ reps, weight, completed: true, notes: comment, rpe: null });
+    day.exercises.get(exName).push({ reps, weight, completed: true, notes: comment, rpe: null, ...(timed ? { duration_sec: seconds } : {}) });
   }
 
   const out = [];
@@ -54,9 +59,18 @@ export function parseFitnotes(csvText, userUnit) {
       superset_id: null,
       superset_size: 1,
       sets,
+      ...(sets.length && sets.every(s => s.duration_sec > 0) ? { set_type: 'time' } : {}),
     }));
     out.push({ date, name, notes: '', duration_min: null, exercises });
   }
   out.sort((a, b) => a.date.localeCompare(b.date));
   return out;
+}
+
+function _fitnotesSeconds(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return 0;
+  if (/^\d+(:\d{1,2}){1,2}$/.test(t)) return t.split(':').map(Number).reduce((a, p) => a * 60 + p, 0);
+  const n = Math.round(parseFloat(t));
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }

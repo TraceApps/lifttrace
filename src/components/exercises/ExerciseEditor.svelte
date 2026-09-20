@@ -48,6 +48,8 @@
   // to 'bilateral' at render time. Setting this here overrides the
   // client-pref tier for everyone reading the catalog entry.
   let load_type = null;
+  // Library-level set type (issue #89): 'reps' | 'time', null = unset.
+  let set_type = null;
   let saving = false;
 
   // Reset fields whenever the modal opens.
@@ -66,6 +68,7 @@
       gif_url = ex.gif_url || '';
       video_url = ex.video_url || '';
       load_type = ex.load_type || null;
+      set_type = ex.set_type || null;
     } else {
       name = prefillName || '';
       category = '';
@@ -76,6 +79,7 @@
       tips = '';
       img_url = ''; gif_url = ''; video_url = '';
       load_type = null;
+      set_type = null;
     }
   }
 
@@ -102,6 +106,7 @@
       gif_url: gif_url || null,
       video_url: video_url || null,
       load_type,
+      set_type,
     };
     try {
       const result = exercise
@@ -153,6 +158,19 @@
         <button type="button" class="chip" class:active={load_type === 'bilateral'} on:click={() => load_type = 'bilateral'}>Bilateral</button>
         <button type="button" class="chip" class:active={load_type === 'paired'} on:click={() => load_type = 'paired'}>Per side</button>
         <button type="button" class="chip" class:active={load_type === 'unilateral'} on:click={() => load_type = 'unilateral'}>Alternating</button>
+      </div>
+    </div>
+
+    <!-- Tracked by (issue #89): whether sets log reps or a duration. Same
+         unset-means-no-opinion rule as load type above: an exercise that
+         already has logged sets keeps the shape of its data regardless, so
+         setting this never rewrites history. -->
+    <div class="field">
+      <label class="label">{$_('exercise_editor.tracked_by')}</label>
+      <div class="chips">
+        <button type="button" class="chip" class:active={!set_type} on:click={() => set_type = null}>{$_('exercise_editor.set_type_unset')}</button>
+        <button type="button" class="chip" class:active={set_type === 'reps'} on:click={() => set_type = 'reps'}>{$_('exercise_card.set_type_reps')}</button>
+        <button type="button" class="chip" class:active={set_type === 'time'} on:click={() => set_type = 'time'}>{$_('exercise_card.set_type_time')}</button>
       </div>
     </div>
 

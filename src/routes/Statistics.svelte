@@ -1,9 +1,9 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { push } from 'svelte-spa-router';
+  import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
-  import { weightUnit, pageBanners, bannerStyle } from '../stores/settings.js';
+  import { weightUnit, pageBanners, bannerStyle, bodyStatsVisible } from '../stores/settings.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import WeeklyVolumeChart from '../components/statistics/WeeklyVolumeChart.svelte';
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
@@ -15,7 +15,7 @@
   import { weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
-  import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
+  import { estimateWorkoutCalories, ageFromDob, isTimedSet, fmtSetDuration } from '../lib/workout.js';
   import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
   import { showError } from '../stores/toast.js';
@@ -47,12 +47,12 @@
     ];
     if ($cardioEnabled) trends.push(CARDIO_METRIC);
     return [
-      { title: 'Summary',  items: [{ id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' }] },
-      { title: 'Progress', items: [
+      { titleKey: 'statistics.rail.summary',  items: [{ id: 'overview', labelKey: 'statistics.tabs.overview', icon: 'dashboard' }] },
+      { titleKey: 'statistics.rail.progress', items: [
         { id: 'progress', labelKey: 'statistics.tabs.progress', icon: 'trending_up' },
         { id: 'records',  labelKey: 'statistics.tabs.records',  icon: 'emoji_events' },
       ]},
-      { title: 'Trends',   items: trends },
+      { titleKey: 'statistics.rail.trends',   items: trends },
     ];
   })();
 
@@ -64,6 +64,12 @@
 
   let metric = 'overview';
   let range = '1M';
+  // Deep links such as the weekly summary email's button open on a given
+  // range: #/statistics?range=1W (issue #98).
+  {
+    const wanted = new URLSearchParams($querystring || '').get('range');
+    if (wanted && Object.prototype.hasOwnProperty.call(RANGES, wanted)) range = wanted;
+  }
   // For the 'All' range we resolve the earliest workout_log date from the
   // server and use that as the start. Avoids the previous 10-year ceiling
   // (which silently chopped older imported data). Loaded lazily.
@@ -99,6 +105,32 @@
 
   // ── Body weight state ────────────────────────────────────────────────
   let bodyWeights = [];
+
+  // Overlay: one extra body measurement on the weight chart (issue #65).
+  // Labels reuse settings_workout.body_stats.* — the ids are camelCase but
+  // those keys are snake_case, hence the explicit labelKey map.
+  const OVERLAY_METRICS = [
+    { id: 'bodyFat', labelKey: 'settings_workout.body_stats.body_fat', kind: 'percent' },
+    { id: 'neck',    labelKey: 'settings_workout.body_stats.neck',     kind: 'length' },
+    { id: 'chest',   labelKey: 'settings_workout.body_stats.chest',    kind: 'length' },
+    { id: 'waist',   labelKey: 'settings_workout.body_stats.waist',    kind: 'length' },
+    { id: 'hips',    labelKey: 'settings_workout.body_stats.hips',     kind: 'length' },
+    { id: 'biceps',  labelKey: 'settings_workout.body_stats.biceps',   kind: 'length' },
+    { id: 'thighs',  labelKey: 'settings_workout.body_stats.thighs',   kind: 'length' },
+    { id: 'calves',  labelKey: 'settings_workout.body_stats.calves',   kind: 'length' },
+  ];
+  let overlayId = null;
+  let bodyRows = [];
+  $: overlayLengthUnit = $weightUnit === 'kg' ? 'cm' : 'in';
+  $: overlayChoices = OVERLAY_METRICS.filter(m => ($bodyStatsVisible || []).includes(m.id) && bodyRows.some(r => Number.isFinite(parseFloat(r.stats?.[m.id]))));
+  $: if (overlayId && !overlayChoices.some(m => m.id === overlayId)) overlayId = null;
+  $: overlayMetric = overlayId ? OVERLAY_METRICS.find(m => m.id === overlayId) : null;
+  $: overlayData = overlayMetric
+    ? bodyRows
+        .map(r => ({ date: r.date, v: parseFloat(r.stats?.[overlayMetric.id]) }))
+        .filter(p => Number.isFinite(p.v))
+    : [];
+  $: bwChartW = Math.max(bodyWeights.length * 20, 200);
 
   // ── Scroll restore per metric ────────────────────────────────────────
   // sessionStorage key per-metric so switching "Volume → Frequency → Volume"
@@ -161,7 +193,9 @@
       const res = await fetch('/api/stats/earliest-workout-date', { credentials: 'include' });
       if (res.ok) { const d = await res.json(); earliestWorkoutDate = d?.date || null; }
     } catch {}
-    await loadData();
+    // The range statement below already loaded once; only All needs a second
+    // pass, because its start date is the earliest workout just fetched.
+    if (range === 'All') await loadData();
 
     _onSyncComplete = () => { loadData(); };
     window.addEventListener('lt:sync-complete', _onSyncComplete);
@@ -173,10 +207,17 @@
 
   $: range, loadData();
 
+  // Each stat loads on its own, so one that fails no longer throws away the
+  // rest, and a failure shows as an error rather than as zeros that look like
+  // real statistics (issue #101). Only the newest load may write results or
+  // report an error, so overlapping loads can't double the toast.
+  let loadError = false;
+  let _loadSeq = 0;
   async function loadData() {
+    const seq = ++_loadSeq;
     loading = true;
     try {
-      const [v, f, r, s, mg, mes, wd, cw, cs] = await Promise.all([
+      const results = await Promise.allSettled([
         LtApi.getVolume(startDate, endDate),
         LtApi.getFrequency(startDate, endDate),
         LtApi.getRecords(),
@@ -187,10 +228,21 @@
         LtApi.getCardioWeekly(startDate, endDate).catch(() => []),
         LtApi.listCardio(startDate, endDate).catch(() => []),
       ]);
-      volume = v; frequency = f; records = r; streaks = s;
-      muscleGroups = mg; muscleLoad = mes || {}; weekdayDist = wd;
+      if (seq !== _loadSeq) return;
+      const [v, f, r, s, mg, mes, wd, cw, cs] = results.map(x => (x.status === 'fulfilled' ? x.value : undefined));
+      const failed = results.filter(x => x.status === 'rejected');
+      failed.forEach(x => console.error(x.reason));
+      if (v !== undefined) volume = v;
+      if (f !== undefined) frequency = f;
+      if (r !== undefined) records = r;
+      if (s !== undefined) streaks = s;
+      if (mg !== undefined) muscleGroups = mg;
+      if (mes !== undefined) muscleLoad = mes || {};
+      if (wd !== undefined) weekdayDist = wd;
       cardioWeekly = Array.isArray(cw) ? cw : [];
       cardioSessions = Array.isArray(cs) ? cs : [];
+      loadError = failed.length > 0;
+      if (loadError) showError($_('statistics.load_failed'));
 
       // Heatmap dates + cached full records (the calorie estimator needs
       // exercises + duration_min, both already in this payload).
@@ -210,9 +262,9 @@
       if (metric === 'progress' && selectedExerciseId) await loadProgress();
     } catch(e) {
       console.error(e);
-      showError($_('statistics.load_failed'));
+      if (seq === _loadSeq) { loadError = true; showError($_('statistics.load_failed')); }
     }
-    loading = false;
+    if (seq === _loadSeq) loading = false;
   }
 
   async function loadBodyWeights() {
@@ -224,11 +276,13 @@
       // that startDate already falls back to when there are no workouts.
       const from = range === 'All' ? '2000-01-01' : startDate;
       const rows = await LtApi.getBodyStatsRange(from, endDate);
-      bodyWeights = (rows || [])
-        .map(r => ({ date: r.date, weight: parseFloat(r.stats?.weight) }))
-        .filter(p => Number.isFinite(p.weight))
+      bodyRows = (rows || [])
+        .map(r => ({ date: r.date, stats: r.stats || {} }))
         .sort((a, b) => a.date.localeCompare(b.date));
-    } catch { bodyWeights = []; }
+      bodyWeights = bodyRows
+        .map(r => ({ date: r.date, weight: parseFloat(r.stats?.weight) }))
+        .filter(p => Number.isFinite(p.weight));
+    } catch { bodyWeights = []; bodyRows = []; }
   }
 
   async function loadProgress() {
@@ -315,6 +369,7 @@
         const lt = ex.load_type || 'bilateral';
         for (const s of (ex.sets || [])) {
           if (!s.completed || s.warmup) continue;
+          if (isTimedSet(ex, s)) continue;   // issue #89: holds carry no volume
           const wt = s.weight || 0;
           if (lt === 'unilateral') {
             if (s.reps_l != null || s.reps_r != null) priorVol += wt * ((s.reps_l || 0) + (s.reps_r || 0));
@@ -358,16 +413,30 @@
 
   // ── Progress-metric derived ──────────────────────────────────────────
   $: selectedExercise = exercises.find(e => e.id === selectedExerciseId);
+  // Timed exercise (issue #89): charted by longest hold. Decided by the most
+  // recent session, so an exercise switched to Time charts its holds. Only
+  // points of the matching kind are plotted, so a switch never drops a zero
+  // into the other kind's line.
+  $: progressTimed = progressData.length > 0 && (progressData[progressData.length - 1].maxDuration || 0) > 0;
+  $: chartData = progressData.filter(p => progressTimed ? (p.maxDuration || 0) > 0 : (p.maxWeight || 0) > 0);
+  function _pv(p) { return progressTimed ? (p.maxDuration || 0) : p.maxWeight; }
+  function _pvLabel(p) { return progressTimed ? fmtSetDuration(p?.maxDuration) : `${p?.maxWeight} ${$weightUnit}`; }
+  function recordLabel(r) {
+    if ((r.maxDuration || 0) > 0 && !(r.maxWeight > 0)) {
+      return r.maxDurationWeight ? `${fmtSetDuration(r.maxDuration)} @ ${r.maxDurationWeight} ${$weightUnit}` : fmtSetDuration(r.maxDuration);
+    }
+    return `${r.maxWeight} ${$weightUnit} × ${r.maxReps}`;
+  }
   $: progressStats = (() => {
-    if (!progressData.length) return null;
-    const weights = progressData.map(p => p.maxWeight);
+    if (!chartData.length) return null;
+    const weights = chartData.map(_pv);
     return {
       min:  Math.min(...weights),
       max:  Math.max(...weights),
       avg:  Math.round(weights.reduce((a, b) => a + b, 0) / weights.length),
-      sessions: progressData.length,
-      first: progressData[0],
-      last:  progressData[progressData.length - 1],
+      sessions: chartData.length,
+      first: chartData[0],
+      last:  chartData[chartData.length - 1],
     };
   })();
 
@@ -395,7 +464,9 @@
       .map(c => ({ category: c, labelKey: CATEGORY_LABELS[c], records: byCat[c] }));
   })();
 
+  // A timed record's date lives in durationDate (issue #89).
   $: recentPRs = records
+    .map(r => (!r.date && r.durationDate ? { ...r, date: r.durationDate } : r))
     .filter(r => r.date)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5);
@@ -416,19 +487,19 @@
   // ── Chart helpers (Svelte @const has template-scope restrictions) ────
   function _progressPoints(data) {
     if (!data.length) return [];
-    const weights = data.map(p => p.maxWeight);
-    const min = Math.min(...weights) - 5;
-    const max = Math.max(...weights) + 5;
+    const weights = data.map(_pv);
+    const min = Math.min(...weights) - (progressTimed ? 2 : 5);
+    const max = Math.max(...weights) + (progressTimed ? 2 : 5);
     const rng = Math.max(1, max - min);
-    return data.map((p, i) => `${i * 20 + 10},${110 - ((p.maxWeight - min) / rng * 90 + 10)}`);
+    return data.map((p, i) => `${i * 20 + 10},${110 - ((_pv(p) - min) / rng * 90 + 10)}`);
   }
   function _progressPointObjs(data) {
     if (!data.length) return [];
-    const weights = data.map(p => p.maxWeight);
-    const min = Math.min(...weights) - 5;
-    const max = Math.max(...weights) + 5;
+    const weights = data.map(_pv);
+    const min = Math.min(...weights) - (progressTimed ? 2 : 5);
+    const max = Math.max(...weights) + (progressTimed ? 2 : 5);
     const rng = Math.max(1, max - min);
-    return data.map((p, i) => ({ x: i * 20 + 10, y: 110 - ((p.maxWeight - min) / rng * 90 + 10) }));
+    return data.map((p, i) => ({ x: i * 20 + 10, y: 110 - ((_pv(p) - min) / rng * 90 + 10) }));
   }
   // RPE overlay — points with avgRpe only, mapped to a fixed 5-10 domain
   // (anything below RPE 5 is irrelevant for this chart). Returns objects
@@ -473,6 +544,48 @@
     const rng = Math.max(1, max - min + 4);
     return data.map((b, i) => ({ x: i * 20 + 10, y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
   }
+
+  // Overlay series: proportional 5% padding so any metric fills the band
+  // the same way, while the weight line keeps its own absolute padding; the
+  // x positions spread by index fraction over the weight chart's width — the
+  // two series can have different row counts and the chart is index-spaced,
+  // not time-scaled.
+  function _overlayPointObjs(data, width) {
+    if (!data.length) return [];
+    const vals = data.map(p => p.v);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const d = max - min;
+    const pad = d > 0 ? d * 0.05 : 2;
+    const rng = d + 2 * pad;
+    const n = data.length;
+    return data.map((p, i) => ({
+      x: n === 1 ? width / 2 : 10 + i * (width - 20) / (n - 1),
+      y: 110 - ((p.v - min + pad) / rng * 90 + 10),
+    }));
+  }
+  function _overlayBounds(data) {
+    if (!data.length) return null;
+    const vals = data.map(p => p.v);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    return { min, max };
+  }
+  $: overlayPts = _overlayPointObjs(overlayData, bwChartW);
+  $: overlayBounds = _overlayBounds(overlayData);
+  $: weightMarks = (() => {
+    if (!overlayMetric || !bodyWeights.length) return null;
+    const ws = bodyWeights.map(b => b.weight);
+    const min = Math.min(...ws);
+    const max = Math.max(...ws);
+    const rng = Math.max(1, max - min + 4);
+    return {
+      min,
+      max,
+      yMax: 110 - ((max - min + 2) / rng * 90 + 10),
+      yMin: 110 - (2 / rng * 90 + 10),
+    };
+  })();
 </script>
 
 <div class="page">
@@ -506,10 +619,10 @@
   <!-- Left metric picker rail (desktop only via CSS). Replaces the
        horizontal .metric-bar chip scroller with a grouped, always-
        visible vertical menu that mirrors the Settings rail idiom. -->
-  <nav class="stats-metric-rail" aria-label="Statistics sections">
+  <nav class="stats-metric-rail" aria-label={$_('statistics.rail.nav_aria')}>
     {#each METRIC_GROUPS as group}
       <div class="mr-group">
-        <span class="mr-group-title">{group.title}</span>
+        <span class="mr-group-title">{$_(group.titleKey)}</span>
         {#each group.items as m}
           <button type="button"
                   class="mr-btn"
@@ -527,6 +640,13 @@
     <div class="loading">{$_('statistics.loading_stats')}</div>
   {:else}
     <div class="content">
+      {#if loadError}
+        <div class="stats-load-error" role="alert">
+          <span class="material-symbols-rounded">error</span>
+          <span class="stats-load-error-text">{$_('statistics.load_failed_detail')}</span>
+          <button class="stats-load-error-btn" on:click={loadData}>{$_('statistics.retry')}</button>
+        </div>
+      {/if}
       <!-- ═════════ OVERVIEW ═════════ -->
       {#if metric === 'overview'}
         <!-- Overview body wrapper — at wide widths becomes a 2-col
@@ -659,7 +779,7 @@
           </div>
         {:else if progressLoading}
           <Spinner block label={$_('statistics.loading_chart')} />
-        {:else if !progressData.length}
+        {:else if !chartData.length}
           <div class="empty-state">
             <span class="material-symbols-rounded">info</span>
             <p>{@html $_('statistics.no_sets', { values: { name: `<strong>${selectedExercise?.name}</strong>` } })}</p>
@@ -667,16 +787,16 @@
         {:else}
           <div class="summary-row">
             <div class="summary-card">
-              <span class="sc-value-sm">{progressStats.max}</span>
-              <span class="sc-label">{$_('statistics.max')} <span class="unit">{$weightUnit}</span></span>
+              <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.max) : progressStats.max}</span>
+              <span class="sc-label">{$_('statistics.max')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
-              <span class="sc-value-sm">{progressStats.min}</span>
-              <span class="sc-label">{$_('statistics.min')} <span class="unit">{$weightUnit}</span></span>
+              <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.min) : progressStats.min}</span>
+              <span class="sc-label">{$_('statistics.min')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
-              <span class="sc-value-sm">{progressStats.avg}</span>
-              <span class="sc-label">{$_('statistics.avg')} <span class="unit">{$weightUnit}</span></span>
+              <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.avg) : progressStats.avg}</span>
+              <span class="sc-label">{$_('statistics.avg')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.sessions}</span>
@@ -686,7 +806,7 @@
 
           <div class="chart-card">
             <div class="chart-title-row">
-              <h3 class="chart-title">{$_('statistics.top_set')}</h3>
+              <h3 class="chart-title">{progressTimed ? $_('statistics.longest_hold') : $_('statistics.top_set')}</h3>
               {#if hasRpe}
                 <div class="chart-legend">
                   <span class="legend-item"><span class="legend-swatch accent"></span>{$_('statistics.top_set_legend', { values: { unit: $weightUnit } })}</span>
@@ -694,11 +814,11 @@
                 </div>
               {/if}
             </div>
-            <svg class="line-chart" viewBox="0 0 {Math.max(progressData.length * 20, 200)} 120" preserveAspectRatio="none">
+            <svg class="line-chart" viewBox="0 0 {Math.max(chartData.length * 20, 200)} 120" preserveAspectRatio="none">
               <polyline fill="none" stroke="var(--accent)" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round"
-                points={_progressPoints(progressData).join(' ')} />
-              {#each _progressPointObjs(progressData) as pt}
+                points={_progressPoints(chartData).join(' ')} />
+              {#each _progressPointObjs(chartData) as pt}
                 <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
               {/each}
               {#if hasRpe}
@@ -711,8 +831,8 @@
               {/if}
             </svg>
             <div class="chart-footer">
-              <span>{progressStats.first?.date} · {progressStats.first?.maxWeight} {$weightUnit}</span>
-              <span>{progressStats.last?.date} · {progressStats.last?.maxWeight} {$weightUnit}</span>
+              <span>{progressStats.first?.date} · {_pvLabel(progressStats.first)}</span>
+              <span>{progressStats.last?.date} · {_pvLabel(progressStats.last)}</span>
             </div>
           </div>
 
@@ -721,7 +841,7 @@
             {#each progressData.slice().reverse() as p}
               <div class="history-row">
                 <span class="hr-date">{p.date}</span>
-                <span class="hr-value">{p.maxWeight} {$weightUnit} · {$_('statistics.n_sets', { values: { n: p.sets } })}</span>
+                <span class="hr-value">{(p.maxDuration || 0) > 0 && !(p.maxWeight > 0) ? fmtSetDuration(p.maxDuration) : `${p.maxWeight} ${$weightUnit}`} · {$_('statistics.n_sets', { values: { n: p.sets } })}</span>
               </div>
             {/each}
           </div>
@@ -748,7 +868,7 @@
                     <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title={$_('statistics.open_exercise')}>
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">{r.date}</span>
                       </div>
                       <span class="material-symbols-rounded record-chev">chevron_right</span>
@@ -757,7 +877,7 @@
                     <div class="record-row">
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">{r.date}</span>
                       </div>
                     </div>
@@ -776,7 +896,7 @@
                     <button class="record-row linked" on:click={() => push(`/exercise/${r.exerciseId}`)} title={$_('statistics.open_exercise')}>
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">
                           {r.date}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
@@ -788,7 +908,7 @@
                     <div class="record-row">
                       <span class="record-name">{r.name}</span>
                       <div class="record-data">
-                        <span class="record-weight">{r.maxWeight} {$weightUnit} × {r.maxReps}</span>
+                        <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">
                           {r.date}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
@@ -933,6 +1053,17 @@
 
       <!-- ═════════ BODY WEIGHT ═════════ -->
       {#if metric === 'weight'}
+        <!-- Progress photos live on their own route; this is the entry
+             point into it, here because this is where someone already
+             comes to look at how their body has changed. -->
+        <button class="progress-link" on:click={() => push('/progress')}>
+          <span class="material-symbols-rounded">photo_library</span>
+          <span class="pl-text">
+            <span class="pl-title">{$_('statistics.progress_link')}</span>
+            <span class="pl-sub">{$_('statistics.progress_link_sub')}</span>
+          </span>
+          <span class="material-symbols-rounded pl-chev">chevron_right</span>
+        </button>
         {#if bodyWeights.length === 0}
           <div class="empty-state">
             <span class="material-symbols-rounded">monitor_weight</span>
@@ -961,15 +1092,57 @@
           </div>
 
           <div class="chart-card">
-            <h3 class="chart-title">{$_('statistics.body_weight_trend')}</h3>
-            <svg class="line-chart" viewBox="0 0 {Math.max(bodyWeights.length * 20, 200)} 120" preserveAspectRatio="none">
-              <polyline fill="none" stroke="var(--accent)" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"
-                points={_bwPoints(bodyWeights).join(' ')} />
-              {#each _bwPointObjs(bodyWeights) as pt}
-                <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
-              {/each}
-            </svg>
+            <div class="chart-title-row">
+              <h3 class="chart-title">{$_('statistics.body_weight_trend')}</h3>
+              {#if overlayMetric}
+                <div class="chart-legend">
+                  <span class="legend-item"><span class="legend-swatch accent"></span>{$_('settings_workout.body_stats.weight')} ({$weightUnit})</span>
+                  <span class="legend-item"><span class="legend-swatch overlay"></span>{$_(overlayMetric.labelKey)}{overlayMetric.kind === 'length' ? ` (${overlayLengthUnit})` : ''}</span>
+                </div>
+              {/if}
+            </div>
+            {#if overlayChoices.length}
+              <div class="overlay-chips">
+                <button class="overlay-chip" class:active={!overlayId} on:click={() => overlayId = null}>{$_('statistics.overlay_none')}</button>
+                {#each overlayChoices as m}
+                  <button class="overlay-chip" class:active={overlayId === m.id} on:click={() => overlayId = m.id}>{$_(m.labelKey)}</button>
+                {/each}
+              </div>
+            {/if}
+            <div class="chart-wrap">
+              <svg class="line-chart" viewBox="0 0 {bwChartW} 120" preserveAspectRatio="none">
+                <polyline fill="none" stroke="var(--accent)" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round"
+                  points={_bwPoints(bodyWeights).join(' ')} />
+                {#each _bwPointObjs(bodyWeights) as pt}
+                  <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
+                {/each}
+                {#if overlayPts.length >= 2}
+                  <polyline fill="none" stroke="var(--warning, #FFB020)" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3"
+                    points={overlayPts.map(p => `${p.x},${p.y}`).join(' ')} />
+                {/if}
+                {#each overlayPts as pt}
+                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="var(--warning, #FFB020)" />
+                {/each}
+              </svg>
+              {#if overlayBounds}
+                <div class="overlay-axis" aria-hidden="true">
+                  {#if weightMarks}
+                    <span class="w" style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
+                    {#if weightMarks.yMin - weightMarks.yMax >= 12}
+                      <span class="w" style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
+                    {/if}
+                  {/if}
+                  {#if overlayBounds.max !== overlayBounds.min}
+                    <span class="mark-max">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                    <span class="mark-min">{parseFloat(overlayBounds.min.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                  {:else}
+                    <span class="mark-solo">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
             <div class="chart-footer">
               <span>{bodyWeights[0]?.date}</span>
               <span>{bodyWeights[bodyWeights.length - 1]?.date}</span>
@@ -1072,11 +1245,11 @@
        here so it stays visible as the user scrolls through the
        metric's widgets; prior-period delta KPIs surface the existing
        periodDeltas computation that was buried in a tiny chip. -->
-  <aside class="stats-rail" aria-label="Range + comparison">
+  <aside class="stats-rail" aria-label={$_('statistics.rail.aside_aria')}>
     <div class="rail-card">
       <div class="rail-card-head">
         <span class="material-symbols-rounded">date_range</span>
-        <span class="rail-card-title">Range</span>
+        <span class="rail-card-title">{$_('statistics.rail.range')}</span>
       </div>
       <div class="rail-range-chips">
         {#each Object.keys(RANGES) as r}
@@ -1088,12 +1261,12 @@
       <div class="rail-card">
         <div class="rail-card-head">
           <span class="material-symbols-rounded">compare_arrows</span>
-          <span class="rail-card-title">vs Prior {$_(RANGE_LABEL_KEYS[range])}</span>
+          <span class="rail-card-title">{$_('statistics.rail.vs_prior', { values: { range: $_(RANGE_LABEL_KEYS[range]) } })}</span>
         </div>
         <div class="rail-delta-stats">
           {#if periodDeltas.volPct != null}
             <div class="rail-delta">
-              <span class="rail-delta-label">Volume</span>
+              <span class="rail-delta-label">{$_('statistics.tabs.volume')}</span>
               <span class="rail-delta-val"
                     class:up={periodDeltas.volPct > 0}
                     class:down={periodDeltas.volPct < 0}>
@@ -1103,7 +1276,7 @@
           {/if}
           {#if periodDeltas.cntPct != null}
             <div class="rail-delta">
-              <span class="rail-delta-label">Sessions</span>
+              <span class="rail-delta-label">{$_('statistics.sessions')}</span>
               <span class="rail-delta-val"
                     class:up={periodDeltas.cntPct > 0}
                     class:down={periodDeltas.cntPct < 0}>
@@ -1112,7 +1285,9 @@
             </div>
           {/if}
         </div>
-        <div class="rail-delta-note">Prior window: {periodDeltas.priorCount} {periodDeltas.priorCount === 1 ? 'session' : 'sessions'}</div>
+        <div class="rail-delta-note">{periodDeltas.priorCount === 1
+          ? $_('statistics.rail.prior_window_one',   { values: { n: periodDeltas.priorCount } })
+          : $_('statistics.rail.prior_window_other', { values: { n: periodDeltas.priorCount } })}</div>
       </div>
     {/if}
   </aside>
@@ -1296,7 +1471,18 @@
   }
   .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
   .legend-swatch.accent { background: var(--accent); }
-  .legend-swatch.rpe    { background: var(--warning, #FFB020); }
+  .legend-swatch.rpe, .legend-swatch.overlay { background: var(--warning, #FFB020); }
+  .overlay-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: none; }
+  .overlay-chips::-webkit-scrollbar { display: none; }
+  .overlay-chip { flex: 0 0 auto; padding: 4px 10px; border-radius: var(--radius-full); border: 1px solid var(--border); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap; transition: all var(--dur-fast); }
+  .overlay-chip.active { border-color: var(--warning, #FFB020); color: var(--warning, #FFB020); }
+  .chart-wrap { position: relative; }
+  .overlay-axis { position: absolute; inset: 0; pointer-events: none; }
+  .overlay-axis span { position: absolute; right: 2px; transform: translateY(-50%); font-size: 11px; line-height: 1; color: var(--warning, #FFB020); padding: 1px 5px; border-radius: 4px; background: var(--surface-1); }
+  .overlay-axis span.w { left: 2px; right: auto; color: var(--accent); }
+  .overlay-axis .mark-max { top: 8.3%; }  /* band top edge, y=10 of the 120 viewBox */
+  .overlay-axis .mark-min { top: 83.3%; } /* band bottom edge, y=100 */
+  .overlay-axis .mark-solo { top: 45.8%; } /* flat series: the single point renders mid-band, y=55 */
   .chart-sub { font-size: 12px; color: var(--text-3); margin: 10px 0 0; text-align: center; }
   .chart-desc { font-size: 12px; color: var(--text-3); margin: -8px 0 12px; line-height: 1.4; }
   .chart-footer { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-top: 6px; }
@@ -1459,6 +1645,21 @@
     margin: 24px 0 0; text-align: center;
   }
 
+  /* Entry point into the Progress route (photos live on their own page) */
+  .progress-link {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; margin-bottom: 12px; padding: 12px 14px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    text-align: left; cursor: pointer;
+  }
+  .progress-link:hover { background: var(--surface-2); }
+  .progress-link > .material-symbols-rounded { font-size: 24px; color: var(--accent); }
+  .pl-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .pl-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
+  .pl-sub { font-size: 12px; color: var(--text-3); }
+  .pl-chev { font-size: 20px; color: var(--text-3); }
+
   /* Empty / loading */
   .empty-state {
     display: flex; flex-direction: column; align-items: center; gap: 12px;
@@ -1534,6 +1735,7 @@
         - 150px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
       padding: 10px 8px;
@@ -1634,6 +1836,7 @@
         - 150px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
       scrollbar-width: thin;
@@ -1755,6 +1958,13 @@
       max-width: 900px;
       margin: 0 auto;
     }
+    /* .chart-wrap must match .line-chart's rendered box, or the
+       overlay-axis marks (absolutely positioned against .chart-wrap)
+       drift away from the chart once .chart-card exceeds 900px. */
+    :global(html:not(.force-mobile-layout)) .chart-wrap {
+      max-width: 900px;
+      margin: 0 auto;
+    }
     /* Same treatment for the SVG-based bar charts inside
        chart-cards so their bars don't stretch to 100px-wide
        gaps on ultra-wide monitors. */
@@ -1834,4 +2044,20 @@
   .cs-activity { font-size: 13px; font-weight: 700; color: var(--text-1); }
   .cs-meta { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
   .cs-date { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  /* Shown when some statistics couldn't load, so zeros aren't read as real data. */
+  .stats-load-error {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 12px; padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+    color: var(--text-1); font-size: 13px;
+  }
+  .stats-load-error .material-symbols-rounded { color: var(--danger); font-size: 20px; flex-shrink: 0; }
+  .stats-load-error-text { flex: 1; min-width: 0; }
+  .stats-load-error-btn {
+    flex-shrink: 0; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text-1); border-radius: var(--radius-full); padding: 6px 14px;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
 </style>

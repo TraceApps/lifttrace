@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   /**
    * TemplateSpecRow — one row of a template exercise's per-set spec grid,
    * used inside WorkoutEditor.svelte. Feature-parity target: Diary's
@@ -21,10 +22,15 @@
    * 2425696 (ExerciseCard load menu).
    */
   import { portal } from '../../lib/portal.js';
+  import { maskDurationInput, parseDuration, fmtSetDuration } from '../../lib/workout.js';
 
   export let spec = {};
   export let setIdx = 0;
   export let loadType = 'bilateral';
+  /** 'reps' or 'time' (issue #89). A timed spec prescribes a duration,
+   *  stored as typed ("45", "1:00") in spec.duration and parsed when the
+   *  template is started. */
+  export let setType = 'reps';
   export let trackRpe = false;
   /** True on supersets — enables the round-number picker. Single-exercise
    *  templates hide the picker (no rounds to number). */
@@ -40,7 +46,8 @@
   import { _ } from 'svelte-i18n';
 
   $: displayNum = spec?.number != null ? spec.number : setIdx + 1;
-  $: isSplit = loadType === 'unilateral'
+  $: timed = setType === 'time';
+  $: isSplit = !timed && loadType === 'unilateral'
             && (spec?.reps_l != null || spec?.reps_r != null);
 
   // Number picker
@@ -130,7 +137,7 @@
     {#if numOpen}
       <!-- svelte-ignore a11y-click-events-have-key-events -->
       <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked}></div>
+      <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked} use:closeOnBack={() => numOpen = false}></div>
       <div use:portal class="num-picker" style="top:{numPos.top}px; left:{numPos.left}px">
         {#each NUM_VALUES as n}
           <button class="num-opt" class:active={displayNum === n} on:click|stopPropagation={() => pickNum(n)}>{n}</button>
@@ -166,6 +173,12 @@
         on:input={e => onUpdate('reps_r', e.target.value)}
         placeholder="0" aria-label="Right reps" />
     </div>
+  {:else if timed}
+    <input class="ps-input" type="text"
+      value={spec?.duration ?? ''}
+      on:input={e => { const v = maskDurationInput(e.target.value); e.target.value = v; onUpdate('duration', v); }}
+      on:blur={e => { const v = fmtSetDuration(parseDuration(e.target.value)); e.target.value = v; onUpdate('duration', v); }}
+      placeholder="0:00" inputmode="numeric" aria-label={$_('template_spec.duration')} />
   {:else}
     <input class="ps-input" type="text"
       value={spec?.reps ?? ''}
@@ -173,7 +186,7 @@
       placeholder={$_('template_spec.reps')} />
   {/if}
 
-  {#if loadType === 'unilateral'}
+  {#if !timed && loadType === 'unilateral'}
     <button type="button" class="spec-icon-btn" class:active={isSplit}
       on:click={toggleSplit}
       title={isSplit ? 'Merge L/R reps' : 'Split L/R reps'}
@@ -192,7 +205,7 @@
     {#if rpeOpen}
       <!-- svelte-ignore a11y-click-events-have-key-events -->
       <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked}></div>
+      <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked} use:closeOnBack={() => rpeOpen = false}></div>
       <div use:portal class="rpe-picker" style="top:{rpePos.top}px; left:{rpePos.left}px">
         {#each RPE_VALUES as v}
           <button class="rpe-opt" class:active={spec?.rpe === v} on:click|stopPropagation={() => pickRpe(v)}>@{v}</button>

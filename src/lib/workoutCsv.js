@@ -10,13 +10,20 @@
  * Columns (stable order — downstream tools depend on this):
  *   date, workout, exercise, exercise_index, superset, set_index,
  *   warmup, reps, weight, weight_unit, side, rpe, completed,
- *   set_notes, exercise_notes, workout_notes, workout_duration_min
+ *   set_notes, exercise_notes, workout_notes, workout_duration_min,
+ *   duration_sec
+ *
+ * duration_sec (issue #89) is the hold time for a timed set (plank, wall
+ * sit, carry) and empty for rep sets. It is appended at the end rather than
+ * placed beside reps so existing spreadsheets and scripts that index
+ * columns by position keep working.
  *
  * `weight_unit` reflects the user's active unit preference at export
  * time (the underlying value is stored in that unit; we don't reconvert).
  */
 
 import { isNative } from './platform.js';
+import { isTimedSet } from './workout.js';
 
 function _escape(v) {
   if (v == null) return '';
@@ -49,7 +56,7 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
     'date', 'workout', 'exercise', 'exercise_index', 'superset',
     'set_index', 'warmup', 'reps', 'weight', 'weight_unit', 'side',
     'rpe', 'completed', 'set_notes', 'exercise_notes', 'workout_notes',
-    'workout_duration_min',
+    'workout_duration_min', 'duration_sec',
   ];
   const lines = [_row(header)];
 
@@ -65,7 +72,9 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
   };
 
   (workout?.exercises || []).forEach((ex, exIdx) => {
-    const exName = ex.name || '';
+    // Workout exercises store `exercise_name`; `name` is only set on library
+    // rows. Reading `name` alone left this column blank in every export.
+    const exName = ex.exercise_name || ex.name || '';
     const exNotes = ex.notes || '';
     const superset = ex.superset_id || '';
     // Resolve load_type through per-instance → library default →
@@ -73,6 +82,7 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
     // from the export so shared CSVs report the shared truth.
     const loadType = ex.load_type || _getLib(ex.exercise_id) || 'bilateral';
     (ex.sets || []).forEach((set, setIdx) => {
+      const timed = isTimedSet(ex, set);
       const baseCols = [
         date, wName, exName, exIdx + 1, superset, setIdx + 1,
         set.warmup ? 'true' : 'false',
@@ -86,8 +96,15 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
         exNotes,
         wNotes,
         wDur,
+        timed ? (Number(set.duration_sec) || '') : '',
       ];
 
+      // A timed set is one row: reps is left empty so a hold's seconds can
+      // never be summed as reps, and it is never split by side.
+      if (timed) {
+        lines.push(_row([...baseCols, '', set.weight ?? '', ...tailCols]));
+        return;
+      }
       // Unilateral split: emit one row per side so neither L nor R is lost.
       const isSplit = (set.reps_l != null || set.reps_r != null);
       if (isSplit) {

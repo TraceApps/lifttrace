@@ -10,8 +10,8 @@ export default defineConfig({
   base: './',
   server: {
     proxy: {
-      '/api':     'http://localhost:3003',
-      '/uploads': 'http://localhost:3003',
+      '/api':     'http://localhost:3002',
+      '/uploads': 'http://localhost:3002',
     }
   },
   plugins: [
@@ -97,7 +97,14 @@ export default defineConfig({
           // Uploaded images (custom exercises, avatars). Same pattern,
           // but same-origin so they live in the main SW cache anyway.
           {
-            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/uploads/'),
+            // Progress photos are excluded: this cache is shared by every
+            // account that signs in on the browser profile, and its entries
+            // outlive sign-out, so caching them here would reopen exactly the
+            // leak the authenticated photo route closes.
+            urlPattern: ({ url, sameOrigin }) =>
+              sameOrigin
+              && url.pathname.startsWith('/uploads/')
+              && !url.pathname.includes('/body-stats/'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'uploads-cache',

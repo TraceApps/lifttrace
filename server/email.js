@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import db from './db.js';
+import { changeVsAvg, fmtMinutes, fmtHold, summaryLine } from './lib/weekly-summary.js';
 
 export function seedSmtpFromEnv() {
   const map = {
@@ -221,20 +222,92 @@ export async function sendCoachFeedback(email, workoutName, coachName, feedbackT
   });
 }
 
-export async function sendWeeklySummary(email, name, stats, origin = '') {
-  const { workoutCount = 0, totalVolume = 0 } = stats;
-  const body = `${greeting(name)}
-    <p style="margin:0 0 10px;font-size:22px;font-weight:700;color:#FFFFFF;">Your Week in Review</p>
-    <p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">Here's a summary of your training this past week.</p>
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:24px;">
-      ${_statRow('🏋️', 'Workouts', workoutCount)}
-      ${_statRow('📊', 'Total Volume', `${Math.round(totalVolume).toLocaleString()}`)}
-    </table>
-    <p style="margin:0;font-size:14px;color:#6B7590;text-align:center;line-height:1.6;">Keep pushing — consistency is everything.</p>`;
-  await sendMail({
-    to: email,
-    subject: `LiftTrace — Your weekly summary`,
-    html: emailWrapper(origin, body, 'You received this because weekly summaries are enabled in your settings.'),
-    text: `Your week: ${workoutCount} workouts, ${Math.round(totalVolume).toLocaleString()} volume lifted. Keep pushing!`,
-  });
+/**
+ * Weekly summary (issue #98). `summary` comes from buildWeeklySummary in
+ * lib/weekly-summary.js. Charts are plain table bars: mail clients drop
+ * inline SVG and hold back remote images, but a coloured cell with a width
+ * renders everywhere.
+ */
+export async function sendWeeklySummary(email, name, summary, origin = '', opts = {}) {
+  await sendMail({ to: email, ...renderWeeklySummary(name, summary, origin, opts) });
 }
+
+/** Subject, HTML and text for the weekly summary, without sending it. */
+export function renderWeeklySummary(name, summary, origin = '', { unit = 'lbs', locale = 'en' } = {}) {
+  const nf = new Intl.NumberFormat(locale);
+  const { week, goal, prs, muscles } = summary;
+  const range = _fmtRange(summary.start, summary.end, locale);
+  const statsUrl = `${origin}/#/statistics?range=1W`;
+
+  const cmp = (cur, avg) => {
+    if (!summary.hasBaseline) return '';
+    const pct = changeVsAvg(cur, avg);
+    if (pct == null) return '';
+    const colour = pct > 0 ? '#4FFFB0' : pct < 0 ? '#FF8A5C' : '#8A93A8';
+    const text = pct === 0 ? 'same as 4-week avg' : `${pct > 0 ? '+' : ''}${pct}% vs 4-week avg`;
+    return `<div style="font-size:12px;font-weight:500;color:${colour};margin-top:2px;">${text}</div>`;
+  };
+
+  let bodyMain;
+  if (!week.sessions) {
+    bodyMain = `<p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">No workouts logged this week${goal ? ` (your goal is ${goal})` : ''}. A fresh week starts now.</p>`;
+  } else {
+    const planned = goal
+      ? `${week.sessions} of ${goal} planned ${goal === 1 ? 'session' : 'sessions'}${week.sessions >= goal ? ', goal met' : ''}`
+      : `${week.sessions} ${week.sessions === 1 ? 'session' : 'sessions'}`;
+    const rows = [
+      _statRow('🗓️', 'Sessions', `${planned}${cmp(week.sessions, summary.avg.sessions)}`),
+      _statRow('✅', 'Working Sets', `${nf.format(week.sets)}${cmp(week.sets, summary.avg.sets)}`),
+    ];
+    if (week.volume > 0) rows.push(_statRow('🏋️', 'Volume', `${nf.format(week.volume)} ${_escapeHtml(unit)}${cmp(week.volume, summary.avg.volume)}`));
+    if (week.minutes > 0) rows.push(_statRow('⏱️', 'Time Trained', `${fmtMinutes(week.minutes)}${cmp(week.minutes, summary.avg.minutes)}`));
+    rows.push(_statRow('🔥', 'Personal Records', nf.format(prs.length)));
+
+    const prList = prs.length
+      ? `<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;">New Personal Records</p>
+         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:24px;">
+         ${prs.slice(0, 8).map(p => `<tr><td style="padding:6px 0;font-size:14px;color:#C8CDD9;">${_escapeHtml(p.name || '')}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:#FF7433;text-align:right;">${p.durationSec ? `${fmtHold(p.durationSec)} hold${p.weight > 0 ? ` @ ${nf.format(p.weight)} ${_escapeHtml(unit)}` : ''}` : `${nf.format(p.weight)} ${_escapeHtml(unit)} x ${p.reps}`}</td></tr>`).join('')}
+         ${prs.length > 8 ? `<tr><td colspan="2" style="padding:6px 0;font-size:13px;color:#6B7590;">and ${prs.length - 8} more</td></tr>` : ''}
+         </table>`
+      : '';
+
+    const maxSets = muscles.length ? muscles[0].sets : 0;
+    const muscleBars = muscles.length
+      ? `<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;">Sets by Muscle Group</p>
+         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:28px;">
+         ${muscles.slice(0, 10).map(m => {
+           const pct = Math.max(4, Math.round((m.sets / maxSets) * 100));
+           return `<tr>
+             <td width="96" style="padding:4px 8px 4px 0;font-size:13px;color:#8A93A8;white-space:nowrap;">${_escapeHtml(_titleCase(m.muscle))}</td>
+             <td style="padding:4px 0;"><table role="presentation" cellspacing="0" cellpadding="0" border="0" width="${pct}%"><tr><td height="10" style="height:10px;line-height:10px;font-size:0;background-color:#FF7433;border-radius:5px;">&nbsp;</td></tr></table></td>
+             <td width="36" style="padding:4px 0 4px 8px;font-size:13px;font-weight:700;color:#FFFFFF;text-align:right;">${nf.format(m.sets)}</td>
+           </tr>`;
+         }).join('')}
+         </table>`
+      : '';
+
+    bodyMain = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:24px;">${rows.join('')}</table>${prList}${muscleBars}`;
+  }
+
+  const body = `${greeting(_escapeHtml(name || ''))}
+    <p style="margin:0 0 4px;font-size:22px;font-weight:700;color:#FFFFFF;">Your Week in Review</p>
+    <p style="margin:0 0 24px;font-size:13px;color:#6B7590;">${_escapeHtml(range)}</p>
+    ${bodyMain}
+    ${ctaButton(statsUrl, 'View This Week')}
+    ${fallbackUrl(statsUrl)}`;
+
+  return {
+    subject: 'LiftTrace: your week in review',
+    html: emailWrapper(origin, body, 'You received this because weekly summaries are enabled in your settings.'),
+    text: `Your week (${range}): ${summaryLine(summary, { unit, locale })}\n\nView this week: ${statsUrl}`,
+  };
+}
+
+function _fmtRange(start, end, locale) {
+  try {
+    const f = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    return `${f.format(new Date(`${start}T00:00:00Z`))} to ${f.format(new Date(`${end}T00:00:00Z`))}`;
+  } catch { return `${start} to ${end}`; }
+}
+
+function _titleCase(s) { return String(s).replace(/\b\w/g, c => c.toUpperCase()); }

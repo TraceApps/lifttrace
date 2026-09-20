@@ -1,5 +1,6 @@
 <script>
   import { _ } from 'svelte-i18n';
+  import { isTimedSet, fmtSetLabel } from '../../lib/workout.js';
   /**
    * Shared exercise detail content — reused by the full ExerciseDetail
    * page and the ExerciseInfoSheet bottom-sheet preview. Takes an
@@ -14,7 +15,9 @@
   // paired shows `w × N` unchanged; bilateral is the current
   // `w × reps` form. Uses the exercise library's `load_type` since
   // this component receives the library exercise object.
-  function _formatSet(s) {
+  function _formatSet(s, h) {
+    // Timed sets (issue #89) read as a duration: "1:00" or "25×1:00".
+    if (isTimedSet({ set_type: h?.set_type }, s)) return fmtSetLabel({ set_type: 'time' }, s);
     const lt = exercise?.load_type || 'bilateral';
     if (lt === 'unilateral' && (s.reps_l != null || s.reps_r != null)) {
       const l = s.reps_l ?? '';
@@ -102,7 +105,7 @@
       <span class="material-symbols-rounded pr-icon">emoji_events</span>
       <div class="pr-info">
         <span class="pr-label">{$_('exercise_info.personal_record')}</span>
-        <span class="pr-value">{pr.weight} {pr.unit || ''}</span>
+        <span class="pr-value">{pr.label ?? `${pr.weight} ${pr.unit || ''}`}</span>
         <span class="pr-date">{pr.date}</span>
       </div>
     </div>
@@ -117,7 +120,7 @@
           <div class="history-row">
             <span class="hist-date">{h.date}</span>
             <span class="hist-sets">
-              {(h.sets || []).filter(s => s.completed).map(_formatSet).join(' | ')}
+              {(h.sets || []).filter(s => s.completed).map(s => _formatSet(s, h)).join(' | ')}
             </span>
           </div>
         {/each}

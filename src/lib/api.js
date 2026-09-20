@@ -56,8 +56,16 @@ export const LtApi = {
   reorderTemplates: (programId, ids) => fetch(`/api/programs/${programId}/reorder`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ ids }) }).then(_json),
 
   // ── Workout Log (diary) ────────────────────────────────────────────────
-  getWorkout: (date) => fetch(`/api/workout/${date}`, opts).then(_json),
+  // id targets a specific session (issue #76); default fetches session 0 /
+  // lowest surviving. Used by stores/workout.js's merge-safety refetch,
+  // which must target the session it's actually about to save over.
+  getWorkout: (date, id = null) => fetch(`/api/workout/${date}${id != null ? `?id=${id}` : ''}`, opts).then(_json),
   getWorkoutFeedback: (date) => fetch(`/api/workout/${date}/feedback`, opts).then(_json),
+  // Every session logged on a date (issue #76). Not in apiFetch.js's
+  // LOCAL_FIRST_GET_PATTERNS (same treatment as getWorkoutFeedback) —
+  // a session-aware caller always wants live data, not a stale cache.
+  getWorkoutSessions: (date) => fetch(`/api/workout/${date}/sessions`, opts).then(_json),
+  deleteWorkout: (date, id = null) => fetch(`/api/workout/${date}${id != null ? `?id=${id}` : ''}`, { ...opts, method: 'DELETE' }).then(_json),
   getCoachFeedbackInbox: () => fetch('/api/coach-feedback/inbox', opts).then(_json),
   markCoachFeedbackSeen: (id = null) => fetch('/api/coach-feedback/seen', { ...jsonOpts, method: 'POST', body: JSON.stringify(id ? { id } : {}) }).then(_json),
   getUnreadCoachFeedbackDates: () => fetch('/api/coach-feedback/unread-dates', opts).then(_json),
@@ -70,6 +78,20 @@ export const LtApi = {
   getBodyStats: (date) => fetch(`/api/body-stats/${date}`, opts).then(_json),
   getBodyStatsRange: (start, end) => fetch(`/api/body-stats/range?start=${start}&end=${end}`, opts).then(_json),
   saveBodyStats: (date, data) => fetch(`/api/body-stats/${date}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
+
+  // ── Progress photos ────────────────────────────────────────────────────
+  // Two-step by design: upload the file, then attach the URL it returns.
+  getProgressPhotos: (start, end) =>
+    fetch(`/api/body-stats/photos?start=${start}&end=${end}`, opts).then(_json),
+  uploadProgressPhoto: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch('/api/upload/body-stats', { ...opts, method: 'POST', body: fd }).then(_json);
+  },
+  addProgressPhoto: (date, url) =>
+    fetch('/api/body-stats/photos', { ...jsonOpts, method: 'POST', body: JSON.stringify({ date, url }) }).then(_json),
+  deleteProgressPhoto: (id) =>
+    fetch(`/api/body-stats/photos/${id}`, { ...opts, method: 'DELETE' }).then(_json),
 
   // ── Statistics ─────────────────────────────────────────────────────────
   getVolume: (start, end) => fetch(`/api/stats/volume?start=${start}&end=${end}`, opts).then(_json),

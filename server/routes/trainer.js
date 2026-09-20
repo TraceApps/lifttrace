@@ -43,10 +43,10 @@ router.get('/members', wrap((req, res) => {
        WHERE pa.assigned_to = ? AND pa.active = 1 LIMIT 1`
     ).get(u.id);
     const last = db.prepare(
-      `SELECT date FROM workout_log WHERE user_id = ? AND completed = 1 ORDER BY date DESC LIMIT 1`
+      `SELECT date FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL ORDER BY date DESC LIMIT 1`
     ).get(u.id);
     const weekCount = db.prepare(
-      `SELECT COUNT(*) as c FROM workout_log WHERE user_id = ? AND completed = 1 AND date >= date('now', '-7 days')`
+      `SELECT COUNT(*) as c FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL AND date >= date('now', '-7 days')`
     ).get(u.id)?.c || 0;
     return { ...safeUser(u), active_program: active?.name || null, last_workout_date: last?.date || null, week_count: weekCount };
   });
@@ -91,7 +91,7 @@ router.get('/members/:id', wrap((req, res) => {
               WHERE cf.workout_id = wl.id AND cf.trainer_id = ?
                 AND cf.member_reply IS NOT NULL) AS my_reply_count
        FROM workout_log wl
-      WHERE wl.user_id = ? AND wl.completed = 1
+      WHERE wl.user_id = ? AND wl.completed = 1 AND wl.deleted_at IS NULL
       ORDER BY wl.date DESC LIMIT 20`
   ).all(req.user.id, req.user.id, memberId).map(r => {
     const exs = (() => { try { return JSON.parse(r.exercises || '[]'); } catch { return []; } })();
@@ -117,7 +117,7 @@ router.get('/members/:id', wrap((req, res) => {
   const streak = (() => {
     // Current streak: consecutive days with a completed workout ending today or yesterday
     const rows = db.prepare(
-      `SELECT DISTINCT date FROM workout_log WHERE user_id = ? AND completed = 1 ORDER BY date DESC LIMIT 365`
+      `SELECT DISTINCT date FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL ORDER BY date DESC LIMIT 365`
     ).all(memberId).map(r => r.date);
     if (!rows.length) return 0;
     const today = new Date(); today.setHours(0,0,0,0);
@@ -160,7 +160,7 @@ router.get('/members/:id', wrap((req, res) => {
 router.get('/members/:id/workout/:date', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
   if (!ownsMember(req.user, memberId)) return res.status(403).json({ error: 'Not your member' });
-  const row = db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date = ?').get(memberId, req.params.date);
+  const row = db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(memberId, req.params.date);
   if (!row) return res.json(null);
   row.exercises = JSON.parse(row.exercises || '[]');
   // Join in feedback rows for this workout from any trainer (so the
@@ -188,7 +188,7 @@ router.post('/feedback', wrap((req, res) => {
   const { workout_id, exercise_idx, note } = req.body || {};
   if (!workout_id) return res.status(400).json({ error: 'workout_id required' });
 
-  const workout = db.prepare('SELECT id, user_id, date, name FROM workout_log WHERE id = ?').get(workout_id);
+  const workout = db.prepare('SELECT id, user_id, date, name FROM workout_log WHERE id = ? AND deleted_at IS NULL').get(workout_id);
   if (!workout) return res.status(404).json({ error: 'Workout not found' });
   if (!ownsMember(req.user, workout.user_id)) return res.status(403).json({ error: 'Not your member' });
 
@@ -280,6 +280,7 @@ router.get('/members/:id/prescriptions', wrap((req, res) => {
                 SELECT 1 FROM workout_log wl
                 WHERE wl.user_id = cp.member_id AND wl.date = cp.date
                   AND wl.completed = 1
+                  AND wl.deleted_at IS NULL
                   AND (cp.template_id IS NULL OR wl.template_id = cp.template_id)
               ) THEN 1
               ELSE 0

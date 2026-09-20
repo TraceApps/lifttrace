@@ -128,6 +128,10 @@ export function parseGarminFit(buffer, userUnit) {
       completed: true,
       notes:     '',
     };
+    // Timed set (issue #89): Garmin logs holds as an active set with a
+    // duration and no repetitions. It used to be read and then dropped.
+    const holdSec = Math.round(Number(ws.duration) || 0);
+    if (ws.reps === 0 && holdSec > 0) setRow.duration_sec = holdSec;
     // Append to the last exercise if same name, else start a new one.
     // This preserves the original set ordering from the FIT stream.
     const last = exercises[exercises.length - 1];
@@ -143,6 +147,9 @@ export function parseGarminFit(buffer, userUnit) {
         sets:          [setRow],
       });
     }
+  }
+  for (const ex of exercises) {
+    if (ex.sets.length && ex.sets.every(s => s.duration_sec > 0)) ex.set_type = 'time';
   }
 
   return [{

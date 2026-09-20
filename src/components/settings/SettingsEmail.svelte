@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { slide } from 'svelte/transition';
   import { tick } from 'svelte';
   import { _ } from 'svelte-i18n';
@@ -191,7 +192,7 @@
       {#if smtpLocked}
         <div class="env-lock-banner">
           <span class="material-symbols-rounded" style="font-size:16px">lock</span>
-          Configured via environment variables — changes are disabled.
+          {$_('settings_email.env_lock_banner')}
         </div>
       {/if}
       <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
@@ -280,7 +281,7 @@
 {/if}
 
 {#if showTestDialog}
-  <div class="test-dialog-overlay" on:click={closeTestDialog}
+  <div class="test-dialog-overlay" on:click={closeTestDialog} use:closeOnBack={closeTestDialog}
     on:keydown={(e) => e.key === 'Escape' && closeTestDialog()}>
     <div class="test-dialog" role="dialog" aria-labelledby="test-dialog-title"
       on:click|stopPropagation>

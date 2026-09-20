@@ -1,15 +1,17 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy } from 'svelte';
+  import { withFreshIds } from '../lib/workout-uuid.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
-  import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
+  import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
-  import { celebrateWorkoutComplete, celebratePR, requestPermission } from '../lib/notifications.js';
-  import { estimateWorkoutCalories, ageFromDob } from '../lib/workout.js';
+  import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, requestPermission } from '../lib/notifications.js';
+  import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName, lastCompletedSession } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import { startRest as startRestTimer, stopRest } from '../stores/restTimer.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
@@ -23,6 +25,7 @@
   import { dateFormat } from '../stores/settings.js';
   import { fmtWeight, fmtDuration, countCompletedSets, generateWarmupSets, calc1RM, exerciseVolume, setVolume } from '../lib/workout.js';
   import ExerciseCard from '../components/diary/ExerciseCard.svelte';
+  import HoldTimer from '../components/diary/HoldTimer.svelte';
   import SupersetCard from '../components/diary/SupersetCard.svelte';
   import WorkoutTimer from '../components/diary/WorkoutTimer.svelte';
   import CardioCard from '../components/diary/CardioCard.svelte';
@@ -45,6 +48,86 @@
   let showLoadWorkout = false;
   let showWorkoutActions = false;
   let showDatePicker = false;
+
+  // Set right before opening the Load Workout sheet from an entry point
+  // that's already unambiguous about intent (issue #76) — the session-
+  // tab strip's own "+" and the Add-menu's "Start a new session" both
+  // already told the user exactly what's about to happen, so asking
+  // Replace-vs-New-Session AGAIN once they pick a template would be a
+  // pointless, confusing second prompt for a decision they already
+  // made. loadTemplate consumes and clears this; the Sheet's on:close
+  // also clears it, so dismissing without picking anything can't leak
+  // a forced mode into the next, unrelated template load.
+  let loadWorkoutForcedMode = null;
+  function openLoadWorkoutForNewSession() {
+    loadWorkoutForcedMode = 'new_session';
+    openLoadWorkout();
+  }
+
+  // Replace-vs-new-session choice for loadTemplate (issue #76). Promise-
+  // wrapped around the ActionSheet's event-based API so loadTemplate can
+  // just `await` the user's choice like it already does with
+  // confirmDialog elsewhere in this file.
+  let showReplaceOrNewSession = false;
+  let replaceOrNewSessionTitle = '';
+  let _replaceOrNewSessionResolve = null;
+  function _askReplaceOrNewSession(msgKey) {
+    return new Promise(resolve => {
+      _replaceOrNewSessionResolve = resolve;
+      replaceOrNewSessionTitle = $_(msgKey);
+      showReplaceOrNewSession = true;
+    });
+  }
+  function _handleReplaceOrNewSessionChoice(e) {
+    showReplaceOrNewSession = false;
+    _replaceOrNewSessionResolve?.(e.detail?.value || null);
+    _replaceOrNewSessionResolve = null;
+  }
+  function _cancelReplaceOrNewSession() {
+    showReplaceOrNewSession = false;
+    _replaceOrNewSessionResolve?.(null);
+    _replaceOrNewSessionResolve = null;
+  }
+
+  // switchSession() only touches the workout store — `notes` here is a
+  // local component variable bound to the textarea (same pattern as
+  // every other action in this file that imperatively re-syncs it after
+  // changing $todayLog, e.g. loadTemplate/copyFromYesterday), so it
+  // needs its own re-sync or switching sessions would leave the
+  // PREVIOUS session's notes showing in the box.
+  async function handleSwitchSession(sessionId) {
+    // switchSession is now async (fetches fresh rather than trusting a
+    // cached list — see stores/workout.js for why), so this must await
+    // it before reading $todayLog, or notes would sync from the
+    // PREVIOUS session's data instead of the one just switched to.
+    await switchSession($currentDate, sessionId);
+    notes = $todayLog?.notes || '';
+  }
+
+  // Per-tab delete (issue #76) — separate from the ⋮ menu's "Delete
+  // Workout" (which always targets whatever's currently displayed):
+  // this can remove a DIFFERENT, inactive tab without switching to it
+  // first, e.g. cleaning up a duplicate created while testing.
+  async function handleDeleteSessionTab(sessionId) {
+    if (!await confirmDialog({
+      title: $_('diary.confirm.delete_workout_title'),
+      message: $_('diary.confirm.delete_workout_msg'),
+      confirmText: $_('diary.confirm.delete_workout_confirm'),
+      dangerous: true,
+    })) return;
+    // Captured BEFORE the delete — deleteSession may itself change
+    // currentSessionId (when it falls back to loadWorkout), so checking
+    // afterward would always compare against the wrong, already-updated
+    // value.
+    const wasActive = sessionId === $currentSessionId;
+    await deleteSession($currentDate, sessionId);
+    if (wasActive) notes = $todayLog?.notes || '';
+    showSuccess($_('diary.toast.workout_deleted'));
+  }
+  $: replaceOrNewSessionActions = [
+    { label: $_('diary.confirm.replace_confirm'), icon: 'swap_horiz', value: 'replace', danger: true },
+    { label: $_('diary.confirm.start_new_session'), icon: 'add_circle', value: 'new_session' },
+  ];
   let notes = '';
   let notesExpanded = false;
   let loading = true;
@@ -79,17 +162,25 @@
       try {
         const history = await LtApi.getWorkoutHistory(id);
         const prior = (history || []).filter(h => h.date !== $currentDate);
-        let topW = 0, topE = 0;
+        let topW = 0, topE = 0, topDur = 0, topDurW = 0;
         for (const h of prior) {
           for (const s of (h.sets || [])) {
             if (!s.completed || s.warmup) continue;
+            // Timed sets (issue #89) keep their own bests, so a long plank
+            // never reads as a heavy lift and vice versa.
+            if (isTimedSet({ set_type: h.set_type }, s)) {
+              const d = Number(s.duration_sec) || 0;
+              if (d > topDur) topDur = d;
+              if (d > 0 && (s.weight || 0) > topDurW) topDurW = s.weight || 0;
+              continue;
+            }
             const w = s.weight || 0, r = s.reps || 0;
             if (w > topW) topW = w;
             const e = w * (1 + r / 30);
             if (e > topE) topE = e;
           }
         }
-        newBests[id] = { topWeight: topW, topE1rm: topE };
+        newBests[id] = { topWeight: topW, topE1rm: topE, topDuration: topDur, topDurationWeight: topDurW };
       } catch {}
     }));
     prevBestsByExId = newBests;
@@ -105,6 +196,14 @@
       const indices = new Set();
       (ex.sets || []).forEach((s, sIdx) => {
         if (!s.completed || s.warmup) return;
+        if (isTimedSet(ex, s)) {
+          // A hold PR is the longest hold, or the heaviest load held.
+          const d = Number(s.duration_sec) || 0;
+          if (!d) return;
+          const hw = s.weight || 0;
+          if (d > (best.topDuration || 0) || (hw > 0 && hw > (best.topDurationWeight || 0))) indices.add(sIdx);
+          return;
+        }
         const w = s.weight || 0;
         const r = s.reps || 0;
         if (!w || !r) return;
@@ -310,6 +409,16 @@
     if (t) loadTemplate(t);
   }
   function _fmtTplExerciseTarget(ex) {
+    // Timed exercises (issue #89) prescribe a duration, not reps.
+    if (ex.set_type === 'time') {
+      const t = (v) => fmtSetDuration(parseDuration(v)) || '-';
+      if (ex.set_specs?.length) {
+        return ex.set_specs.map(s => s.weight ? `${t(s.duration)} @ ${s.weight}${$weightUnit}` : t(s.duration)).join(', ');
+      }
+      const sets = ex.target_sets || 1;
+      const w = ex.target_weight ? ` @ ${ex.target_weight}${$weightUnit}` : '';
+      return `${sets}×${t(ex.target_duration)}${w}`;
+    }
     // Per-set spec wins when present (template author pinned each set);
     // otherwise fall back to the uniform sets/reps/weight target row.
     if (ex.set_specs?.length) {
@@ -406,6 +515,11 @@
     { label: 'Copy From Yesterday', icon: 'content_copy', value: 'copy_yesterday' },
     ...($timerState ? [{ label: 'Reset Timer', icon: 'timer_off', value: 'reset_timer' }] : []),
     { label: 'Clear Workout', icon: 'delete_sweep', value: 'clear', danger: true },
+    // Issue #76: distinct from "Clear" (empties this session's content but
+    // keeps the row) — this removes the row entirely. Previously there was
+    // no way to do this from the UI at all. Only offered once a session
+    // actually exists to delete.
+    ...($currentSessionId != null ? [{ label: 'Delete Workout', icon: 'delete_forever', value: 'delete', danger: true }] : []),
   ];
   // Small helper so the inline rail card can trigger the same action
   // path the mobile ActionSheet uses, without simulating a select event
@@ -583,14 +697,11 @@
     } else {
       showError($_('diary_extra.toast.no_exercises')); return;
     }
-    if ($todayLog?.exercises?.length > 0) {
-      if (!await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_suggested_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
-    }
     await loadTemplate({
       exercises: exs,
       name: px.template_name || px.name || 'Coach pick',
       id: px.template_id || null,
-    });
+    }, 'diary.confirm.replace_suggested_msg');
   }
 
   onMount(async () => {
@@ -663,16 +774,34 @@
   // dates + PRs + suggestions refreshed, without the two-spinner overlap
   // that used to happen when both handlers fired.
 
-  function _onSyncComplete() {
+  function _onSyncComplete(e) {
     // Rely on the App-level pull-to-refresh (App.svelte) to fire the sync
     // itself; this listener refreshes everything the Diary route reads
     // locally so a user who pulled while staying on Diary sees the new
     // state without navigating away and back. Previously Diary owned its
-    // own route-scoped PTR — removed for family parity, since NT + CT
+    // own route-scoped PTR (removed for family parity, since NT + CT
     // put PTR in App.svelte and having it in both places rendered two
-    // spinners on top of each other.
-    if ($currentDate) {
-      loadWorkout($currentDate).then(() => loadCoachFeedback($currentDate));
+    // spinners on top of each other).
+    //
+    // Only reload today's workout if THIS pull actually touched
+    // workouts or per-entry tombstones (issue reported 2026-09-07: set
+    // and weight edits reverting on every change). This event fires on
+    // every background sync, roughly every few seconds while Diary is
+    // mounted (App.svelte's 30s interval, plus apiFetch.js kicking one
+    // on every local-first GET, and loadWorkout below is itself one of
+    // those GETs). The overwhelming majority pull nothing relevant, so
+    // reloading unconditionally re-read the local cache constantly for
+    // no reason, and that cache lagging a save that hadn't round-
+    // tripped back through a pull yet is what reverted an edit already
+    // reflected in todayLog. preferFresher makes loadWorkout itself
+    // refuse to apply anything older than what's already shown, as a
+    // second line of defense.
+    const t = e?.detail?.tables;
+    const workoutRelevant = t && ((t.workouts || 0) > 0 || (t.workoutTombstones || 0) > 0);
+    if ($currentDate && workoutRelevant) {
+      loadWorkout($currentDate, { preferFresher: true }).then(() => loadCoachFeedback($currentDate));
+    } else if ($currentDate) {
+      loadCoachFeedback($currentDate);
     }
     loadUnreadFeedback();
     loadWorkoutDates();
@@ -766,8 +895,11 @@
   async function handleWorkoutAction(e) {
     const action = e.detail?.value;
     if (action === 'replace') {
-      if (($todayLog?.exercises?.length || 0) > 0
-          && !await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_template_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
+      // No confirm here anymore — this only opens the template picker sheet,
+      // it doesn't touch $todayLog. The real guard is inside loadTemplate()
+      // itself, which fires reliably regardless of how the user got there
+      // (this menu, a direct picker tap, "load most recent", etc.) instead
+      // of only covering this one entry path.
       openLoadWorkout();
     } else if (action === 'clear') {
       await saveWorkout($currentDate, { ...($todayLog || {}), name: '', template_id: null, program_id: null, exercises: [], notes: '' });
@@ -779,6 +911,16 @@
       resetTimer();
       await saveWorkout($currentDate, { ...($todayLog || {}), duration_min: 0 });
       showSuccess($_('diary.toast.timer_reset'));
+    } else if (action === 'delete') {
+      if (!await confirmDialog({
+        title: $_('diary.confirm.delete_workout_title'),
+        message: $_('diary.confirm.delete_workout_msg'),
+        confirmText: $_('diary.confirm.delete_workout_confirm'),
+        dangerous: true,
+      })) return;
+      await deleteSession($currentDate, $currentSessionId);
+      notes = '';
+      showSuccess($_('diary.toast.workout_deleted'));
     }
   }
 
@@ -804,7 +946,7 @@
       await saveWorkout(currentDateBackup, {
         ...($todayLog || {}),
         name: yesterdayName,
-        exercises: yesterdayExercises,
+        exercises: withFreshIds(yesterdayExercises),
       });
       notes = $todayLog?.notes || '';
       showSuccess($_('diary.toast.copied_yesterday'));
@@ -866,6 +1008,7 @@
   function resolveWeek(ex, wk) {
     const base = {
       sets: ex.target_sets, reps: ex.target_reps, weight: ex.target_weight,
+      duration: ex.target_duration,
       tempo: ex.tempo, rest_sec: ex.rest_sec,
     };
     if (!wk || !ex.weeks?.length) return base;
@@ -875,19 +1018,54 @@
       sets: w.sets ?? base.sets,
       reps: w.reps ?? base.reps,
       weight: w.weight ?? base.weight,
+      duration: w.duration ?? base.duration,
       tempo: w.tempo ?? base.tempo,
       rest_sec: w.rest_sec ?? base.rest_sec,
     };
   }
 
-  async function loadTemplate(template) {
+  async function loadTemplate(template, confirmMsgKey = 'diary.confirm.replace_template_msg') {
+    // Loading a template replaces $todayLog's exercises wholesale — any
+    // exercise from the currently-loaded workout that isn't in the new
+    // template gets tombstoned (deleted) by the uuid-diff in
+    // stores/workout.js's _mergeAndSave, with no way to undo it. This is
+    // the one confirm choke-point every entry path (menu action, template
+    // picker tap, template-info sheet, "load most recent", suggested/
+    // prescribed workout) funnels through, so gating it here covers all
+    // of them instead of each caller individually. Callers with a more
+    // specific message (loadFromSuggested, loadFromPrescription) pass
+    // confirmMsgKey instead of duplicating their own pre-check, which
+    // would otherwise double-prompt now that this guard always runs.
+    //
+    // Issue #76: rather than only "replace or cancel", offer "start a
+    // new session" too — today's already-logged workout stays completely
+    // untouched, and the new template becomes an independent second
+    // session. mode stays 'replace' (today's exact behavior) when there's
+    // nothing to protect, so an empty day skips the picker entirely.
+    // A forced mode (set by an entry point that already told the user
+    // exactly what's about to happen — see openLoadWorkoutForNewSession)
+    // skips the ask entirely rather than re-litigating a decision already
+    // made one tap ago.
+    let mode = 'replace';
+    if (loadWorkoutForcedMode) {
+      mode = loadWorkoutForcedMode;
+      loadWorkoutForcedMode = null;
+    } else if (($todayLog?.exercises?.length || 0) > 0) {
+      mode = await _askReplaceOrNewSession(confirmMsgKey);
+      if (!mode) return; // cancelled
+    }
     showLoadWorkout = false;
     // Current plan week for a multi-week program — drives week-aware prefill.
     // Only meaningful when this template's program is the active one.
     const planWeek = selectedProgram?.is_active ? (selectedProgram?.current_week || null) : null;
     // Clone the template exercises, auto-filling from last session if enabled
     const templateExercises = await Promise.all((template.exercises || []).map(async ex => {
-      const lastSets = await getLastSets(ex.exercise_id);
+      // Last session split into warm-ups and working sets: a template's
+      // warm-up rows fill from last time's warm-ups and its working rows from
+      // last time's working sets, so the two never trade weights (issue #103).
+      const lastAll = await getLastSets(ex.exercise_id, { withWarmups: true });
+      const lastSets = lastAll ? lastAll.filter(s => !s.warmup) : null;
+      const lastWarmups = lastAll ? lastAll.filter(s => s.warmup) : [];
       // Resolve this week's prescription. When the exercise carries a weeks[]
       // matrix and we're inside the active program, the plan value wins over
       // last-session progressive-overload memory for the current week.
@@ -896,17 +1074,23 @@
       let sets;
       if (ex.set_specs && ex.set_specs.length > 0) {
         // Per-set targets defined in template — use them as the target weight/reps
-        sets = ex.set_specs.map((spec, i) => {
+        let workIdx = 0, warmIdx = 0;
+        sets = ex.set_specs.map((spec) => {
+          const past = spec.warmup ? lastWarmups[warmIdx++] : lastSets?.[workIdx++];
           const parsedWeight = parseFloat(spec.weight);
           const parsedReps = parseInt(spec.reps);
           const parsedRepsL = parseInt(spec.reps_l);
           const parsedRepsR = parseInt(spec.reps_r);
           const set = {
-            weight: Number.isFinite(parsedWeight) ? parsedWeight : (lastSets?.[i]?.weight ?? 0),
-            reps: Number.isFinite(parsedReps) ? parsedReps : (lastSets?.[i]?.reps ?? 0),
+            weight: Number.isFinite(parsedWeight) ? parsedWeight : (past?.weight ?? 0),
+            reps: Number.isFinite(parsedReps) ? parsedReps : (past?.reps ?? 0),
             completed: false,
             notes: '',
           };
+          if (ex.set_type === 'time') {
+            const dur = parseDuration(spec.duration) ?? past?.duration_sec ?? 0;
+            if (dur) set.duration_sec = dur;
+          }
           // Asymmetric supersets: template author can pin a set to a
           // specific round via spec.number. Falls back to position when
           // unset, matching the diary's display convention.
@@ -948,6 +1132,18 @@
             weight: baseWeight, reps: baseReps, completed: false, notes: '',
           }));
         }
+        // Timed exercise (issue #89): the prescribed duration, or the last
+        // session's when history wins, fills each set.
+        if (ex.set_type === 'time') {
+          const planned = parseDuration(eff.duration) || 0;
+          sets = sets.map((set, i) => {
+            const fromLast = (lastSets && !planWins)
+              ? (lastSets[i]?.duration_sec ?? lastSets[lastSets.length - 1]?.duration_sec)
+              : null;
+            const dur = fromLast || planned;
+            return dur ? { ...set, duration_sec: dur } : set;
+          });
+        }
       }
       // Surface the resolved week's tempo/rest onto the logged exercise so the
       // rest timer (and any display) can use the plan's per-exercise values.
@@ -958,6 +1154,9 @@
     // this exercise has a usable working weight.
     const withWarmups = $autoGenerateWarmups
       ? templateExercises.map(ex => {
+          // A warm-up ramp is weight x reps sets; it means nothing for a
+          // hold or carry (issue #89), whatever load it is done with.
+          if (ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0)) return ex;
           const firstWorking = (ex.sets || []).find(s => !s.warmup);
           const w = parseFloat(firstWorking?.weight || ex.target_weight || 0) || 0;
           const warmups = generateWarmupSets(w, $weightUnit);
@@ -966,8 +1165,13 @@
         })
       : templateExercises;
 
-    await saveWorkout($currentDate, {
-      ...($todayLog || {}),
+    // 'new_session' (issue #76) deliberately does NOT spread $todayLog —
+    // a new session starts clean rather than inheriting the old
+    // session's completed/duration_min/notes. 'replace' keeps today's
+    // exact pre-#76 behavior (spread first so anything the template
+    // doesn't set falls back to what was already there).
+    const payload = {
+      ...(mode === 'new_session' ? {} : ($todayLog || {})),
       name: template.name,
       template_id: template.id,
       program_id: selectedProgram?.id || null,
@@ -975,8 +1179,14 @@
       // diary can label it and it stays accurate after the athlete advances.
       program_week: planWeek,
       program_duration_weeks: planWeek ? (selectedProgram?.duration_weeks || null) : null,
-      exercises: withWarmups,
-    });
+      // New ids: see withFreshIds (issue #99).
+      exercises: withFreshIds(withWarmups),
+    };
+    if (mode === 'new_session') {
+      await startNewSession($currentDate, payload);
+    } else {
+      await saveWorkout($currentDate, payload);
+    }
     notes = '';
     showSuccess($_('diary_extra.toast.loaded_named', { values: { name: template.name } }));
   }
@@ -993,9 +1203,6 @@
     } else {
       showError($_('diary_extra.toast.no_exercises')); return;
     }
-    if ($todayLog?.exercises?.length > 0) {
-      if (!await confirmDialog({ title: $_('diary.confirm.replace_workout_title'), message: $_('diary.confirm.replace_prescribed_msg'), confirmText: $_('diary.confirm.replace_confirm'), dangerous: true })) return;
-    }
     // Reuse the template-load code path via a synthetic template object
     const syntheticProgram = selectedProgram;
     selectedProgram = { id: px.program_id || null };
@@ -1004,7 +1211,7 @@
         exercises: exs,
         name: px.template_name || px.name || 'Prescribed workout',
         id: px.template_id || null,
-      });
+      }, 'diary.confirm.replace_prescribed_msg');
     } finally {
       selectedProgram = syntheticProgram;
     }
@@ -1046,38 +1253,50 @@
     // Auto-fill from last session if enabled
     const filled = await Promise.all(exs.map(async ex => {
       const lastSets = await getLastSets(ex.exercise_id);
-      const numSets = (ex.sets || []).length || ex.target_sets || 3;
+      // Keep the loaded workout's shape: its warm-ups come back as warm-ups,
+      // and its working sets are filled from the last session's working sets
+      // (issue #103; warm-ups used to come back as working sets).
+      const recentWarmups = (ex.sets || []).filter(s => s?.warmup);
+      const numSets = (ex.sets || []).filter(s => !s?.warmup).length || ex.target_sets || 3;
+      const warmups = recentWarmups.map(s => ({
+        weight: lastSets ? (s.weight || 0) : 0, reps: lastSets ? (s.reps || 0) : 0,
+        completed: false, notes: '', warmup: true,
+      }));
       let sets;
       if (lastSets) {
-        sets = Array.from({ length: numSets }, (_, i) => ({
-          weight: lastSets[i]?.weight || lastSets[lastSets.length - 1]?.weight || 0,
-          reps: lastSets[i]?.reps || lastSets[lastSets.length - 1]?.reps || 0,
-          completed: false, notes: '',
-        }));
+        sets = Array.from({ length: numSets }, (_, i) => {
+          const src = lastSets[i] || lastSets[lastSets.length - 1] || {};
+          const next = { weight: src.weight || 0, reps: src.reps || 0, completed: false, notes: '' };
+          if (src.duration_sec) next.duration_sec = src.duration_sec;
+          return next;
+        });
       } else {
         sets = Array.from({ length: numSets }, () => ({ weight: 0, reps: 0, completed: false, notes: '' }));
       }
-      return { ...ex, sets };
+      sets = [...warmups, ...sets];
+      // Regenerated sets would otherwise lose the only evidence an exercise
+      // was timed, so carry it on the instance explicitly (issue #89).
+      const wasTimed = ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0);
+      return wasTimed ? { ...ex, set_type: 'time', sets } : { ...ex, sets };
     }));
     await saveWorkout($currentDate, {
       ...($todayLog || {}),
       name: recent.name || '',
       template_id: recent.template_id || null,
       program_id: recent.program_id || null,
-      exercises: filled,
+      exercises: withFreshIds(filled),
     });
     showSuccess($_('diary_extra.toast.loaded_workout', { values: { name: recent.name || $_('diary_extra.toast.workout_fallback') } }));
   }
 
   // ── Exercise management ────────────────────────────────────────────
-  async function getLastSets(exerciseId) {
+  async function getLastSets(exerciseId, { withWarmups = false } = {}) {
     if (!$autoFillLastWeights || !exerciseId) return null;
     try {
-      const history = await LtApi.getWorkoutHistory(exerciseId);
-      if (history.length > 0) {
-        const lastSets = (history[0].sets || []).filter(s => s.completed);
-        if (lastSets.length > 0) return lastSets;
-      }
+      // The last session with completed working sets, as the Last Time row
+      // uses, not just the newest entry (issue #103); warm-ups aren't copied.
+      const last = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId));
+      if (last) return withWarmups ? last.completed : last.working;
     } catch {}
     return null;
   }
@@ -1127,14 +1346,23 @@
       return;
     }
 
-    const lastSets = await getLastSets(ex.id);
+    // Adding one exercise repeats last session as it was, warm-ups included
+    // and still marked as warm-ups (they used to come back as working sets,
+    // counting toward volume and PRs). Targets come from the working sets.
+    const lastSets = await getLastSets(ex.id, { withWarmups: true });
     let sets, targetSets, targetReps, targetWeight;
 
     if (lastSets) {
-      sets = lastSets.map(s => ({ reps: s.reps || 0, weight: s.weight || 0, completed: false }));
-      targetSets = lastSets.length;
-      targetReps = String(lastSets[0]?.reps || 10);
-      targetWeight = String(lastSets[0]?.weight || '');
+      sets = lastSets.map(s => {
+        const next = { reps: s.reps || 0, weight: s.weight || 0, completed: false };
+        if (s.duration_sec) next.duration_sec = s.duration_sec;
+        if (s.warmup) next.warmup = true;
+        return next;
+      });
+      const working = lastSets.filter(s => !s.warmup);
+      targetSets = working.length;
+      targetReps = String(working[0]?.reps || 10);
+      targetWeight = String(working[0]?.weight || '');
     } else {
       sets = [{ reps: 0, weight: 0, completed: false }];
       targetSets = 3;
@@ -1147,6 +1375,18 @@
     // Falls back to bilateral when no preference exists.
     const savedLoadType = ex.id != null && $exerciseLoadTypes
       ? $exerciseLoadTypes[ex.id] : null;
+    // Timed (issue #89): the last session's own data decides first, then the
+    // library default, then the user's remembered choice. Stamped onto the
+    // instance so every later reader (volume, stats, CSV, the API) sees it
+    // without needing the library row or this device's preferences.
+    const lastWasTimed = !!lastSets?.some(s => Number(s.duration_sec) > 0);
+    const lastWasReps = !!lastSets?.some(s => Number(s.reps) > 0);
+    const remembered = ex.id != null ? $exerciseSetTypes?.[ex.id] : null;
+    const startTimed = lastWasTimed
+      || (!lastWasReps && (ex.set_type === 'time'
+        || (ex.set_type !== 'reps' && (remembered === 'time'
+          || (remembered !== 'reps' && defaultSetTypeForName(ex.name) === 'time')))));
+    if (startTimed) targetReps = '';
     const newExercise = {
       exercise_id: ex.id,
       exercise_name: ex.name,
@@ -1156,6 +1396,7 @@
       notes: '',
       sets,
       ...(savedLoadType && savedLoadType !== 'bilateral' ? { load_type: savedLoadType } : {}),
+      ...(startTimed ? { set_type: 'time' } : {}),
     };
 
     let updated;
@@ -1259,7 +1500,31 @@
         // PR check — compare to PRIOR workouts only (not today), skip
         // celebrations when planning ahead (future date)
         const justCompletedSet = ex.sets.find((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
-        if (!isFuture && justCompletedSet && justCompletedSet.weight > 0 && ex.exercise_id) {
+        const justCompletedTimed = !!justCompletedSet && isTimedSet(ex, justCompletedSet);
+        if (!isFuture && justCompletedTimed && !justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0 && ex.exercise_id) {
+          // Timed set (issue #89): celebrate the longest hold, or a heavier
+          // load held, against prior timed sessions only.
+          try {
+            const history = await LtApi.getWorkoutHistory(ex.exercise_id);
+            let priorDur = 0, priorDurW = 0, priorCount = 0;
+            for (const h of history) {
+              if (h.date === $currentDate) continue;
+              for (const s of h.sets || []) {
+                if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
+                const d = Number(s.duration_sec) || 0;
+                if (d <= 0) continue;
+                priorCount++;
+                if (d > priorDur) priorDur = d;
+                if ((s.weight || 0) > priorDurW) priorDurW = s.weight || 0;
+              }
+            }
+            const d = Number(justCompletedSet.duration_sec);
+            const w = justCompletedSet.weight || 0;
+            if (priorCount > 0 && (d > priorDur || (w > 0 && w > priorDurW))) {
+              celebrateHoldPR(ex.exercise_name, d, w, $weightUnit);
+            }
+          } catch {}
+        } else if (!isFuture && justCompletedSet && !justCompletedTimed && justCompletedSet.weight > 0 && ex.exercise_id) {
           try {
             const history = await LtApi.getWorkoutHistory(ex.exercise_id);
             // Collect prior completed sets, EXCLUDING today — otherwise your
@@ -1270,7 +1535,7 @@
             for (const h of history) {
               if (h.date === $currentDate) continue;
               for (const s of h.sets || []) {
-                if (s.completed && s.weight > 0) {
+                if (s.completed && s.weight > 0 && !isTimedSet({ set_type: h.set_type }, s)) {
                   priorSetCount++;
                   if (s.weight > priorMax) priorMax = s.weight;
                   const e1 = calc1RM(s.weight, s.reps);
@@ -1498,9 +1763,24 @@
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   }
+  // Issue #76: the ⋮ menu's "Replace Workout" was the only discoverable
+  // path to loading another workout once today's already has exercises
+  // — easy to miss. Offering it here too, right next to "Add Exercise"
+  // (the button people already reach for), makes "start a new session"
+  // discoverable from the same tap they're already making.
+  let showAddMenu = false;
+  $: addMenuActions = [
+    { label: $_('diary_extra.add_exercise_action'), icon: 'fitness_center', value: 'exercise' },
+    { label: $_('diary.actions.add_session'), icon: 'playlist_add', value: 'workout' },
+  ];
   function handleAddFabClick() {
     if (addFabHasDragged) return;   // suppress click after drag
-    showPicker = true;
+    showAddMenu = true;
+  }
+  function handleAddMenuChoice(e) {
+    showAddMenu = false;
+    if (e.detail?.value === 'exercise') showPicker = true;
+    else if (e.detail?.value === 'workout') openLoadWorkoutForNewSession();
   }
 
   // ── Edge-scroll during drag ──────────────────────────────────────────────
@@ -1674,7 +1954,19 @@
   async function leaveSuperset(idx) {
     const arr = [...exercises];
     const ssId = arr[idx].superset_id;
-    arr[idx] = { ...arr[idx], superset_id: undefined, superset_size: undefined, superset_position: undefined };
+    const leaving = { ...arr[idx], superset_id: undefined, superset_size: undefined, superset_position: undefined };
+    arr.splice(idx, 1);
+    // A superset is rendered from a run of consecutive members (supersetGroups
+    // above), so an exercise leaving one from the middle has to move out of the
+    // block's span: left where it was it splits that run, and the members left
+    // behind stop being drawn as a superset even though the workout still says
+    // they are one. Only moves when it would actually split the group, so
+    // leaving from either end keeps its place. joinSuperset does the mirror of
+    // this when an exercise comes in.
+    const remaining = [];
+    if (ssId) arr.forEach((e, i) => { if (e.superset_id === ssId) remaining.push(i); });
+    const splitsGroup = remaining.some(i => i < idx) && remaining.some(i => i >= idx);
+    arr.splice(splitsGroup ? remaining[remaining.length - 1] + 1 : idx, 0, leaving);
     if (ssId) _recalcSuperset(arr, ssId);
     await saveWorkout($currentDate, { ...($todayLog || {}), exercises: arr });
     showSuccess($_('diary.toast.removed_from_superset'));
@@ -1830,7 +2122,7 @@
     {#if _wideViewport && exercises.length > 0}
       <button class="diary-header-action diary-header-add"
               on:click={handleAddFabClick}
-              title="Add exercise" aria-label="Add exercise">
+              title="Add" aria-label="Add">
         <span class="material-symbols-rounded">add</span>
       </button>
     {/if}
@@ -2015,6 +2307,40 @@
        content stacks by flex without its row heights being influenced
        by anything in the HUD or rail columns. -->
   <div class="diary-main-col">
+
+  <!-- Session switcher (issue #76) — only appears once a date has more
+       than one session; a lone session's date keeps looking exactly
+       like it always has. "+" reuses the existing Load Workout flow,
+       which now asks replace-vs-new-session once there's something to
+       protect (loadTemplate's confirm gate). -->
+  {#if $todaySessions.length > 1}
+    <div class="session-tabs" role="tablist">
+      {#each $todaySessions as s (s.id)}
+        <div class="session-tab-wrap" class:active={s.id === $currentSessionId}>
+          <button
+            class="session-tab"
+            role="tab"
+            aria-selected={s.id === $currentSessionId}
+            on:click={() => handleSwitchSession(s.id)}
+          >
+            <span class="session-tab-name">{s.name || $_('diary_extra.toast.workout_fallback')}</span>
+            {#if s.completed}<span class="material-symbols-rounded session-tab-check">check_circle</span>{/if}
+          </button>
+          <button
+            class="session-tab-delete"
+            on:click={() => handleDeleteSessionTab(s.id)}
+            title={$_('diary.confirm.delete_workout_confirm')}
+            aria-label={$_('diary.confirm.delete_workout_confirm')}
+          >
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
+      {/each}
+      <button class="session-tab session-tab-add" on:click={openLoadWorkoutForNewSession} title={$_('diary.actions.add_session')} aria-label={$_('diary.actions.add_session')}>
+        <span class="material-symbols-rounded">add</span>
+      </button>
+    </div>
+  {/if}
 
   <!-- Planning badge when viewing a future date -->
   {#if isFuture}
@@ -2429,7 +2755,7 @@
        widget snippet. Only mounts when the overlay is actually open
        so widgets don't double-instantiate under the pinned aside. -->
   {#if _railMode === 'hidden' && _railOverlay && _wideViewport}
-    <aside use:portal class="diary-right-rail diary-right-rail-overlay" aria-label="Program context">
+    <aside use:portal class="diary-right-rail diary-right-rail-overlay" use:closeOnBack={() => _railOverlay = false} aria-label="Program context">
       {@render railWidgets()}
     </aside>
   {/if}
@@ -2594,16 +2920,20 @@
     </div>
 {/snippet}
 
-  <!-- Add-exercise FAB (visible only mid-workout — empty state has its own buttons).
-       Loading from a program mid-workout lives in the ⋮ menu as "Replace workout". -->
+  <!-- Add FAB (visible only mid-workout — empty state has its own buttons).
+       Tap opens a small menu: Add Exercise, or Add Workout (issue #76 —
+       starts a new session via the same Load Workout flow the ⋮ menu's
+       "Replace Workout" already used, now surfaced somewhere people
+       actually look instead of only in that overflow menu). -->
   {#if exercises.length > 0}
     <div class="fab-group" class:positioned={!!addFabPos} style={addFabStyle}>
       <button
         class="fab fab-primary"
         on:pointerdown={startAddFabDrag}
+        data-no-pull-sync
         on:click={handleAddFabClick}
-        aria-label="Add exercise · drag to reposition"
-        title="Tap to add exercise · hold and drag to move"
+        aria-label="Add · drag to reposition"
+        title="Tap to add · hold and drag to move"
       >
         <span class="material-symbols-rounded">add</span>
       </button>
@@ -2623,7 +2953,7 @@
   />
 
   <!-- Load Workout sheet -->
-  <Sheet open={showLoadWorkout} on:close={() => { showLoadWorkout = false; selectedProgram = null; }}>
+  <Sheet open={showLoadWorkout} on:close={() => { showLoadWorkout = false; selectedProgram = null; loadWorkoutForcedMode = null; }}>
     <div class="load-workout">
       <h3 class="lw-title">{$_('diary_extra.load_workout')}</h3>
 
@@ -2759,6 +3089,33 @@
     on:cancel={() => showWorkoutActions = false}
   />
 
+  <!-- Replace vs start-new-session choice (issue #76) — the loadTemplate
+       confirm gate, shown whenever the current day already has exercises. -->
+  <ActionSheet
+    bind:open={showReplaceOrNewSession}
+    title={replaceOrNewSessionTitle}
+    actions={replaceOrNewSessionActions}
+    on:select={_handleReplaceOrNewSessionChoice}
+    on:cancel={_cancelReplaceOrNewSession}
+  />
+
+  <!-- Add menu (issue #76) — the + FAB / header button's own small menu:
+       Add Exercise (today's existing single action) or Add Workout
+       (opens Load Workout, surfacing "start a new session" somewhere
+       more discoverable than only the ⋮ overflow menu). -->
+  <!-- Hold timer for timed sets (issue #89). Lives here rather than in
+       App.svelte because its result is applied by this page's exercise
+       cards; the store keeps it running if you navigate away. -->
+  <HoldTimer />
+
+  <ActionSheet
+    bind:open={showAddMenu}
+    title={$_('diary_extra.add_menu_title')}
+    actions={addMenuActions}
+    on:select={handleAddMenuChoice}
+    on:cancel={() => showAddMenu = false}
+  />
+
   <!-- Per-exercise action sheet (superset actions) -->
   <ActionSheet
     bind:open={exActionsOpen}
@@ -2810,7 +3167,7 @@
   {#if showDatePicker}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div use:portal class="dp-backdrop"
+    <div use:portal class="dp-backdrop" use:closeOnBack={() => showDatePicker = false}
       in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}
       on:click={() => showDatePicker = false}>
       <div class="dp-sheet"
@@ -3056,6 +3413,65 @@
   }
   .wn-icon { font-size: 18px; color: var(--accent); }
   .wn-text { font-size: 13px; font-weight: 600; color: var(--accent); }
+
+  /* Session switcher (issue #76) — only rendered once a date has more
+     than one session, so a single-session day's layout is unaffected. */
+  .session-tabs {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px var(--page-px) 0;
+    overflow-x: auto;
+  }
+  /* One visual pill per session: the wrap carries the pill's border/
+     background, the switch button and delete "x" inside it are both
+     borderless/transparent so there's no seam between them. */
+  .session-tab-wrap {
+    display: flex; align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-1);
+    flex: 0 0 auto;
+    overflow: hidden;
+  }
+  .session-tab-wrap.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+  }
+  .session-tab {
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 4px 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 12px; font-weight: 600;
+    white-space: nowrap;
+  }
+  .session-tab-wrap.active .session-tab { color: var(--accent); }
+  .session-tab-name {
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .session-tab-check { font-size: 14px; color: var(--accent); }
+  .session-tab-delete {
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px;
+    margin-right: 4px;
+    border: none; border-radius: 50%;
+    background: transparent;
+    color: var(--text-3);
+    flex: 0 0 auto;
+  }
+  .session-tab-wrap.active .session-tab-delete { color: var(--accent); }
+  .session-tab-delete:hover { background: var(--danger); color: #fff; }
+  .session-tab-delete .material-symbols-rounded { font-size: 14px; }
+  .session-tab-add {
+    display: flex; align-items: center; justify-content: center;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-1);
+    color: var(--text-2);
+    flex: 0 0 auto;
+  }
+  .session-tab-add .material-symbols-rounded { font-size: 16px; }
 
   .summary-bar {
     position: relative;
@@ -3796,7 +4212,8 @@
 
   /* ── Calendar date picker ────────────────────────────────────────── */
   .dp-backdrop { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.5); display: flex; align-items: flex-end; }
-  .dp-sheet { background: var(--surface-1); border-radius: var(--radius-xl) var(--radius-xl) 0 0; width: 100%; max-width: 600px; margin: 0 auto; padding-bottom: var(--safe-bottom); }
+  /* Never taller than the screen, and never up under the status bar (same as NutriTrace #228). */
+  .dp-sheet { background: var(--surface-1); border-radius: var(--radius-xl) var(--radius-xl) 0 0; width: 100%; max-width: 600px; margin: 0 auto; padding-bottom: var(--safe-bottom); max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px)); overflow-y: auto; overscroll-behavior: contain; }
   .dp-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 10px auto 0; }
   .dp-nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 8px; }
   .dp-nav-btn { color: var(--text-2); }
@@ -4201,6 +4618,7 @@
         - 10px
         - var(--hamburger-row, 0px)
         - var(--nav-h, 0px)
+        - var(--bottom-overlays, 0px)
         - var(--safe-bottom, 0px));
       overflow-y: auto;
       scrollbar-width: thin;

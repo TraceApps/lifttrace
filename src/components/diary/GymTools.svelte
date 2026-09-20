@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { weightUnit } from '../../stores/settings.js';
@@ -145,7 +146,7 @@
 {:else if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={() => open = false}>
+  <div use:portal class="sheet-backdrop" on:click={() => open = false} use:closeOnBack={() => open = false}>
     <div class="gt-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <button class="gt-close-btn" on:click={() => open = false}
@@ -244,7 +245,14 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
+    /* Never taller than the screen above the keyboard, and never up under
+       the status bar (same as NutriTrace #228). The tab's content scrolls;
+       the close button and tabs stay put. */
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
+    display: flex; flex-direction: column;
   }
+  .gt-sheet > .gt-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .gt-sheet > .sheet-handle, .gt-sheet > .gt-tabs { flex-shrink: 0; }
 
   .gt-tabs {
     display: flex; gap: 0;

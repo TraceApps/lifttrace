@@ -3,7 +3,8 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
-  import { aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, aiKeyVerified, envLocks as envLocksStore } from '../../stores/settings.js';
+  import { aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, aiKeyVerified, quickLogEnabled, smartLogVoiceLang, envLocks as envLocksStore } from '../../stores/settings.js';
+  import { isNative, getServerUrl } from '../../lib/platform.js';
   import { AI_MODELS, AI_DEFAULT_MODELS, callAI, callAIProxy } from '../../lib/aiChat.js';
   import { showSuccess, showError } from '../../stores/toast.js';
 
@@ -29,6 +30,12 @@
 
   $: providerModels = AI_MODELS[$aiProvider] || [];
 
+  // Smart Log voice-input language options, the same list as NutriTrace.
+  // 'auto' uses the device locale.
+  const VOICE_LANG_CODES = ['auto', 'en-US', 'en-GB', 'it-IT', 'es-ES', 'es-MX', 'fr-FR', 'de-DE', 'pt-BR', 'pt-PT',
+    'nl-NL', 'pl-PL', 'ru-RU', 'sv-SE', 'da-DK', 'nb-NO', 'fi-FI', 'cs-CZ', 'tr-TR', 'ja-JP', 'ko-KR', 'zh-CN', 'zh-TW', 'hi-IN', 'ar-SA'];
+  $: VOICE_LANGS = VOICE_LANG_CODES.map(value => ({ value, label: $_(`settings_trace.voice_langs.${value.replace('-', '_')}`) }));
+
   // Branded providers render a <select>. To let users pick a model outside
   // the hardcoded list (e.g. after a vendor renames), the select has a
   // 'Custom…' option that reveals a free-text input.
@@ -53,6 +60,7 @@
     const next = (aiModelSelectVal === '__custom__')
       ? aiCustomModelVal.trim()
       : (aiModelSelectVal || '');
+    _shownModel = next;
     $aiModel = next;
     _invalidate();
   }
@@ -62,6 +70,8 @@
     if (!$aiModel || !isPreset) {
       aiModelSelectVal = AI_DEFAULT_MODELS[$aiProvider] || '';
       aiCustomModelVal = '';
+      _shownModel = aiModelSelectVal;
+      _shownProvider = $aiProvider;
       $aiModel = aiModelSelectVal;
     } else {
       aiModelSelectVal = $aiModel;
@@ -78,14 +88,53 @@
   // Reactive invalidation when provider changes.
   $: { $aiProvider; _invalidate(); }
 
+  // The key and base URL save when the field loses focus (or on Enter),
+  // with no Save button: on a phone in portrait an inline button beside the
+  // field ran off the edge of the screen (issue #94). The connection is
+  // tested only when the value actually changed, so tabbing through does
+  // not spend API quota; the status banner's Test button re-tests on demand.
+  let aiKeyFocused = false;
+  let aiBaseUrlFocused = false;
+
   async function saveAiKey() {
+    aiKeyFocused = false;
+    if (aiKeyVal === ($aiApiKey || '')) return;
     aiApiKey.set(aiKeyVal);
-    await testConnection();
+    _invalidate();
+    if (canTest) await testConnection();
   }
 
   async function saveAiBaseUrl() {
-    aiBaseUrl.set(aiBaseUrlVal.trim());
-    await testConnection();
+    aiBaseUrlFocused = false;
+    const trimmed = aiBaseUrlVal.trim();
+    aiBaseUrlVal = trimmed;
+    if (trimmed === ($aiBaseUrl || '')) return;
+    aiBaseUrl.set(trimmed);
+    _invalidate();
+    if (canTest) await testConnection();
+  }
+
+  function blurOnEnter(e) { if (e.key === 'Enter') e.currentTarget.blur(); }
+
+  // Follow values that change underneath this screen (a sync from another
+  // device, or the startup settings load), except while the user is typing
+  // in that field.
+  $: if (!aiKeyFocused) aiKeyVal = $aiApiKey || '';
+  $: if (!aiBaseUrlFocused) aiBaseUrlVal = $aiBaseUrl || '';
+  let _shownModel = $aiModel;
+  let _shownProvider = $aiProvider;
+  $: if ($aiModel !== _shownModel || $aiProvider !== _shownProvider) _followModel($aiModel, $aiProvider);
+  function _followModel(model, provider) {
+    _shownModel = model;
+    _shownProvider = provider;
+    if (provider === 'oai-compat') return;
+    const isPreset = AI_MODELS[provider]?.some(m => m.value === model && m.value !== '__custom__');
+    if (model && !isPreset) {
+      aiModelSelectVal = '__custom__';
+      aiCustomModelVal = model;
+    } else {
+      aiModelSelectVal = model || AI_DEFAULT_MODELS[provider] || '';
+    }
   }
 
   // Required fields for a meaningful test.
@@ -165,6 +214,12 @@
   </button>
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
+      {#if envLocks.ai}
+        <div class="env-lock-banner">
+          <span class="material-symbols-rounded">lock</span>
+          {$_('settings_trace.env_lock_banner')}
+        </div>
+      {/if}
       <div class="card">
         {#if _displayedAiEnabled}
           <ConnectionStatus
@@ -185,7 +240,7 @@
         {#if _displayedAiEnabled}
           <div class="setting-row">
             <span class="setting-label">{$_('settings_trace.labels.provider')}</span>
-            <select class="form-select-sm" bind:value={$aiProvider} on:change={_onProviderChange}>
+            <select class="form-select-sm" bind:value={$aiProvider} on:change={_onProviderChange} disabled={envLocks.ai}>
               <option value="claude">{$_('settings_trace.provider_claude')}</option>
               <option value="openai">{$_('settings_trace.provider_openai')}</option>
               <option value="gemini">{$_('settings_trace.provider_gemini')}</option>
@@ -199,18 +254,15 @@
                 <span class="setting-label">{$_('settings_trace.labels.base_url')}</span>
                 <span class="setting-hint">{$_('settings_trace.labels.base_url_desc')}</span>
               </div>
-              <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:100%">
-                <input class="form-input-sm" style="flex:1" type="url"
-                  placeholder={$_('settings_trace.labels.base_url_ph')}
-                  bind:value={aiBaseUrlVal} autocomplete="off" />
-                <button class="btn btn-primary" style="height:36px;font-size:13px;white-space:nowrap" on:click={saveAiBaseUrl} disabled={testing}>
-                  {testing ? $_('settings_trace.labels.testing') : $_('settings_trace.labels.save')}
-                </button>
-              </div>
+              <input class="form-input-sm" style="width:100%;min-width:0" type="url"
+                placeholder={$_('settings_trace.labels.base_url_ph')}
+                bind:value={aiBaseUrlVal} autocomplete="off" disabled={envLocks.ai}
+                on:focus={() => aiBaseUrlFocused = true}
+                on:blur={saveAiBaseUrl} on:keydown={blurOnEnter} />
             </div>
             <div class="setting-row">
               <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-              <input class="form-input-sm" type="text" bind:value={$aiModel} placeholder={$_('settings_trace.labels.model_ph')} />
+              <input class="form-input-sm" type="text" bind:value={$aiModel} placeholder={$_('settings_trace.labels.model_ph')} disabled={envLocks.ai} />
             </div>
             <div style="padding:10px 16px;display:flex;gap:8px;align-items:flex-start;background:color-mix(in srgb,#f59e0b 8%, transparent);border-left:3px solid #f59e0b;border-radius:6px">
               <span class="material-symbols-rounded" style="font-size:18px;color:#f59e0b;flex-shrink:0">info</span>
@@ -221,7 +273,7 @@
           {:else}
             <div class="setting-row">
               <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-              <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={_syncModelFromSelect}>
+              <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={_syncModelFromSelect} disabled={envLocks.ai}>
                 {#each providerModels as m}
                   <option value={m.value}>{m.label}</option>
                 {/each}
@@ -232,7 +284,7 @@
                 <span class="setting-label">{$_('settings_trace.labels.custom_model_id')}</span>
                 <input class="form-input-sm" type="text"
                   placeholder={$aiProvider === 'gemini' ? 'gemini-3.5-flash' : $aiProvider === 'claude' ? 'claude-sonnet-5' : 'gpt-4o'}
-                  bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} />
+                  bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} disabled={envLocks.ai} />
               </div>
               <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:flex-start">
                 <span class="material-symbols-rounded" style="font-size:16px;color:var(--muted);flex-shrink:0;margin-top:2px">info</span>
@@ -243,6 +295,7 @@
             {/if}
           {/if}
 
+          {#if !envLocks.ai}
           <div class="setting-row" style="flex-wrap:wrap;gap:8px">
             <div class="setting-label-group" style="width:100%">
               <span class="setting-label">
@@ -258,26 +311,50 @@
                 {:else if $aiProvider === 'oai-compat'}
                   {$_('settings_trace.labels.key_hint_oai')}
                 {/if}
+                {#if isNative && !getServerUrl()}
+                  {$_('settings_trace.labels.key_stored_device')}
+                {:else}
+                  {$_('settings_trace.labels.key_stored_server')}
+                {/if}
               </span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:100%">
-              {#if aiShowKey}
-                <input class="form-input-sm" style="flex:1" type="text" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off" />
-              {:else}
-                <input class="form-input-sm" style="flex:1" type="password" bind:value={aiKeyVal} placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off" />
-              {/if}
-              <button class="btn-icon-toggle" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
+              <!-- One input whose type flips, so showing or hiding the key
+                   mid-edit keeps focus and still saves on blur. -->
+              <input class="form-input-sm" style="flex:1;min-width:0" type={aiShowKey ? 'text' : 'password'}
+                value={aiKeyVal} on:input={e => aiKeyVal = e.currentTarget.value}
+                placeholder={$aiProvider === 'oai-compat' ? $_('settings_trace.labels.key_ph_local') : $_('settings_trace.labels.key_ph_cloud')} autocomplete="off"
+                on:focus={() => aiKeyFocused = true} on:blur={saveAiKey} on:keydown={blurOnEnter} />
+              <button class="btn-icon-toggle" on:mousedown|preventDefault on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
                 <span class="material-symbols-rounded">{aiShowKey ? 'visibility_off' : 'visibility'}</span>
-              </button>
-              <button class="btn btn-primary" style="height:36px;font-size:13px;white-space:nowrap" on:click={saveAiKey} disabled={testing}>
-                {testing ? $_('settings_trace.labels.testing') : $_('settings_trace.labels.save')}
               </button>
             </div>
           </div>
+          {/if}
           <div class="setting-row">
             <span class="setting-label">{$_('settings_trace.labels.assistant_name')}</span>
             <input class="form-input-sm" type="text" bind:value={$aiAssistantName} placeholder={$_('settings_trace.labels.assistant_name_ph')} />
           </div>
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <span class="setting-label">{$_('settings_trace.labels.smart_log')}</span>
+              <span class="setting-hint">{$_('settings_trace.labels.smart_log_desc')}</span>
+            </div>
+            <Toggle checked={$quickLogEnabled} on:change={e => quickLogEnabled.set(e.detail)} />
+          </div>
+          {#if $quickLogEnabled}
+            <div class="setting-row">
+              <div class="setting-label-group">
+                <span class="setting-label">{$_('settings_trace.labels.voice_lang')}</span>
+                <span class="setting-hint">{$_('settings_trace.labels.voice_lang_desc')}</span>
+              </div>
+              <select class="form-select-sm" value={$smartLogVoiceLang} on:change={e => smartLogVoiceLang.set(e.currentTarget.value)}>
+                {#each VOICE_LANGS as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
         {/if}
       </div>
     </div>
@@ -294,5 +371,15 @@
   }
   .btn-icon-toggle:hover { color: var(--text-1); background: var(--surface-2); }
   .about-link { color: var(--accent); text-decoration: underline; }
+  /* Same look as NutriTrace's Trace settings. */
+  .env-lock-banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    font-size: 13px; color: var(--text-3);
+  }
+  .env-lock-banner .material-symbols-rounded { font-size: 16px; color: var(--accent); flex-shrink: 0; }
   .setting-desc { font-size: 12px; color: var(--text-3); padding: 0 16px; }
 </style>
