@@ -23,8 +23,15 @@ export default defineConfig({
       // Activation is driven by lib/pwa-update.js via virtual:pwa-register.
       registerType: 'prompt',
       workbox: {
-        // Precache the offline fallback page
-        globPatterns: ['offline.html'],
+        // Precache the app itself, not just the fallback page: with only
+        // offline.html here a reload with no connection served a shell whose
+        // own JavaScript 404'd, and the installed app came back blank.
+        globPatterns: ['**/*.{js,mjs,css,html,woff2,woff,ttf,png,svg,ico,webmanifest}'],
+        // heic2any and hls are big and optional (photo conversion, audio
+        // streaming); they load from the network the first time they're needed.
+        globIgnores: ['vendor/**', 'icons/**', '**/*.map', '**/heic2any-*.js', '**/hls-*.js'],
+        // Some chunks (charts, the exercise catalogue) are over the 2 MiB default.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         // navigateFallback explicitly disabled — navigation requests are
         // handled by the NetworkFirst runtimeCaching route below.
         navigateFallback: null,
