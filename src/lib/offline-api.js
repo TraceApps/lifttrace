@@ -1,0 +1,385 @@
+/**
+ * offline-api.js: the browser's side of working without a connection.
+ *
+ * Online, every call goes to the server as before and what comes back is kept
+ * in IndexedDB (the mirror). When the server can't be reached, the screens
+ * that matter are answered from the mirror, and what you change goes into an
+ * outbox and shows at once. Back online, the outbox is replayed against the
+ * same routes the Android app replays its own queue against, so the merge is
+ * the one already in production: no second merge path to keep in step.
+ *
+ * It hangs off apiFetch.js, which already stands between the app and the
+ * network, so no screen needs changing to work offline.
+ *
+ * Deliberately not the Background Sync API: Safari doesn't have it, and the
+ * iPhone is half the point. The page flushes instead, on a backoff, on the
+ * browser's own `online` event, and when the tab comes back to the front.
+ *
+ * Tabs share the outbox: a Web Lock keeps two of them from replaying it at
+ * once, and a BroadcastChannel tells the others when it changed.
+ */
+import { writable } from 'svelte/store';
+import {
+  isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs,
+  answerWithOps, queuedWorkoutReply, newTempId, createdId, remapIds, remapPath,
+} from './offline-edits.js';
+
+const RETRY_MIN_MS = 3_000;
+const RETRY_MAX_MS = 30_000;
+let _retryMs = RETRY_MIN_MS;
+const _backoff = () => { const ms = _retryMs; _retryMs = Math.min(RETRY_MAX_MS, _retryMs * 2); return ms; };
+const _resetBackoff = () => { _retryMs = RETRY_MIN_MS; };
+
+/** { online, pending, syncing, error } for the header badge and Settings. */
+export const offlineState = writable({
+  online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+  pending: 0,
+  syncing: false,
+  error: null,
+});
+
+const _online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
+
+// ── IndexedDB ────────────────────────────────────────────────────────
+let _dbPromise = null;
+// Whose queue this is. The app clears `wl:userId` when it cannot confirm who
+// is signed in, which is exactly what a reload with no connection looks like,
+// so the last id this browser saw is kept here: without it the queue would be
+// orphaned in a database nothing reads, and the work would never go up.
+const _USER_KEY = 'lt:offline-user';
+function _dbName() {
+  let user = null;
+  try {
+    user = localStorage.getItem('wl:userId');
+    if (user) localStorage.setItem(_USER_KEY, user);
+    else user = localStorage.getItem(_USER_KEY);
+  } catch { /* private mode */ }
+  return `lifttrace-offline-${user || 'single'}`;
+}
+function _db() {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  const name = _dbName();
+  if (_dbPromise && _dbPromise.name === name) return _dbPromise;
+  const p = new Promise((resolve) => {
+    const req = indexedDB.open(name, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('answers')) db.createObjectStore('answers', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+    req.onblocked = () => resolve(null);
+  });
+  p.name = name;
+  _dbPromise = p;
+  return p;
+}
+// Every read and write is wrapped: a blocked, full or private-mode database
+// resolves to null instead of throwing, and the app falls back to the server.
+function _tx(store, mode, fn) {
+  return _db().then(db => new Promise((resolve) => {
+    if (!db) return resolve(null);
+    let out;
+    try {
+      const tx = db.transaction(store, mode);
+      out = fn(tx.objectStore(store));
+      tx.oncomplete = () => resolve(out instanceof IDBRequest ? out.result : out);
+      tx.onerror = tx.onabort = () => resolve(null);
+    } catch { resolve(null); }
+  }));
+}
+const _all = (store) => _tx(store, 'readonly', s => s.getAll()).then(r => r || []);
+
+const _remember = (key, body) => _tx('answers', 'readwrite', s => s.put({ key, body, at: Date.now() }));
+
+/**
+ * What was last seen for this call. An exact match first (the query is part
+ * of the key), then the same path without one, so a day read as
+ * `?id=4` still finds the copy taken from the plain read.
+ */
+async function _recall(url) {
+  const exact = await _tx('answers', 'readonly', s => s.get(mirrorKey(url)));
+  if (exact) return exact.body;
+  const path = pathOf(url);
+  const byPath = await _tx('answers', 'readonly', s => s.get(path));
+  if (byPath) return byPath.body;
+  const rows = await _all('answers');
+  return rows.find(r => pathOf(r.key) === path)?.body;
+}
+
+// ── Outbox ───────────────────────────────────────────────────────────
+let _ops = null;
+async function _loadOps() {
+  if (!_ops) _ops = await _all('outbox');
+  return _ops;
+}
+function _publish(extra = {}) {
+  offlineState.update(s => ({ ...s, pending: _ops?.length || 0, ...extra }));
+}
+const _channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('lifttrace-offline') : null;
+_channel?.addEventListener('message', async (e) => {
+  if (e.data?.type !== 'outbox') return;
+  if (e.data.ids) _swapped = { ..._swapped, ...e.data.ids };
+  _ops = null;
+  await _loadOps();
+  _publish();
+  if (e.data.synced && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('lt:offline-synced'));
+  }
+});
+
+/**
+ * What each temporary id became. A screen already open goes on showing the
+ * id a row was created with offline, so a change made right after the queue
+ * goes up would otherwise be sent against an id the server never had.
+ */
+let _swapped = {};
+
+const _json = (status, body) => new Response(JSON.stringify(body), {
+  status,
+  headers: { 'Content-Type': 'application/json' },
+});
+const _offlineReply = () => _json(503, { error: 'This needs a connection.', offline: true });
+
+async function _queue(op) {
+  const ops = await _loadOps();
+  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  // No database to queue into (private mode, no space): say so rather than
+  // pretending it was saved.
+  if (seq == null) return null;
+  op.seq = seq;
+  ops.push(op);
+  _publish({ online: _online() });
+  _channel?.postMessage({ type: 'outbox' });
+  _scheduleFlush(_online() ? 0 : _retryMs);
+  return op;
+}
+
+// ── Sending ──────────────────────────────────────────────────────────
+let _fetch = null;          // the browser's own fetch, before any patching
+let _retry = null;
+let _flushing = null;
+
+function _scheduleFlush(ms = 0) {
+  clearTimeout(_retry);
+  _retry = setTimeout(() => { flushOutbox(); }, ms);
+}
+
+/** Replay what's waiting. Resolves true when the outbox is empty afterwards. */
+export function flushOutbox() {
+  if (_flushing) return _flushing;
+  _flushing = (async () => {
+    try {
+      const run = () => _flushOnce();
+      if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+        return await navigator.locks.request('lifttrace-offline-flush', run);
+      }
+      return await run();
+    } finally {
+      _flushing = null;
+    }
+  })();
+  return _flushing;
+}
+
+async function _flushOnce() {
+  _ops = null;
+  const ops = await _loadOps();
+  if (!ops.length) { _publish({ syncing: false, error: null, online: _online() }); return true; }
+  if (!_online()) { _scheduleFlush(_backoff()); return false; }
+  _publish({ syncing: true });
+
+  const send = _fetch || ((...a) => fetch(...a));
+  const done = new Set();
+  const map = {};
+  let stopped = null;
+
+  for (const op of collapseOps(ops)) {
+    const path = remapPath(op.path, map);
+    const body = op.body == null ? undefined : JSON.stringify(remapIds(op.body, map));
+    let res;
+    try {
+      res = await send(path, {
+        method: op.method,
+        credentials: 'include',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body,
+      });
+    } catch (err) {
+      // Still unreachable: keep everything and try again later.
+      if (isOfflineError(err)) { stopped = { offline: true }; break; }
+      stopped = { error: err.message || 'failed' };
+      break;
+    }
+    if (!res.ok) {
+      // The server answered and refused. Say so rather than retrying forever.
+      let message = `HTTP ${res.status}`;
+      try { message = (await res.clone().json())?.error || message; } catch { /* not json */ }
+      stopped = { error: message };
+      break;
+    }
+    if (op.kind === 'exercise-create' && op.tempId != null) {
+      let created = null;
+      try { created = createdId(await res.clone().json()); } catch { /* not json */ }
+      if (created != null) map[Number(op.tempId)] = created;
+    }
+    if (op.key) done.add(op.key);
+  }
+
+  if (Object.keys(map).length) {
+    _swapped = { ..._swapped, ...map };
+    _channel?.postMessage({ type: 'outbox', ids: map });
+  }
+
+  const cleared = new Set(sentSeqs(ops, [...done]));
+  if (cleared.size) {
+    await _tx('outbox', 'readwrite', s => { for (const seq of cleared) s.delete(seq); });
+    _ops = ops.filter(op => !cleared.has(op.seq));
+  }
+
+  if (stopped) {
+    _publish({ syncing: false, online: stopped.offline ? false : _online(), error: stopped.error || null });
+    _scheduleFlush(_backoff());
+    return false;
+  }
+  // Anything the replay changed should be read again rather than served from
+  // a copy taken before it.
+  await _tx('answers', 'readwrite', s => s.clear());
+  _resetBackoff();
+  _publish({ syncing: false, error: null, online: true });
+  _channel?.postMessage({ type: 'outbox', synced: true, ids: map });
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lt:offline-synced'));
+  if (_ops?.length) _scheduleFlush(0);
+  return !(_ops?.length);
+}
+
+/** How much is waiting to go up. */
+export async function pendingCount() {
+  return (await _loadOps()).length;
+}
+
+/** Clear the mirror and the queue, e.g. on sign-out. */
+export async function clearOffline() {
+  await _tx('answers', 'readwrite', s => s.clear());
+  await _tx('outbox', 'readwrite', s => s.clear());
+  _ops = [];
+  _swapped = {};
+  _dbPromise = null;
+  try { localStorage.removeItem(_USER_KEY); } catch { /* private mode */ }
+  _publish({ syncing: false, error: null });
+}
+
+// ── The interceptor ──────────────────────────────────────────────────
+
+/**
+ * Wire up the listeners and remember the unpatched fetch. Called once, from
+ * apiFetch.js, before the app boots.
+ */
+export function installOffline(origFetch) {
+  _fetch = origFetch || _fetch;
+  if (typeof window === 'undefined' || window.__ltOfflineWired) return;
+  window.__ltOfflineWired = true;
+  window.addEventListener('online', () => { _resetBackoff(); _publish({ online: true }); _scheduleFlush(0); });
+  window.addEventListener('offline', () => _publish({ online: false }));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && _online()) _scheduleFlush(0);
+  });
+  // A queue left from last time goes up even if the first screen opened
+  // never calls the API.
+  _loadOps().then(() => { _publish(); if (_ops.length) _scheduleFlush(0); });
+}
+
+const _bodyOf = (init) => {
+  const raw = init?.body;
+  if (typeof raw !== 'string') return undefined;      // FormData: an upload, not ours
+  try { return JSON.parse(raw); } catch { return undefined; }
+};
+
+/**
+ * The web app's request, with the mirror and the outbox behind it. Returns a
+ * Response either way, so nothing above this knows the difference.
+ */
+export async function offlineFetch(url, init, origFetch) {
+  _fetch = origFetch || _fetch;
+  const send = origFetch || _fetch;
+  const method = (init?.method || 'GET').toUpperCase();
+
+  if (method === 'GET' || method === 'HEAD') {
+    try {
+      const res = await send(url, init);
+      if (res.ok && isMirroredGet(url)) {
+        try { await _remember(mirrorKey(url), await res.clone().json()); } catch { /* not json */ }
+      }
+      _publish({ online: true });
+      return res;
+    } catch (err) {
+      if (!isOfflineError(err)) throw err;
+      _publish({ online: false });
+      if (!isMirroredGet(url)) return _offlineReply();
+      const mirrored = await _recall(url);
+      if (mirrored === undefined) return _offlineReply();
+      return _json(200, answerWithOps(url, mirrored, await _loadOps()));
+    }
+  }
+
+  const body = _bodyOf(init);
+  const target = remapPath(String(url), _swapped);
+  const op = writeOp(method, target, body);
+  if (!op) {
+    // Uploads, imports, Trace, admin: still the server's job.
+    try {
+      return await send(url, init);
+    } catch (err) {
+      if (!isOfflineError(err)) throw err;
+      _publish({ online: false });
+      return _offlineReply();
+    }
+  }
+
+  const queued = await _loadOps();
+  if (_online() && !queued.length) {
+    try {
+      const res = await send(target, init);
+      if (res.ok) {
+        // What the route just answered is the freshest copy there is.
+        try {
+          const answered = await res.clone().json();
+          if (op.kind === 'workout' && answered?.workout) await _remember(pathOf(target), answered);
+        } catch { /* not json */ }
+        _publish({ online: true, error: null });
+      }
+      return res;
+    } catch (err) {
+      if (!isOfflineError(err)) throw err;
+      _publish({ online: false });
+    }
+  }
+
+  const tempId = op.kind === 'exercise-create' ? newTempId() : null;
+  const stored = await _queue({
+    method,
+    path: remapPath(String(url), _swapped),
+    body,
+    at: Date.now(),
+    ...op,
+    ...(tempId != null ? { tempId, id: tempId, key: `exercise:${tempId}` } : {}),
+  });
+  if (!stored) return _offlineReply();
+
+  // Answer in the shape the route would have, so the screen carries on.
+  if (op.kind === 'workout') {
+    const mirrored = await _recall(pathOf(target));
+    const reply = queuedWorkoutReply(mirrored, body, newTempId());
+    await _remember(pathOf(target), { workout: reply.workout });
+    return _json(200, reply);
+  }
+  if (op.kind === 'workout-delete') {
+    await _remember(pathOf(target), { workout: null });
+    return _json(200, { ok: true, deleted: true, queued: true, offline: true });
+  }
+  if (op.kind === 'exercise-create') {
+    return _json(200, { ...body, id: tempId, queued: true, offline: true });
+  }
+  return _json(200, { ok: true, ...(body || {}), queued: true, offline: true });
+}

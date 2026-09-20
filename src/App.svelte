@@ -23,6 +23,7 @@
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
   import { syncState } from './lib/sync.js';
+  import { offlineState } from './lib/offline-api.js';
   import NativeSetup from './routes/NativeSetup.svelte';
 
   // Native-server connection state for the hamburger offline badge.
@@ -37,6 +38,10 @@
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
   // The server answers but the sync is failing, as opposed to no network at all.
   $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
+  // The same badge for the web app, which keeps working offline in the
+  // browser: amber while anything is waiting, red if the server refuses it.
+  $: _webOffline = !isNative && ($offlineState.online === false || $offlineState.pending > 0);
+  $: _webFailing = !isNative && !!$offlineState.error;
   // Reactive copy build for the smart connection banner. Falls back to
   // the generic "Sync error" title when a non-connection error is
   // surfaced with showFailureBanner=true.
@@ -617,12 +622,13 @@
       aria-label="Open menu"
     >
       <span class="material-symbols-rounded">menu</span>
-      {#if _syncModeActive && !_serverReachable}
+      {#if (_syncModeActive && !_serverReachable) || _webOffline || _webFailing}
         <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
              red when the server is reachable but the sync is failing. -->
-        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}
-          aria-label={_syncFailing ? $_('sync.sync_failing') : $_('sync.sync_offline')}>
-          <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
+        {@const failing = _syncFailing || _webFailing}
+        <span class="conn-badge" class:conn-failing={failing} class:conn-offline={!failing}
+          aria-label={failing ? $_('sync.sync_failing') : (_webOffline ? $_('sync.pending_web', { values: { count: $offlineState.pending } }) : $_('sync.sync_offline'))}>
+          <span class="material-symbols-rounded" style="font-size:10px">{failing ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
     </button>

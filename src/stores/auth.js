@@ -131,6 +131,15 @@ export async function logout() {
     logoutUrl = oidcData?.logoutUrl || null;
     try { localStorage.removeItem('lt:oidc_logout_hint'); } catch {}
   } catch {}
+  // Anything logged offline goes up before the session ends, and the copy
+  // this browser keeps is cleared afterwards so the next account can't read it.
+  if (!isNative) {
+    try {
+      const { flushOutbox, clearOffline } = await import('../lib/offline-api.js');
+      await flushOutbox();
+      await clearOffline();
+    } catch { /* nothing queued, or no database */ }
+  }
   await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' });
   const userId = localStorage.getItem('wl:userId');
   if (userId) {

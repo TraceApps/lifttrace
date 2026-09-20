@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **The web app keeps working without a connection** ([#211](https://github.com/TraceApps/nutritrace/issues/211) in NutriTrace, the same idea here). In a gym with no signal the app still opens, today's workout is there, and you can keep logging: sets, reps, weight, notes, a whole session, body stats, your own exercises, and settings. What you change is held in the browser and goes up on its own when the connection comes back, replayed against the same routes the Android app replays its own queue against, so a session changed on two devices merges set by set rather than one copy overwriting the other. The menu button shows an amber cloud while anything is waiting, and red if your server refuses it. Signing out sends what is waiting first, then clears the copy held in the browser. Nothing is sent while you are offline, and the queue is cleared only once the server has confirmed it. Programs, templates, your exercise catalogue, recent workouts and Statistics all read from what this browser has already seen. Still needs a connection: photos, the exercise catalogue imports, Trace, and anything admin. Deliberately not built on Background Sync, which Safari does not have, so an iPhone behaves the same as everything else.
+
 ### Fixed
 
 - **The installed app survives a reload with no connection.** It kept only a fallback page, so its own JavaScript came from the network: reloading or reopening it in a dead zone left a blank screen. The app itself is now kept in the browser, and the two big optional pieces (photo conversion and audio streaming) still come down when they are first needed, so the install stays about the same size.

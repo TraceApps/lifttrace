@@ -15,6 +15,7 @@
 
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
 import { LtApiNative } from './api-native.js';
+import { installOffline, offlineFetch } from './offline-api.js';
 
 const _basePath = (typeof window !== 'undefined' && window.__LT_CONFIG__ && window.__LT_CONFIG__.basePath) || '';
 
@@ -22,12 +23,12 @@ let _installed = false;
 
 export function installApiFetch() {
   if (_installed) return;
-  // Skip patching only when there's nothing to do (web at root). Subpath
-  // PWA + native both need interception.
-  if (!isNative && !_basePath) return;
   _installed = true;
 
   const _origFetch = window.fetch.bind(window);
+  // The web app keeps a copy of what it has read and queues what it changes,
+  // so a dead zone doesn't end the session (offline-api.js).
+  if (!isNative) installOffline(_origFetch);
 
   window.fetch = async function patchedFetch(input, init = {}) {
     const url = typeof input === 'string' ? input : input?.url || '';
@@ -36,12 +37,16 @@ export function installApiFetch() {
     // external) passes through.
     if (!_isInterceptable(url)) return _origFetch(input, init);
 
-    // ── Web PWA at subpath: prefix the path, otherwise stay relative ──
+    // ── Web PWA: the offline layer, at a subpath if that's how it's served ──
     if (!isNative) {
-      if (_basePath && url.startsWith('/') && !url.startsWith(_basePath + '/')) {
-        return _origFetch(_basePath + url, init);
-      }
-      return _origFetch(input, init);
+      const target = (_basePath && url.startsWith('/') && !url.startsWith(_basePath + '/'))
+        ? _basePath + url
+        : input;
+      // Pictures come from the service worker's own cache, not from here.
+      // A Request object carries its own body and headers, so it is passed
+      // through untouched rather than taken apart.
+      if (!_isApiCall(url) || typeof input !== 'string') return _origFetch(target, init);
+      return offlineFetch(target, init, _origFetch);
     }
 
     const serverUrl = getServerUrl();
@@ -222,6 +227,13 @@ function _isInterceptable(url) {
     ? new URL(url).pathname + (new URL(url).search || '')
     : url;
   return path.startsWith('/api/') || path.startsWith('/uploads/');
+}
+
+/** An /api/ call, as opposed to an upload the service worker caches. */
+function _isApiCall(url) {
+  if (!url) return false;
+  const path = url.startsWith('http') ? new URL(url).pathname : url;
+  return path.startsWith('/api/') || (!!_basePath && path.startsWith(_basePath + '/api/'));
 }
 
 function _stripBase(url) {
