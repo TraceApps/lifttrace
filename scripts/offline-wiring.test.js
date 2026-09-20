@@ -133,3 +133,16 @@ test('a change the server refuses is set aside and named, not left blocking the 
   assert.match(offline, /console\.error\(`\[offline\] your server refused/);
   assert.match(offline, /export async function forgetRefused/);
 });
+
+test('a photo with no server to upload to travels inside the row', () => {
+  assert.match(offline, /\/\^\\\/api\\\/upload\\\/body-stats\$\//);
+  assert.match(offline, /embeddableDataUrl\(file\)/);
+  // The row still holds an ordinary path: the server turns the embedded
+  // photo into a file, it is never stored as a data URL.
+  const bodyStats = readFileSync(new URL('../server/routes/body-stats.js', import.meta.url), 'utf8');
+  assert.match(bodyStats, /_photoFromDataUrl/);
+  assert.match(bodyStats, /assertAllowedMedia/);
+  // And a photo too big to keep says so rather than being lost.
+  const embed = readFileSync(new URL('../src/lib/image-embed.js', import.meta.url), 'utf8');
+  assert.match(embed, /too large to keep until you are back online/);
+});

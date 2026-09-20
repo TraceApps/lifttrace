@@ -328,3 +328,12 @@ test('a hiccup is retried, a refusal is not, and an expired session never loses 
   assert.equal(shouldRetryStatus(404), false);
   assert.equal(shouldRetryStatus(409), false);
 });
+
+test('a progress photo taken offline is queued, and the upload itself is not', () => {
+  assert.equal(writeOp('POST', '/api/body-stats/photos', { date: '2026-09-20', url: 'data:image/png;base64,x' }).kind, 'photo-add');
+  assert.equal(writeOp('DELETE', '/api/body-stats/photos/4').kind, 'photo-delete');
+  // There is nothing to upload to with no connection: the file travels
+  // inside the row instead, so the upload endpoint is never queued.
+  assert.equal(writeOp('POST', '/api/upload/body-stats', {}), null);
+  assert.match(describeOp({ kind: 'photo-add' }), /progress photo you took/);
+});

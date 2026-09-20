@@ -139,6 +139,12 @@ export function writeOp(method, url, body) {
     return { kind: m === 'PUT' ? 'prescription-update' : 'prescription-delete', key: `prescription:${match[1]}`, id: Number(match[1]) };
   }
 
+  // A progress photo taken with no connection: the file rides inside this
+  // request as a data URL and the server turns it into a file on arrival.
+  if (path === '/api/body-stats/photos' && m === 'POST') return { kind: 'photo-add', key: null };
+  match = path.match(/^\/api\/body-stats\/photos\/(-?\d+)$/);
+  if (match && m === 'DELETE') return { kind: 'photo-delete', key: `photo:${match[1]}`, id: Number(match[1]) };
+
   if (path === '/api/settings' && m === 'PUT') return { kind: 'setting', key: `setting:${body?.key}` };
   return null;
 }
@@ -330,6 +336,8 @@ export function describeOp(op) {
     case 'prescription-create': return 'the work you prescribed';
     case 'prescription-update': return 'a prescription you changed';
     case 'prescription-delete': return 'a prescription you removed';
+    case 'photo-add':        return 'the progress photo you took';
+    case 'photo-delete':     return 'a progress photo you removed';
     case 'setting':          return `the "${op.body?.key || 'setting'}" setting`;
     default:                 return 'a change you made';
   }
