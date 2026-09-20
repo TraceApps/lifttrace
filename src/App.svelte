@@ -41,7 +41,15 @@
   // The same badge for the web app, which keeps working offline in the
   // browser: amber while anything is waiting, red if the server refuses it.
   $: _webOffline = !isNative && ($offlineState.online === false || $offlineState.pending > 0);
-  $: _webFailing = !isNative && !!$offlineState.error;
+  $: _webFailing = !isNative && (!!$offlineState.error || ($offlineState.refused || []).length > 0);
+  // Tell them once, in their own words, what the server would not take.
+  let _toldRefused = 0;
+  $: if (!isNative && ($offlineState.refused || []).length > _toldRefused) {
+    _toldRefused = $offlineState.refused.length;
+    const _say = $offlineState.refused.map(r => $_('sync.refused', { values: { what: r.what, reason: r.reason } }));
+    import('./stores/toast.js').then(({ showError }) => _say.forEach(m => showError(m)));
+    import('./lib/offline-api.js').then(m => m.forgetRefused());
+  }
   // Reactive copy build for the smart connection banner. Falls back to
   // the generic "Sync error" title when a non-connection error is
   // surfaced with showFailureBanner=true.

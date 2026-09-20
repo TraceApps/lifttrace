@@ -211,8 +211,16 @@
       // note to edit; otherwise show the compact "+ Add" CTA so the sheet
       // doesn't carry visual weight for unused affordances.
       workoutEditorOpen = !!wl;
+      // A note belongs to an exercise, not to a position in the list. Put it
+      // back where its uuid says, so a session the member reordered since
+      // still shows each note against its own lift.
       for (const f of mine) {
-        if (f.exercise_idx != null) exerciseNotes[f.exercise_idx] = f.note || '';
+        if (f.exercise_idx == null && !f.exercise_uuid) continue;
+        const byUuid = f.exercise_uuid
+          ? (workoutDetail?.exercises || []).findIndex(e => e.uuid === f.exercise_uuid)
+          : -1;
+        const at = byUuid >= 0 ? byUuid : f.exercise_idx;
+        if (at != null && at >= 0) exerciseNotes[at] = f.note || '';
       }
       exerciseNotes = exerciseNotes; // trigger reactivity
     } catch(e) { showError(e.message); }
@@ -255,6 +263,7 @@
       await LtApi.saveCoachFeedback({
         workout_id: workoutDetail.id,
         exercise_idx: idx,
+        exercise_uuid: (workoutDetail.exercises || [])[idx]?.uuid || null,
         note: exerciseNotes[idx] || '',
       });
       showSuccess((exerciseNotes[idx] || '').trim() ? $_('coaching.toast.note_saved') : $_('coaching.toast.note_removed'));
@@ -279,7 +288,10 @@
   }
 
   function feedbackForExerciseIdx(idx) {
-    return (workoutDetail?.feedback || []).filter(f => f.exercise_idx === idx);
+    const uuid = (workoutDetail?.exercises || [])[idx]?.uuid;
+    return (workoutDetail?.feedback || []).filter(f => (
+      f.exercise_uuid ? f.exercise_uuid === uuid : f.exercise_idx === idx
+    ));
   }
   function workoutLevelFeedback() {
     return (workoutDetail?.feedback || []).filter(f => f.exercise_idx == null);

@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
+  describeOp, isTransientStatus,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -263,4 +264,61 @@ test('starting a program offline is one decision, not a pile of them', () => {
   const sent = collapseOps(ops);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].path, '/api/programs/7/activate');
+});
+
+// ── Coaching, away from wifi ────────────────────────────────────────
+
+test('a coach note, a reply, read state and prescriptions are queued', () => {
+  assert.equal(writeOp('POST', '/api/trainer/feedback', { workout_id: 8, exercise_uuid: 'u1', note: 'chest up' }).key, 'note:8:u1');
+  assert.equal(writeOp('PUT', '/api/coach-feedback/5/reply', { reply: 'got it' }).key, 'reply:5');
+  assert.equal(writeOp('POST', '/api/coach-feedback/seen', {}).key, 'seen:notes');
+  assert.equal(writeOp('POST', '/api/trainer/activity/seen', {}).key, 'seen:activity');
+  assert.equal(writeOp('POST', '/api/trainer/members/3/prescriptions', {}).kind, 'prescription-create');
+  assert.equal(writeOp('PUT', '/api/trainer/prescriptions/9', {}).kind, 'prescription-update');
+  assert.equal(writeOp('DELETE', '/api/trainer/prescriptions/9').kind, 'prescription-delete');
+  // Who can see whose data is not decided offline.
+  assert.equal(writeOp('POST', '/api/trainer/members/3', {}), null);
+  assert.equal(writeOp('DELETE', '/api/trainer/members/3'), null);
+  assert.equal(writeOp('POST', '/api/programs/4/assign', {}), null);
+});
+
+test('a note rewritten before the connection returns goes up once', () => {
+  const ops = [
+    op(1, 'POST', '/api/trainer/feedback', { workout_id: 8, exercise_uuid: 'u1', note: 'first' }),
+    op(2, 'POST', '/api/trainer/feedback', { workout_id: 8, exercise_uuid: 'u1', note: 'second' }),
+    op(3, 'POST', '/api/trainer/feedback', { workout_id: 8, exercise_uuid: 'u2', note: 'other lift' }),
+  ];
+  const sent = collapseOps(ops);
+  assert.equal(sent.length, 2);
+  assert.equal(sent.find(o => o.key === 'note:8:u1').body.note, 'second');
+});
+
+test('a note written offline shows on the session at once, on its own lift', () => {
+  const detail = { id: 8, date: '2026-09-20', exercises: [{ uuid: 'u1' }, { uuid: 'u2' }], feedback: [] };
+  const ops = [op(1, 'POST', '/api/trainer/feedback', { workout_id: 8, exercise_uuid: 'u2', note: 'slow it down' })];
+  const shown = answerWithOps('/api/trainer/members/3/workout/2026-09-20', detail, ops);
+  assert.equal(shown.feedback.length, 1);
+  assert.equal(shown.feedback[0].exercise_uuid, 'u2');
+  assert.equal(shown.feedback[0]._pending, true);
+});
+
+test('clearing a note offline takes it off the session', () => {
+  const detail = { id: 8, exercises: [{ uuid: 'u1' }], feedback: [{ id: 2, exercise_uuid: 'u1', note: 'old' }] };
+  const ops = [op(1, 'POST', '/api/trainer/feedback', { workout_id: 8, exercise_uuid: 'u1', note: '' })];
+  assert.deepEqual(answerWithOps('/api/trainer/members/3/workout/2026-09-20', detail, ops).feedback, []);
+});
+
+test('a refused coaching change is described in words its author would use', () => {
+  assert.match(describeOp({ kind: 'coach-note' }), /note you left/);
+  assert.match(describeOp({ kind: 'coach-reply' }), /reply to your coach/);
+  assert.match(describeOp({ kind: 'prescription-create' }), /prescribed/);
+  assert.match(describeOp({ kind: 'cardio-create', body: { activity: 'Run' } }), /Run/);
+  assert.match(describeOp({ kind: 'workout', path: '/api/workout/2026-09-20' }), /workout on 2026-09-20/);
+});
+
+test('a hiccup is retried, a refusal is not', () => {
+  assert.equal(isTransientStatus(503), true);
+  assert.equal(isTransientStatus(429), true);
+  assert.equal(isTransientStatus(400), false);
+  assert.equal(isTransientStatus(403), false);
 });

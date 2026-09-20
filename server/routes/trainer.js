@@ -166,7 +166,7 @@ router.get('/members/:id/workout/:date', wrap((req, res) => {
   // Join in feedback rows for this workout from any trainer (so the
   // current trainer sees a previous coach's notes if there was a handoff).
   row.feedback = db.prepare(`
-    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.note, cf.updated_at,
+    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.exercise_uuid, cf.note, cf.updated_at,
            cf.member_reply, cf.member_replied_at, cf.seen_by_member_at,
            COALESCE(u.nickname, u.full_name, u.username) AS trainer_name,
            u.avatar_url AS trainer_avatar_url
@@ -185,7 +185,7 @@ router.get('/members/:id/workout/:date', wrap((req, res) => {
 // slots are distinct surfaces). Null exercise_idx = workout-level note.
 // Empty note deletes. Upserts on (workout_id, exercise_idx, trainer_id).
 router.post('/feedback', wrap((req, res) => {
-  const { workout_id, exercise_idx, note } = req.body || {};
+  const { workout_id, exercise_idx, exercise_uuid, note } = req.body || {};
   if (!workout_id) return res.status(400).json({ error: 'workout_id required' });
 
   const workout = db.prepare('SELECT id, user_id, date, name FROM workout_log WHERE id = ? AND deleted_at IS NULL').get(workout_id);
@@ -195,27 +195,41 @@ router.post('/feedback', wrap((req, res) => {
   const idx = exercise_idx ?? null;
 
   if (!note || !String(note).trim()) {
-    db.prepare(
-      `DELETE FROM coach_feedback
-        WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?`
-    ).run(workout_id, idx, req.user.id);
+    if (exercise_uuid) {
+      db.prepare(
+        `DELETE FROM coach_feedback WHERE workout_id = ? AND exercise_uuid = ? AND trainer_id = ?`
+      ).run(workout_id, exercise_uuid, req.user.id);
+    } else {
+      db.prepare(
+        `DELETE FROM coach_feedback
+          WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?`
+      ).run(workout_id, idx, req.user.id);
+    }
     return res.json({ ok: true, deleted: true });
   }
 
-  const existing = db.prepare(
-    `SELECT id FROM coach_feedback
-      WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?`
-  ).get(workout_id, idx, req.user.id);
+  // The uuid is the exercise itself; the index is only where it happened to
+  // sit when the note was written. Match on the uuid when there is one, so a
+  // reordered session keeps each note on its own lift.
+  const uuid = exercise_uuid || null;
+  const existing = (uuid && db.prepare(
+    `SELECT id FROM coach_feedback WHERE workout_id = ? AND exercise_uuid = ? AND trainer_id = ?`
+  ).get(workout_id, uuid, req.user.id))
+    || db.prepare(
+      `SELECT id FROM coach_feedback
+        WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?
+          AND exercise_uuid IS NULL`
+    ).get(workout_id, idx, req.user.id);
 
   if (existing) {
     db.prepare(
-      `UPDATE coach_feedback SET note = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(String(note).trim(), existing.id);
+      `UPDATE coach_feedback SET note = ?, exercise_uuid = COALESCE(?, exercise_uuid), exercise_idx = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(String(note).trim(), uuid, idx, existing.id);
   } else {
     db.prepare(
-      `INSERT INTO coach_feedback (trainer_id, member_id, workout_id, exercise_idx, note)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(req.user.id, workout.user_id, workout_id, idx, String(note).trim());
+      `INSERT INTO coach_feedback (trainer_id, member_id, workout_id, exercise_idx, exercise_uuid, note)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(req.user.id, workout.user_id, workout_id, idx, uuid, String(note).trim());
   }
 
   if (!existing) {

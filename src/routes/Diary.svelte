@@ -2610,7 +2610,9 @@
                here to avoid duplicate display below the whole block. -->
           {#if group.type !== 'superset'}
             {#each group.exercises as gEx, gOff}
-              {#each ($todayLog?.feedback || []).filter(f => f.exercise_idx === group.startIdx + gOff) as f (f.id)}
+              <!-- A note follows its exercise by uuid; the position is only
+                   used for notes written before notes carried one. -->
+              {#each ($todayLog?.feedback || []).filter(f => (f.exercise_uuid ? f.exercise_uuid === gEx.uuid : f.exercise_idx === group.startIdx + gOff)) as f (f.id)}
                 <div class="ex-feedback" in:fade={{ duration: 180 }}>
                   <div class="avatar-chip coach sm">
                     {#if f.trainer_avatar_url}

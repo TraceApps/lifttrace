@@ -56,6 +56,13 @@ export const MIRRORED_GETS = [
   /^\/api\/coach-feedback\//,
   /^\/api\/workout\/\d{4}-\d{2}-\d{2}\/feedback$/,
   /^\/api\/exercises\/sources\/list$/,
+  // The coaching side: a coach's roster, a member's session, the notes
+  // inbox. All read-only, and all wanted on a gym floor.
+  /^\/api\/trainer\/members$/,
+  /^\/api\/trainer\/members\/\d+$/,
+  /^\/api\/trainer\/members\/\d+\/workout\/\d{4}-\d{2}-\d{2}$/,
+  /^\/api\/trainer\/members\/\d+\/prescriptions$/,
+  /^\/api\/trainer\/activity$/,
   // Who is signed in, and how. Without these the app reads an unreachable
   // server as "nobody is signed in" and starts forgetting what depends on it,
   // and Settings greets you with an error instead of your own profile.
@@ -108,6 +115,30 @@ export function writeOp(method, url, body) {
   match = path.match(/^\/api\/programs\/(\d+)\/week-cursor$/);
   if (match && m === 'POST') return { kind: 'program-week', key: `program:${match[1]}:week` };
 
+  // ── Coaching ──────────────────────────────────────────────────────
+  // Writing a note, replying to one, marking them read, and prescribing
+  // work: all of it is text or read state against rows that already exist,
+  // so it queues like anything else. Adding or removing a member, and
+  // assigning a program, are NOT here: they change who can see whose data,
+  // and doing that against a roster pulled down hours ago is how someone
+  // ends up with access they should not have.
+  if (path === '/api/trainer/feedback' && m === 'POST') {
+    // One note per exercise per coach, so a note written twice before the
+    // connection returns goes up once, with what it ended up saying.
+    const anchor = body?.exercise_uuid || (body?.exercise_idx ?? 'workout');
+    return { kind: 'coach-note', key: `note:${body?.workout_id}:${anchor}` };
+  }
+  match = path.match(/^\/api\/coach-feedback\/(\d+)\/reply$/);
+  if (match && m === 'PUT') return { kind: 'coach-reply', key: `reply:${match[1]}` };
+  if (path === '/api/coach-feedback/seen' && m === 'POST') return { kind: 'seen', key: 'seen:notes' };
+  if (path === '/api/trainer/activity/seen' && m === 'POST') return { kind: 'seen', key: 'seen:activity' };
+  match = path.match(/^\/api\/trainer\/members\/(\d+)\/prescriptions$/);
+  if (match && m === 'POST') return { kind: 'prescription-create', key: null };
+  match = path.match(/^\/api\/trainer\/prescriptions\/(-?\d+)$/);
+  if (match && (m === 'PUT' || m === 'DELETE')) {
+    return { kind: m === 'PUT' ? 'prescription-update' : 'prescription-delete', key: `prescription:${match[1]}`, id: Number(match[1]) };
+  }
+
   if (path === '/api/settings' && m === 'PUT') return { kind: 'setting', key: `setting:${body?.key}` };
   return null;
 }
@@ -156,11 +187,11 @@ export function collapseOps(ops) {
     }
 
     const prev = byKey.get(op.key);
-    if (prev?.kind === 'exercise-create' || prev?.kind === 'cardio-create') {
+    if (prev?.kind === 'exercise-create' || prev?.kind === 'cardio-create' || prev?.kind === 'prescription-create') {
       // Made offline and then changed again: still one create, with the
       // newest values. Made and then removed: it never happened.
-      if (op.kind === 'exercise-delete' || op.kind === 'cardio-delete') { byKey.delete(op.key); continue; }
-      if (op.kind === 'exercise-update' || op.kind === 'cardio-update') {
+      if (op.kind === 'exercise-delete' || op.kind === 'cardio-delete' || op.kind === 'prescription-delete') { byKey.delete(op.key); continue; }
+      if (op.kind === 'exercise-update' || op.kind === 'cardio-update' || op.kind === 'prescription-update') {
         byKey.set(op.key, { ...prev, body: { ...prev.body, ...op.body }, seq: op.seq });
         continue;
       }
@@ -221,6 +252,22 @@ export function answerWithOps(url, mirrored, ops) {
     for (const op of queued) if (op.body?.key) settings[op.body.key] = op.body.value;
     return settings;
   }
+  const memberDay = path.match(/^\/api\/trainer\/members\/\d+\/workout\/(\d{4}-\d{2}-\d{2})$/);
+  if (memberDay && mirrored) {
+    const notes = (ops || []).filter(op => op.kind === 'coach-note' && op.body?.workout_id === mirrored.id);
+    if (!notes.length) return mirrored;
+    const feedback = [...(mirrored.feedback || [])];
+    for (const op of notes) {
+      const at = feedback.findIndex(f => (op.body.exercise_uuid
+        ? f.exercise_uuid === op.body.exercise_uuid
+        : (f.exercise_idx ?? null) === (op.body.exercise_idx ?? null)));
+      const note = { ...(at >= 0 ? feedback[at] : {}), ...op.body, _pending: true };
+      if (!String(op.body.note || '').trim()) { if (at >= 0) feedback.splice(at, 1); continue; }
+      if (at >= 0) feedback[at] = note; else feedback.push({ id: op.seq * -1, ...note });
+    }
+    return { ...mirrored, feedback };
+  }
+
   const cardioDay = path.match(/^\/api\/cardio\/(\d{4}-\d{2}-\d{2})$/);
   if (path === '/api/cardio' || cardioDay) {
     const made = (ops || []).filter(op => op.kind === 'cardio-create'
@@ -256,6 +303,40 @@ export function queuedWorkoutReply(mirrored, body, tempId) {
   if (workout.id == null) workout.id = tempId;
   return { workout, tombstones: [], queued: true, offline: true };
 }
+
+/**
+ * A queued change in a few words, for telling someone their server refused
+ * it. Never the raw path: "PUT /api/workout/2026-09-20" means nothing to the
+ * person who logged the set.
+ */
+export function describeOp(op) {
+  const date = (op?.path || '').match(/(\d{4}-\d{2}-\d{2})/)?.[1];
+  const on = date ? ` on ${date}` : '';
+  switch (op?.kind) {
+    case 'workout':          return `your workout${on}`;
+    case 'workout-delete':   return `deleting the workout${on}`;
+    case 'body-stats':       return `your body stats${on}`;
+    case 'cardio-create':    return `the ${op.body?.activity || 'cardio'} you logged`;
+    case 'cardio-update':    return 'a cardio session you changed';
+    case 'cardio-delete':    return 'a cardio session you deleted';
+    case 'exercise-create':  return `the exercise "${op.body?.name || 'you added'}"`;
+    case 'exercise-update':  return 'an exercise you changed';
+    case 'exercise-delete':  return 'an exercise you deleted';
+    case 'program-activate': return 'the program you started';
+    case 'program-week':     return 'the program week you moved to';
+    case 'coach-note':       return 'the note you left for your member';
+    case 'coach-reply':      return 'your reply to your coach';
+    case 'seen':             return 'marking notes as read';
+    case 'prescription-create': return 'the work you prescribed';
+    case 'prescription-update': return 'a prescription you changed';
+    case 'prescription-delete': return 'a prescription you removed';
+    case 'setting':          return `the "${op.body?.key || 'setting'}" setting`;
+    default:                 return 'a change you made';
+  }
+}
+
+/** Will trying again ever help? A refusal is the server's answer, not a hiccup. */
+export const isTransientStatus = (status) => status >= 500 || status === 408 || status === 429;
 
 // ── Rows made with no connection ────────────────────────────────────
 

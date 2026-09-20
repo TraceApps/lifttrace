@@ -97,7 +97,7 @@ function _enrichWorkout(workout) {
   // Include any coach feedback left on this workout so the member's diary
   // can render it inline (workout-level banner + per-exercise notes).
   workout.feedback = db.prepare(`
-    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.note, cf.updated_at,
+    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.exercise_uuid, cf.note, cf.updated_at,
            COALESCE(u.nickname, u.full_name, u.username) AS trainer_name
       FROM coach_feedback cf
       LEFT JOIN users u ON u.id = cf.trainer_id
@@ -122,7 +122,7 @@ router.get('/:date/feedback', wrap((req, res) => {
   const workout = _resolveWorkout(userId, req.params.date, explicitId, { excludeDeleted: true });
   if (!workout) return res.json([]);
   const rows = db.prepare(`
-    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.note, cf.updated_at,
+    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.exercise_uuid, cf.note, cf.updated_at,
            cf.seen_by_member_at, cf.member_reply, cf.member_replied_at,
            COALESCE(u.nickname, u.full_name, u.username) AS trainer_name,
            u.avatar_url AS trainer_avatar_url

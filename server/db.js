@@ -504,6 +504,11 @@ try {
 // below uses exercise_idx (SQLite carries indexes through renames in
 // modern versions, but be defensive in case an older index lingered).
 try { db.exec(`DROP INDEX IF EXISTS idx_coach_feedback_unique`); } catch {}
+// A note used to be pinned to an exercise's POSITION in the session, so a
+// member reordering or deleting an exercise moved someone's note onto the
+// wrong lift. The uuid each exercise already carries is the stable anchor;
+// the index stays for notes written before this, and as a fallback.
+addColumnIfMissing('coach_feedback', 'exercise_uuid', 'exercise_uuid TEXT');
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_feedback_unique
     ON coach_feedback(workout_id, COALESCE(exercise_idx, -1), trainer_id);

@@ -22,6 +22,7 @@ import { writable } from 'svelte/store';
 import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs,
   answerWithOps, queuedWorkoutReply, newTempId, createdId, remapIds, remapPath,
+  describeOp, isTransientStatus,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -36,6 +37,9 @@ export const offlineState = writable({
   pending: 0,
   syncing: false,
   error: null,
+  // Changes the server answered and refused. Kept, and shown once, so nothing
+  // disappears without the person who made it being told.
+  refused: [],
 });
 
 const _online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
@@ -65,11 +69,12 @@ function _db() {
   // what was kept with it rather than leaving it in a database nothing reads.
   const leaving = _dbPromise?.name && _dbPromise.name !== name ? _dbPromise.name : null;
   const p = new Promise((resolve) => {
-    const req = indexedDB.open(name, 1);
+    const req = indexedDB.open(name, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('answers')) db.createObjectStore('answers', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
+      if (!db.objectStoreNames.contains('refused')) db.createObjectStore('refused', { keyPath: 'at' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => resolve(null);
@@ -90,7 +95,7 @@ async function _absorb(oldName, db) {
     req.onerror = req.onblocked = () => resolve(null);
   });
   if (!old) return;
-  for (const store of ['answers', 'outbox']) {
+  for (const store of ['answers', 'outbox', 'refused']) {
     if (!old.objectStoreNames.contains(store) || !db.objectStoreNames.contains(store)) continue;
     const rows = await new Promise((resolve) => {
       try {
@@ -159,6 +164,15 @@ async function _loadOps() {
 }
 function _publish(extra = {}) {
   offlineState.update(s => ({ ...s, pending: _ops?.length || 0, ...extra }));
+}
+
+/** Changes the server refused, so a screen can say so and let them go. */
+export async function refusedChanges() {
+  return (await _all('refused')).sort((a, b) => a.at - b.at);
+}
+export async function forgetRefused() {
+  await _tx('refused', 'readwrite', s => s.clear());
+  _publish({ refused: [] });
 }
 const _channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('lifttrace-offline') : null;
 _channel?.addEventListener('message', async (e) => {
@@ -239,6 +253,7 @@ async function _flushOnce() {
 
   const send = _fetch || ((...a) => fetch(...a));
   const done = new Set();
+  const refused = [];
   const map = {};
   let stopped = null;
 
@@ -260,18 +275,31 @@ async function _flushOnce() {
       break;
     }
     if (!res.ok) {
-      // The server answered and refused. Say so rather than retrying forever.
       let message = `HTTP ${res.status}`;
       try { message = (await res.clone().json())?.error || message; } catch { /* not json */ }
-      stopped = { error: message };
-      break;
+      // A server that is struggling deserves another go later, and everything
+      // behind this waits with it so nothing arrives out of order.
+      if (isTransientStatus(res.status)) { stopped = { error: message }; break; }
+      // A refusal is the server's answer: trying again will not change it.
+      // Set it aside, tell the person later, and carry on with the rest, so
+      // one rejected change cannot hold up everything queued behind it.
+      refused.push({ at: Date.now() + refused.length, what: describeOp(op), reason: message });
+      // Also into the log behind Settings, Diagnostics: a toast lasts four
+      // seconds, and someone who looked away still deserves to find out.
+      console.error(`[offline] your server refused ${describeOp(op)}: ${message} (${op.method} ${op.path})`);
+      if (op.key) done.add(op.key);
+      continue;
     }
-    if ((op.kind === 'exercise-create' || op.kind === 'cardio-create') && op.tempId != null) {
+    if (op.tempId != null) {
       let created = null;
       try { created = createdId(await res.clone().json()); } catch { /* not json */ }
       if (created != null) map[Number(op.tempId)] = created;
     }
     if (op.key) done.add(op.key);
+  }
+
+  if (refused.length) {
+    await _tx('refused', 'readwrite', s => { for (const r of refused) s.put(r); });
   }
 
   if (Object.keys(map).length) {
@@ -285,8 +313,9 @@ async function _flushOnce() {
     _ops = ops.filter(op => !cleared.has(op.seq));
   }
 
+  const standing = await refusedChanges();
   if (stopped) {
-    _publish({ syncing: false, online: stopped.offline ? false : _online(), error: stopped.error || null });
+    _publish({ syncing: false, online: stopped.offline ? false : _online(), error: stopped.error || null, refused: standing });
     _scheduleFlush(_backoff());
     return false;
   }
@@ -294,7 +323,7 @@ async function _flushOnce() {
   // a copy taken before it.
   await _tx('answers', 'readwrite', s => s.clear());
   _resetBackoff();
-  _publish({ syncing: false, error: null, online: true });
+  _publish({ syncing: false, error: null, online: true, refused: standing });
   _channel?.postMessage({ type: 'outbox', synced: true, ids: map });
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lt:offline-synced'));
   if (_ops?.length) _scheduleFlush(0);
@@ -310,6 +339,7 @@ export async function pendingCount() {
 export async function clearOffline() {
   await _tx('answers', 'readwrite', s => s.clear());
   await _tx('outbox', 'readwrite', s => s.clear());
+  await _tx('refused', 'readwrite', s => s.clear());
   _ops = [];
   _swapped = {};
   _dbPromise = null;
@@ -406,7 +436,8 @@ export async function offlineFetch(url, init, origFetch) {
     }
   }
 
-  const tempId = (op.kind === 'exercise-create' || op.kind === 'cardio-create') ? newTempId() : null;
+  const MAKES_A_ROW = ['exercise-create', 'cardio-create', 'prescription-create'];
+  const tempId = MAKES_A_ROW.includes(op.kind) ? newTempId() : null;
   const stored = await _queue({
     method,
     path: remapPath(String(url), _swapped),
@@ -414,7 +445,7 @@ export async function offlineFetch(url, init, origFetch) {
     at: Date.now(),
     ...op,
     ...(tempId != null
-      ? { tempId, id: tempId, key: `${op.kind === 'cardio-create' ? 'cardio' : 'exercise'}:${tempId}` }
+      ? { tempId, id: tempId, key: `${op.kind.replace('-create', '')}:${tempId}` }
       : {}),
   });
   if (!stored) return _offlineReply();
@@ -430,7 +461,7 @@ export async function offlineFetch(url, init, origFetch) {
     await _remember(pathOf(target), { workout: null });
     return _json(200, { ok: true, deleted: true, queued: true, offline: true });
   }
-  if (op.kind === 'exercise-create' || op.kind === 'cardio-create') {
+  if (MAKES_A_ROW.includes(op.kind)) {
     // The routes answer with the row they made, so this does too.
     return _json(200, { ...body, id: tempId, queued: true, offline: true });
   }

@@ -67,9 +67,12 @@ test('a row created offline is changed by its real id after the queue goes up', 
 test('the header badge reports the queue on the web', () => {
   assert.match(app, /import \{ offlineState \} from '\.\/lib\/offline-api\.js'/);
   assert.match(app, /_webOffline = !isNative &&/);
-  assert.match(app, /_webFailing = !isNative && !!\$offlineState\.error/);
+  assert.match(app, /_webFailing = !isNative && \(!!\$offlineState\.error/);
   assert.ok(en.sync.pending_web, 'sync.pending_web copy exists');
   assert.match(en.sync.pending_web, /plural/, 'it counts what is waiting');
+  // A change the server refused is named, not just counted.
+  assert.match(app, /\$offlineState\.refused/);
+  assert.ok(en.sync.refused, 'sync.refused copy exists');
 });
 
 test('signing out sends what is waiting, then clears the copy in the browser', () => {
@@ -102,4 +105,31 @@ test('cardio and starting a program are queued, editing a program is not', () =>
   assert.match(edits, /kind: 'program-activate'/);
   assert.ok(edits.includes('week-cursor'), 'the week cursor is queued');
   assert.ok(edits.includes("kind: 'program-week'"));
+});
+
+test('coaching text is queued, access changes are not', () => {
+  const edits = readFileSync(new URL('../src/lib/offline-edits.js', import.meta.url), 'utf8');
+  for (const kind of ['coach-note', 'coach-reply', 'prescription-create']) {
+    assert.ok(edits.includes(`'${kind}'`), `${kind} is queued`);
+  }
+  // Adding or removing a member, and assigning a program, stay online-only.
+  assert.ok(!/trainer\/members\\\/\(\\d\+\)\$/.test(edits), 'membership changes are not queued');
+  assert.ok(!edits.includes("'/api/programs/' + id + '/assign'"), 'assignment is not queued');
+});
+
+test('a note is pinned to the exercise, not to where it sat in the list', () => {
+  const db = readFileSync(new URL('../server/db.js', import.meta.url), 'utf8');
+  const trainer = readFileSync(new URL('../server/routes/trainer.js', import.meta.url), 'utf8');
+  const diary = readFileSync(new URL('../src/routes/Diary.svelte', import.meta.url), 'utf8');
+  assert.match(db, /addColumnIfMissing\('coach_feedback', 'exercise_uuid'/);
+  assert.match(trainer, /WHERE workout_id = \? AND exercise_uuid = \? AND trainer_id = \?/);
+  // Both sides match on the uuid first, falling back to the old position.
+  assert.match(diary, /f\.exercise_uuid \? f\.exercise_uuid === gEx\.uuid : f\.exercise_idx/);
+});
+
+test('a change the server refuses is set aside and named, not left blocking the queue', () => {
+  assert.match(offline, /isTransientStatus\(res\.status\)/);
+  assert.match(offline, /refused\.push\(\{ at: Date\.now\(\)/);
+  assert.match(offline, /console\.error\(`\[offline\] your server refused/);
+  assert.match(offline, /export async function forgetRefused/);
 });
