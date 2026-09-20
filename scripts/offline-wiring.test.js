@@ -128,7 +128,7 @@ test('a note is pinned to the exercise, not to where it sat in the list', () => 
 });
 
 test('a change the server refuses is set aside and named, not left blocking the queue', () => {
-  assert.match(offline, /isTransientStatus\(res\.status\)/);
+  assert.match(offline, /shouldRetryStatus\(res\.status\)/);
   assert.match(offline, /refused\.push\(\{ at: Date\.now\(\)/);
   assert.match(offline, /console\.error\(`\[offline\] your server refused/);
   assert.match(offline, /export async function forgetRefused/);

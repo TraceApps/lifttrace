@@ -335,8 +335,16 @@ export function describeOp(op) {
   }
 }
 
-/** Will trying again ever help? A refusal is the server's answer, not a hiccup. */
-export const isTransientStatus = (status) => status >= 500 || status === 408 || status === 429;
+/**
+ * Will trying again ever help? A server that is struggling (5xx), busy (429)
+ * or slow (408) deserves another go. So does a session that has expired or
+ * lost its footing (401, 403): signing in again fixes that, and throwing the
+ * work away because a cookie timed out would be inexcusable. Everything else
+ * (a malformed row, a row that no longer exists, a conflict) is the server's
+ * considered answer, and repeating it will only produce the same answer.
+ */
+export const shouldRetryStatus = (status) =>
+  status >= 500 || status === 408 || status === 429 || status === 401 || status === 403;
 
 // ── Rows made with no connection ────────────────────────────────────
 

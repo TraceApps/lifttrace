@@ -22,7 +22,7 @@ import { writable } from 'svelte/store';
 import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs,
   answerWithOps, queuedWorkoutReply, newTempId, createdId, remapIds, remapPath,
-  describeOp, isTransientStatus,
+  describeOp, shouldRetryStatus,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -279,7 +279,7 @@ async function _flushOnce() {
       try { message = (await res.clone().json())?.error || message; } catch { /* not json */ }
       // A server that is struggling deserves another go later, and everything
       // behind this waits with it so nothing arrives out of order.
-      if (isTransientStatus(res.status)) { stopped = { error: message }; break; }
+      if (shouldRetryStatus(res.status)) { stopped = { error: message }; break; }
       // A refusal is the server's answer: trying again will not change it.
       // Set it aside, tell the person later, and carry on with the rest, so
       // one rejected change cannot hold up everything queued behind it.

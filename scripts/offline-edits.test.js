@@ -7,7 +7,7 @@ import test from 'node:test';
 import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
-  describeOp, isTransientStatus,
+  describeOp, shouldRetryStatus,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -316,9 +316,15 @@ test('a refused coaching change is described in words its author would use', () 
   assert.match(describeOp({ kind: 'workout', path: '/api/workout/2026-09-20' }), /workout on 2026-09-20/);
 });
 
-test('a hiccup is retried, a refusal is not', () => {
-  assert.equal(isTransientStatus(503), true);
-  assert.equal(isTransientStatus(429), true);
-  assert.equal(isTransientStatus(400), false);
-  assert.equal(isTransientStatus(403), false);
+test('a hiccup is retried, a refusal is not, and an expired session never loses work', () => {
+  assert.equal(shouldRetryStatus(503), true);
+  assert.equal(shouldRetryStatus(429), true);
+  assert.equal(shouldRetryStatus(408), true);
+  // Signing in again fixes these, so the work waits rather than being binned.
+  assert.equal(shouldRetryStatus(401), true);
+  assert.equal(shouldRetryStatus(403), true);
+  // These are the server's considered answer; repeating them changes nothing.
+  assert.equal(shouldRetryStatus(400), false);
+  assert.equal(shouldRetryStatus(404), false);
+  assert.equal(shouldRetryStatus(409), false);
 });
