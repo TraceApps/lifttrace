@@ -7,7 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [1.3.0] - 2026-09-20
 
-Minor release. The headline is that a day is no longer one workout: multiple independent sessions per day, timed sets with a hold timer for planks and carries, and progress photos with before and after comparison. LiftTrace also opens up to outside tools for the first time, with an MCP server, a versioned REST API and outgoing webhooks, all off by default. Plus a rewritten weekly summary, a redrawn muscle recovery body map, and a long run of Android sync and Diary fixes. **One action is needed when you update: the container now listens on port 3002.**
+> **Action needed when you update: the container now listens on port 3002.**
+> If your compose file maps `"3002:3003"`, change it to `"3002:3002"`. If a reverse proxy
+> or tunnel reaches the container directly (`lifttrace:3003`, or a Traefik
+> `loadbalancer.server.port=3003` label), point it at `3002`. Until you do, LiftTrace
+> will not respond after the update. The host port stays 3002, so bookmarks and the
+> Android app's server address keep working. Installs that set `PORT` themselves are
+> not affected.
+
+Minor release. The headline is that a day is no longer one workout: multiple independent sessions per day, timed sets with a hold timer for planks and carries, and progress photos with before and after comparison. LiftTrace also opens up to outside tools for the first time, with an MCP server, a versioned REST API and outgoing webhooks, all off by default. Plus a rewritten weekly summary, a redrawn muscle recovery body map, and a long run of Android sync and Diary fixes.
 
 ### Added
 
