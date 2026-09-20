@@ -49,6 +49,19 @@ export const MIRRORED_GETS = [
   /^\/api\/body-stats\/[\w-]+$/,
   /^\/api\/settings$/,
   /^\/api\/stats(\/|$)/,
+  // Cardio and the coaching side of the diary: read-only lists that would
+  // otherwise leave holes in a screen that is otherwise complete.
+  /^\/api\/cardio(\/|\?|$)/,
+  /^\/api\/prescriptions\//,
+  /^\/api\/coach-feedback\//,
+  /^\/api\/workout\/\d{4}-\d{2}-\d{2}\/feedback$/,
+  /^\/api\/exercises\/sources\/list$/,
+  // Who is signed in, and how. Without these the app reads an unreachable
+  // server as "nobody is signed in" and starts forgetting what depends on it,
+  // and Settings greets you with an error instead of your own profile.
+  /^\/api\/auth\/status$/,
+  /^\/api\/auth\/me$/,
+  /^\/api\/auth\/oidc\/(providers|links)$/,
 ];
 
 export const isMirroredGet = (url) => MIRRORED_GETS.some(re => re.test(pathOf(url)));

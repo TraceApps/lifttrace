@@ -29,7 +29,9 @@ test('a mirrored read is matched on its path, and filed with its query', () => {
   assert.equal(isMirroredGet('/api/settings'), true);
   // Not mirrored: these need the server and say so.
   assert.equal(isMirroredGet('/api/ai/chat'), false);
-  assert.equal(isMirroredGet('/api/workout/2026-09-20/feedback'), false);
+  assert.equal(isMirroredGet('/api/upload/exercise-media'), false);
+  // Coach notes on a day ARE kept, so the diary has no hole in it offline.
+  assert.equal(isMirroredGet('/api/workout/2026-09-20/feedback'), true);
   // The query is part of the key, so ?limit=30 and ?limit=7 don't collide.
   assert.equal(mirrorKey('/api/workout/recent?limit=30'), '/api/workout/recent?limit=30');
   assert.equal(pathOf('http://x/api/workout/recent?limit=30'), '/api/workout/recent');

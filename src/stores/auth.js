@@ -70,6 +70,10 @@ export async function loadAuthState() {
     const statusData = await statusRes.json();
     const meData     = await meRes.json();
     const user       = meData.user || null;
+    // With no connection and nothing seen yet, neither answer says anything
+    // about who is signed in. Leave what's on screen alone rather than
+    // deciding from silence that this is a single-user instance.
+    if (statusData?.offline || meData?.offline) return;
     const active     = !!statusData.active;
     userMgmtActive.set(active);
     setupRequired.set(!!statusData.setup_required);
