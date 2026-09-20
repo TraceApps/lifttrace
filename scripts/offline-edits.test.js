@@ -206,3 +206,61 @@ test('the reply to a queued save looks like the route\'s own', () => {
   // A day that never existed on the server gets a temporary id to hold on to.
   assert.equal(queuedWorkoutReply(null, { exercises: [] }, -99).workout.id, -99);
 });
+
+// ── Cardio and picking a program, away from wifi ────────────────────
+
+test('cardio is queued, and its id paths are not confused with its date paths', () => {
+  assert.equal(writeOp('POST', '/api/cardio', { date: '2026-09-20' }).kind, 'cardio-create');
+  assert.equal(writeOp('PUT', '/api/cardio/12', {}).kind, 'cardio-update');
+  assert.equal(writeOp('DELETE', '/api/cardio/12').kind, 'cardio-delete');
+  // A date is a read, never a write target.
+  assert.equal(writeOp('PUT', '/api/cardio/2026-09-20', {}), null);
+  assert.equal(isMirroredGet('/api/cardio/2026-09-20'), true);
+  assert.equal(isMirroredGet('/api/cardio/templates'), true);
+  assert.equal(isMirroredGet('/api/cardio/stats/weekly?start=a&end=b'), true);
+});
+
+test('a run logged offline shows on its day and in the list', () => {
+  const tempId = newTempId();
+  const ops = [{ seq: 1, kind: 'cardio-create', tempId, id: tempId, key: `cardio:${tempId}`,
+    body: { date: '2026-09-20', activity: 'Run', duration_min: 34, distance: 5 } }];
+  const day = answerWithOps('/api/cardio/2026-09-20', [{ id: 3, date: '2026-09-20', activity: 'Row' }], ops);
+  assert.deepEqual(day.map(r => r.activity), ['Row', 'Run']);
+  assert.equal(day[1].id, tempId);
+  // A different day does not show it.
+  assert.deepEqual(answerWithOps('/api/cardio/2026-09-19', [], ops), []);
+  // The whole list does.
+  assert.equal(answerWithOps('/api/cardio', [], ops).length, 1);
+});
+
+test('a run edited or deleted offline reads back that way', () => {
+  const mirrored = [{ id: 3, activity: 'Row', duration_min: 20 }, { id: 4, activity: 'Bike' }];
+  const edited = answerWithOps('/api/cardio', mirrored, [{ seq: 1, kind: 'cardio-update', id: 3, key: 'cardio:3', body: { duration_min: 45 } }]);
+  assert.equal(edited.find(r => r.id === 3).duration_min, 45);
+  const left = answerWithOps('/api/cardio', mirrored, [{ seq: 1, kind: 'cardio-delete', id: 4, key: 'cardio:4' }]);
+  assert.deepEqual(left.map(r => r.id), [3]);
+});
+
+test('a run logged and then removed offline never goes up', () => {
+  const tempId = newTempId();
+  const ops = [
+    { seq: 1, kind: 'cardio-create', tempId, id: tempId, key: `cardio:${tempId}`, body: { activity: 'Run' } },
+    { ...op(2, 'DELETE', `/api/cardio/${tempId}`, null), key: `cardio:${tempId}` },
+  ];
+  assert.deepEqual(collapseOps(ops), []);
+  assert.deepEqual(sentSeqs(ops, []).sort(), [1, 2]);
+});
+
+test('starting a program offline is one decision, not a pile of them', () => {
+  assert.equal(writeOp('POST', '/api/programs/4/activate', {}).key, 'program:active');
+  assert.equal(writeOp('POST', '/api/programs/deactivate', {}).key, 'program:active');
+  assert.equal(writeOp('POST', '/api/programs/4/week-cursor', { week: 2 }).key, 'program:4:week');
+  // Editing a program still needs the server.
+  assert.equal(writeOp('PUT', '/api/programs/4', {}), null);
+  assert.equal(writeOp('POST', '/api/programs', {}), null);
+  // Switching programs twice sends only where you ended up.
+  const ops = [op(1, 'POST', '/api/programs/4/activate', {}), op(2, 'POST', '/api/programs/7/activate', {})];
+  const sent = collapseOps(ops);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].path, '/api/programs/7/activate');
+});

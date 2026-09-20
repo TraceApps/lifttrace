@@ -10,6 +10,9 @@
   "sync": {
     "synced": "Synced",
     "syncing": "Syncing…",
+    "sign_out_waiting_title": "Changes are still waiting",
+    "sign_out_waiting": "{count, plural, one {# change has not reached your server yet. Signing out now discards it. Connect and try again to keep it.} other {# changes have not reached your server yet. Signing out now discards them. Connect and try again to keep them.}}",
+    "sign_out_anyway": "Sign Out Anyway",
     "pending_web": "{count, plural, =0 {Offline. Your workouts still save here.} one {Offline. # change is waiting to go up.} other {Offline. # changes are waiting to go up.}}",
     "sync_offline": "Offline",
     "sync_failing": "Can't reach the server",

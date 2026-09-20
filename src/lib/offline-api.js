@@ -266,7 +266,7 @@ async function _flushOnce() {
       stopped = { error: message };
       break;
     }
-    if (op.kind === 'exercise-create' && op.tempId != null) {
+    if ((op.kind === 'exercise-create' || op.kind === 'cardio-create') && op.tempId != null) {
       let created = null;
       try { created = createdId(await res.clone().json()); } catch { /* not json */ }
       if (created != null) map[Number(op.tempId)] = created;
@@ -365,8 +365,11 @@ export async function offlineFetch(url, init, origFetch) {
       _publish({ online: false });
       if (!isMirroredGet(url)) return _offlineReply(url);
       const mirrored = await _recall(url);
-      if (mirrored === undefined) return _offlineReply(url);
-      return _json(200, answerWithOps(url, mirrored, await _loadOps()));
+      // Even with no copy of this call, what is queued for it may be the whole
+      // answer: a day never opened online, with a run logged on it here.
+      const answer = answerWithOps(url, mirrored, await _loadOps());
+      if (answer === undefined) return _offlineReply(url);
+      return _json(200, answer);
     }
   }
 
@@ -403,14 +406,16 @@ export async function offlineFetch(url, init, origFetch) {
     }
   }
 
-  const tempId = op.kind === 'exercise-create' ? newTempId() : null;
+  const tempId = (op.kind === 'exercise-create' || op.kind === 'cardio-create') ? newTempId() : null;
   const stored = await _queue({
     method,
     path: remapPath(String(url), _swapped),
     body,
     at: Date.now(),
     ...op,
-    ...(tempId != null ? { tempId, id: tempId, key: `exercise:${tempId}` } : {}),
+    ...(tempId != null
+      ? { tempId, id: tempId, key: `${op.kind === 'cardio-create' ? 'cardio' : 'exercise'}:${tempId}` }
+      : {}),
   });
   if (!stored) return _offlineReply();
 
@@ -425,7 +430,8 @@ export async function offlineFetch(url, init, origFetch) {
     await _remember(pathOf(target), { workout: null });
     return _json(200, { ok: true, deleted: true, queued: true, offline: true });
   }
-  if (op.kind === 'exercise-create') {
+  if (op.kind === 'exercise-create' || op.kind === 'cardio-create') {
+    // The routes answer with the row they made, so this does too.
     return _json(200, { ...body, id: tempId, queued: true, offline: true });
   }
   return _json(200, { ok: true, ...(body || {}), queued: true, offline: true });

@@ -135,12 +135,30 @@ export async function logout() {
     logoutUrl = oidcData?.logoutUrl || null;
     try { localStorage.removeItem('lt:oidc_logout_hint'); } catch {}
   } catch {}
-  // Anything logged offline goes up before the session ends, and the copy
-  // this browser keeps is cleared afterwards so the next account can't read it.
+  // Anything logged offline goes up before the session ends, and the copy this
+  // browser keeps is cleared afterwards so the next account can't read it. If
+  // it can't go up (signing out in a dead zone), ask first: clearing it would
+  // destroy work the user never saw fail.
   if (!isNative) {
     try {
-      const { flushOutbox, clearOffline } = await import('../lib/offline-api.js');
-      await flushOutbox();
+      const { flushOutbox, clearOffline, pendingCount } = await import('../lib/offline-api.js');
+      const sent = await flushOutbox().catch(() => false);
+      if (!sent) {
+        const waiting = await pendingCount();
+        if (waiting > 0) {
+          const { confirmDialog } = await import('./confirmDialog.js');
+          const { get: getStore } = await import('svelte/store');
+          const { _: t } = await import('svelte-i18n');
+          const say = getStore(t);
+          const ok = await confirmDialog({
+            title: say('sync.sign_out_waiting_title'),
+            message: say('sync.sign_out_waiting', { values: { count: waiting } }),
+            confirmText: say('sync.sign_out_anyway'),
+            dangerous: true,
+          });
+          if (!ok) return;
+        }
+      }
       await clearOffline();
     } catch { /* nothing queued, or no database */ }
   }

@@ -86,3 +86,20 @@ test('the app itself is precached, not just the fallback page', () => {
   assert.match(vite, /heic2any-\*\.js/);
   assert.match(vite, /hls-\*\.js/);
 });
+
+test('signing out in a dead zone asks before discarding what is waiting', () => {
+  // Clearing the queue on a sign-out that could not send it would destroy work
+  // the user never saw fail.
+  assert.match(auth, /const sent = await flushOutbox\(\)\.catch\(\(\) => false\)/);
+  assert.match(auth, /if \(!ok\) return;/);
+  assert.ok(en.sync.sign_out_waiting && en.sync.sign_out_anyway, 'the copy exists');
+  assert.ok(!/discards it\. Connect and try again to keep them/.test(en.sync.sign_out_waiting), 'the plural reads correctly');
+});
+
+test('cardio and starting a program are queued, editing a program is not', () => {
+  const edits = readFileSync(new URL('../src/lib/offline-edits.js', import.meta.url), 'utf8');
+  assert.match(edits, /kind: 'cardio-create'/);
+  assert.match(edits, /kind: 'program-activate'/);
+  assert.ok(edits.includes('week-cursor'), 'the week cursor is queued');
+  assert.ok(edits.includes("kind: 'program-week'"));
+});

@@ -91,6 +91,23 @@ export function writeOp(method, url, body) {
   if (match && (m === 'PUT' || m === 'DELETE')) {
     return { kind: m === 'PUT' ? 'exercise-update' : 'exercise-delete', key: `exercise:${match[1]}`, id: Number(match[1]) };
   }
+  // Cardio: logged away from wifi more often than anything else here. The
+  // write paths take an id, the read paths take a date, and an id is all
+  // digits, so the two cannot be confused.
+  if (path === '/api/cardio' && m === 'POST') return { kind: 'cardio-create', key: null };
+  match = path.match(/^\/api\/cardio\/(-?\d+)$/);
+  if (match && (m === 'PUT' || m === 'DELETE')) {
+    return { kind: m === 'PUT' ? 'cardio-update' : 'cardio-delete', key: `cardio:${match[1]}`, id: Number(match[1]) };
+  }
+
+  // Which program you are on, and where in it. Editing a program is desk
+  // work and still needs the server; starting one at the gym does not.
+  match = path.match(/^\/api\/programs\/(\d+)\/activate$/);
+  if (match && m === 'POST') return { kind: 'program-activate', key: 'program:active', id: Number(match[1]) };
+  if (path === '/api/programs/deactivate' && m === 'POST') return { kind: 'program-activate', key: 'program:active' };
+  match = path.match(/^\/api\/programs\/(\d+)\/week-cursor$/);
+  if (match && m === 'POST') return { kind: 'program-week', key: `program:${match[1]}:week` };
+
   if (path === '/api/settings' && m === 'PUT') return { kind: 'setting', key: `setting:${body?.key}` };
   return null;
 }
@@ -139,11 +156,11 @@ export function collapseOps(ops) {
     }
 
     const prev = byKey.get(op.key);
-    if (prev?.kind === 'exercise-create') {
+    if (prev?.kind === 'exercise-create' || prev?.kind === 'cardio-create') {
       // Made offline and then changed again: still one create, with the
       // newest values. Made and then removed: it never happened.
-      if (op.kind === 'exercise-delete') { byKey.delete(op.key); continue; }
-      if (op.kind === 'exercise-update') {
+      if (op.kind === 'exercise-delete' || op.kind === 'cardio-delete') { byKey.delete(op.key); continue; }
+      if (op.kind === 'exercise-update' || op.kind === 'cardio-update') {
         byKey.set(op.key, { ...prev, body: { ...prev.body, ...op.body }, seq: op.seq });
         continue;
       }
@@ -204,11 +221,28 @@ export function answerWithOps(url, mirrored, ops) {
     for (const op of queued) if (op.body?.key) settings[op.body.key] = op.body.value;
     return settings;
   }
+  const cardioDay = path.match(/^\/api\/cardio\/(\d{4}-\d{2}-\d{2})$/);
+  if (path === '/api/cardio' || cardioDay) {
+    const made = (ops || []).filter(op => op.kind === 'cardio-create'
+      && (!cardioDay || op.body?.date === cardioDay[1]));
+    const changed = new Map((ops || []).filter(op => op.kind === 'cardio-update').map(op => [Number(op.id), op.body]));
+    const gone = new Set((ops || []).filter(op => op.kind === 'cardio-delete').map(op => Number(op.id)));
+    if (!made.length && !changed.size && !gone.size) return mirrored;
+    // A day never opened online still shows what was logged on it here.
+    const base = Array.isArray(mirrored) ? mirrored : mirrored === undefined ? [] : null;
+    if (base === null) return mirrored;
+    return base
+      .filter(r => !gone.has(Number(r.id)))
+      .map(r => (changed.has(Number(r.id)) ? { ...r, ...changed.get(Number(r.id)), _pending: true } : r))
+      .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
+  }
+
   if (path === '/api/exercises') {
     const made = (ops || []).filter(op => op.kind === 'exercise-create');
     const gone = new Set((ops || []).filter(op => op.kind === 'exercise-delete').map(op => Number(op.id)));
-    const list = Array.isArray(mirrored) ? mirrored : mirrored?.exercises;
-    if (!Array.isArray(list) || (!made.length && !gone.size)) return mirrored;
+    if (!made.length && !gone.size) return mirrored;
+    const list = Array.isArray(mirrored) ? mirrored : mirrored?.exercises ?? (mirrored === undefined ? [] : null);
+    if (!Array.isArray(list)) return mirrored;
     const rows = list.filter(e => !gone.has(Number(e.id)))
       .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
     return Array.isArray(mirrored) ? rows : { ...mirrored, exercises: rows };
@@ -232,7 +266,7 @@ export const isTempId = (id) => Number(id) < 0;
 
 /** Temporary id to real id, from what a replayed request answered. */
 export function createdId(response) {
-  const row = response?.exercise || response?.workout || response;
+  const row = response?.exercise || response?.workout || response?.cardio || response;
   const id = row?.id;
   return id != null && Number(id) > 0 ? Number(id) : null;
 }
