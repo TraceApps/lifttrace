@@ -183,6 +183,7 @@ services:
 |---|---|---|---|
 | `DB_PATH` | Yes | `./lifttrace.db` | Path to SQLite database file |
 | `UPLOADS_PATH` | Yes | `./uploads` | Path for uploaded exercise images / GIFs / videos, avatars, and progress photos (`body-stats/` subdirectory) |
+| `UPDATE_CHECK` | No | unset | Set to `off` to stop the server asking GitHub about new releases, whatever the in-app setting says |
 | `JWT_SECRET` | Yes (prod) | `dev-secret` | Secret for signing JWT auth tokens — **change this**. Server refuses to start in production with the dev default. |
 | `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key (AES-GCM, HKDF) for OIDC client secrets. By default we derive a key from `JWT_SECRET`, which means rotating `JWT_SECRET` invalidates every stored secret too. Set `TOKEN_ENC_KEY` explicitly if you want to rotate session tokens without forcing admins to re-enter OIDC client secrets. Use a long random string (e.g. `openssl rand -base64 48`). |
 | `PORT` | No | `3002` | Internal Express port (map to host in docker-compose) |

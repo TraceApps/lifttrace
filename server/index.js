@@ -47,6 +47,7 @@ import { authenticate }  from './middleware/auth.js';
 import { isPrivateUploadPath, UPLOAD_RESPONSE_HEADERS } from './lib/upload-paths.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv }   from './ai.js';
+import { initUpdateCheckSetting } from './lib/update-check.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { autoSeed }        from './exercise-sources/index.js';
 import { seedPrograms }    from './seed-templates.js';
@@ -68,6 +69,9 @@ autoSeed().catch(e => logger.warn('[seed] Auto-seed failed:', e.message));
 
 // Start notification scheduler (15-min tick)
 startScheduler();
+
+// Update checks: existing instances keep checking, fresh ones wait for setup to ask.
+initUpdateCheckSetting();
 
 const app  = express();
 const PORT = process.env.PORT || 3002;
