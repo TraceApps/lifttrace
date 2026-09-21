@@ -140,8 +140,10 @@ test('a photo with no server to upload to travels inside the row', () => {
   // The row still holds an ordinary path: the server turns the embedded
   // photo into a file, it is never stored as a data URL.
   const bodyStats = readFileSync(new URL('../server/routes/body-stats.js', import.meta.url), 'utf8');
-  assert.match(bodyStats, /_photoFromDataUrl/);
-  assert.match(bodyStats, /assertAllowedMedia/);
+  assert.match(bodyStats, /localizeDataUrl\(req\.body\?\.url, \{ subdir: 'body-stats' \}\)/);
+  // The bytes get the same magic-byte check the upload route runs.
+  const localizer = readFileSync(new URL('../server/lib/image-localizer.js', import.meta.url), 'utf8');
+  assert.match(localizer, /assertAllowedMedia/);
   // And a photo too big to keep says so rather than being lost.
   const embed = readFileSync(new URL('../src/lib/image-embed.js', import.meta.url), 'utf8');
   assert.match(embed, /too large to keep until you are back online/);
