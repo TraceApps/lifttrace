@@ -424,16 +424,14 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             // The timer is reachable whether or not it starts by itself, and
             // whether you are between sets or between exercises.
             item {
-                Button(
-                    onClick = {
-                        if (!clock.running) {
-                            val up = state.workout?.let { Session.next(it)?.exercise }
-                            clock.start(up?.name ?: "Rest", store.restFor(up?.uuid))
-                        }
+                RestRow(
+                    clock = clock,
+                    onStart = {
+                        val up = state.workout?.let { Session.next(it)?.exercise }
+                        clock.start(up?.name ?: "Rest", store.restFor(up?.uuid))
                         nav.navigate("timer")
                     },
-                    label = { Text(if (clock.running) "Back to the timer" else "Start a rest") },
-                    modifier = Modifier.fillMaxWidth(),
+                    onOpen = { nav.navigate("timer") },
                 )
             }
             // Exercises in the order they are done, with each pairing given a
@@ -886,6 +884,64 @@ private fun Stepper(text: String, onDown: () -> Unit, onUp: () -> Unit) {
     }
 }
 
+/** Green while there is time, amber when it is getting on, red at the death. */
+@Composable
+private fun ringColour(urgency: Session.Urgency): Color = when (urgency) {
+    Session.Urgency.NOW -> MaterialTheme.colorScheme.error
+    Session.Urgency.SOON -> Color(0xFFE8B931)
+    Session.Urgency.CALM -> Color(0xFF4CC38A)
+}
+
+/**
+ * The rest, wherever you are in the session: the time left in the colour it
+ * has earned, and a way back into the timer. A card is a status you can open;
+ * the button is an action, and a rest already running is not one, so the row
+ * is one or the other and never a dead label. The same row CookTrace shows
+ * over a pan.
+ *
+ * It keeps its own second hand, tied to the screen being in front of you, and
+ * stops it at zero: nothing ticks behind a rest that is over.
+ */
+@Composable
+private fun RestRow(clock: Countdown, onStart: () -> Unit, onOpen: () -> Unit) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    WhileWatching(clock.endsAt) {
+        if (clock.endsAt <= 0L) return@WhileWatching
+        while (true) {
+            now = System.currentTimeMillis()
+            if (clock.endsAt <= now) break
+            delay(1000)
+        }
+    }
+    val left = if (clock.endsAt <= 0L) 0 else maxOf(0L, (clock.endsAt - now + 999) / 1000).toInt()
+    if (left <= 0) {
+        Button(
+            onClick = onStart,
+            label = { Text("Start a rest") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        return
+    }
+    val total = maxOf(1, clock.total)
+    TitleCard(
+        onClick = onOpen,
+        title = {
+            Text(
+                Session.clock(left),
+                maxLines = 1,
+                color = ringColour(Session.urgency(left, total)),
+            )
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            "Resting" + (if (clock.label.isBlank()) "" else " before " + clock.label),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /**
  * The rest between sets, or a hold, counting down where a glance finds it. The
  * watch buzzes at the end, which is the whole reason to have this on a wrist
@@ -934,11 +990,7 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
             // Green while there is time, amber when it is getting on, red at
             // the death, so a glance tells you without reading the number.
             colors = ProgressIndicatorDefaults.colors(
-                indicatorColor = when (Session.urgency(remaining.toInt(), total)) {
-                    Session.Urgency.NOW -> MaterialTheme.colorScheme.error
-                    Session.Urgency.SOON -> Color(0xFFE8B931)
-                    Session.Urgency.CALM -> Color(0xFF4CC38A)
-                },
+                indicatorColor = ringColour(Session.urgency(remaining.toInt(), total)),
             ),
             modifier = Modifier.fillMaxSize().padding(4.dp),
         )
