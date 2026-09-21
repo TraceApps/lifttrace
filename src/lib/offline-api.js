@@ -335,15 +335,51 @@ async function _flushOnce() {
     _scheduleFlush(_backoff());
     return false;
   }
-  // Anything the replay changed should be read again rather than served from
-  // a copy taken before it.
-  await _tx('answers', 'readwrite', s => s.clear());
+  // What the replay changed is out of date here, so it goes; everything else
+  // stays. Clearing the lot would leave someone who reconnects for a moment
+  // and loses signal again with nothing at all to look at.
+  await _forgetTouched(collapseOps(ops));
   _resetBackoff();
   _publish({ syncing: false, error: null, online: true, refused: standing });
   _channel?.postMessage({ type: 'outbox', synced: true, ids: map });
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lt:offline-synced'));
-  if (_ops?.length) _scheduleFlush(0);
+  // Anything changed while this replay was running is in the database but
+  // not in the copy this run started from, and a flush asked for while one
+  // is running is answered with the running one. Read it back and go again,
+  // or that work waits for something else to happen to notice it.
+  _ops = null;
+  await _loadOps();
+  _publish();
+  if (_ops.length) _scheduleFlush(0);
   return !(_ops?.length);
+}
+
+/**
+ * Drop the kept answers a replayed change makes stale: the thing itself, and
+ * the lists it appears on. Everything else is still good to read offline.
+ */
+async function _forgetTouched(sent) {
+  const prefixes = new Set();
+  for (const op of sent) {
+    const path = pathOf(op.path);
+    prefixes.add(path);
+    const parent = path.replace(/\/(-?\d+)(\/[a-z-]+)?$/, '');
+    if (parent && parent !== path) prefixes.add(parent);
+    if (op.kind?.startsWith('workout')) { prefixes.add('/api/workout'); prefixes.add('/api/stats'); }
+    if (op.kind?.startsWith('cardio')) prefixes.add('/api/cardio');
+    if (op.kind?.startsWith('exercise')) prefixes.add('/api/exercises');
+    if (op.kind?.startsWith('program')) prefixes.add('/api/programs');
+    if (op.kind === 'body-stats') prefixes.add('/api/body-stats');
+    if (op.kind?.startsWith('photo')) prefixes.add('/api/body-stats');
+    if (op.kind?.startsWith('coach') || op.kind?.startsWith('prescription') || op.kind === 'seen') {
+      prefixes.add('/api/trainer'); prefixes.add('/api/coach-feedback'); prefixes.add('/api/prescriptions');
+    }
+    if (op.kind === 'setting') prefixes.add('/api/settings');
+    if (op.kind === 'profile') prefixes.add('/api/auth/me');
+  }
+  const rows = await _all('answers');
+  const stale = rows.filter(r => [...prefixes].some(p => pathOf(r.key) === p || pathOf(r.key).startsWith(p + '/')));
+  if (stale.length) await _tx('answers', 'readwrite', s => { for (const r of stale) s.delete(r.key); });
 }
 
 /** How much is waiting to go up. */
