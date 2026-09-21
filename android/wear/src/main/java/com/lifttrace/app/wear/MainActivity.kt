@@ -348,8 +348,10 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                         title = { Text(next.exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
+                        val label = state.workout?.let { Session.supersetLabel(it, next.exercise) }
                         Text(
-                            "Set ${next.setNumber} of ${next.exercise.total} · " +
+                            (if (label != null) "$label · " else "") +
+                                "Set ${next.setNumber} of ${next.exercise.total} · " +
                                 Session.setLine(next.exercise, next.set, state.unit),
                         )
                     }
@@ -363,9 +365,10 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     title = { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    val label = state.workout?.let { Session.supersetLabel(it, exercise) }
                     Text(
-                        "${exercise.done} of ${exercise.total} sets" +
-                            (if (exercise.inSuperset) " · superset" else "") +
+                        (if (label != null) "$label · " else "") +
+                            "${exercise.done} of ${exercise.total} sets" +
                             (if (exercise.finished) " · done" else ""),
                     )
                 }
@@ -413,6 +416,23 @@ private fun ExerciseScreen(
         }
         CrownColumn(listState) {
             item { ListHeader { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
+            state.workout?.let { day ->
+                val label = Session.supersetLabel(day, exercise)
+                val with = Session.partners(day, exercise).joinToString(", ") { it.name }
+                if (label != null) {
+                    item {
+                        Text(
+                            "$label · with $with",
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                        )
+                    }
+                }
+            }
             exercise.sets.forEachIndexed { index, set ->
                 item(key = set.uuid) {
                     TitleCard(
@@ -485,7 +505,9 @@ private fun SetScreen(
     val step = Session.weightStep(state.unit)
     val done = fresh == null && exercise.sets[index].completed
     val warmup = fresh == null && exercise.sets[index].warmup
-    val position = if (fresh != null) "New set" else "Set ${index + 1} of ${exercise.total}"
+    val label = state.workout?.let { Session.supersetLabel(it, exercise) }
+    val position = (if (label != null) "$label · " else "") +
+        (if (fresh != null) "New set" else "Set ${index + 1} of ${exercise.total}")
 
     fun commit(change: Session.Change, word: String) {
         runCatching { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }

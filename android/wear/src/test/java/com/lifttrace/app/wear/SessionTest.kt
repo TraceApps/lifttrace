@@ -281,6 +281,42 @@ class SessionTest {
     }
 
     @Test
+    fun `each pairing gets a letter and each exercise its place in it`() {
+        val w = Session.parse(superset)!!
+        assertEquals("A1", Session.supersetLabel(w, w.exercise("a1")!!))
+        assertEquals("A2", Session.supersetLabel(w, w.exercise("a2")!!))
+        // The exercise on its own is not in a pairing and says nothing.
+        assertNull(Session.supersetLabel(w, w.exercise("a3")!!))
+        assertEquals("Pushdown", Session.partners(w, w.exercise("a1")!!).joinToString { it.name })
+        assertTrue(Session.partners(w, w.exercise("a3")!!).isEmpty())
+    }
+
+    @Test
+    fun `a second pairing is the next letter along`() {
+        val two = """
+            {"workout":{"id":6,"date":"2026-09-21","name":"Arms","exercises":[
+              {"uuid":"a1","exercise_id":31,"exercise_name":"Curl","superset_id":"g1","superset_size":2,"sets":[
+                {"uuid":"c1","reps":12,"weight":30,"completed":false}]},
+              {"uuid":"a2","exercise_id":32,"exercise_name":"Pushdown","superset_id":"g1","superset_size":2,"sets":[
+                {"uuid":"d1","reps":12,"weight":40,"completed":false}]},
+              {"uuid":"a3","exercise_id":33,"exercise_name":"Hammer Curl","superset_id":"g2","superset_size":2,"sets":[
+                {"uuid":"h1","reps":10,"weight":25,"completed":false}]},
+              {"uuid":"a4","exercise_id":34,"exercise_name":"Skullcrusher","superset_id":"g2","superset_size":2,"sets":[
+                {"uuid":"k1","reps":10,"weight":45,"completed":false}]}
+            ]}}
+        """.trimIndent()
+        val w = Session.parse(two)!!
+        assertEquals("A1", Session.supersetLabel(w, w.exercise("a1")!!))
+        assertEquals("A2", Session.supersetLabel(w, w.exercise("a2")!!))
+        assertEquals("B1", Session.supersetLabel(w, w.exercise("a3")!!))
+        assertEquals("B2", Session.supersetLabel(w, w.exercise("a4")!!))
+        // And the pairings alternate within themselves, not across.
+        assertEquals("c1", Session.next(w)!!.set.uuid)
+        val after = Session.applyChange(w, Session.suggest(w.exercise("a1")!!, 0).copy(completed = true))
+        assertEquals("d1", Session.next(after)!!.set.uuid)
+    }
+
+    @Test
     fun `a superset rests after the round, not between the two exercises`() {
         var w = Session.parse(superset)!!
         w = log(w, "a1", "c1")

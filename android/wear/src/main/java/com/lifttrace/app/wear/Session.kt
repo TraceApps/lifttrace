@@ -218,6 +218,26 @@ object Session {
         return null
     }
 
+    /**
+     * Which pairing an exercise belongs to and where it sits in it: A1, A2,
+     * B1. The way people say it out loud, and the only way to tell on a small
+     * screen that two exercises go together and a third one does not.
+     */
+    fun supersetLabel(workout: Workout, exercise: Exercise): String? {
+        if (!exercise.inSuperset) return null
+        val groups = workout.exercises.filter { it.inSuperset }.mapNotNull { it.supersetId }.distinct()
+        val index = groups.indexOf(exercise.supersetId)
+        if (index < 0) return null
+        val letter = 'A' + (index % 26)
+        val position = group(workout, exercise).indexOfFirst { it.uuid == exercise.uuid } + 1
+        return "$letter$position"
+    }
+
+    /** The other exercises in the pairing, for saying what this one goes with. */
+    fun partners(workout: Workout, exercise: Exercise): List<Exercise> =
+        if (!exercise.inSuperset) emptyList()
+        else group(workout, exercise).filterNot { it.uuid == exercise.uuid }
+
     /** Everything paired with this exercise, itself included. */
     fun group(workout: Workout, exercise: Exercise): List<Exercise> =
         if (!exercise.inSuperset) listOf(exercise)
