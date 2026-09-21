@@ -51,6 +51,7 @@ import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.CircularProgressIndicator
+import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.FilledTonalIconButton
 import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.ListHeader
@@ -290,6 +291,31 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             // How long you have been at it. The same timer the phone keeps, so
             // either can start it, and it is what the session's length is
             // written from. Tap it to start, pause or stop.
+            // The set you are on, first. Everything else here is something you
+            // glance at; this is the thing you came to tap, and on a round
+            // screen anything below the first card means scrolling for it.
+            if (next != null) {
+                item(key = "next-up") {
+                    val day = state.workout
+                    val label = day?.let { Session.supersetLabel(it, next.exercise) }
+                    val title = day?.let { Session.setTitle(it, next.exercise, next.set) }
+                        ?: "Set ${next.setNumber}"
+                    TitleCard(
+                        onClick = { nav.navigate("set/${next.exercise.uuid}/${next.set.uuid}") },
+                        title = { Text(next.exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            (if (label != null) "$label · " else "") + title + " · " +
+                                Session.setLine(next.exercise, next.set, state.unit),
+                        )
+                    }
+                }
+            } else if (state.workout?.finished == true) {
+                item(key = "all-done") {
+                    Message(title = "Every set is done", body = "Finish the session on your phone.")
+                }
+            }
             if (state.workout != null) {
                 item {
                     val session = state.session
@@ -343,26 +369,6 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     label = { Text(if (clock.running) "Back to the timer" else "Start a rest") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-            }
-            if (next != null) {
-                item {
-                    TitleCard(
-                        onClick = { nav.navigate("set/${next.exercise.uuid}/${next.set.uuid}") },
-                        title = { Text(next.exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        val day = state.workout
-                        val label = day?.let { Session.supersetLabel(it, next.exercise) }
-                        val title = day?.let { Session.setTitle(it, next.exercise, next.set) }
-                            ?: "Set ${next.setNumber}"
-                        Text(
-                            (if (label != null) "$label · " else "") + title + " · " +
-                                Session.setLine(next.exercise, next.set, state.unit),
-                        )
-                    }
-                }
-            } else if (state.workout?.finished == true) {
-                item { Message(title = "Every set is done", body = "Finish the session on your phone.") }
             }
             // Exercises in the order they are done, with each pairing given a
             // heading of its own. A superset is two or three exercises you
@@ -553,7 +559,43 @@ private fun SetScreen(
         scope.launch { store.save(change, word) }
     }
 
-    ScreenScaffold(scrollState = listState) {
+    // The one thing you came here to do sits on the bottom edge of the
+    // screen, always there, whatever you have scrolled to. Between sets, out
+    // of breath, you should not have to hunt for it.
+    val log: () -> Unit = {
+        val change = draft.copy(completed = true)
+        // What the session will read like once this is in, so a superset's
+        // round can be judged before the save has been anywhere near the
+        // server.
+        val after = state.workout?.let { Session.applyChange(it, change) }
+        commit(change, if (done) "Set changed" else "Set logged")
+        val resting = !done && after != null &&
+            state.restEnabled && state.restAutoStart &&
+            Session.shouldRest(after, exerciseUuid, setUuid)
+        if (resting) {
+            val up = Session.upNext(after!!, exerciseUuid)
+            clock.start(up?.name ?: "Rest", store.restFor(exerciseUuid, after))
+            nav.navigate("timer") { popUpTo("session") }
+        } else {
+            nav.popBackStack()
+        }
+        Unit
+    }
+
+    ScreenScaffold(
+        scrollState = listState,
+        edgeButton = {
+            EdgeButton(onClick = log) {
+                Text(
+                    when {
+                        fresh != null -> "Add the set"
+                        done -> "Save the change"
+                        else -> "Log the set"
+                    },
+                )
+            }
+        },
+    ) {
         CrownColumn(listState) {
             item { ListHeader { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
             item {
@@ -631,38 +673,6 @@ private fun SetScreen(
                         onUp = { draft = draft.copy(reps = draft.reps + 1) },
                     )
                 }
-            }
-            item {
-                Button(
-                    onClick = {
-                        val change = draft.copy(completed = true)
-                        // What the session will read like once this is in, so
-                        // a superset's round can be judged before the save
-                        // has been anywhere near the server.
-                        val after = state.workout?.let { Session.applyChange(it, change) }
-                        commit(change, if (done) "Set changed" else "Set logged")
-                        val resting = !done && after != null &&
-                            state.restEnabled && state.restAutoStart &&
-                            Session.shouldRest(after, exerciseUuid, setUuid)
-                        if (resting) {
-                            val up = Session.upNext(after!!, exerciseUuid)
-                            clock.start(up?.name ?: "Rest", store.restFor(exerciseUuid, after))
-                            nav.navigate("timer") { popUpTo("session") }
-                        } else {
-                            nav.popBackStack()
-                        }
-                    },
-                    label = {
-                        Text(
-                            when {
-                                fresh != null -> "Add the set"
-                                done -> "Save the change"
-                                else -> "Log the set"
-                            },
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
             if (done) {
                 item {
