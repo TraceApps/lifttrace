@@ -24,6 +24,12 @@ import {
   answerWithOps, queuedWorkoutReply, newTempId, createdId, remapIds, remapPath,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply,
 } from './offline-edits.js';
+// Loaded with everything else, never fetched on demand: a picture is kept
+// exactly when there is no connection to fetch a separate file with, and a
+// browser whose service worker has not taken the newest build yet would have
+// no copy of it. This is what "Failed to fetch dynamically imported module"
+// looked like from the outside.
+import { embeddableDataUrl } from './image-embed.js';
 
 const RETRY_MIN_MS = 3_000;
 const RETRY_MAX_MS = 30_000;
@@ -493,7 +499,6 @@ export async function offlineFetch(url, init, origFetch) {
     const isVideo = String(file?.type || '').startsWith('video/');
     if (file && !isVideo && (!_online() || (await _loadOps()).length)) {
       try {
-        const { embeddableDataUrl } = await import('./image-embed.js');
         const embedded = await embeddableDataUrl(file);
         // The exercise-media route answers with the kind as well as the url.
         const kind = /^data:image\/gif/i.test(embedded) ? 'gif' : 'img';
