@@ -12,6 +12,7 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 for (const file of [
   '../server/routes/stats.js', '../server/lib/mcp/tools/get-records.js',
   '../server/lib/scheduler.js', '../server/routes/trainer.js',
+  '../server/lib/mcp/tools/get-workouts.js', '../server/lib/mcp/tools/list-recent-workouts.js',
 ]) {
   test(`${file.split('/').pop()} leaves deleted workouts out`, () => {
     const queries = read(file).match(/['`][^'`]*FROM workout_log[^'`]*['`]/g) || [];

@@ -24,6 +24,8 @@ const EXPECTED_CORE_EXPORTS = {
   'list-programs.js':         'listProgramsCore',
   'get-active-program.js':    'getActiveProgramCore',
   'get-body-stat.js':         'getBodyStatCore',
+  'get-workouts.js':          'getWorkoutsCore',
+  'get-body-stats.js':        'getBodyStatsCore',
   'log-set.js':                'logSetCore',
   'log-body-stat.js':          'logBodyStatCore',
 };

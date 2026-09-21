@@ -95,6 +95,7 @@ test('MCP transport is stateless (no session id generator)', () => {
 test('All read tools are registered in registerReadTools', () => {
   const expected = [
     'registerGetWorkout',
+    'registerGetWorkouts',
     'registerListRecentWorkouts',
     'registerGetRecords',
     'registerGetExerciseProgress',
@@ -102,6 +103,7 @@ test('All read tools are registered in registerReadTools', () => {
     'registerListPrograms',
     'registerGetActiveProgram',
     'registerGetBodyStat',
+    'registerGetBodyStats',
   ];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);
@@ -150,6 +152,7 @@ test('MCP tool DB queries scope on user_id — no cross-user access', () => {
   // If a future tool forgets, this test surfaces it before merge.
   const toolFiles = [
     'get-workout.js',
+    'get-workouts.js',
     'list-recent-workouts.js',
     'get-records.js',
     'get-exercise-progress.js',
@@ -157,6 +160,7 @@ test('MCP tool DB queries scope on user_id — no cross-user access', () => {
     'list-programs.js',
     'get-active-program.js',
     'get-body-stat.js',
+    'get-body-stats.js',
     'log-set.js',
     'log-body-stat.js',
     'delete-workout.js',

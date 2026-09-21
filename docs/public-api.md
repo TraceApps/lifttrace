@@ -48,14 +48,16 @@ a token lacking the required scope returns `403`.
 
 | Method | Path | Notes |
 |---|---|---|
+| GET | `/api/v1/workouts?start=&end=&limit=` | Every session in an inclusive date range, in the same full detail as the single-day route, plus `session_seq` for days with more than one session. With both bounds omitted the range is the last 90 days; giving one bound leaves the other open. Returns the most recent 30 sessions by default (max 100); `truncated` and `total` say when more matched. |
 | GET | `/api/v1/workouts/:date` | One day's workout, every exercise and set. Timed sets (planks, holds, carries) carry `duration_sec` in seconds, and each exercise its `set_type`. `date` defaults to today. |
-| GET | `/api/v1/workouts/recent?limit=` | Recent workouts, most recent first. `limit` defaults to 10, max 50. |
-| GET | `/api/v1/records?exercise_name=` | Personal records per exercise: max weight, reps at that weight, date, estimated 1-rep max. Timed exercises (planks, holds, carries) report `maxDuration` (longest hold, in seconds), `maxDurationWeight` and `durationDate` instead. `exercise_name` optionally filters by a case-insensitive substring. |
+| GET | `/api/v1/workouts/recent?limit=&start=&end=` | Recent workouts, most recent first, as a summary rather than full set detail. `limit` defaults to 10, max 50. Optional inclusive `start`/`end` bounds narrow the history it draws from. |
+| GET | `/api/v1/records?exercise_name=&start=&end=` | Personal records per exercise: max weight, reps at that weight, date, estimated 1-rep max. Timed exercises (planks, holds, carries) report `maxDuration` (longest hold, in seconds), `maxDurationWeight` and `durationDate` instead. `exercise_name` optionally filters by a case-insensitive substring. With `start`/`end` these are the best lifts within those dates, not all-time records. |
 | GET | `/api/v1/exercises/:name/progress?start=&end=` | Per-session progress for one exercise (max weight, longest hold as `max_duration_sec`, volume, set count, average RPE) over a date range. `:name` is matched case-insensitively by substring; an ambiguous match returns `{ambiguous: true, candidates: [...]}` instead of guessing. Range defaults to the last 90 days. |
 | GET | `/api/v1/exercises?query=&limit=` | Search the exercise catalog by name. Each match includes `set_type`: `"time"` means sets are logged by duration. `limit` defaults to 10, max 25. |
 | GET | `/api/v1/programs` | List your programs, owned or coach-assigned. |
 | GET | `/api/v1/programs/active` | The currently active program: current week and every weekly template. |
 | GET | `/api/v1/body-stats/:date` | Body-stat measurements (weight, body fat, tape measurements) for a date. |
+| GET | `/api/v1/body-stats?start=&end=` | The same measurements for every logged date in an inclusive range. Both bounds omitted means the last 90 days; one bound leaves the other open. Dates with nothing logged are absent. |
 | GET | `/api/v1/body-stats/photos?start=&end=` | Progress photos with their dates, newest first. Range defaults to the last year. Each photo has a `file_url` to fetch its image with the same token. |
 | GET | `/api/v1/body-stats/photos/:id/file` | The image itself, for a photo you own. Returns 409 for a photo attached by external URL, which has no local file. |
 
@@ -92,4 +94,12 @@ curl -X POST -H "Authorization: Bearer lt_pat_..." -H "Content-Type: application
 # Personal records for squat
 curl -H "Authorization: Bearer lt_pat_..." \
   "https://your-lifttrace.example.com/api/v1/records?exercise_name=squat"
+
+# Every session in March, full detail
+curl -H "Authorization: Bearer lt_pat_..." \
+  "https://your-lifttrace.example.com/api/v1/workouts?start=2026-03-01&end=2026-03-31"
+
+# Weigh-ins since the start of the year (no end bound)
+curl -H "Authorization: Bearer lt_pat_..." \
+  "https://your-lifttrace.example.com/api/v1/body-stats?start=2026-01-01"
 ```
