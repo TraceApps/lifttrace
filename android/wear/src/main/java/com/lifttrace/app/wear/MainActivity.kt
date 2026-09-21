@@ -88,8 +88,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** A countdown the whole app can see: rest between sets, or a hold. */
-class Countdown {
+/**
+ * A countdown the whole app can see: rest between sets, or a hold.
+ *
+ * The deadline is written down and an alarm is set for it, so the buzz
+ * happens with the app long gone from the screen and the count is still right
+ * when you raise your wrist and open it again.
+ */
+class Countdown(private val ctx: android.content.Context) {
     var label by mutableStateOf("")
         private set
     var total by mutableStateOf(0)
@@ -107,6 +113,15 @@ class Countdown {
     var fired by mutableStateOf(true)
         private set
 
+    init {
+        Pairing.timer(ctx)?.let { saved ->
+            label = saved.label
+            total = saved.total
+            endsAt = saved.endsAt
+            fired = saved.endsAt <= System.currentTimeMillis()
+        }
+    }
+
     val running: Boolean get() = endsAt > System.currentTimeMillis()
 
     fun start(label: String, seconds: Int, onDone: (suspend () -> Unit)? = null) {
@@ -115,21 +130,30 @@ class Countdown {
         this.endsAt = System.currentTimeMillis() + seconds * 1000L
         this.onDone = onDone
         this.fired = false
-    }
-
-    fun markFired() {
-        fired = true
+        remember()
     }
 
     fun extend(seconds: Int) {
         if (endsAt <= 0L) return
         endsAt += seconds * 1000L
         total += seconds
+        remember()
+    }
+
+    fun markFired() {
+        fired = true
     }
 
     fun stop() {
         endsAt = 0L
         onDone = null
+        RestAlarm.cancel(ctx)
+        Pairing.clearTimer(ctx)
+    }
+
+    private fun remember() {
+        Pairing.putTimer(ctx, Pairing.Timer(label, total, endsAt))
+        RestAlarm.schedule(ctx, endsAt)
     }
 
     fun secondsLeft(): Long =
@@ -143,7 +167,12 @@ fun WearApp(store: WearStore) {
     // The timer lives above the screens: it keeps running while you look at
     // the session, and swiping back does not lose the count. It is a deadline
     // rather than a countdown, so a sleeping screen costs nothing.
-    val clock = remember { Countdown() }
+    val context = LocalContext.current
+    val clock = remember { Countdown(context.applicationContext) }
+    // A set you are adding, held here until it is logged. Nothing is written
+    // into the session by the act of tapping "Add a set", so backing out of
+    // one leaves no empty set behind for the phone to inherit.
+    var adding by remember { mutableStateOf<Session.Change?>(null) }
 
     // While the app is open, keep up with the phone: a set ticked off there
     // should not need the watch to be closed and opened again.
@@ -181,13 +210,16 @@ fun WearApp(store: WearStore) {
         SwipeDismissableNavHost(navController = nav, startDestination = "session") {
             composable("session") { SessionScreen(store, nav, clock) }
             composable("exercise/{uuid}") { entry ->
-                ExerciseScreen(store, nav, entry.arguments?.getString("uuid").orEmpty())
+                ExerciseScreen(store, nav, entry.arguments?.getString("uuid").orEmpty()) { change ->
+                    adding = change
+                }
             }
             composable("set/{ex}/{set}") { entry ->
                 SetScreen(
                     store, nav, clock,
                     entry.arguments?.getString("ex").orEmpty(),
                     entry.arguments?.getString("set").orEmpty(),
+                    adding,
                 )
             }
             composable("timer") { TimerScreen(clock, nav) }
@@ -265,7 +297,10 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             item {
                 Button(
                     onClick = {
-                        if (!clock.running) clock.start("Rest", state.restSeconds)
+                        if (!clock.running) {
+                            val up = state.workout?.let { Session.next(it)?.exercise }
+                            clock.start(up?.name ?: "Rest", store.restFor(up?.uuid))
+                        }
                         nav.navigate("timer")
                     },
                     label = { Text(if (clock.running) "Back to the timer" else "Start a rest") },
@@ -296,7 +331,8 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                 ) {
                     Text(
                         "${exercise.done} of ${exercise.total} sets" +
-                            if (exercise.finished) " · done" else "",
+                            (if (exercise.inSuperset) " · superset" else "") +
+                            (if (exercise.finished) " · done" else ""),
                     )
                 }
             }
@@ -324,9 +360,13 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
 
 /** One exercise, every set it has, and the chance to add another. */
 @Composable
-private fun ExerciseScreen(store: WearStore, nav: NavHostController, exerciseUuid: String) {
+private fun ExerciseScreen(
+    store: WearStore,
+    nav: NavHostController,
+    exerciseUuid: String,
+    onAdd: (Session.Change) -> Unit,
+) {
     val state by store.state.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
     val listState = rememberScalingLazyListState()
     val exercise = state.workout?.exercise(exerciseUuid)
 
@@ -360,10 +400,8 @@ private fun ExerciseScreen(store: WearStore, nav: NavHostController, exerciseUui
                 Button(
                     onClick = {
                         val change = Session.addition(exercise)
-                        scope.launch {
-                            store.save(change)
-                            nav.navigate("set/${exercise.uuid}/${change.setUuid}")
-                        }
+                        onAdd(change)
+                        nav.navigate("set/${exercise.uuid}/${change.setUuid}")
                     },
                     label = { Text("Add a set") },
                     modifier = Modifier.fillMaxWidth(),
@@ -385,6 +423,7 @@ private fun SetScreen(
     clock: Countdown,
     exerciseUuid: String,
     setUuid: String,
+    adding: Session.Change?,
 ) {
     val state by store.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -392,8 +431,11 @@ private fun SetScreen(
     val haptics = LocalHapticFeedback.current
     val exercise = state.workout?.exercise(exerciseUuid)
     val index = exercise?.sets?.indexOfFirst { it.uuid == setUuid } ?: -1
+    // A set being added is not in the session yet, so it is the one held
+    // aside rather than one to look up.
+    val fresh = if (index < 0 && adding?.setUuid == setUuid) adding else null
 
-    if (exercise == null || index < 0) {
+    if (exercise == null || (index < 0 && fresh == null)) {
         ScreenScaffold(scrollState = listState) {
             Box(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
                 Message(title = "That set is gone", body = "It was removed on your phone.")
@@ -402,12 +444,14 @@ private fun SetScreen(
         return
     }
 
-    val suggested = Session.suggest(exercise, index)
+    val suggested = fresh ?: Session.suggest(exercise, index)
     // Keyed on the set, so moving to another one starts from its own numbers
     // rather than keeping what the last one was edited to.
     var draft by remember(setUuid) { mutableStateOf(suggested) }
     val step = Session.weightStep(state.unit)
-    val done = exercise.sets[index].completed
+    val done = fresh == null && exercise.sets[index].completed
+    val warmup = fresh == null && exercise.sets[index].warmup
+    val position = if (fresh != null) "New set" else "Set ${index + 1} of ${exercise.total}"
 
     fun commit(change: Session.Change, word: String) {
         runCatching { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
@@ -419,8 +463,8 @@ private fun SetScreen(
             item { ListHeader { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
             item {
                 Text(
-                    "Set ${index + 1} of ${exercise.total}" +
-                        (if (exercise.sets[index].warmup) " · warm-up" else "") +
+                    position +
+                        (if (warmup) " · warm-up" else "") +
                         (if (done) " · done" else ""),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelMedium,
@@ -484,15 +528,32 @@ private fun SetScreen(
             item {
                 Button(
                     onClick = {
-                        commit(draft.copy(completed = true), if (done) "Set changed" else "Set logged")
-                        if (!done && state.restAutoStart) {
-                            clock.start("Rest", state.restSeconds)
+                        val change = draft.copy(completed = true)
+                        // What the session will read like once this is in, so
+                        // a superset's round can be judged before the save
+                        // has been anywhere near the server.
+                        val after = state.workout?.let { Session.applyChange(it, change) }
+                        commit(change, if (done) "Set changed" else "Set logged")
+                        val resting = !done && after != null &&
+                            state.restEnabled && state.restAutoStart &&
+                            Session.shouldRest(after, exerciseUuid, setUuid)
+                        if (resting) {
+                            val up = Session.upNext(after!!, exerciseUuid)
+                            clock.start(up?.name ?: "Rest", store.restFor(exerciseUuid, after))
                             nav.navigate("timer") { popUpTo("session") }
                         } else {
                             nav.popBackStack()
                         }
                     },
-                    label = { Text(if (done) "Save the change" else "Log the set") },
+                    label = {
+                        Text(
+                            when {
+                                fresh != null -> "Add the set"
+                                done -> "Save the change"
+                                else -> "Log the set"
+                            },
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -562,8 +623,8 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
         }
         if (!clock.fired) {
             clock.markFired()
-            buzz(context)
-            // A hold logs the set it was counting; a rest has nothing to do.
+            // The alarm does the buzzing, so it happens whether or not this
+            // screen is still up. Here there is only the hold to write down.
             clock.onDone?.invoke()
             clock.stop()
         }
@@ -617,19 +678,6 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
                 ) { Text(if (remaining > 0) "Skip" else "Done") }
             }
         }
-    }
-}
-
-/** The end of a rest or a hold: two short buzzes, which a sleeve does not hide. */
-private fun buzz(context: android.content.Context) {
-    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        (context.getSystemService(VibratorManager::class.java))?.defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        context.getSystemService(Vibrator::class.java)
-    }
-    runCatching {
-        vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 200, 120, 200), -1))
     }
 }
 

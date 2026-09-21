@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The buzz at the end of a rest, which is the point of a timer on a wrist. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- A rest is ninety seconds: a minute of drift makes it useless, and the
+         watch is back on its face long before it is over. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:allowBackup="false"
@@ -64,6 +68,12 @@
                 android:name="androidx.wear.tiles.PREVIEW"
                 android:resource="@drawable/tile_preview" />
         </service>
+
+        <!-- Rings at the end of a rest or a hold, with the app long gone from
+             the screen. -->
+        <receiver
+            android:name=".RestAlarmReceiver"
+            android:exported="false" />
 
         <!-- The phone hands over the server address and a token once, and takes
              them away again when the account signs out. -->

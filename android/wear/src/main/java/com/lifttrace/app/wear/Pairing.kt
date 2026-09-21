@@ -33,6 +33,7 @@ object Pairing {
     private const val KEY_CACHE_AT = "cache_at"
     private const val KEY_SETTINGS = "settings"
     private const val KEY_OUTBOX = "outbox"
+    private const val KEY_TIMER = "timer"
     private const val KEY_REFUSED = "refused_token"
 
     private fun prefs(ctx: Context): SharedPreferences =
@@ -98,7 +99,7 @@ object Pairing {
     /** The phone says the account signed out, or the watch was unpaired. */
     fun clear(ctx: Context) {
         prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_REFUSED)
-            .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).apply()
+            .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER).apply()
     }
 
     // ── The last session the watch saw ───────────────────────────────────
@@ -120,6 +121,31 @@ object Pairing {
 
     fun putSettings(ctx: Context, settings: JSONObject) {
         prefs(ctx).edit().putString(KEY_SETTINGS, settings.toString()).apply()
+    }
+
+    // ── A timer that outlives the screen ─────────────────────────────────
+
+    /**
+     * The rest running right now, so raising your wrist again shows the count
+     * still going rather than a blank app that lost it.
+     */
+    data class Timer(val label: String, val total: Int, val endsAt: Long)
+
+    fun timer(ctx: Context): Timer? {
+        val raw = prefs(ctx).getString(KEY_TIMER, null) ?: return null
+        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val endsAt = o.optLong("endsAt", 0L)
+        if (endsAt <= 0L) return null
+        return Timer(o.optString("label"), o.optInt("total", 0), endsAt)
+    }
+
+    fun putTimer(ctx: Context, timer: Timer) {
+        val o = JSONObject().put("label", timer.label).put("total", timer.total).put("endsAt", timer.endsAt)
+        prefs(ctx).edit().putString(KEY_TIMER, o.toString()).apply()
+    }
+
+    fun clearTimer(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_TIMER).apply()
     }
 
     // ── Changes made with no connection ──────────────────────────────────

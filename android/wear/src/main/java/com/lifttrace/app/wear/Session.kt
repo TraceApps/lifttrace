@@ -37,6 +37,8 @@ object Session {
         val durationSec: Int,
         val completed: Boolean,
         val warmup: Boolean,
+        /** The plan's own numbering, when a set carries one. */
+        val number: Int?,
     ) {
         /** A set the phone is recording per side, as it does for alternating work. */
         val split: Boolean get() = repsLeft != null || repsRight != null
@@ -51,12 +53,20 @@ object Session {
         val name: String,
         val setType: String,
         val loadType: String,
+        /** Which superset this belongs to, and how many exercises are in it. */
+        val supersetId: String?,
+        val supersetSize: Int,
+        /** This exercise's own rest, when the plan sets one. */
+        val restSec: Int,
         val sets: List<Set>,
     ) {
         val timed: Boolean get() = setType == TYPE_TIME
         val done: Int get() = sets.count { it.completed }
         val total: Int get() = sets.size
         val finished: Boolean get() = total > 0 && done == total
+        val inSuperset: Boolean get() = supersetId != null && supersetSize > 1
+        /** Working sets only: a warm-up is not part of a superset's round. */
+        val working: List<Set> get() = sets.filter { !it.warmup }
     }
 
     data class Workout(
@@ -129,6 +139,9 @@ object Session {
                     name = e.optString("exercise_name").ifBlank { "Exercise" },
                     setType = setType(e, sets),
                     loadType = loadType(e),
+                    supersetId = if (e.isNull("superset_id")) null else e.optString("superset_id").ifBlank { null },
+                    supersetSize = e.optInt("superset_size", 0),
+                    restSec = e.optInt("rest_sec", 0),
                     sets = sets,
                 )
             )
@@ -152,6 +165,7 @@ object Session {
         durationSec = s.optInt("duration_sec", 0),
         completed = s.optBoolean("completed", false),
         warmup = s.optBoolean("warmup", false),
+        number = if (s.isNull("number")) null else s.optInt("number").takeIf { it > 0 },
     )
 
     /**
@@ -182,15 +196,29 @@ object Session {
     /**
      * The set you are on: the first one not yet done, warm-ups included, since
      * they are part of the session as it was planned.
+     *
+     * A superset alternates. Reaching one hands you whichever exercise in the
+     * group is behind, so A1, A2, A1, A2 rather than every set of A1 and then
+     * every set of A2, which is what the order in the list would otherwise
+     * say and is not the session anyone planned.
      */
     fun next(workout: Workout?): Next? {
         val w = workout ?: return null
         for (e in w.exercises) {
-            val idx = e.sets.indexOfFirst { !it.completed }
-            if (idx >= 0) return Next(e, e.sets[idx], idx + 1)
+            if (e.finished || e.total == 0) continue
+            val turn = if (!e.inSuperset) e
+                else group(w, e).filter { !it.finished }
+                    .minByOrNull { member -> member.working.count { it.completed } } ?: continue
+            val idx = turn.sets.indexOfFirst { !it.completed }
+            if (idx >= 0) return Next(turn, turn.sets[idx], idx + 1)
         }
         return null
     }
+
+    /** Everything paired with this exercise, itself included. */
+    fun group(workout: Workout, exercise: Exercise): List<Exercise> =
+        if (!exercise.inSuperset) listOf(exercise)
+        else workout.exercises.filter { it.supersetId == exercise.supersetId }
 
     /**
      * What to fill in for the set in front of you: what the plan says, and for
@@ -273,6 +301,7 @@ object Session {
     fun applyChange(workout: Workout, change: Change): Workout {
         val exercises = workout.exercises.map { e ->
             if (e.uuid != change.exerciseUuid) return@map e
+            val existing = e.sets.firstOrNull { it.uuid == change.setUuid }
             val updated = Set(
                 uuid = change.setUuid,
                 reps = change.reps,
@@ -282,6 +311,7 @@ object Session {
                 durationSec = change.durationSec,
                 completed = change.completed,
                 warmup = change.warmup,
+                number = existing?.number,
             )
             val sets = if (e.sets.any { it.uuid == change.setUuid }) {
                 e.sets.map { if (it.uuid == change.setUuid) updated else it }
@@ -291,6 +321,56 @@ object Session {
             e.copy(sets = sets)
         }
         return workout.copy(exercises = exercises, raw = upsert(workout.raw, change))
+    }
+
+    // ── Resting ──────────────────────────────────────────────────────────
+
+    /**
+     * Does the set just logged start a rest? The phone's own rules: a warm-up
+     * is not a working set and rests after nothing, and a superset rests once
+     * the round is over rather than between A1 and A2. A round is over when
+     * every exercise in the group that has a set with that number has
+     * finished it, so a pairing where one exercise only joins some rounds
+     * still behaves.
+     */
+    fun shouldRest(workout: Workout, exerciseUuid: String, setUuid: String): Boolean {
+        val exercise = workout.exercise(exerciseUuid) ?: return false
+        val set = exercise.sets.firstOrNull { it.uuid == setUuid } ?: return false
+        if (set.warmup) return false
+        if (!exercise.inSuperset) return true
+        val round = numbered(exercise).firstOrNull { it.first.uuid == setUuid }?.second ?: return false
+        return group(workout, exercise).all { member ->
+            val inRound = numbered(member).filter { it.second == round }
+            inRound.isEmpty() || inRound.all { it.first.completed }
+        }
+    }
+
+    /** Working sets with the number each one holds in the round order. */
+    private fun numbered(exercise: Exercise): List<Pair<Set, Int>> {
+        var auto = 0
+        return exercise.working.map { s ->
+            auto += 1
+            s to (s.number ?: auto)
+        }
+    }
+
+    /**
+     * What comes after the set just logged: the same exercise, or the first of
+     * a superset since the next round starts back at the top of the pairing.
+     */
+    fun upNext(workout: Workout, exerciseUuid: String): Exercise? {
+        val exercise = workout.exercise(exerciseUuid) ?: return null
+        return if (!exercise.inSuperset) exercise else group(workout, exercise).firstOrNull() ?: exercise
+    }
+
+    /**
+     * How long to rest after that set: what the plan puts on the exercise you
+     * are about to do, or the account's own rest length. Both are the phone's
+     * rule, so a programme's three minutes on squats is three minutes here.
+     */
+    fun restFor(workout: Workout, exerciseUuid: String, settings: JSONObject?): Int {
+        val own = upNext(workout, exerciseUuid)?.restSec ?: 0
+        return if (own > 0) own else restSeconds(settings)
     }
 
     // ── Words and numbers ────────────────────────────────────────────────
@@ -349,6 +429,15 @@ object Session {
         }
         return if (seconds in 5..3600) seconds else 90
     }
+
+    /**
+     * Does the account use the rest timer at all? LiftTrace leaves it off
+     * until it is turned on, so the watch does not start one by itself for
+     * someone who has never asked for it. Starting one by hand is always
+     * there: it is the reason a timer belongs on a wrist.
+     */
+    fun restEnabled(settings: JSONObject?): Boolean =
+        settings?.opt("restTimerEnabled")?.let { it == true || it == "true" } ?: false
 
     /** Does the wearer want the timer to start by itself after a set? */
     fun restAutoStart(settings: JSONObject?): Boolean =

@@ -243,6 +243,85 @@ class SessionTest {
         assertTrue(set.getBoolean("completed"))
     }
 
+    private val superset = """
+        {"workout":{"id":5,"date":"2026-09-21","name":"Arms","exercises":[
+          {"uuid":"a1","exercise_id":31,"exercise_name":"Curl","superset_id":"g1","superset_size":2,"rest_sec":120,"sets":[
+            {"uuid":"c1","reps":12,"weight":30,"completed":false},
+            {"uuid":"c2","reps":12,"weight":30,"completed":false}
+          ]},
+          {"uuid":"a2","exercise_id":32,"exercise_name":"Pushdown","superset_id":"g1","superset_size":2,"sets":[
+            {"uuid":"d1","reps":12,"weight":40,"completed":false},
+            {"uuid":"d2","reps":12,"weight":40,"completed":false}
+          ]},
+          {"uuid":"a3","exercise_id":33,"exercise_name":"Hammer Curl","sets":[
+            {"uuid":"h1","reps":10,"weight":25,"completed":false}
+          ]}
+        ]}}
+    """.trimIndent()
+
+    private fun log(w: Session.Workout, ex: String, set: String): Session.Workout {
+        val exercise = w.exercise(ex)!!
+        val index = exercise.sets.indexOfFirst { it.uuid == set }
+        return Session.applyChange(w, Session.suggest(exercise, index).copy(completed = true))
+    }
+
+    @Test
+    fun `a superset alternates rather than running one exercise dry`() {
+        var w = Session.parse(superset)!!
+        assertEquals("c1", Session.next(w)!!.set.uuid)
+        w = log(w, "a1", "c1")
+        assertEquals("d1", Session.next(w)!!.set.uuid)
+        w = log(w, "a2", "d1")
+        assertEquals("c2", Session.next(w)!!.set.uuid)
+        w = log(w, "a1", "c2")
+        assertEquals("d2", Session.next(w)!!.set.uuid)
+        w = log(w, "a2", "d2")
+        // The pairing is done, so the session moves on to what follows it.
+        assertEquals("h1", Session.next(w)!!.set.uuid)
+    }
+
+    @Test
+    fun `a superset rests after the round, not between the two exercises`() {
+        var w = Session.parse(superset)!!
+        w = log(w, "a1", "c1")
+        assertFalse(Session.shouldRest(w, "a1", "c1"))
+        w = log(w, "a2", "d1")
+        assertTrue(Session.shouldRest(w, "a2", "d1"))
+    }
+
+    @Test
+    fun `a warm-up rests after nothing`() {
+        val w = log(Session.parse(body)!!, "e1", "s1")
+        assertFalse(Session.shouldRest(w, "e1", "s1"))
+        val working = log(w, "e1", "s2")
+        assertTrue(Session.shouldRest(working, "e1", "s2"))
+    }
+
+    @Test
+    fun `the next round starts back at the top of the pairing`() {
+        val w = log(Session.parse(superset)!!, "a2", "d1")
+        assertEquals("Curl", Session.upNext(w, "a2")!!.name)
+        assertEquals("Bench Press", Session.upNext(Session.parse(body)!!, "e1")!!.name)
+    }
+
+    @Test
+    fun `a plan's own rest beats the account's`() {
+        val w = Session.parse(superset)!!
+        val settings = JSONObject("""{"restDuration":60}""")
+        assertEquals(120, Session.restFor(w, "a1", settings))
+        // The pairing's rest is the one at the top of it, whichever half you
+        // just finished.
+        assertEquals(120, Session.restFor(w, "a2", settings))
+        assertEquals(60, Session.restFor(w, "a3", settings))
+    }
+
+    @Test
+    fun `the rest timer stays off until the account turns it on`() {
+        assertFalse(Session.restEnabled(null))
+        assertFalse(Session.restEnabled(JSONObject("{}")))
+        assertTrue(Session.restEnabled(JSONObject("""{"restTimerEnabled":true}""")))
+    }
+
     @Test
     fun `progress reads the way a glance wants it`() {
         assertEquals("1 of 4", Session.progress(Session.parse(body)))

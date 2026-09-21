@@ -34,6 +34,7 @@ class WearStore(private val ctx: Context) {
         val workout: Session.Workout? = null,
         val unit: String = "lbs",
         val restSeconds: Int = 90,
+        val restEnabled: Boolean = false,
         val restAutoStart: Boolean = true,
     )
 
@@ -54,6 +55,7 @@ class WearStore(private val ctx: Context) {
             workout = cached,
             unit = Session.weightUnit(settings),
             restSeconds = Session.restSeconds(settings),
+            restEnabled = Session.restEnabled(settings),
             restAutoStart = Session.restAutoStart(settings),
             pending = Pairing.outbox(ctx).size,
         )
@@ -106,8 +108,19 @@ class WearStore(private val ctx: Context) {
         _state.value = _state.value.copy(
             unit = Session.weightUnit(settings),
             restSeconds = Session.restSeconds(settings),
+            restEnabled = Session.restEnabled(settings),
             restAutoStart = Session.restAutoStart(settings),
         )
+    }
+
+    /**
+     * How long to rest after a set on this exercise: the plan's own rest when
+     * it sets one, the account's otherwise.
+     */
+    fun restFor(exerciseUuid: String?, workout: Session.Workout? = null): Int {
+        val day = workout ?: _state.value.workout
+        if (day == null || exerciseUuid == null) return _state.value.restSeconds
+        return Session.restFor(day, exerciseUuid, Pairing.settings(ctx))
     }
 
     /**
