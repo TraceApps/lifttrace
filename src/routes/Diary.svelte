@@ -878,6 +878,17 @@
     }
   }
 
+  // Shared by the This Week strip and the Recent list below (issue: both
+  // jumped the header to the clicked date via a bare currentDate.set()
+  // without actually loading that date's workout — the date label and
+  // week-strip selection updated, but the session panel kept showing
+  // whatever was previously loaded, since only loadWorkout() fetches
+  // and populates todayLog. Same fetch+notes+feedback sequence prevDay/
+  // nextDay/goToday already use above.
+  function goToDiaryDate(ds) {
+    loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); });
+  }
+
   $: isToday = $currentDate === localDateStr();
   $: isFuture = $currentDate > localDateStr();
 
@@ -2818,7 +2829,7 @@
             class="rail-week-day"
             class:done={day.done}
             class:today={day.isToday}
-            on:click={() => currentDate.set(day.key)}
+            on:click={() => goToDiaryDate(day.key)}
             title={day.key}>
             <span class="rail-week-dow">{day.dow}</span>
             <span class="rail-week-dom">{day.dom}</span>
@@ -2838,7 +2849,7 @@
         </div>
         <div class="rail-recent-list">
           {#each recentWorkouts as w (w.date)}
-            <button type="button" class="rail-recent-row" on:click={() => currentDate.set(w.date)}>
+            <button type="button" class="rail-recent-row" on:click={() => goToDiaryDate(w.date)}>
               <span class="rail-recent-date">{new Date(w.date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
               <span class="rail-recent-name">{w.workout_name || 'Untitled workout'}</span>
             </button>
