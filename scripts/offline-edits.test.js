@@ -7,7 +7,7 @@ import test from 'node:test';
 import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
-  describeOp, shouldRetryStatus, staleAnswerKeys,
+  describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -359,4 +359,20 @@ test('the copy this browser keeps has a ceiling, and lets go of the oldest first
   assert.deepEqual(staleAnswerKeys(rows, 4), [], 'nothing goes while there is room');
   assert.deepEqual(staleAnswerKeys([], 10), []);
   assert.deepEqual(staleAnswerKeys([{ key: '/x' }, { key: '/y', at: 5 }], 1), ['/x']);
+});
+
+test('a queued answer is shaped like the route it stands in for', () => {
+  // The screens read these. The progress photo helper refuses to carry on
+  // unless it gets `{ photo }` back, and said "Could not save photo" for a
+  // photo that was safely queued, because the shape was wrong.
+  const photo = queuedReply({ kind: 'photo-add' }, { date: '2026-09-20', url: 'data:image/png;base64,x' }, -9);
+  assert.equal(photo.ok, true);
+  assert.equal(photo.photo.id, -9);
+  assert.equal(photo.photo.date, '2026-09-20');
+  assert.deepEqual(queuedReply({ kind: 'profile' }, { nickname: 'Alex' }, null).user, { nickname: 'Alex' });
+  assert.deepEqual(queuedReply({ kind: 'body-stats', key: 'body:2026-09-20' }, { stats: { weight: 80 } }, null).stats.stats, { weight: 80 });
+  const run = queuedReply({ kind: 'cardio-create' }, { activity: 'Run' }, -3);
+  assert.equal(run.id, -3);
+  assert.equal(run.activity, 'Run');
+  assert.equal(queuedReply({ kind: 'program-activate' }, null, null).ok, true);
 });

@@ -22,7 +22,7 @@ import { writable } from 'svelte/store';
 import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs,
   answerWithOps, queuedWorkoutReply, newTempId, createdId, remapIds, remapPath,
-  describeOp, shouldRetryStatus, staleAnswerKeys,
+  describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -562,9 +562,6 @@ export async function offlineFetch(url, init, origFetch) {
     await _remember(pathOf(target), { workout: null });
     return _json(200, { ok: true, deleted: true, queued: true, offline: true });
   }
-  if (MAKES_A_ROW.includes(op.kind)) {
-    // The routes answer with the row they made, so this does too.
-    return _json(200, { ...body, id: tempId, queued: true, offline: true });
-  }
-  return _json(200, { ok: true, ...(body || {}), queued: true, offline: true });
+  // Shaped like the route's own answer: the screens read these.
+  return _json(200, queuedReply({ ...op, id: op.id ?? tempId }, body, tempId));
 }

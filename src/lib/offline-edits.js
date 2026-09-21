@@ -315,6 +315,37 @@ export function queuedWorkoutReply(mirrored, body, tempId) {
 }
 
 /**
+ * The answer a queued write hands back, shaped like the route's own.
+ *
+ * This matters more than it looks: the screens read these. The progress
+ * photo helper refuses to carry on unless it gets `{ photo }` back, and
+ * said "Could not save photo" for a photo that was safely queued, because
+ * the reply was the right status with the wrong shape.
+ */
+export function queuedReply(op, body, tempId) {
+  const now = new Date().toISOString();
+  const queued = { queued: true, offline: true };
+  switch (op?.kind) {
+    case 'photo-add':
+      return { ok: true, photo: { id: tempId, date: body?.date, url: body?.url, created_at: now }, ...queued };
+    case 'profile':
+      return { user: { ...(body || {}) }, ...queued };
+    case 'body-stats':
+      return { stats: { date: op.key?.split(':')[1] || null, stats: body?.stats || {}, updated_at: now }, ...queued };
+    case 'cardio-create':
+    case 'exercise-create':
+    case 'prescription-create':
+      return { ...(body || {}), id: tempId, created_at: now, updated_at: now, ...queued };
+    case 'cardio-update':
+    case 'exercise-update':
+    case 'prescription-update':
+      return { ...(body || {}), id: op.id, updated_at: now, ...queued };
+    default:
+      return { ok: true, ...(body || {}), ...queued };
+  }
+}
+
+/**
  * Which kept answers to let go of, oldest first, once there are more than
  * `keep`. The copy this browser holds has to have a ceiling: a database with
  * no room left would refuse the outbox too, and then nothing could be
