@@ -372,18 +372,34 @@
       try {
         const sync = await import('./lib/sync.js');
         sync.startBackgroundSync();
-        // Periodic differential pull every 30s while the app is active.
-        // The handler is silent so users don't see a blinking sync bar
-        // unless something actually changed (Settings UI subscribes to
-        // syncState and can show its own activity indicator).
-        // Cheap enough now that pullSnapshot() is differential (steady
-        // state returns 0-5 rows); the heavy snapshot path is gone.
-        setInterval(() => sync.fullSync(true).catch(() => {}), 30000);
+        // Periodic differential pull every 30s while the app is actually in
+        // front of you. The handler is silent so users don't see a blinking
+        // sync bar unless something actually changed (Settings UI subscribes
+        // to syncState and can show its own activity indicator).
+        //
+        // This used to say "while the app is active" and nothing enforced it.
+        // A WebView keeps its timers running when the app is backgrounded and
+        // the screen is off, so it was a network round trip every thirty
+        // seconds, all night, waking the radio each time, for as long as the
+        // process lived. Stopping loses nothing: coming back fires a sync of
+        // its own (the resume listener below).
+        let poll = null;
+        const startPolling = () => {
+          if (poll == null) poll = setInterval(() => sync.fullSync(true).catch(() => {}), 30000);
+        };
+        const stopPolling = () => {
+          if (poll != null) { clearInterval(poll); poll = null; }
+        };
+        startPolling();
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) stopPolling(); else startPolling();
+        });
         // Resume from background → fire a visible sync (matches NT's
         // App.resume listener wiring).
         try {
           const { App: CapApp } = await import('@capacitor/app');
           CapApp.addListener('resume', () => {
+            startPolling();
             sync.fullSync().catch(() => {});
             // Coming back is a good moment to top up the watch's token, and it
             // catches a watch paired after this app was last opened.
@@ -394,6 +410,8 @@
           // the 350ms window. Without this, a set/exercise added just
           // before the user swipes away is lost silently.
           CapApp.addListener('pause', async () => {
+            // Nothing to poll for while nobody is looking.
+            stopPolling();
             try {
               const { flushWorkoutSave } = await import('./stores/workout.js');
               await flushWorkoutSave();
