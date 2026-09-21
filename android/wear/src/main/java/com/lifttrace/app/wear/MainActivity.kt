@@ -45,8 +45,11 @@ import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
 import androidx.wear.compose.foundation.rotary.rotaryScrollable
+import androidx.wear.compose.material3.AlertDialog
+import androidx.wear.compose.material3.AlertDialogDefaults
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.FilledTonalIconButton
 import androidx.wear.compose.material3.Icon
@@ -681,6 +684,7 @@ private fun SessionTimeScreen(store: WearStore, nav: NavHostController) {
     val state by store.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val session = state.session
+    var discarding by remember { mutableStateOf(false) }
     var elapsed by remember(session) {
         mutableStateOf(session?.elapsedMs(System.currentTimeMillis()) ?: 0L)
     }
@@ -734,9 +738,34 @@ private fun SessionTimeScreen(store: WearStore, nav: NavHostController) {
                     label = { Text("Stop and save") },
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 )
+                // Throwing the time away is a real loss and one tap from
+                // "stop", so it asks first.
+                Button(
+                    onClick = { discarding = true },
+                    label = { Text("Discard") },
+                    colors = ButtonDefaults.filledTonalButtonColors(),
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
             }
         }
     }
+
+    AlertDialog(
+        visible = discarding,
+        onDismissRequest = { discarding = false },
+        title = { Text("Throw this time away?") },
+        text = { Text("The session goes back to having no length recorded.") },
+        confirmButton = {
+            AlertDialogDefaults.ConfirmButton(onClick = {
+                discarding = false
+                scope.launch { store.discardSession() }
+                nav.popBackStack()
+            })
+        },
+        dismissButton = {
+            AlertDialogDefaults.DismissButton(onClick = { discarding = false })
+        },
+    )
 }
 
 /** A number with a tap either side of it, sized for a thumb. */

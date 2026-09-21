@@ -908,6 +908,14 @@
     } else if (action === 'copy_yesterday') {
       await copyFromYesterday();
     } else if (action === 'reset_timer') {
+      // Zeroing the length is not undoable and sits one row from the rest of
+      // this menu, so it asks first.
+      if (!await confirmDialog({
+        title: $_('diary.confirm.reset_timer_title'),
+        message: $_('diary.confirm.reset_timer_msg'),
+        confirmText: $_('diary.confirm.reset_timer_confirm'),
+        dangerous: true,
+      })) return;
       resetTimer();
       await saveWorkout($currentDate, { ...($todayLog || {}), duration_min: 0 });
       showSuccess($_('diary.toast.timer_reset'));

@@ -271,6 +271,23 @@ class WearStore(private val ctx: Context) {
         send()
     }
 
+    /**
+     * Throw the time away: the timer stops and the session's length goes back
+     * to nothing, which is what "Reset timer" does on the phone. Queued like
+     * anything else, so it holds with no signal.
+     */
+    suspend fun discardSession() {
+        publishSession(null)
+        val day = _state.value.workout
+        if (day == null) {
+            _state.update { it.copy(flash = "Time discarded") }
+            return
+        }
+        Pairing.queue(ctx, Pairing.Op(day.date.ifBlank { today }, day.id, minutes = 0.0))
+        _state.update { it.copy(pending = Pairing.outbox(ctx).size, flash = "Time discarded") }
+        send()
+    }
+
     private fun publishSession(timer: Pairing.SessionTimer?) {
         Pairing.publishSession(ctx, timer)
         _state.update { it.copy(session = sessionTimer()) }
