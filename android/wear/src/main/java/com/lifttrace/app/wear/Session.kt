@@ -210,8 +210,13 @@ object Session {
         for (e in w.exercises) {
             if (e.finished || e.total == 0) continue
             val turn = if (!e.inSuperset) e
-                else group(w, e).filter { !it.finished }
-                    .minByOrNull { member -> member.working.count { it.completed } } ?: continue
+                // Whoever is due in the earliest unfinished round, and within
+                // a round the one nearest the top of the pairing. Counting
+                // sets done instead would hand you an exercise that only
+                // joins at round two before the others have finished round
+                // one, which is not the session anyone wrote.
+                else group(w, e).mapNotNull { m -> pending(m)?.let { m to it } }
+                    .minWithOrNull(compareBy { it.second })?.first ?: continue
             val idx = turn.sets.indexOfFirst { !it.completed }
             if (idx >= 0) return Next(turn, turn.sets[idx], idx + 1)
         }
@@ -237,6 +242,15 @@ object Session {
     fun partners(workout: Workout, exercise: Exercise): List<Exercise> =
         if (!exercise.inSuperset) emptyList()
         else group(workout, exercise).filterNot { it.uuid == exercise.uuid }
+
+    /**
+     * Which round this exercise is due in next, or null when it is finished.
+     * A warm-up comes before any round, so it counts as nought.
+     */
+    private fun pending(exercise: Exercise): Int? {
+        val set = exercise.sets.firstOrNull { !it.completed } ?: return null
+        return if (set.warmup) 0 else setNumber(exercise, set)
+    }
 
     /** Everything paired with this exercise, itself included. */
     fun group(workout: Workout, exercise: Exercise): List<Exercise> =
@@ -473,6 +487,46 @@ object Session {
         val w = workout ?: return "No session"
         if (w.setsTotal == 0) return "No sets yet"
         return "${w.setsDone} of ${w.setsTotal}"
+    }
+
+    /**
+     * The number a set carries. The plan's own when it sets one, otherwise its
+     * place among the working sets, which is how the phone numbers them. A
+     * warm-up carries no number: it is not part of any round.
+     *
+     * In a pairing this number IS the round, which is what lets an exercise
+     * join only some of them: three exercises where the third only appears in
+     * rounds 2 and 3 is an ordinary way to write a session, and reading those
+     * sets as "set 1, set 2" would put you in the wrong round.
+     */
+    fun setNumber(exercise: Exercise, set: Set): Int {
+        if (set.warmup) return 0
+        set.number?.let { return it }
+        var n = 0
+        for (s in exercise.sets) {
+            if (!s.warmup) n++
+            if (s.uuid == set.uuid) return n
+        }
+        return n
+    }
+
+    /** The highest round in this pairing, or how many working sets on its own. */
+    fun rounds(workout: Workout, exercise: Exercise): Int =
+        group(workout, exercise).maxOfOrNull { member ->
+            member.working.mapIndexed { i, s -> s.number ?: (i + 1) }.maxOrNull() ?: 0
+        } ?: 0
+
+    /**
+     * What to call a set to its face: a round when it belongs to a pairing,
+     * a set when the exercise stands alone, and a warm-up when that is all
+     * it is.
+     */
+    fun setTitle(workout: Workout, exercise: Exercise, set: Set): String {
+        if (set.warmup) return "Warm-up"
+        val n = setNumber(exercise, set)
+        val total = rounds(workout, exercise)
+        val word = if (exercise.inSuperset) "Round" else "Set"
+        return if (total > 0) "$word $n of $total" else "$word $n"
     }
 
     /** One set on a list: what it says it is, in as few characters as possible. */

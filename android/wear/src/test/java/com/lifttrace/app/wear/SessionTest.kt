@@ -317,6 +317,64 @@ class SessionTest {
     }
 
     @Test
+    fun `a set in a pairing is named by its round, not by where it sits`() {
+        // The third exercise joins at round 2: its two sets are rounds 2 and
+        // 3, and calling them "set 1" and "set 2" would put you in the wrong
+        // round of the pairing.
+        val asymmetric = """
+            {"workout":{"id":8,"date":"2026-09-21","name":"Arms","exercises":[
+              {"uuid":"a1","exercise_name":"Curl","superset_id":"g1","superset_size":3,"sets":[
+                {"uuid":"c1","reps":12,"weight":30,"completed":false},
+                {"uuid":"c2","reps":12,"weight":30,"completed":false},
+                {"uuid":"c3","reps":12,"weight":30,"completed":false}]},
+              {"uuid":"a2","exercise_name":"Pushdown","superset_id":"g1","superset_size":3,"sets":[
+                {"uuid":"d1","reps":12,"weight":40,"completed":false},
+                {"uuid":"d2","reps":12,"weight":40,"completed":false},
+                {"uuid":"d3","reps":12,"weight":40,"completed":false}]},
+              {"uuid":"a3","exercise_name":"Hammer Curl","superset_id":"g1","superset_size":3,"sets":[
+                {"uuid":"h2","number":2,"reps":10,"weight":25,"completed":false},
+                {"uuid":"h3","number":3,"reps":10,"weight":25,"completed":false}]}
+            ]}}
+        """.trimIndent()
+        val w = Session.parse(asymmetric)!!
+        val late = w.exercise("a3")!!
+        assertEquals(2, Session.setNumber(late, late.sets[0]))
+        assertEquals(3, Session.setNumber(late, late.sets[1]))
+        assertEquals("Round 2 of 3", Session.setTitle(w, late, late.sets[0]))
+        assertEquals("Round 3 of 3", Session.setTitle(w, late, late.sets[1]))
+        // The exercises that run the whole way through read as you would expect.
+        val first = w.exercise("a1")!!
+        assertEquals("Round 1 of 3", Session.setTitle(w, first, first.sets[0]))
+
+        // And the order follows the rounds: an exercise that only joins at
+        // round two waits until round one is finished by the others.
+        var day = w
+        assertEquals("c1", Session.next(day)!!.set.uuid)
+        day = Session.applyChange(day, Session.suggest(day.exercise("a1")!!, 0).copy(completed = true))
+        assertEquals("d1", Session.next(day)!!.set.uuid)
+        day = Session.applyChange(day, Session.suggest(day.exercise("a2")!!, 0).copy(completed = true))
+        // Round one is done. Not the latecomer's turn yet: round two starts
+        // back at the top of the pairing.
+        assertEquals("c2", Session.next(day)!!.set.uuid)
+        day = Session.applyChange(day, Session.suggest(day.exercise("a1")!!, 1).copy(completed = true))
+        assertEquals("d2", Session.next(day)!!.set.uuid)
+        day = Session.applyChange(day, Session.suggest(day.exercise("a2")!!, 1).copy(completed = true))
+        // Now it is, because round two is where it comes in.
+        assertEquals("h2", Session.next(day)!!.set.uuid)
+    }
+
+    @Test
+    fun `an exercise on its own has sets, not rounds`() {
+        val w = Session.parse(body)!!
+        val bench = w.exercise("e1")!!
+        // The warm-up carries no number at all; the working sets start at one.
+        assertEquals("Warm-up", Session.setTitle(w, bench, bench.sets[0]))
+        assertEquals("Set 1 of 2", Session.setTitle(w, bench, bench.sets[1]))
+        assertEquals("Set 2 of 2", Session.setTitle(w, bench, bench.sets[2]))
+        assertEquals(0, Session.setNumber(bench, bench.sets[0]))
+    }
+
+    @Test
     fun `a superset rests after the round, not between the two exercises`() {
         var w = Session.parse(superset)!!
         w = log(w, "a1", "c1")

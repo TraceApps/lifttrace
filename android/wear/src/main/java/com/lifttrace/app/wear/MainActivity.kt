@@ -351,10 +351,12 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                         title = { Text(next.exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        val label = state.workout?.let { Session.supersetLabel(it, next.exercise) }
+                        val day = state.workout
+                        val label = day?.let { Session.supersetLabel(it, next.exercise) }
+                        val title = day?.let { Session.setTitle(it, next.exercise, next.set) }
+                            ?: "Set ${next.setNumber}"
                         Text(
-                            (if (label != null) "$label · " else "") +
-                                "Set ${next.setNumber} of ${next.exercise.total} · " +
+                            (if (label != null) "$label · " else "") + title + " · " +
                                 Session.setLine(next.exercise, next.set, state.unit),
                         )
                     }
@@ -475,11 +477,9 @@ private fun ExerciseScreen(
                     TitleCard(
                         onClick = { nav.navigate("set/${exercise.uuid}/${set.uuid}") },
                         title = {
-                            Text(
-                                "Set ${index + 1}" +
-                                    (if (set.warmup) " · warm-up" else "") +
-                                    (if (set.completed) " · done" else ""),
-                            )
+                            val title = state.workout?.let { Session.setTitle(it, exercise, set) }
+                                ?: "Set ${index + 1}"
+                            Text(title + if (set.completed) " · done" else "")
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -541,10 +541,11 @@ private fun SetScreen(
     var draft by remember(setUuid) { mutableStateOf(suggested) }
     val step = Session.weightStep(state.unit)
     val done = fresh == null && exercise.sets[index].completed
-    val warmup = fresh == null && exercise.sets[index].warmup
     val label = state.workout?.let { Session.supersetLabel(it, exercise) }
-    val position = (if (label != null) "$label · " else "") +
-        (if (fresh != null) "New set" else "Set ${index + 1} of ${exercise.total}")
+    val named = if (fresh != null) "New set"
+        else state.workout?.let { Session.setTitle(it, exercise, exercise.sets[index]) }
+            ?: "Set ${index + 1}"
+    val position = (if (label != null) "$label · " else "") + named
 
     fun commit(change: Session.Change, word: String) {
         runCatching { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
@@ -556,9 +557,7 @@ private fun SetScreen(
             item { ListHeader { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
             item {
                 Text(
-                    position +
-                        (if (warmup) " · warm-up" else "") +
-                        (if (done) " · done" else ""),
+                    position + (if (done) " · done" else ""),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
