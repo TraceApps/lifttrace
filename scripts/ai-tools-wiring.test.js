@@ -78,6 +78,7 @@ const EXEMPT = {
   program_assignments:   'reached through get_active_program',
   coach_feedback:        'returned inside get_workout detail',
   body_stat_media:       'covered by get_progress_photos',
+  set_media:             'video Trace cannot watch; the coach note on a clip is returned inside get_workout detail',
 };
 
 // table -> a tool whose implementation must mention this API path

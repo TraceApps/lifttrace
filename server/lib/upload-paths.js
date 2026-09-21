@@ -41,6 +41,10 @@ export function resolveUploadPath(url) {
  * exercise-demo GIF is not, so they are read only through
  * GET /api/body-stats/photos/:id/file, which checks the row's owner.
  *
+ * set-videos: the same argument for footage of someone lifting in their gym
+ * (issue #57). Read only through GET /api/set-media/:id/file, which checks
+ * the row's owner and that owner's trainer.
+ *
  * backups: BACKUPS_PATH defaults to a directory INSIDE UPLOADS_PATH, and a
  * full-backup ZIP contains every user's photos, password hashes, reset
  * tokens and OIDC config. Its filename is a timestamp, so it was guessable
@@ -48,7 +52,7 @@ export function resolveUploadPath(url) {
  * the artefact itself from the pre-auth static tree handed the same data to
  * anyone. Gating photos while leaving this open would have achieved nothing.
  */
-const PRIVATE_SUBDIRS = ['body-stats', 'backups'];
+const PRIVATE_SUBDIRS = ['body-stats', 'backups', 'set-videos'];
 
 /**
  * True when a request path under the /uploads mount would land inside a

@@ -118,6 +118,63 @@ const bodyStatMediaUpload = multer({
   },
 });
 
+// ── Set videos (issue #57) ───────────────────────────────────────────────
+// A clip of one set, for technique review. Its own directory, kept out of
+// the static tree (see PRIVATE_SUBDIRS in lib/upload-paths.js) because it is
+// footage of someone in their gym, not a shared exercise demo.
+//
+// 200 MB is roughly a minute of phone video at default settings, and matches
+// the only published cap in this corner of the market (TrueCoach's). Nothing
+// is re-encoded here: adding ffmpeg to the image is a lot of machinery for a
+// feature nobody has used yet, and no comparable product transcodes on
+// ingest either. Clips filmed inside the app are recorded at a modest
+// bitrate instead, which is where the size problem is actually solved.
+const setVideoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(uploadsPath, 'set-videos');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = safeUploadExtension(file.mimetype, file.originalname);
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+
+const setVideoUpload = multer({
+  storage: setVideoStorage,
+  limits: { fileSize: 200 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) cb(null, true);
+    else cb(new Error('Videos only'));
+  },
+});
+
+router.post('/set-video', requireAuth, (req, res, next) => {
+  setVideoUpload.single('file')(req, res, (err) => {
+    if (err) {
+      // Multer's own size error is the one users will actually hit, so it
+      // says what the limit is rather than "File too large".
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'That clip is over 200 MB. Film a shorter set, or record it in the app.' });
+      }
+      return next(err);
+    }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    try {
+      const realMime = assertAllowedMedia(req.file.path, ['video']);
+      res.json({
+        url: `/uploads/set-videos/${req.file.filename}`,
+        mimeType: realMime,
+        sizeBytes: req.file.size,
+      });
+    } catch (e) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      res.status(400).json({ error: e.message });
+    }
+  });
+});
+
 router.post('/body-stats', requireAuth, (req, res, next) => {
   bodyStatMediaUpload.single('file')(req, res, (err) => {
     if (err) return next(err);

@@ -566,6 +566,44 @@
     "set_type_time":         "Time",
     "set_type_time_hint":    "a duration you hold or carry: plank, wall sit, dead hang"
   },
+  "set_video": {
+    "title":             "Film a Set",
+    "player_title":      "Set Video",
+    "which_set":         "Which set?",
+    "record":            "Record",
+    "record_hint":       "Up to {seconds} seconds, filmed here so the file stays small",
+    "choose":            "Choose a Clip",
+    "choose_hint":       "From your phone, up to 200 MB",
+    "stop":              "Stop",
+    "seconds_left":      "{seconds}s left",
+    "retake":            "Retake",
+    "attach":            "Attach to Set",
+    "uploading":         "Uploading your clip",
+    "upload_failed":     "That clip could not be uploaded.",
+    "too_large":         "That clip is over 200 MB. Film a shorter set, or record it here instead.",
+    "no_camera":         "No camera available on this device.",
+    "needs_connection":  "Attaching a clip needs a connection. Everything else in the diary works offline.",
+    "loading":           "Loading the clip",
+    "playback_failed":   "That clip could not be played.",
+    "delete":            "Delete Clip",
+    "delete_failed":     "That clip could not be deleted.",
+    "no_note":           "No coach note on this one yet.",
+    "your_coach":        "Your coach",
+    "jump_to":           "Jump to {time}",
+    "your_reply":        "Your reply",
+    "reply_placeholder": "Reply to your coach",
+    "reply_failed":      "That reply could not be sent.",
+    "send":              "Send",
+    "has_clip":          "Watch this set",
+    "film_set":          "Film a set",
+    "note_at":           "Note at",
+    "mark_here":         "Stamp the note where the video is paused",
+    "note_placeholder":  "What should they fix?",
+    "save_note":         "Save Note",
+    "note_failed":       "That note could not be saved.",
+    "watch":             "Watch",
+    "their_reply":       "Their reply"
+  },
   "hold_timer": {
     "label":          "HOLD",
     "start":          "Start hold timer",
@@ -1671,6 +1709,7 @@
       "goals":            "Goals & Progress",
       "logging":          "Logging Behavior",
       "rest_timer":       "Rest Timer",
+        "clips":              "Set Videos",
       "body_measurements": "Body Measurements"
     },
     "goals": {
@@ -1746,6 +1785,18 @@
       "biceps":            "Biceps",
       "thighs":            "Thighs",
       "calves":            "Calves"
+    },
+    "clips": {
+      "label":         "Stored Clips",
+      "usage":         "{count} clips, {size}",
+      "oldest":        "oldest {date}",
+      "none":          "No clips stored yet",
+      "clear_6m":      "Delete Older Than 6 Months",
+      "clear_1m":      "Delete Older Than a Month",
+      "confirm_title": "Delete older clips?",
+      "confirm_msg":   "Every clip filmed before {date} will be deleted, along with its file. Coach notes on them are kept.",
+      "cleared":       "Deleted {count} clips",
+      "clear_failed":  "Those clips could not be deleted."
     }
   },
   "settings_notifications": {

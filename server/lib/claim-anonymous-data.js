@@ -1,5 +1,6 @@
 import db from '../db.js';
 import { deleteMediaForUser } from './body-stat-media.js';
+import { deleteMediaForUser as deleteSetMediaForUser } from './set-media.js';
 
 // ── Claim anonymous (single-user mode) data for the first real account ────
 // Single-user mode has no users row, so `uid()` writes NULL and the
@@ -22,7 +23,7 @@ import { deleteMediaForUser } from './body-stat-media.js';
 // route and both call it.
 export const CLAIM_NULL = [
   'workout_log', 'workout_tombstones', 'body_stats_log',
-  'body_stat_media', 'cardio_log', 'ai_chat_history',
+  'body_stat_media', 'set_media', 'cardio_log', 'ai_chat_history',
 ];
 
 const ORPHAN_EXTRA_COUNTS = [
@@ -121,6 +122,7 @@ const purgeAllUserData = db.transaction((userId) => {
   // disk, and a plain row DELETE would strand them. The loop's own
   // DELETE for that table is then a harmless no-op.
   deleteMediaForUser(userId);
+  deleteSetMediaForUser(userId);
   for (const t of CLAIM_NULL) {
     db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).run(userId);
   }
@@ -140,7 +142,7 @@ const purgeAllUserData = db.transaction((userId) => {
 // no-op. It matters if a future path ever reaches purgeUserRows without
 // the helper: rows would still go, rather than surviving a deleted
 // account entirely.
-const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state', 'body_stat_media'];
+const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state', 'body_stat_media', 'set_media'];
 
 export const purgeUserRows = db.transaction((userId) => {
   for (const t of NO_CASCADE_TABLES) {

@@ -185,7 +185,7 @@ router.get('/members/:id/workout/:date', wrap((req, res) => {
 // slots are distinct surfaces). Null exercise_idx = workout-level note.
 // Empty note deletes. Upserts on (workout_id, exercise_idx, trainer_id).
 router.post('/feedback', wrap((req, res) => {
-  const { workout_id, exercise_idx, exercise_uuid, note } = req.body || {};
+  const { workout_id, exercise_idx, exercise_uuid, note, media_id, media_time_sec } = req.body || {};
   if (!workout_id) return res.status(400).json({ error: 'workout_id required' });
 
   const workout = db.prepare('SELECT id, user_id, date, name FROM workout_log WHERE id = ? AND deleted_at IS NULL').get(workout_id);
@@ -193,6 +193,23 @@ router.post('/feedback', wrap((req, res) => {
   if (!ownsMember(req.user, workout.user_id)) return res.status(403).json({ error: 'Not your member' });
 
   const idx = exercise_idx ?? null;
+
+  // A note can hang off one of the member's clips and name the moment it is
+  // about (issue #57), so tapping the timestamp seeks the player. The clip
+  // has to be on this very workout: a coach pointing a note at any other row
+  // would hand themselves a readable id for footage from a different member.
+  let clipId = null;
+  let clipTime = null;
+  if (media_id != null) {
+    const clip = db.prepare(
+      'SELECT id FROM set_media WHERE id = ? AND workout_id = ? AND user_id = ? AND deleted_at IS NULL'
+    ).get(media_id, workout.id, workout.user_id);
+    if (!clip) return res.status(400).json({ error: 'That clip is not on this workout' });
+    clipId = clip.id;
+    clipTime = Number.isFinite(Number(media_time_sec)) && Number(media_time_sec) >= 0
+      ? Number(media_time_sec)
+      : null;
+  }
 
   if (!note || !String(note).trim()) {
     if (exercise_uuid) {
@@ -223,13 +240,14 @@ router.post('/feedback', wrap((req, res) => {
 
   if (existing) {
     db.prepare(
-      `UPDATE coach_feedback SET note = ?, exercise_uuid = COALESCE(?, exercise_uuid), exercise_idx = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(String(note).trim(), uuid, idx, existing.id);
+      `UPDATE coach_feedback SET note = ?, exercise_uuid = COALESCE(?, exercise_uuid), exercise_idx = ?,
+              media_id = ?, media_time_sec = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(String(note).trim(), uuid, idx, clipId, clipTime, existing.id);
   } else {
     db.prepare(
-      `INSERT INTO coach_feedback (trainer_id, member_id, workout_id, exercise_idx, exercise_uuid, note)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(req.user.id, workout.user_id, workout_id, idx, uuid, String(note).trim());
+      `INSERT INTO coach_feedback (trainer_id, member_id, workout_id, exercise_idx, exercise_uuid, note, media_id, media_time_sec)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(req.user.id, workout.user_id, workout_id, idx, uuid, String(note).trim(), clipId, clipTime);
   }
 
   if (!existing) {

@@ -4,6 +4,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import SetVideoPlayer from '../components/diary/SetVideoPlayer.svelte';
   import { currentUser } from '../stores/auth.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
@@ -197,6 +198,7 @@
     showWorkoutDetail = true;
     workoutDetailLoading = true;
     workoutDetail = null;
+    clips = [];
     workoutNote = '';
     exerciseNotes = {};
     editingExerciseIdx = null;
@@ -204,6 +206,7 @@
       const res = await fetch(`/api/trainer/members/${memberId}/workout/${w.date}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Could not load workout');
       workoutDetail = await res.json();
+      loadClips(workoutDetail?.id);
       const mine = (workoutDetail?.feedback || []).filter(f => f.trainer_id === $currentUser?.id);
       const wl = mine.find(f => f.exercise_idx == null);
       if (wl) workoutNote = wl.note || '';
@@ -240,6 +243,7 @@
       flashSaved('workout');
       const res = await fetch(`/api/trainer/members/${memberId}/workout/${workoutDetail.date}`, { credentials: 'include' });
       if (res.ok) workoutDetail = await res.json();
+      loadClips(workoutDetail?.id);
     } catch(e) { showError(e.message); }
     savingFeedback = null;
   }
@@ -254,6 +258,40 @@
     })) return;
     workoutNote = '';
     await saveWorkoutFeedback();
+  }
+
+  // ── Set videos (issue #57) ────────────────────────
+  // The whole point of a clip is that the coach can watch it, so the session
+  // view shows one per exercise that has footage and opens it with a note
+  // composer stamped at whatever moment they paused on.
+  let clips = [];
+  let clipOpen = false;
+  let clipMedia = null;
+  let clipIdx = null;
+  $: clipsByExercise = new Map((clips || []).filter(c => c.exercise_uuid).map(c => [c.exercise_uuid, c]));
+
+  async function loadClips(workoutId) {
+    if (!workoutId) { clips = []; return; }
+    try {
+      const r = await LtApi.getSetMediaForWorkout(workoutId);
+      clips = r?.media || [];
+    } catch {
+      clips = [];
+    }
+  }
+
+  function openClip(media, idx) {
+    clipMedia = media;
+    clipIdx = idx;
+    clipOpen = true;
+  }
+
+  async function onClipNoted() {
+    // The note lives on coach_feedback, so refresh the session to show it.
+    if (!workoutDetail) return;
+    const res = await fetch(`/api/trainer/members/${memberId}/workout/${workoutDetail.date}`, { credentials: 'include' });
+    if (res.ok) workoutDetail = await res.json();
+    loadClips(workoutDetail?.id);
   }
 
   async function saveExerciseFeedback(idx) {
@@ -271,6 +309,7 @@
       editingExerciseIdx = null;
       const res = await fetch(`/api/trainer/members/${memberId}/workout/${workoutDetail.date}`, { credentials: 'include' });
       if (res.ok) workoutDetail = await res.json();
+      loadClips(workoutDetail?.id);
     } catch(e) { showError(e.message); }
     savingFeedback = null;
   }
@@ -932,6 +971,12 @@
             <div class="wd-ex-head">
               <span class="wd-ex-name">{ex.exercise_name}</span>
               <span class="wd-ex-count">{done.length} {done.length === 1 ? 'set' : 'sets'}</span>
+              {#if clipsByExercise.get(ex.uuid)}
+                <button type="button" class="wd-ex-clip"
+                  on:click={() => openClip(clipsByExercise.get(ex.uuid), idx)}>
+                  <span class="material-symbols-rounded">play_circle</span>{$_('set_video.watch')}
+                </button>
+              {/if}
             </div>
             <div class="wd-sets">
               {#each done as s, i}
@@ -1085,6 +1130,17 @@
   </div>
 </Sheet>
 
+<SetVideoPlayer
+  bind:open={clipOpen}
+  media={clipMedia}
+  coach={true}
+  canDelete={false}
+  workoutId={workoutDetail?.id ?? null}
+  exerciseIdx={clipIdx}
+  exerciseUuid={clipMedia?.exercise_uuid ?? null}
+  subtitle={(workoutDetail?.exercises || [])[clipIdx]?.exercise_name || ''}
+  on:noted={onClipNoted} />
+
 <style>
   .page { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + var(--mini-player-h, 0px) + 16px); }
   .content { padding: 16px var(--page-px); display: flex; flex-direction: column; gap: 12px; }
@@ -1216,6 +1272,16 @@
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md);
   }
+  /* Watch affordance on an exercise the member filmed. */
+  .wd-ex-clip {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px 3px 6px; border-radius: 999px;
+    background: var(--accent-dim); color: var(--accent);
+    font-size: 12px; font-weight: 700;
+  }
+  .wd-ex-clip .material-symbols-rounded { font-size: 16px; }
+  .wd-ex-clip:active { transform: scale(0.95); }
+
   .wd-ex-head {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 8px;

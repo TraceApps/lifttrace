@@ -40,7 +40,7 @@ router.get('/inbox', wrap((req, res) => {
   if (userId == null) return res.json([]);
   const rows = db.prepare(`
     SELECT cf.id, cf.exercise_idx, cf.exercise_uuid, cf.note, cf.updated_at, cf.seen_by_member_at,
-           cf.member_reply, cf.member_replied_at,
+           cf.member_reply, cf.member_replied_at, cf.media_id, cf.media_time_sec,
            wl.date AS workout_date, wl.name AS workout_name, wl.exercises,
            COALESCE(u.nickname, u.full_name, u.username) AS trainer_name
       FROM coach_feedback cf

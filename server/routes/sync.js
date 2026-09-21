@@ -178,6 +178,13 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM body_stat_media WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(sinceSql, ...userParams).map(parseRow);
 
+  // Set videos (issue #57). The rows travel; the files do not, they are
+  // fetched on demand from /api/set-media/:id/file, which is also why a clip
+  // is the one piece of the diary that needs a connection to watch.
+  const set_media = db.prepare(
+    `SELECT * FROM set_media WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
+  ).all(sinceSql, ...userParams).map(parseRow);
+
   // user_settings — only the current user's keys; never push admin-only
   // keys (none yet, but the filter is a hook for future).
   const settings = u != null
@@ -211,6 +218,7 @@ router.get('/pull', wrap((req, res) => {
     workout_log,
     body_stats_log,
     body_stat_media,
+    set_media,
     workout_tombstones,
     user_settings: settings,
     ai_chat_history,
@@ -236,7 +244,7 @@ router.post('/push', wrap((req, res) => {
   const body = req.body || {};
   const result = {
     exercises: [], programs: [], workout_templates: [], program_assignments: [],
-    workout_log: [], body_stats_log: [], body_stat_media: [], user_settings: [], ai_chat_history: [],
+    workout_log: [], body_stats_log: [], body_stat_media: [], set_media: [], user_settings: [], ai_chat_history: [],
   };
 
   const norm = ts => ts ? toSqlTime(ts) : '';
@@ -509,6 +517,25 @@ router.post('/push', wrap((req, res) => {
         ).run(u, p.date, p.url);
         result.body_stat_media.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
+    }
+
+    // ── set_media (set videos) ───────────────────────────
+    //
+    // Same shape as progress photos above: keyed by server_id, immutable
+    // once written, so the only update that can arrive is a soft-delete.
+    // A clip is only ever created by the upload route (the file has to exist
+    // before a row can point at it), so this never inserts: it carries
+    // deletions between devices and nothing else.
+    for (const m of (body.set_media || [])) {
+      if (!m.server_id) continue;
+      const existing = db.prepare(`SELECT * FROM set_media WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+        .get(...(u != null ? [m.server_id, u] : [m.server_id]));
+      if (!existing) continue;
+      if (m.deleted_at && !existing.deleted_at && wins(m.updated_at, existing.updated_at)) {
+        db.prepare(`UPDATE set_media SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+        db.prepare('UPDATE coach_feedback SET media_id = NULL, media_time_sec = NULL WHERE media_id = ?').run(existing.id);
+      }
+      result.set_media.push({ client_id: m.client_id, server_id: existing.id });
     }
 
     // ── user_settings — keyed by (user_id, key), no surrogate id ───────

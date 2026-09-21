@@ -20,6 +20,8 @@
    *  best (top weight or top e1RM). Diary computes this; we just render a
    *  small "🔥 PR" badge with a brief sparkle when it lights up. */
   export let isPR = false;
+  /** A clip attached to this set (issue #57); the chip opens it. */
+  export let media = null;
   /** Load type of the parent exercise. Drives:
    *    - Weight column unit suffix: 'lbs' (bilateral), 'lbs each' (paired),
    *      'lbs/side' (unilateral)
@@ -194,6 +196,12 @@
 </script>
 
 <div class="set-row" class:done={set.completed} class:pulse={pulseOn} class:warmup={showAsWarmup} class:is-next={isNext} class:pr={isPR}>
+  {#if media}
+    <button type="button" class="clip-badge" on:click|stopPropagation={() => dispatch('openMedia', media)}
+      title="Watch this set" aria-label="Watch this set">
+      <span class="material-symbols-rounded">play_circle</span>
+    </button>
+  {/if}
   {#if isPR}
     <span class="pr-badge" title="New personal record!">🔥 PR</span>
   {/if}
@@ -403,6 +411,20 @@
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
   }
   .set-row.done { opacity: 0.6; }
+  /* A clip on this set. Sits opposite the PR badge so the two never fight
+     for the same corner, and stays small: it marks the row, the player is
+     where the clip actually lives. */
+  .clip-badge {
+    position: absolute; top: -9px; left: 10px; z-index: 2;
+    width: 24px; height: 24px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; border: 1px solid var(--accent);
+    background: var(--surface-1); color: var(--accent);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+  .clip-badge .material-symbols-rounded { font-size: 18px; }
+  .clip-badge:active { transform: scale(0.92); }
+
   /* PR set: keep the row full-opacity (override .done) + accent ring so
      the celebration doesn't get washed out by the post-completion fade. */
   .set-row.pr,

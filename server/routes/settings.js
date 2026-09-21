@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive, uid } from '../middleware/auth.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
+import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -42,6 +43,7 @@ router.delete('/clear-data', wrap((req, res) => {
   // Progress photos own files on disk, so they need the file-aware
   // helper rather than a plain row delete, or the images are orphaned.
   deleteMediaForUser(userId);
+  deleteSetMediaForUser(userId);
   db.prepare('DELETE FROM ai_chat_history WHERE user_id = ?').run(userId);
   // Delete user-created programs and their templates
   const userPrograms = db.prepare('SELECT id FROM programs WHERE created_by = ?').all(userId);

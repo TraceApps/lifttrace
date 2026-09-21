@@ -256,6 +256,44 @@ db.exec(`
     ON body_stat_media(user_id, date);
 `);
 
+// ── Set videos (issue #57) ───────────────────────────────────────────────
+// A short clip of one set, so a coach can review the lift, or you can watch
+// your own. Its own table rather than a column on workout_log: a clip owns a
+// file on disk, and anything owning a file needs the lifecycle touchpoints
+// body_stat_media already works through (SYNCABLE, CLAIM_NULL, full backup,
+// sync, and a file-aware delete).
+//
+// No FK on workout_id, deliberately, and this is the part that bit during
+// testing: with ON DELETE CASCADE, deleting a user's workouts (which account
+// deletion does first) silently took the clip ROWS with them, so the
+// file-aware helper that runs next found nothing to unlink and left the
+// videos on disk forever. A table that owns files cannot let rows disappear
+// behind its back. Clips are removed explicitly, rows and files together, by
+// deleteMediaForUser in lib/set-media.js. Same reasoning as body_stat_media,
+// which carries no FK either.
+//
+// Identified by exercise_uuid + set_uuid, never by position: an index drifts
+// the moment a set is reordered or removed, which is why coach_feedback grew
+// an exercise_uuid of its own. `date` is denormalised so a day's clips can be
+// listed without a join, the way the rest of the diary reads.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS set_media (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER,
+    workout_id    INTEGER,
+    date          TEXT NOT NULL,
+    exercise_uuid TEXT,
+    set_uuid      TEXT,
+    url           TEXT NOT NULL,
+    mime          TEXT,
+    duration_sec  REAL,
+    size_bytes    INTEGER,
+    created_at    TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_set_media_user_date ON set_media(user_id, date);
+  CREATE INDEX IF NOT EXISTS idx_set_media_workout   ON set_media(workout_id);
+`);
+
 // ── Cardio Log ───────────────────────────────────────────────────────────
 // Manual cardio session entry. Deliberately separate from workout_log so
 // nothing on the set-based lifting side (volume totals, PRs, rest-timer)
@@ -450,6 +488,11 @@ addColumnIfMissing('exercises', 'load_type', 'load_type TEXT DEFAULT NULL');
 // Library-level set type (issue #89): 'reps' | 'time', NULL = unset. Timed
 // exercises (plank, wall sit, dead hang) log a duration instead of reps.
 addColumnIfMissing('exercises', 'set_type', 'set_type TEXT DEFAULT NULL');
+
+// A coach note can hang off a set video and name the moment it is about, so
+// tapping the timestamp seeks the player there (issue #57).
+addColumnIfMissing('coach_feedback', 'media_id', 'media_id INTEGER');
+addColumnIfMissing('coach_feedback', 'media_time_sec', 'media_time_sec REAL');
 // Pinned cardio templates (NT activity_log parity).
 addColumnIfMissing('cardio_log', 'is_template', 'is_template INTEGER DEFAULT 0');
 
@@ -731,6 +774,7 @@ const SYNCABLE = [
   { table: 'workout_log',       hasCreated: 'created_at',  byUser: 'user_id' },
   { table: 'body_stats_log',    hasCreated: null,          byUser: 'user_id' },
   { table: 'body_stat_media',   hasCreated: 'created_at',  byUser: 'user_id' },
+  { table: 'set_media',         hasCreated: 'created_at',  byUser: 'user_id' },
   { table: 'ai_chat_history',   hasCreated: 'created_at',  byUser: 'user_id' },
 ];
 

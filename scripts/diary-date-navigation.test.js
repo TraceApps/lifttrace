@@ -30,7 +30,7 @@ const code = (src) => src
 test('the Diary has one helper that fetches, updates notes and coach feedback', () => {
   assert.match(
     diary,
-    /function goToDiaryDate\(ds\) \{\s*\n\s*loadWorkout\(ds\)\.then\(\(\) => \{ notes = \$todayLog\?\.notes \|\| ''; loadCoachFeedback\(ds\); \}\);/,
+    /function goToDiaryDate\(ds\) \{\s*\n\s*loadWorkout\(ds\)\.then\(\(\) => \{ notes = \$todayLog\?\.notes \|\| ''; loadCoachFeedback\(ds\); loadSetMedia\(ds\); \}\);/,
   );
 });
 

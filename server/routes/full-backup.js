@@ -218,6 +218,7 @@ function restoreFromZip(zip) {
     db.prepare('DELETE FROM workout_log').run();
     db.prepare('DELETE FROM body_stats_log').run();
     db.prepare('DELETE FROM body_stat_media').run();
+    db.prepare('DELETE FROM set_media').run();
     db.prepare('DELETE FROM coach_prescriptions').run();
     db.prepare('DELETE FROM workout_templates').run();
     db.prepare('DELETE FROM program_assignments').run();
@@ -295,6 +296,18 @@ function restoreFromZip(zip) {
     const insPhoto = db.prepare(`INSERT OR IGNORE INTO body_stat_media (id,user_id,date,kind,url,created_at,updated_at,deleted_at) VALUES (@id,@user_id,@date,@kind,@url,@created_at,@updated_at,@deleted_at)`);
     for (const p of data.body_stat_media || []) {
       insPhoto.run({ kind: 'photo', created_at: null, updated_at: null, deleted_at: null, ...p });
+    }
+
+    // Set videos (issue #57), same shape of restore: the files themselves
+    // ride along in the archive because it zips all of UPLOADS_DIR, so only
+    // the rows need writing back. Without this a restore would leave the
+    // clips on disk with nothing pointing at them.
+    const insClip = db.prepare(`INSERT OR IGNORE INTO set_media (id,user_id,workout_id,date,exercise_uuid,set_uuid,url,mime,duration_sec,size_bytes,created_at,updated_at,deleted_at) VALUES (@id,@user_id,@workout_id,@date,@exercise_uuid,@set_uuid,@url,@mime,@duration_sec,@size_bytes,@created_at,@updated_at,@deleted_at)`);
+    for (const m of data.set_media || []) {
+      insClip.run({
+        workout_id: null, exercise_uuid: null, set_uuid: null, mime: null,
+        duration_sec: null, size_bytes: null, created_at: null, updated_at: null, deleted_at: null, ...m,
+      });
     }
 
     // Cardio sessions. Legacy backups (pre-v1.1.0) have no cardio_log key
@@ -388,6 +401,7 @@ function dumpDatabase() {
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
     body_stat_media:     safe('SELECT * FROM body_stat_media'),
+    set_media:           safe('SELECT * FROM set_media'),
     cardio_log:          safe('SELECT * FROM cardio_log'),
     user_settings:       db.prepare('SELECT * FROM user_settings').all(),
     app_config:          db.prepare('SELECT * FROM app_config').all(),

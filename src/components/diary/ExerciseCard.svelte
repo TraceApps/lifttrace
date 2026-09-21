@@ -20,6 +20,13 @@
   // Set indices flagged as PRs for this exercise's current logging.
   // Diary computes this once per save based on cached previous bests.
   export let prSetIndices = null;
+  /** set uuid to clip row, for the play chip on a filmed set (issue #57). */
+  export let mediaBySet = null;
+  // A collapsed card would otherwise hide the fact that a set was filmed, so
+  // the header carries the same play affordance the set row does.
+  $: exerciseMedia = mediaBySet
+    ? (exercise?.sets || []).map(st => mediaBySet.get(st.uuid)).filter(Boolean)
+    : [];
 
   // Per-card collapse key: stable per workout-day + position. Reorders will
   // shift collapse state with the position rather than with the exercise
@@ -378,6 +385,13 @@
         </button>
       </div>
       <span class="ex-meta">{completedCount}/{workingSets.length} sets</span>
+      {#if exerciseMedia.length}
+        <button type="button" class="ex-clip" on:click|stopPropagation={() => dispatch('openMedia', exerciseMedia[0])}
+          title="Watch this set" aria-label="Watch this set">
+          <span class="material-symbols-rounded">play_circle</span>
+          {#if exerciseMedia.length > 1}<span class="ex-clip-n">{exerciseMedia.length}</span>{/if}
+        </button>
+      {/if}
     </div>
     <div class="ex-actions">
       {#if canMoveUp}
@@ -438,6 +452,8 @@
       {#each sets as set, setIdx (setIdx)}
         <SetRow
           {set}
+          media={mediaBySet?.get(set.uuid) || null}
+          on:openMedia
           setNum={_workingSetNum(setIdx)}
           showAsWarmup={!!set.warmup}
           isNext={setIdx === nextSetIdx}
@@ -571,6 +587,17 @@
     text-transform: uppercase; color: var(--text-3);
     padding: 4px 6px 6px;
   }
+  /* Filmed-set marker on the card header, so a collapsed card still shows
+     there is footage under it. */
+  .ex-clip {
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 2px 6px; margin-left: 6px;
+    border-radius: 999px; background: var(--accent-dim); color: var(--accent);
+    font-size: 11px; font-weight: 700;
+  }
+  .ex-clip .material-symbols-rounded { font-size: 15px; }
+  .ex-clip:active { transform: scale(0.94); }
+
   .load-menu-item {
     display: flex; align-items: flex-start; justify-content: space-between;
     gap: 8px; padding: 8px 10px;

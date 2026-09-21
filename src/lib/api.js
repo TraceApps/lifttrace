@@ -105,6 +105,25 @@ export const LtApi = {
   deleteProgressPhoto: (id) =>
     fetch(`/api/body-stats/photos/${id}`, { ...opts, method: 'DELETE' }).then(_json),
 
+  // Set videos (issue #57). Two-step like progress photos: upload the file,
+  // then attach the URL it returns to the set it belongs to.
+  uploadSetVideo: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch('/api/upload/set-video', { ...opts, method: 'POST', body: fd }).then(_json);
+  },
+  attachSetVideo: (body) =>
+    fetch('/api/set-media', { ...jsonOpts, method: 'POST', body: JSON.stringify(body) }).then(_json),
+  getSetMediaForDate: (date) =>
+    fetch(`/api/set-media?date=${encodeURIComponent(date)}`, opts).then(_json),
+  getSetMediaForWorkout: (workoutId) =>
+    fetch(`/api/set-media?workout_id=${encodeURIComponent(workoutId)}`, opts).then(_json),
+  deleteSetVideo: (id) =>
+    fetch(`/api/set-media/${id}`, { ...opts, method: 'DELETE' }).then(_json),
+  getSetMediaUsage: () => fetch('/api/set-media/usage', opts).then(_json),
+  cleanupSetMedia: (before) =>
+    fetch('/api/set-media/cleanup', { ...jsonOpts, method: 'POST', body: JSON.stringify({ before }) }).then(_json),
+
   // ── Statistics ─────────────────────────────────────────────────────────
   getVolume: (start, end) => fetch(`/api/stats/volume?start=${start}&end=${end}`, opts).then(_json),
   getFrequency: (start, end) => fetch(`/api/stats/frequency?start=${start}&end=${end}`, opts).then(_json),

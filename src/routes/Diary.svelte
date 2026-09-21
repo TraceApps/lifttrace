@@ -26,6 +26,9 @@
   import { fmtWeight, fmtDuration, countCompletedSets, generateWarmupSets, calc1RM, exerciseVolume, setVolume } from '../lib/workout.js';
   import ExerciseCard from '../components/diary/ExerciseCard.svelte';
   import HoldTimer from '../components/diary/HoldTimer.svelte';
+  import SetVideoSheet from '../components/diary/SetVideoSheet.svelte';
+  import SetVideoPlayer from '../components/diary/SetVideoPlayer.svelte';
+  import { offlineState } from '../lib/offline-api.js';
   import SupersetCard from '../components/diary/SupersetCard.svelte';
   import WorkoutTimer from '../components/diary/WorkoutTimer.svelte';
   import CardioCard from '../components/diary/CardioCard.svelte';
@@ -376,7 +379,7 @@
     const d = String(day).padStart(2, '0');
     const dateStr = `${calYear}-${m}-${d}`;
     showDatePicker = false;
-    loadWorkout(dateStr).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(dateStr); });
+    loadWorkout(dateStr).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(dateStr); loadSetMedia(dateStr); });
   }
   function calPickYear(y)  { calYear = y; showYearPicker = false; }
   function calPickMonth(m) { calMonth = m; showMonthPicker = false; }
@@ -544,6 +547,48 @@
   // diary's workout GET is served local-first from SQLite which has no
   // feedback table — without this the workout banner + per-exercise notes
   // would stay invisible to the member until a cache miss.
+  // ── Set videos (issue #57) ─────────────────────────
+  // A day's clips are fetched as rows only: enough to mark which sets have
+  // footage, with no video downloaded until someone opens one.
+  let setMedia = [];
+  let videoSheetOpen = false;
+  let videoSheetExercise = null;
+  let playerOpen = false;
+  let playerMedia = null;
+  let playerSubtitle = '';
+  $: mediaBySet = new Map((setMedia || []).filter(m => m.set_uuid).map(m => [m.set_uuid, m]));
+
+  async function loadSetMedia(dateStr) {
+    try {
+      const r = await LtApi.getSetMediaForDate(dateStr);
+      setMedia = r?.media || [];
+    } catch {
+      setMedia = [];
+    }
+  }
+
+  function openVideoSheet(idx) {
+    const ex = exercises[idx];
+    if (!ex) return;
+    videoSheetExercise = ex;
+    videoSheetOpen = true;
+  }
+
+  function openClip(media) {
+    playerMedia = media;
+    // Name the set, so a clip opened from a collapsed card is not a mystery.
+    const ex = exercises.find(e => e.uuid === media?.exercise_uuid);
+    const setNo = ex ? (ex.sets || []).findIndex(st => st.uuid === media?.set_uuid) + 1 : 0;
+    playerSubtitle = ex
+      ? (setNo > 0 ? `${ex.exercise_name}, set ${setNo}` : ex.exercise_name)
+      : '';
+    playerOpen = true;
+  }
+
+  function onClipDeleted(e) {
+    setMedia = setMedia.filter(m => m.id !== e.detail.id);
+  }
+
   async function loadCoachFeedback(dateStr) {
     try {
       const fb = await LtApi.getWorkoutFeedback(dateStr);
@@ -720,6 +765,7 @@
     loadActiveProgram();
     loadSuggestedPrescriptions();
     loadCoachFeedback($currentDate);
+    loadSetMedia($currentDate);
     loadUnreadFeedback();
 
     // Deep-link: ExerciseDetail's "Log this today" stashes the exercise
@@ -863,18 +909,18 @@
     const d = new Date($currentDate + 'T12:00:00');
     d.setDate(d.getDate() - 1);
     const ds = localDateStr(d);
-    loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); });
+    loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); loadSetMedia(ds); });
   }
   function nextDay() {
     const d = new Date($currentDate + 'T12:00:00');
     d.setDate(d.getDate() + 1);
     const ds = localDateStr(d);
-    loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); });
+    loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); loadSetMedia(ds); });
   }
   function goToday() {
     if (!isToday) {
       const ds = localDateStr();
-      loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); });
+      loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); loadSetMedia(ds); });
     }
   }
 
@@ -886,7 +932,7 @@
   // and populates todayLog. Same fetch+notes+feedback sequence prevDay/
   // nextDay/goToday already use above.
   function goToDiaryDate(ds) {
-    loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); });
+    loadWorkout(ds).then(() => { notes = $todayLog?.notes || ''; loadCoachFeedback(ds); loadSetMedia(ds); });
   }
 
   $: isToday = $currentDate === localDateStr();
@@ -2030,6 +2076,7 @@
     exActionsIdx = idx;
     exActionsTitle = ex.exercise_name;
     const actions = [];
+    actions.push({ label: $_('set_video.film_set'), icon: 'videocam', value: 'film' });
     actions.push({ label: 'Replace exercise', icon: 'swap_horiz', value: 'replace' });
     if (inSs) {
       actions.push({ label: 'Remove from superset', icon: 'link_off', value: 'leave_ss' });
@@ -2054,6 +2101,7 @@
         replacingIdx = idx;
         showPicker = true;
         break;
+      case 'film': openVideoSheet(idx); break;
       case 'leave_ss': leaveSuperset(idx); break;
       case 'join_ss': joinPickerOpen = true; break;
       case 'new_ss':
@@ -2622,6 +2670,8 @@
               on:remove={e => removeExercise(e.detail.idx)}
               on:removeSuperset={e => removeSuperset(e.detail)}
               on:addToSuperset={e => openSupersetPicker(e.detail)}
+              {mediaBySet}
+              on:openMedia={e => openClip(e.detail)}
               on:menu={e => openExMenu(e.detail.idx)}
               on:info={e => openInfoSheet(e.detail.idx)}
               on:moveWithinSuperset={e => moveWithinSuperset(e.detail)}
@@ -2640,6 +2690,8 @@
               on:remove={() => removeExercise(group.startIdx)}
               on:moveUp={() => moveExercise(group.startIdx, -1)}
               on:moveDown={() => moveExercise(group.startIdx, 1)}
+              {mediaBySet}
+              on:openMedia={e => openClip(e.detail)}
               on:menu={() => openExMenu(group.startIdx)}
               on:info={() => openInfoSheet(group.startIdx)}
             />
@@ -3149,6 +3201,19 @@
        App.svelte because its result is applied by this page's exercise
        cards; the store keeps it running if you navigate away. -->
   <HoldTimer on:goToDate={(e) => goToDiaryDate(e.detail)} />
+
+<SetVideoSheet
+  bind:open={videoSheetOpen}
+  exercise={videoSheetExercise}
+  workoutId={$todayLog?.id ?? null}
+  online={$offlineState.online !== false}
+  on:attached={() => loadSetMedia($currentDate)} />
+
+<SetVideoPlayer
+  bind:open={playerOpen}
+  media={playerMedia}
+  subtitle={playerSubtitle}
+  on:deleted={onClipDeleted} />
 
   <ActionSheet
     bind:open={showAddMenu}
