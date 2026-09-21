@@ -972,7 +972,9 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
     color: var(--accent-text, #fff);
     border: 1px solid rgba(255,255,255,0.25);
     cursor: pointer;
-    z-index: 400;
+    /* Below the lowest sheet (99) and above the bottom bar (50), so the
+       button never draws over an open sheet or dialog. Same as NutriTrace #233. */
+    z-index: 80;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 8px 32px rgba(0,0,0,0.35);
     backdrop-filter: blur(12px);
