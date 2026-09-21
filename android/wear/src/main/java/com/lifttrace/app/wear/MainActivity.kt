@@ -1,6 +1,8 @@
 package com.lifttrace.app.wear
 
 import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -8,7 +10,9 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +43,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -86,11 +91,27 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private lateinit var store: WearStore
+    /** Where to go on opening, when something outside the app said where. */
+    private var route by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = WearStore(applicationContext)
-        setContent { WearApp(store) }
+        route = intent?.getStringExtra(EXTRA_ROUTE)
+        setContent { WearApp(store, route) { route = null } }
+    }
+
+    // Tapping the rest on the watch face with the app already open: the same
+    // journey, and it should still go to the timer rather than wherever the
+    // app happened to be left.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        route = intent.getStringExtra(EXTRA_ROUTE)
+    }
+
+    companion object {
+        const val EXTRA_ROUTE = "com.lifttrace.app.wear.ROUTE"
     }
 
     override fun onResume() {
@@ -162,6 +183,7 @@ class Countdown(private val ctx: android.content.Context) {
         onDone = null
         RestAlarm.cancel(ctx)
         Pairing.clearTimer(ctx)
+        RestOngoing.hide(ctx)
         // Skipping a hold means it was not held: it should not log itself
         // later because an alarm was still out there.
         Pairing.clearHold(ctx)
@@ -170,6 +192,7 @@ class Countdown(private val ctx: android.content.Context) {
     private fun remember() {
         Pairing.putTimer(ctx, Pairing.Timer(label, total, endsAt))
         RestAlarm.schedule(ctx, endsAt)
+        RestOngoing.refresh(ctx)
     }
 
     fun secondsLeft(): Long =
@@ -177,7 +200,7 @@ class Countdown(private val ctx: android.content.Context) {
 }
 
 @Composable
-fun WearApp(store: WearStore) {
+fun WearApp(store: WearStore, route: String? = null, onRouted: () -> Unit = {}) {
     val nav = rememberSwipeDismissableNavController()
     val state by store.state.collectAsStateWithLifecycle()
     // The timer lives above the screens: it keeps running while you look at
@@ -189,6 +212,29 @@ fun WearApp(store: WearStore) {
     // into the session by the act of tapping "Add a set", so backing out of
     // one leaves no empty set behind for the phone to inherit.
     var adding by remember { mutableStateOf<Session.Change?>(null) }
+
+    // Opened from the rest on the watch face: go where it points, once.
+    LaunchedEffect(route) {
+        if (route != null) {
+            nav.navigate(route)
+            onRouted()
+        }
+    }
+
+    // Asked the first time there is something to show, not on first launch:
+    // a permission prompt makes sense next to the thing it is for. Refused,
+    // everything still works except the entry on the face.
+    val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        RestOngoing.refresh(context)
+    }
+    val resting = clock.endsAt > 0L
+    LaunchedEffect(resting) {
+        if (!resting || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@LaunchedEffect
+        val granted = ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) notify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
 
     // While the app is open, keep up with the phone: a set ticked off there
     // should not need the watch to be closed and opened again.
