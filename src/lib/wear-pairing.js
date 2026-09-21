@@ -42,10 +42,9 @@ export async function pairWatch() {
   try {
     await WearPairing.pair({ serverUrl, token });
     // A watch paired part way through a session should still show its
-    // length, so whatever the timer is doing goes over with the pairing.
-    try {
-      await publishWorkoutTimer(JSON.parse(localStorage.getItem('lt:workoutTimer') || 'null'));
-    } catch { /* no timer running */ }
+    // length, and one that started the timer itself should have that
+    // honoured here rather than overwritten.
+    await syncWorkoutTimer();
     return true;
   } catch {
     return false;
@@ -72,6 +71,40 @@ export async function publishWorkoutTimer(state) {
       paused: !!state.paused,
       pausedElapsed: Number(state.pausedElapsed) || 0,
     });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Settle the session timer between the phone and the watch. Either can start,
+ * pause or stop it, so whichever spoke last is the one that counts; this runs
+ * when the app comes back to the front, which is before anyone can press
+ * anything here.
+ */
+export async function syncWorkoutTimer() {
+  if (!isNative) return false;
+  try {
+    const remote = await WearPairing.readTimer();
+    const { timerStampedAt, adoptTimer } = await import('../stores/workoutTimer.js');
+    const mine = timerStampedAt();
+    const local = JSON.parse(localStorage.getItem('lt:workoutTimer') || 'null');
+    if (remote?.found && Number(remote.at || 0) > mine) {
+      adoptTimer(remote.cleared ? null : {
+        date: String(remote.date || ''),
+        startTime: Number(remote.startTime) || 0,
+        baseElapsed: Number(remote.baseElapsed) || 0,
+        paused: !!remote.paused,
+        pausedElapsed: Number(remote.pausedElapsed) || 0,
+        at: Number(remote.at) || 0,
+      });
+      return true;
+    }
+    // Nothing either side: leave the watch alone rather than publishing a
+    // stopped marker on every glance at the phone.
+    if (!local && !remote?.found) return true;
+    await publishWorkoutTimer(local);
     return true;
   } catch {
     return false;

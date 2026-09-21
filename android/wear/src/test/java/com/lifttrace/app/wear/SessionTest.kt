@@ -404,6 +404,45 @@ class SessionTest {
     }
 
     @Test
+    fun `pausing holds the total, and resuming carries on from it`() {
+        val now = 1_700_000_000_000L
+        val running = Pairing.SessionTimer("2026-09-21", now - 600_000, 0.0, false, 0.0)
+        val paused = running.pausedAt(now)
+        assertTrue(paused.paused)
+        assertEquals(600_000L, paused.elapsedMs(now + 120_000))
+        val resumed = paused.resumedAt(now + 120_000)
+        assertFalse(resumed.paused)
+        // Ten minutes before the pause, one minute after resuming.
+        assertEquals(660_000L, resumed.elapsedMs(now + 180_000))
+    }
+
+    @Test
+    fun `the length written down is the length the phone would write`() {
+        val now = 1_700_000_000_000L
+        // 47 minutes and 18 seconds is 47.3 minutes, to a tenth, as on the phone.
+        val timer = Pairing.SessionTimer("2026-09-21", now - 2_838_000, 0.0, false, 0.0)
+        assertEquals(47.3, timer.minutes(now), 0.001)
+    }
+
+    @Test
+    fun `a queued change survives being written down, whichever kind it is`() {
+        val set = Pairing.Op(
+            "2026-09-21", 7,
+            change = Session.Change("e1", "s2", 190.0, 7, null, null, 0, true, false),
+        )
+        val back = Pairing.Op.from(set.toJson())
+        assertEquals(set, back)
+        assertEquals("s2", back.key)
+
+        val length = Pairing.Op("2026-09-21", 7, minutes = 47.3)
+        val lengthBack = Pairing.Op.from(length.toJson())
+        assertEquals(length, lengthBack)
+        assertEquals(47.3, lengthBack.minutes!!, 0.001)
+        assertNull(lengthBack.change)
+        assertEquals("duration", lengthBack.key)
+    }
+
+    @Test
     fun `the countdown reads as a clock`() {
         assertEquals("1:30", Session.clock(90))
         assertEquals("0:05", Session.clock(5))

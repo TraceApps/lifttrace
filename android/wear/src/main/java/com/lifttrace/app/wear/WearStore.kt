@@ -95,7 +95,9 @@ class WearStore(private val ctx: Context) {
             // what came back: keep it on screen rather than letting the
             // server's answer undo it in front of the wearer.
             val waiting = Pairing.outbox(ctx)
-            val shown = workout?.let { w -> waiting.fold(w) { acc, op -> Session.applyChange(acc, op.change) } }
+            val shown = workout?.let { w ->
+                waiting.fold(w) { acc, op -> op.change?.let { Session.applyChange(acc, it) } ?: acc }
+            }
             if (shown != null) Pairing.putCache(ctx, wrap(shown))
             else Pairing.putCache(ctx, body)
             redrawSurfaces()
@@ -162,6 +164,49 @@ class WearStore(private val ctx: Context) {
         Pairing.config(ctx)?.let { flush(it) }
     }
 
+    // ── The session's own clock ──────────────────────────────────────────
+
+    /**
+     * Start, pause, resume, stop. One timer, which either the watch or the
+     * phone can drive: what is kept is a start time and a running total, so
+     * both sides show the same number without either having to be awake.
+     */
+    fun startSession() {
+        publishSession(Pairing.SessionTimer(today, System.currentTimeMillis(), 0.0, false, 0.0))
+    }
+
+    fun pauseSession() {
+        val timer = _state.value.session ?: return
+        if (timer.paused) return
+        publishSession(timer.pausedAt(System.currentTimeMillis()))
+    }
+
+    fun resumeSession() {
+        val timer = _state.value.session ?: return
+        if (!timer.paused) return
+        publishSession(timer.resumedAt(System.currentTimeMillis()))
+    }
+
+    /**
+     * Done timing. The length goes onto the session the same way a set does,
+     * queued if there is no signal, so it is written down whether or not the
+     * phone is ever opened in the gym.
+     */
+    suspend fun stopSession() {
+        val timer = _state.value.session ?: return
+        val minutes = timer.minutes(System.currentTimeMillis())
+        publishSession(null)
+        val day = _state.value.workout ?: return
+        Pairing.queue(ctx, Pairing.Op(day.date.ifBlank { today }, day.id, minutes = minutes))
+        _state.value = _state.value.copy(pending = Pairing.outbox(ctx).size, flash = "Time saved")
+        Pairing.config(ctx)?.let { flush(it) }
+    }
+
+    private fun publishSession(timer: Pairing.SessionTimer?) {
+        Pairing.publishSession(ctx, timer)
+        _state.value = _state.value.copy(session = sessionTimer())
+    }
+
     /**
      * Send what is waiting. The day is read again first and the watch's own
      * changes are replayed onto it, so what goes back carries everything the
@@ -186,7 +231,10 @@ class WearStore(private val ctx: Context) {
                 return false
             }
             var body = server.raw
-            for (op in waiting.filter { it.date == date }) body = Session.upsert(body, op.change)
+            for (op in waiting.filter { it.date == date }) {
+                op.change?.let { body = Session.upsert(body, it) }
+                op.minutes?.let { body.put("duration_min", it) }
+            }
             val saved = LiftApi.saveWorkout(cfg, date, body)
             Pairing.writeOutbox(ctx, waiting.filterNot { it.date == date })
             val workout = Session.parse(saved)

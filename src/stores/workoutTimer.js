@@ -7,12 +7,37 @@ function _load() {
   catch { return null; }
 }
 function _save(state) {
+  // Stamped, so that when the phone and the watch have both had a say, the
+  // later one is the one that counts.
+  const stamped = state ? { ...state, at: Date.now() } : null;
+  if (stamped) localStorage.setItem(KEY, JSON.stringify(stamped));
+  else localStorage.removeItem(KEY);
+  // A paired watch shows how long you have been training and can start, pause
+  // and stop it itself. It is told whenever the timer changes here and counts
+  // on its own from there, so the phone can go back in a locker.
+  publishTimer(stamped);
+}
+
+/** When the timer here was last changed, for settling that against the watch. */
+export function timerStampedAt() {
+  try {
+    return JSON.parse(localStorage.getItem(KEY) || 'null')?.at || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The watch started, paused or stopped the timer. Take its word for it
+ * without telling it back what it just told us.
+ */
+export function adoptTimer(state) {
   if (state) localStorage.setItem(KEY, JSON.stringify(state));
   else localStorage.removeItem(KEY);
-  // A paired watch shows how long you have been training. It is told
-  // whenever the timer changes and counts on its own from there, so the
-  // phone can go back in a locker without the number freezing.
-  publishTimer(state);
+  timerState.set(state);
+  timerMs.set(_computeMs(state));
+  if (state && !state.paused) _startTicking();
+  else _stopTicking();
 }
 
 function publishTimer(state) {

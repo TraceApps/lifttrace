@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import com.google.android.gms.wearable.DataMapItem
+import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
@@ -148,6 +149,17 @@ object Pairing {
         fun elapsedMs(now: Long): Long =
             if (paused) (pausedElapsedSec * 1000).toLong()
             else maxOf(0L, (baseElapsedSec * 1000).toLong() + (now - startTime))
+
+        /** Held where it stands, with the total it had reached. */
+        fun pausedAt(now: Long): SessionTimer =
+            copy(paused = true, pausedElapsedSec = elapsedMs(now) / 1000.0)
+
+        /** Counting again from now, on top of what it had already run. */
+        fun resumedAt(now: Long): SessionTimer =
+            copy(startTime = now, baseElapsedSec = pausedElapsedSec, paused = false, pausedElapsedSec = 0.0)
+
+        /** The length to write onto the session, rounded as the phone rounds it. */
+        fun minutes(now: Long): Double = Math.round(elapsedMs(now) / 6000.0) / 10.0
     }
 
     fun session(ctx: Context): SessionTimer? {
@@ -165,6 +177,10 @@ object Pairing {
     }
 
     fun putSession(ctx: Context, map: com.google.android.gms.wearable.DataMap) {
+        if (map.getBoolean("cleared", false)) {
+            clearSession(ctx)
+            return
+        }
         val o = JSONObject()
             .put("date", map.getString("date").orEmpty())
             .put("startTime", map.getLong("startTime"))
@@ -176,6 +192,42 @@ object Pairing {
 
     fun clearSession(ctx: Context) {
         prefs(ctx).edit().remove(KEY_SESSION).apply()
+    }
+
+    /**
+     * The wearer started, paused or stopped the timer. It is written down here
+     * and told to the phone, which is what writes the session's length onto
+     * the day when the workout is finished there.
+     */
+    fun publishSession(ctx: Context, timer: SessionTimer?) {
+        if (timer == null) clearSession(ctx) else putSession(ctx, timer)
+        val request = PutDataMapRequest.create(PairingService.TIMER_PATH)
+        request.dataMap.apply {
+            if (timer == null) {
+                putBoolean("cleared", true)
+            } else {
+                putBoolean("cleared", false)
+                putString("date", timer.date)
+                putLong("startTime", timer.startTime)
+                putDouble("baseElapsed", timer.baseElapsedSec)
+                putBoolean("paused", timer.paused)
+                putDouble("pausedElapsed", timer.pausedElapsedSec)
+            }
+            putLong("at", System.currentTimeMillis())
+        }
+        runCatching {
+            Wearable.getDataClient(ctx).putDataItem(request.asPutDataRequest().setUrgent())
+        }.onFailure { Log.w(TAG, "couldn't tell the phone about the timer: " + it.message) }
+    }
+
+    private fun putSession(ctx: Context, timer: SessionTimer) {
+        val o = JSONObject()
+            .put("date", timer.date)
+            .put("startTime", timer.startTime)
+            .put("baseElapsed", timer.baseElapsedSec)
+            .put("paused", timer.paused)
+            .put("pausedElapsed", timer.pausedElapsedSec)
+        prefs(ctx).edit().putString(KEY_SESSION, o.toString()).apply()
     }
 
     // ── What you did last time ───────────────────────────────────────────
@@ -237,33 +289,48 @@ object Pairing {
     data class Op(
         val date: String,
         val workoutId: Long,
-        val change: Session.Change,
+        /** A set, as the watch now says it reads. */
+        val change: Session.Change? = null,
+        /** Or how long the session ran, when the timer was stopped here. */
+        val minutes: Double? = null,
     ) {
-        fun toJson(): JSONObject = JSONObject()
-            .put("date", date).put("workoutId", workoutId)
-            .put("exerciseUuid", change.exerciseUuid).put("setUuid", change.setUuid)
-            .put("weight", change.weight).put("reps", change.reps)
-            .put("repsLeft", change.repsLeft ?: JSONObject.NULL)
-            .put("repsRight", change.repsRight ?: JSONObject.NULL)
-            .put("durationSec", change.durationSec)
-            .put("completed", change.completed).put("warmup", change.warmup)
+        /** One entry per set, and one for the session's length. */
+        val key: String get() = change?.setUuid ?: "duration"
+
+        fun toJson(): JSONObject {
+            val o = JSONObject().put("date", date).put("workoutId", workoutId)
+            if (minutes != null) return o.put("minutes", minutes)
+            val c = change ?: return o
+            return o
+                .put("exerciseUuid", c.exerciseUuid).put("setUuid", c.setUuid)
+                .put("weight", c.weight).put("reps", c.reps)
+                .put("repsLeft", c.repsLeft ?: JSONObject.NULL)
+                .put("repsRight", c.repsRight ?: JSONObject.NULL)
+                .put("durationSec", c.durationSec)
+                .put("completed", c.completed).put("warmup", c.warmup)
+        }
 
         companion object {
-            fun from(o: JSONObject) = Op(
-                date = o.optString("date"),
-                workoutId = o.optLong("workoutId"),
-                change = Session.Change(
-                    exerciseUuid = o.optString("exerciseUuid"),
-                    setUuid = o.optString("setUuid"),
-                    weight = o.optDouble("weight", 0.0),
-                    reps = o.optInt("reps", 0),
-                    repsLeft = if (o.isNull("repsLeft")) null else o.optInt("repsLeft", 0),
-                    repsRight = if (o.isNull("repsRight")) null else o.optInt("repsRight", 0),
-                    durationSec = o.optInt("durationSec", 0),
-                    completed = o.optBoolean("completed", false),
-                    warmup = o.optBoolean("warmup", false),
-                ),
-            )
+            fun from(o: JSONObject): Op {
+                if (o.has("minutes")) {
+                    return Op(o.optString("date"), o.optLong("workoutId"), minutes = o.optDouble("minutes", 0.0))
+                }
+                return Op(
+                    date = o.optString("date"),
+                    workoutId = o.optLong("workoutId"),
+                    change = Session.Change(
+                        exerciseUuid = o.optString("exerciseUuid"),
+                        setUuid = o.optString("setUuid"),
+                        weight = o.optDouble("weight", 0.0),
+                        reps = o.optInt("reps", 0),
+                        repsLeft = if (o.isNull("repsLeft")) null else o.optInt("repsLeft", 0),
+                        repsRight = if (o.isNull("repsRight")) null else o.optInt("repsRight", 0),
+                        durationSec = o.optInt("durationSec", 0),
+                        completed = o.optBoolean("completed", false),
+                        warmup = o.optBoolean("warmup", false),
+                    ),
+                )
+            }
         }
     }
 
@@ -277,7 +344,7 @@ object Pairing {
         // One entry per set: changing the same set twice is a correction, not
         // a second set, and the last word wins. The new entry goes at the end
         // so the order changes were made in is the order they are replayed in.
-        val kept = outbox(ctx).filterNot { it.change.setUuid == op.change.setUuid && it.date == op.date }
+        val kept = outbox(ctx).filterNot { it.key == op.key && it.date == op.date }
         writeOutbox(ctx, kept + op)
     }
 

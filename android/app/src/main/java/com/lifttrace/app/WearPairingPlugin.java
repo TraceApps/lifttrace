@@ -9,6 +9,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import android.util.Log;
 
 import com.google.android.gms.wearable.DataClient;
+import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
@@ -90,18 +91,61 @@ public class WearPairingPlugin extends Plugin {
         req.getDataMap().putDouble("baseElapsed", call.getDouble("baseElapsed", 0d));
         req.getDataMap().putBoolean("paused", Boolean.TRUE.equals(call.getBoolean("paused", false)));
         req.getDataMap().putDouble("pausedElapsed", call.getDouble("pausedElapsed", 0d));
+        req.getDataMap().putBoolean("cleared", false);
         req.getDataMap().putLong("at", System.currentTimeMillis());
         Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
             .addOnSuccessListener(item -> call.resolve())
             .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
     }
 
-    /** The session timer was cleared: the watch should stop showing one. */
+    /**
+     * What the watch says the session timer is doing. The phone reads this
+     * when it comes back to the front and takes it if it is the later word,
+     * so starting the timer on the wrist reaches the phone that writes the
+     * session's length down.
+     */
+    @PluginMethod
+    public void readTimer(PluginCall call) {
+        Wearable.getDataClient(getContext()).getDataItems()
+            .addOnSuccessListener(items -> {
+                JSObject ret = new JSObject();
+                ret.put("found", false);
+                for (com.google.android.gms.wearable.DataItem item : items) {
+                    String path = item.getUri().getPath();
+                    if (path == null || !path.startsWith(TIMER_PATH)) continue;
+                    com.google.android.gms.wearable.DataMap map =
+                        DataMapItem.fromDataItem(item).getDataMap();
+                    ret.put("found", true);
+                    ret.put("date", map.getString("date", ""));
+                    ret.put("startTime", map.getLong("startTime", 0L));
+                    ret.put("baseElapsed", map.getDouble("baseElapsed", 0d));
+                    ret.put("paused", map.getBoolean("paused", false));
+                    ret.put("pausedElapsed", map.getDouble("pausedElapsed", 0d));
+                    ret.put("at", map.getLong("at", 0L));
+                    ret.put("cleared", map.getBoolean("cleared", false));
+                }
+                items.release();
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> {
+                JSObject ret = new JSObject();
+                ret.put("found", false);
+                call.resolve(ret);
+            });
+    }
+
+    /**
+     * The session timer was stopped. Published as a stopped marker rather than
+     * deleted, so both sides can tell "stopped a moment ago" from "nothing has
+     * been said yet" and the later word still wins.
+     */
     @PluginMethod
     public void clearTimer(PluginCall call) {
-        Wearable.getDataClient(getContext())
-            .deleteDataItems(new android.net.Uri.Builder().scheme("wear").path(TIMER_PATH).build())
-            .addOnSuccessListener(count -> call.resolve())
+        PutDataMapRequest req = PutDataMapRequest.create(TIMER_PATH);
+        req.getDataMap().putBoolean("cleared", true);
+        req.getDataMap().putLong("at", System.currentTimeMillis());
+        Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
+            .addOnSuccessListener(item -> call.resolve())
             .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
     }
 

@@ -223,6 +223,7 @@ fun WearApp(store: WearStore) {
                 )
             }
             composable("timer") { TimerScreen(clock, nav) }
+            composable("time") { SessionTimeScreen(store, nav) }
         }
     }
 }
@@ -280,21 +281,32 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             if (state.pending > 0 || state.offline || state.error != null) {
                 item { StatusLine(state) }
             }
-            // How long you have been at it, as the phone's own workout timer
-            // counts it. Read only: one timer, and it belongs to the phone.
-            state.session?.let { session ->
+            // How long you have been at it. The same timer the phone keeps, so
+            // either can start it, and it is what the session's length is
+            // written from. Tap it to start, pause or stop.
+            if (state.workout != null) {
                 item {
-                    var elapsed by remember { mutableStateOf(session.elapsedMs(System.currentTimeMillis())) }
+                    val session = state.session
+                    var elapsed by remember(session) {
+                        mutableStateOf(session?.elapsedMs(System.currentTimeMillis()) ?: 0L)
+                    }
                     LaunchedEffect(session) {
-                        while (!session.paused) {
+                        while (session != null && !session.paused) {
                             elapsed = session.elapsedMs(System.currentTimeMillis())
                             delay(1000)
                         }
                     }
-                    Text(
-                        Session.elapsed(elapsed) + if (session.paused) " · paused" else "",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleMedium,
+                    Button(
+                        onClick = { nav.navigate("time") },
+                        label = {
+                            Text(
+                                when {
+                                    session == null -> "Start the session timer"
+                                    session.paused -> Session.elapsed(elapsed) + " · paused"
+                                    else -> Session.elapsed(elapsed)
+                                },
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -603,6 +615,74 @@ private fun SetScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The session's own clock: how long you have been training, and the three
+ * things you ever do to it. Stopping writes the length onto the session, so a
+ * workout timed entirely from the wrist still has its length recorded.
+ */
+@Composable
+private fun SessionTimeScreen(store: WearStore, nav: NavHostController) {
+    val state by store.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val session = state.session
+    var elapsed by remember(session) {
+        mutableStateOf(session?.elapsedMs(System.currentTimeMillis()) ?: 0L)
+    }
+    LaunchedEffect(session) {
+        while (session != null && !session.paused) {
+            elapsed = session.elapsedMs(System.currentTimeMillis())
+            delay(1000)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 24.dp),
+        ) {
+            Text(Session.elapsed(elapsed), style = MaterialTheme.typography.displayMedium)
+            Text(
+                when {
+                    session == null -> "Not timing"
+                    session.paused -> "Paused"
+                    else -> "Session time"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            if (session == null) {
+                Button(
+                    onClick = {
+                        store.startSession()
+                        nav.popBackStack()
+                    },
+                    label = { Text("Start") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                // Words rather than glyphs: there is room on a screen of its
+                // own, and a small round icon is a poor thing to aim at when
+                // you are out of breath.
+                Button(
+                    onClick = { if (session.paused) store.resumeSession() else store.pauseSession() },
+                    label = { Text(if (session.paused) "Resume" else "Pause") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = {
+                        scope.launch { store.stopSession() }
+                        nav.popBackStack()
+                    },
+                    label = { Text("Stop and save") },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
             }
         }
     }
