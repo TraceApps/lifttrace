@@ -387,7 +387,11 @@ object Session {
                 // all, so the name is what matches it to the same lift last
                 // week. Both are written when both are known.
                 val keys = lastKeys(id, name)
-                if (keys.isEmpty() || keys.all { out.containsKey(it) }) continue
+                // Already have this lift from a later session: leave it be.
+                // Filling the id and the name from different sessions would
+                // let an older one answer under the id while a newer one sat
+                // under the name, and the id is what is read first.
+                if (keys.isEmpty() || keys.any { out.containsKey(it) }) continue
                 val sets = mutableListOf<Set>()
                 val rawSets = e.optJSONArray("sets") ?: JSONArray()
                 for (k in 0 until rawSets.length()) {

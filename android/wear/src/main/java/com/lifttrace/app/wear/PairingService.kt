@@ -19,8 +19,14 @@ class PairingService : WearableListenerService() {
         for (event in events) {
             val path = event.dataItem.uri.path ?: continue
             if (path.startsWith(TIMER_PATH)) {
-                if (event.type == DataEvent.TYPE_DELETED) Pairing.clearSession(this)
-                else Pairing.putSession(this, DataMapItem.fromDataItem(event.dataItem).dataMap)
+                // A stopped timer arrives as a dated record saying so, never
+                // as a deletion, so a deletion here is the Data Layer tidying
+                // up after a device rather than anyone stopping anything.
+                // Acting on it would throw away a timer the other device is
+                // still running.
+                if (event.type != DataEvent.TYPE_DELETED) {
+                    Pairing.putSession(this, DataMapItem.fromDataItem(event.dataItem).dataMap)
+                }
                 continue
             }
             if (!path.startsWith(PATH)) continue

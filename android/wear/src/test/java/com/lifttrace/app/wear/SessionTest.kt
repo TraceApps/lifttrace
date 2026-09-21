@@ -487,6 +487,35 @@ class SessionTest {
     }
 
     @Test
+    fun `the id and the name never answer with different sessions`() {
+        // Last Thursday's was built from a template and carries only a name.
+        // The one before it came from the catalogue and carries both. Reading
+        // by id must not reach back past the newer session.
+        val recent = """
+            [{"date":"2026-09-18","exercises":[
+               {"exercise_name":"Bench Press","uuid":"x1","sets":[
+                 {"uuid":"a","reps":8,"weight":205,"completed":true}]}]},
+             {"date":"2026-09-15","exercises":[
+               {"exercise_id":11,"exercise_name":"Bench Press","uuid":"x2","sets":[
+                 {"uuid":"b","reps":8,"weight":185,"completed":true}]}]}]
+        """.trimIndent()
+        val lines = Session.lastTimes(recent, "2026-09-21", "lbs")
+        assertEquals("205 lbs x 8 reps", lines["name:bench press"])
+        // The older session must not have claimed the id key for itself.
+        assertNull(lines["id:11"])
+        // So an exercise carrying the id still reads the newer session.
+        val today = Session.parse(
+            """{"workout":{"id":1,"date":"2026-09-21","name":"Push","exercises":[
+                 {"uuid":"y1","exercise_id":11,"exercise_name":"Bench Press","sets":[
+                   {"uuid":"c","reps":8,"weight":205,"completed":false}]}]}}"""
+        )!!
+        assertEquals(
+            "205 lbs x 8 reps",
+            Session.lastKeys(today.exercises[0]).firstNotNullOfOrNull { lines[it] },
+        )
+    }
+
+    @Test
     fun `a session with no catalogue ids still finds what you did last time`() {
         // What a template-built session actually looks like: names, no ids.
         val recent = """

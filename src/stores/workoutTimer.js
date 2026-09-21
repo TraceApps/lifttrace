@@ -21,13 +21,18 @@ function _save(state) {
   // A paired watch shows how long you have been training and can start, pause
   // and stop it itself. It is told whenever the timer changes here and counts
   // on its own from there, so the phone can go back in a locker.
-  publishTimer(stamped);
+  publishTimer(stamped, at);
 }
 
 /** When the timer here was last changed, for settling that against the watch. */
 export function timerStampedAt() {
   try {
-    return Number(localStorage.getItem(AT_KEY)) || 0;
+    // The stamp used to live inside the timer itself. A timer already
+    // running when this app updated has one there and not in its own key,
+    // and reading that as nought would let the watch's word beat it: the
+    // phone would adopt whatever the watch last said, and finishing the
+    // workout would then write its length down as zero.
+    return Number(localStorage.getItem(AT_KEY)) || Number(_load()?.at) || 0;
   } catch {
     return 0;
   }
@@ -47,10 +52,10 @@ export function adoptTimer(state, at = 0) {
   else _stopTicking();
 }
 
-function publishTimer(state) {
+function publishTimer(state, at) {
   try {
     import('../lib/wear-pairing.js')
-      .then(({ publishWorkoutTimer }) => publishWorkoutTimer(state))
+      .then(({ publishWorkoutTimer }) => publishWorkoutTimer(state, at))
       .catch(() => {});
   } catch { /* no watch, or no bundler support here */ }
 }

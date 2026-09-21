@@ -229,11 +229,16 @@ object Pairing {
             .apply()
     }
 
+    /**
+     * Forget the running timer. The stamp only moves when the clearing was
+     * itself dated: stamping an undated one with the time of day would shut
+     * out every record older than this moment, including the very one that
+     * is about to arrive from the other device.
+     */
     fun clearSession(ctx: Context, at: Long = 0L) {
-        prefs(ctx).edit()
-            .remove(KEY_SESSION)
-            .putLong(KEY_SESSION_AT, if (at > 0) at else System.currentTimeMillis())
-            .apply()
+        val edit = prefs(ctx).edit().remove(KEY_SESSION)
+        if (at > 0) edit.putLong(KEY_SESSION_AT, at)
+        edit.apply()
     }
 
     /**
