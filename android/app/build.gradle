@@ -98,6 +98,9 @@ dependencies {
     // Replaces capacitor-music-controls-plugin which was unreliable
     // on Android 14+.
     implementation "androidx.media3:media3-session:1.4.1"
+    // Wearable Data Layer: how the phone hands the watch app the
+    // server address and a token. Nothing is typed on a watch.
+    implementation "com.google.android.gms:play-services-wearable:19.0.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

@@ -14,7 +14,7 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
   <a href="https://github.com/traceapps/lifttrace/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/traceapps/lifttrace?label=release&color=orange"></a>
   <a href="https://github.com/traceapps/lifttrace/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/traceapps/lifttrace/total?label=downloads&color=brightgreen"></a>
   <a href="https://github.com/traceapps/lifttrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/lifttrace?style=social"></a>
-  <a href="https://traceapps.github.io/docs/getting-started/compose/"><img alt="Platform" src="https://img.shields.io/badge/platform-Web%20%7C%20Android%20%7C%20Docker-lightgrey"></a>
+  <a href="https://traceapps.github.io/docs/getting-started/compose/"><img alt="Platform" src="https://img.shields.io/badge/platform-Web%20%7C%20Android%20%7C%20Wear%20OS%20%7C%20Docker-lightgrey"></a>
   <br/>
   <a href="https://traceapps.github.io/docs/lifttrace/"><img alt="Documentation" src="https://img.shields.io/badge/docs-traceapps.github.io-8A2BE2?logo=readthedocs&logoColor=white"></a>
   <a href="https://github.com/traceapps/lifttrace/pkgs/container/lifttrace"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-traceapps%2Flifttrace-181717?logo=github&logoColor=white"></a>
@@ -62,6 +62,7 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **Workout history import.** Bring your old log in from Strong, Hevy, FitNotes, Jefit (CSV) or Garmin FIT files. → [full guide](https://traceapps.github.io/docs/lifttrace/import/)
 - **Multi-user and OIDC SSO.** Role-based access (admin/trainer/member), invites, session policy, plus OIDC 1.0 SSO via Authentik, Keycloak, Pocket ID, Authelia, Google, Auth0, or any compliant provider. → [full guide](https://traceapps.github.io/docs/auth/oidc/)
 - **Native Android app.** Local-only mode with on-device SQLite, or connect to your self-hosted server for sync. Media3 ExoPlayer, WorkManager reminders, biometric sign-in. → [full guide](https://traceapps.github.io/docs/mobile/install/)
+- **Wear OS.** A watch app for Wear OS 3 and up: the set you are on, logged between sets with weight and reps already filled in, the rest timer counting down on your wrist, plus a tile and a watch face complication. It talks to your server itself, so it keeps logging in a basement gym with the phone in a locker, and it pairs itself when you sign in on the phone.
 
 ---
 
@@ -69,6 +70,7 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 
 - **Web (PWA).** Install from any modern browser via the address bar (Chrome) or share menu (Safari). Works offline once cached.
 - **Android.** Sideload the signed APK from the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Release APKs require HTTPS to your server; debug APKs accept plain HTTP. See [DEPLOY.md](DEPLOY.md) for the four supported paths.
+- **Wear OS.** A separate APK for the watch, on the same [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload it onto a Wear OS 3 watch; it pairs itself the next time you open LiftTrace on the phone.
 - **iOS.** No native build yet. Install the PWA from Safari (Share → Add to Home Screen).
 
 ---

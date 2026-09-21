@@ -383,7 +383,12 @@
         // App.resume listener wiring).
         try {
           const { App: CapApp } = await import('@capacitor/app');
-          CapApp.addListener('resume', () => sync.fullSync().catch(() => {}));
+          CapApp.addListener('resume', () => {
+            sync.fullSync().catch(() => {});
+            // Coming back is a good moment to top up the watch's token, and it
+            // catches a watch paired after this app was last opened.
+            import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {});
+          });
           // Pause (app backgrounded) → flush any pending debounced workout
           // save so Android can't kill the process with unsynced work in
           // the 350ms window. Without this, a set/exercise added just
@@ -395,6 +400,8 @@
             } catch {}
           });
         } catch {}
+        // And on launch, once auth has settled.
+        setTimeout(() => import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {}), 2500);
         // Web/PWA fallbacks — same reason as above but for the browser
         // page lifecycle (tab hidden, page unload). Cheap idempotent
         // flush; no-op if nothing pending.
