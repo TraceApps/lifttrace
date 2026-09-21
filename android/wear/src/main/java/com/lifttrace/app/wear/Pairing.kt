@@ -122,33 +122,43 @@ object Pairing {
         prefs(ctx).edit().putString(KEY_SETTINGS, settings.toString()).apply()
     }
 
-    // ── Sets logged with no connection ───────────────────────────────────
+    // ── Changes made with no connection ──────────────────────────────────
 
     /**
-     * One set, waiting. The whole day goes up when it is sent, so what is kept
-     * here is which set was logged and what was put on it.
+     * One set the watch changed, waiting to be sent. What is kept is the set
+     * as the watch now says it reads, so it can be replayed onto whatever the
+     * server holds by the time there is a connection rather than sending a
+     * stale copy of the whole day over the top of it.
      */
     data class Op(
         val date: String,
         val workoutId: Long,
-        val exerciseUuid: String,
-        val setUuid: String,
-        val weight: Double,
-        val reps: Int,
+        val change: Session.Change,
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("date", date).put("workoutId", workoutId)
-            .put("exerciseUuid", exerciseUuid).put("setUuid", setUuid)
-            .put("weight", weight).put("reps", reps)
+            .put("exerciseUuid", change.exerciseUuid).put("setUuid", change.setUuid)
+            .put("weight", change.weight).put("reps", change.reps)
+            .put("repsLeft", change.repsLeft ?: JSONObject.NULL)
+            .put("repsRight", change.repsRight ?: JSONObject.NULL)
+            .put("durationSec", change.durationSec)
+            .put("completed", change.completed).put("warmup", change.warmup)
 
         companion object {
             fun from(o: JSONObject) = Op(
                 date = o.optString("date"),
                 workoutId = o.optLong("workoutId"),
-                exerciseUuid = o.optString("exerciseUuid"),
-                setUuid = o.optString("setUuid"),
-                weight = o.optDouble("weight", 0.0),
-                reps = o.optInt("reps", 0),
+                change = Session.Change(
+                    exerciseUuid = o.optString("exerciseUuid"),
+                    setUuid = o.optString("setUuid"),
+                    weight = o.optDouble("weight", 0.0),
+                    reps = o.optInt("reps", 0),
+                    repsLeft = if (o.isNull("repsLeft")) null else o.optInt("repsLeft", 0),
+                    repsRight = if (o.isNull("repsRight")) null else o.optInt("repsRight", 0),
+                    durationSec = o.optInt("durationSec", 0),
+                    completed = o.optBoolean("completed", false),
+                    warmup = o.optBoolean("warmup", false),
+                ),
             )
         }
     }
@@ -160,9 +170,10 @@ object Pairing {
     }
 
     fun queue(ctx: Context, op: Op) {
-        // One entry per set: logging the same set twice is a correction, not a
-        // second set, and the last word wins.
-        val kept = outbox(ctx).filterNot { it.setUuid == op.setUuid && it.date == op.date }
+        // One entry per set: changing the same set twice is a correction, not
+        // a second set, and the last word wins. The new entry goes at the end
+        // so the order changes were made in is the order they are replayed in.
+        val kept = outbox(ctx).filterNot { it.change.setUuid == op.change.setUuid && it.date == op.date }
         writeOutbox(ctx, kept + op)
     }
 

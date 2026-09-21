@@ -31,9 +31,13 @@ object LiftApi {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    /** The day's session, as the server has it. */
-    suspend fun workout(cfg: Pairing.Config, date: String): String =
-        get(cfg, "/api/workout/$date")
+    /**
+     * The day's session, as the server has it. The id is passed on whenever
+     * the watch knows it, so a date holding more than one session keeps
+     * answering with the one the watch is actually in.
+     */
+    suspend fun workout(cfg: Pairing.Config, date: String, id: Long = 0L): String =
+        get(cfg, "/api/workout/$date" + if (id > 0) "?id=$id" else "")
 
     /** Rest length, whether it starts by itself, and the weight unit. */
     suspend fun settings(cfg: Pairing.Config): JSONObject =

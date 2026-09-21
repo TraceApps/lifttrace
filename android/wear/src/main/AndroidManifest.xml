@@ -4,8 +4,6 @@
 
     <uses-feature android:name="android.hardware.type.watch" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- The buzz at the end of a rest, which is the point of a timer on a wrist. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
