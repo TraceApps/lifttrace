@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -57,6 +58,7 @@ import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.CircularProgressIndicator
+import androidx.wear.compose.material3.ProgressIndicatorDefaults
 import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.FilledTonalIconButton
 import androidx.wear.compose.material3.Icon
@@ -929,6 +931,15 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             progress = { (remaining.toFloat() / total.toFloat()).coerceIn(0f, 1f) },
+            // Green while there is time, amber when it is getting on, red at
+            // the death, so a glance tells you without reading the number.
+            colors = ProgressIndicatorDefaults.colors(
+                indicatorColor = when (Session.urgency(remaining.toInt(), total)) {
+                    Session.Urgency.NOW -> MaterialTheme.colorScheme.error
+                    Session.Urgency.SOON -> Color(0xFFE8B931)
+                    Session.Urgency.CALM -> Color(0xFF4CC38A)
+                },
+            ),
             modifier = Modifier.fillMaxSize().padding(4.dp),
         )
         Column(

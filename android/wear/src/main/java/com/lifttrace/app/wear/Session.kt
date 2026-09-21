@@ -581,6 +581,26 @@ object Session {
         else "$m:${s.toString().padStart(2, '0')}"
     }
 
+    /**
+     * How near a rest is to being over, for the colour of the ring.
+     *
+     * The clock decides urgency, the proportion decides "getting on", which
+     * is the same rule CookTrace's kitchen timers use. Measuring both by
+     * proportion calls a five minute rest urgent at ninety seconds, which is
+     * not what anyone waiting for one would say.
+     */
+    enum class Urgency { CALM, SOON, NOW }
+
+    fun urgency(secondsLeft: Int, total: Int): Urgency {
+        val left = maxOf(0, secondsLeft)
+        val fraction = left.toDouble() / maxOf(1, total)
+        return when {
+            left <= 10 -> Urgency.NOW
+            left <= 30 || fraction <= 0.30 -> Urgency.SOON
+            else -> Urgency.CALM
+        }
+    }
+
     /** Counting down, as a watch shows it: 1:30, 0:45. */
     fun clock(seconds: Int): String {
         val safe = maxOf(0, seconds)

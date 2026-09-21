@@ -624,6 +624,19 @@ class SessionTest {
     }
 
     @Test
+    fun `how near a rest is to over is not just a percentage`() {
+        // The clock decides urgency, the proportion decides "getting on".
+        assertEquals(Session.Urgency.NOW, Session.urgency(8, 90))
+        assertEquals(Session.Urgency.SOON, Session.urgency(25, 90))
+        assertEquals(Session.Urgency.SOON, Session.urgency(26, 90))
+        assertEquals(Session.Urgency.CALM, Session.urgency(60, 90))
+        // A long rest is not urgent just because a third of it is left.
+        assertEquals(Session.Urgency.SOON, Session.urgency(80, 300))
+        assertEquals(Session.Urgency.CALM, Session.urgency(200, 300))
+        assertEquals(Session.Urgency.NOW, Session.urgency(0, 90))
+    }
+
+    @Test
     fun `the countdown reads as a clock`() {
         assertEquals("1:30", Session.clock(90))
         assertEquals("0:05", Session.clock(5))
