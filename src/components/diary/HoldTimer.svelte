@@ -11,7 +11,7 @@
    * The screen is kept awake for the length of the hold, and released after,
    * unless the user already keeps it awake from Settings.
    */
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { get } from 'svelte/store';
@@ -24,6 +24,12 @@
   import { currentDate } from '../../stores/workout.js';
   import { fmtSetDuration } from '../../lib/workout.js';
   import { showError } from '../../stores/toast.js';
+
+  // Opening the hold's own date is the Diary's job, not ours: setting
+  // currentDate here would move the header without fetching that day, the
+  // same bug the This Week strip had (#111). The Diary listens for this and
+  // runs its own load.
+  const dispatch = createEventDispatcher();
 
   onMount(resumeHoldTimer);
 
@@ -99,7 +105,7 @@
       {/if}
 
       {#if otherDate}
-        <button type="button" class="hold-btn primary" on:click={() => currentDate.set(state.date)}>
+        <button type="button" class="hold-btn primary" on:click={() => dispatch('goToDate', state.date)}>
           {$_('hold_timer.open_date', { values: { date: state.date } })}
         </button>
       {:else}

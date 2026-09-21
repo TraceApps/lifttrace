@@ -3148,7 +3148,7 @@
   <!-- Hold timer for timed sets (issue #89). Lives here rather than in
        App.svelte because its result is applied by this page's exercise
        cards; the store keeps it running if you navigate away. -->
-  <HoldTimer />
+  <HoldTimer on:goToDate={(e) => goToDiaryDate(e.detail)} />
 
   <ActionSheet
     bind:open={showAddMenu}

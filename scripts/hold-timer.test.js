@@ -92,7 +92,9 @@ test('the row button lives inside the time field and only on unfinished or runni
 });
 
 test('the on-screen timer is mounted in the Diary and stacks with the workout pill', () => {
-  assert.match(read('../src/routes/Diary.svelte'), /<HoldTimer \/>/);
+  // Mounted in the Diary, which also handles its "open this hold's date"
+  // request (scripts/diary-date-navigation.test.js pins that wiring).
+  assert.match(read('../src/routes/Diary.svelte'), /<HoldTimer\b/);
   assert.match(read('../src/components/WorkoutModeBar.svelte'), /var\(--hold-h, 0px\)/);
   assert.match(overlay, /--hold-h/);
 });
