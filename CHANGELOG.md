@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **A cardio-only day now lights up the streak and week strip.** The Diary's "This Week" dots, streak counter, and calendar all read from workout history alone, so logging a run or a ride with no lifting that day left it looking like you'd done nothing. They now count either.
 - **A FitNotes export in kilos no longer comes in as pounds.** Current FitNotes exports put the unit in its own column rather than in the weight column's name, which the importer never read, so it assumed pounds and divided everything by 2.20462: a 74.6 kg bench arrived as 33.84. The unit is now read per row, so a file mixing kilos and pounds imports both correctly. Reported on r/selfhosted with the export that proved it.
 - **A FitNotes export from a phone that is not set to English imports its workouts.** FitNotes writes the date in the phone's locale, so a Spanish or German export reads 23/12/2025 where an English one reads 2025-12-23. The importer accepted only the second form and skipped every other row, turning a whole training history into an empty import. Day-first and month-first files are both read now, decided across the file rather than row by row.
 - **The language picker shows the language the app is actually in.** On a phone set to Spanish or Italian, the app opened translated while Settings claimed English, because the setting defaulted to English instead of to the language the app had picked. Reported on r/selfhosted.
