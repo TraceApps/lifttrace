@@ -87,7 +87,7 @@
     position: absolute;
     top: 6px;
     height: calc(100% - 12px - var(--safe-bottom));
-    background: linear-gradient(135deg, var(--accent-dim), rgba(255,116,51,0.22));
+    background: linear-gradient(135deg, var(--accent-dim), color-mix(in srgb, var(--accent-2) 22%, transparent));
     border-radius: var(--radius-md);
     box-shadow: 0 0 16px var(--accent-dim);
     transition: left var(--dur-base) var(--ease-inout);
