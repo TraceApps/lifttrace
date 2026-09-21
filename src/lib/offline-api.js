@@ -69,12 +69,13 @@ function _db() {
   // what was kept with it rather than leaving it in a database nothing reads.
   const leaving = _dbPromise?.name && _dbPromise.name !== name ? _dbPromise.name : null;
   const p = new Promise((resolve) => {
-    const req = indexedDB.open(name, 2);
+    const req = indexedDB.open(name, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('answers')) db.createObjectStore('answers', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
       if (!db.objectStoreNames.contains('refused')) db.createObjectStore('refused', { keyPath: 'at' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => resolve(null);
@@ -95,7 +96,7 @@ async function _absorb(oldName, db) {
     req.onerror = req.onblocked = () => resolve(null);
   });
   if (!old) return;
-  for (const store of ['answers', 'outbox', 'refused']) {
+  for (const store of ['answers', 'outbox', 'refused', 'meta']) {
     if (!old.objectStoreNames.contains(store) || !db.objectStoreNames.contains(store)) continue;
     const rows = await new Promise((resolve) => {
       try {
@@ -192,6 +193,19 @@ _channel?.addEventListener('message', async (e) => {
  * goes up would otherwise be sent against an id the server never had.
  */
 let _swapped = {};
+// Kept on disk as well as in memory. A flush that stops halfway (the page is
+// closed, the signal goes again) leaves queued work that refers to a row the
+// server has just created; without the map that work would be sent against
+// an id the server never had. NoteTrace has always done this.
+async function _loadSwapped() {
+  const kept = await _tx('meta', 'readonly', s => s.get('idMap'));
+  if (kept) _swapped = { ...kept, ..._swapped };
+  return _swapped;
+}
+async function _rememberSwapped(map) {
+  _swapped = { ..._swapped, ...map };
+  await _tx('meta', 'readwrite', s => s.put(_swapped, 'idMap'));
+}
 
 const _json = (status, body) => new Response(JSON.stringify(body), {
   status,
@@ -252,9 +266,11 @@ async function _flushOnce() {
   _publish({ syncing: true });
 
   const send = _fetch || ((...a) => fetch(...a));
+  await _loadSwapped();
   const done = new Set();
   const refused = [];
-  const map = {};
+  // Ids learned in an earlier run apply to what is still queued from it.
+  const map = { ..._swapped };
   let stopped = null;
 
   for (const op of collapseOps(ops)) {
@@ -303,7 +319,7 @@ async function _flushOnce() {
   }
 
   if (Object.keys(map).length) {
-    _swapped = { ..._swapped, ...map };
+    await _rememberSwapped(map);
     _channel?.postMessage({ type: 'outbox', ids: map });
   }
 
@@ -364,6 +380,7 @@ export function installOffline(origFetch) {
   });
   // A queue left from last time goes up even if the first screen opened
   // never calls the API.
+  _loadSwapped().catch(() => {});
   _loadOps().then(() => { _publish(); if (_ops.length) _scheduleFlush(0); });
 }
 
