@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -75,7 +76,7 @@ class WearStore(private val ctx: Context) {
         val cached = Pairing.cache(ctx)
             ?.let { runCatching { Session.parse(it) }.getOrNull() }
             ?.takeIf { it.date == today }
-        _state.value = _state.value.copy(
+        _state.update { it.copy(
             workout = cached,
             unit = Session.weightUnit(settings),
             restSeconds = Session.restSeconds(settings),
@@ -84,7 +85,7 @@ class WearStore(private val ctx: Context) {
             pending = Pairing.outbox(ctx).size,
             lastTimes = Pairing.lastTimes(ctx),
             session = sessionTimer(),
-        )
+        ) }
     }
 
     /**
@@ -94,14 +95,14 @@ class WearStore(private val ctx: Context) {
      */
     suspend fun refresh(quiet: Boolean = false) {
         val cfg = Pairing.pullFromPhone(ctx) ?: run {
-            _state.value = _state.value.copy(paired = false)
+            _state.update { it.copy(paired = false) }
             return
         }
-        _state.value = _state.value.copy(paired = true, loading = !quiet, error = null)
+        _state.update { it.copy(paired = true, loading = !quiet, error = null) }
         // Sending already ends with the server's own answer, so a flush that
         // did the work leaves nothing to read back.
         if (Pairing.outbox(ctx).isNotEmpty() && flush(cfg)) {
-            _state.value = _state.value.copy(loading = false)
+            _state.update { it.copy(loading = false) }
             readSettings(cfg)
             readLastTimes(cfg)
             return
@@ -125,12 +126,12 @@ class WearStore(private val ctx: Context) {
             if (shown != null) Pairing.putCache(ctx, wrap(shown))
             else Pairing.putCache(ctx, body)
             redrawSurfaces()
-            _state.value = _state.value.copy(
+            _state.update { it.copy(
                 loading = false, offline = false, error = null,
                 workout = shown,
                 pending = waiting.size,
                 session = sessionTimer(),
-            )
+            ) }
         } catch (e: Exception) {
             handle(e, quiet)
         }
@@ -146,7 +147,7 @@ class WearStore(private val ctx: Context) {
         runCatching {
             val lines = Session.lastTimes(LiftApi.recent(cfg), today, _state.value.unit)
             Pairing.putLastTimes(ctx, today, lines)
-            _state.value = _state.value.copy(lastTimes = lines)
+            _state.update { it.copy(lastTimes = lines) }
         }
     }
 
@@ -154,12 +155,12 @@ class WearStore(private val ctx: Context) {
         val settings = LiftApi.settings(cfg)
         if (settings.length() == 0) return
         Pairing.putSettings(ctx, settings)
-        _state.value = _state.value.copy(
+        _state.update { it.copy(
             unit = Session.weightUnit(settings),
             restSeconds = Session.restSeconds(settings),
             restEnabled = Session.restEnabled(settings),
             restAutoStart = Session.restAutoStart(settings),
-        )
+        ) }
     }
 
     /**
@@ -180,11 +181,11 @@ class WearStore(private val ctx: Context) {
     suspend fun save(change: Session.Change, flash: String? = null) {
         val current = _state.value.workout ?: return
         val updated = Session.applyChange(current, change)
-        _state.value = _state.value.copy(workout = updated, flash = flash)
+        _state.update { it.copy(workout = updated, flash = flash) }
         Pairing.putCache(ctx, wrap(updated))
         redrawSurfaces()
         Pairing.queue(ctx, Pairing.Op(updated.date.ifBlank { today }, updated.id, change))
-        _state.value = _state.value.copy(pending = Pairing.outbox(ctx).size)
+        _state.update { it.copy(pending = Pairing.outbox(ctx).size) }
         send()
     }
 
@@ -201,7 +202,7 @@ class WearStore(private val ctx: Context) {
     fun completeHold() {
         if (!Pairing.completeHold(ctx)) return
         restore()
-        _state.value = _state.value.copy(flash = "Hold logged")
+        _state.update { it.copy(flash = "Hold logged") }
         send()
     }
 
@@ -247,17 +248,17 @@ class WearStore(private val ctx: Context) {
         if (day == null) {
             // Nothing to put the time on, and saying "Time saved" would be a
             // lie. The timer still stops.
-            _state.value = _state.value.copy(error = "No session to put that time on")
+            _state.update { it.copy(error = "No session to put that time on") }
             return
         }
         Pairing.queue(ctx, Pairing.Op(day.date.ifBlank { today }, day.id, minutes = minutes))
-        _state.value = _state.value.copy(pending = Pairing.outbox(ctx).size, flash = "Time saved")
+        _state.update { it.copy(pending = Pairing.outbox(ctx).size, flash = "Time saved") }
         send()
     }
 
     private fun publishSession(timer: Pairing.SessionTimer?) {
         Pairing.publishSession(ctx, timer)
-        _state.value = _state.value.copy(session = sessionTimer())
+        _state.update { it.copy(session = sessionTimer()) }
     }
 
     /**
@@ -280,10 +281,10 @@ class WearStore(private val ctx: Context) {
                 // changes for it. Recreating it behind the wearer's back would
                 // be worse than saying so.
                 forget(batch)
-                _state.value = _state.value.copy(
+                _state.update { it.copy(
                     pending = Pairing.outbox(ctx).size,
                     error = "That session is no longer on your server",
-                )
+                ) }
                 return false
             }
             var body = server.raw
@@ -300,12 +301,12 @@ class WearStore(private val ctx: Context) {
                 Pairing.putCache(ctx, wrap(workout))
                 redrawSurfaces()
             }
-            _state.value = _state.value.copy(
+            _state.update { it.copy(
                 pending = Pairing.outbox(ctx).size,
                 offline = false,
                 error = null,
-                workout = workout ?: _state.value.workout,
-            )
+                workout = workout ?: it.workout,
+            ) }
             true
         } catch (e: Exception) {
             // A refusal from the server is worth saying out loud here: this is
@@ -322,7 +323,7 @@ class WearStore(private val ctx: Context) {
     }
 
     fun clearFlash() {
-        if (_state.value.flash != null) _state.value = _state.value.copy(flash = null)
+        _state.update { if (it.flash == null) it else it.copy(flash = null) }
     }
 
     /**
@@ -346,14 +347,14 @@ class WearStore(private val ctx: Context) {
             // one next time it is opened. Changes waiting are kept: they are
             // still good.
             Pairing.forget(ctx)
-            _state.value = _state.value.copy(paired = false, loading = false, error = null)
+            _state.update { it.copy(paired = false, loading = false, error = null) }
             return
         }
-        _state.value = _state.value.copy(
+        _state.update { it.copy(
             loading = false,
             offline = isOffline(e),
             error = if (isOffline(e) || quiet) null else (e.message ?: "Couldn't reach LiftTrace"),
-        )
+        ) }
     }
 
     /**
