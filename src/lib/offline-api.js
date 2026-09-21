@@ -533,6 +533,11 @@ export async function offlineFetch(url, init, origFetch) {
           const answered = await res.clone().json();
           if (op.kind === 'workout' && answered?.workout) await _remember(pathOf(target), answered);
         } catch { /* not json */ }
+        // And whatever this change makes stale goes, the same as after a
+        // replay. Without this, something deleted while online was still in
+        // the copy held here, and came back the moment the connection did
+        // not: the lists are read from that copy, and nothing had told them.
+        await _forgetTouched([{ ...op, path: target }]);
         _publish({ online: true, error: null });
       }
       return res;
