@@ -94,6 +94,16 @@ const router = express.Router();
 // legitimately accept large bodies (full-backup restore, exercise import)
 // use multer's multipart/file uploads with their own per-route caps, so
 // they don't need the global JSON limit relaxed.
+//
+// The exception is a picture taken with no connection: there is nowhere to
+// upload it to, so it travels inside the row it belongs to and is turned
+// into a file on arrival. The web app keeps those well under a megabyte,
+// and these few routes allow enough headroom that one is never refused for
+// its size after the person has already been told it was saved.
+const EMBEDDED_PHOTO_LIMIT = '6mb';
+for (const path of ['/api/body-stats/photos', '/api/exercises', '/api/auth/profile']) {
+  router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
+}
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
 

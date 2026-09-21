@@ -376,3 +376,15 @@ test('a queued answer is shaped like the route it stands in for', () => {
   assert.equal(run.activity, 'Run');
   assert.equal(queuedReply({ kind: 'program-activate' }, null, null).ok, true);
 });
+
+test('a progress photo taken offline is on the timeline while it waits', () => {
+  const kept = { count: 1, photos: [{ id: 5, date: '2026-09-19', url: '/uploads/body-stats/a.jpg' }] };
+  const ops = [{ seq: 1, kind: 'photo-add', tempId: -3, at: 1, body: { date: '2026-09-20', url: 'data:image/jpeg;base64,x' } }];
+  const shown = answerWithOps('/api/body-stats/photos?start=a&end=b', kept, ops);
+  assert.equal(shown.photos.length, 2);
+  assert.equal(shown.photos[1].id, -3);
+  assert.equal(shown.photos[1]._pending, true);
+  assert.equal(shown.count, 2);
+  // Nothing queued: exactly what the server said.
+  assert.equal(answerWithOps('/api/body-stats/photos', kept, []), kept);
+});

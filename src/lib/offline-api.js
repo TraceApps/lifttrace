@@ -542,7 +542,7 @@ export async function offlineFetch(url, init, origFetch) {
     }
   }
 
-  const MAKES_A_ROW = ['exercise-create', 'cardio-create', 'prescription-create'];
+  const MAKES_A_ROW = ['exercise-create', 'cardio-create', 'prescription-create', 'photo-add'];
   const tempId = MAKES_A_ROW.includes(op.kind) ? newTempId() : null;
   const stored = await _queue({
     method,

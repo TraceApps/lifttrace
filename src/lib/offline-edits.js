@@ -262,6 +262,22 @@ export function answerWithOps(url, mirrored, ops) {
     for (const op of queued) if (op.body?.key) settings[op.body.key] = op.body.value;
     return settings;
   }
+  // Progress photos: one taken with no connection belongs on the timeline
+  // from the moment it is taken, not when it reaches the server.
+  if (path === '/api/body-stats/photos') {
+    const made = (ops || []).filter(op => op.kind === 'photo-add');
+    const gone = new Set((ops || []).filter(op => op.kind === 'photo-delete').map(op => Number(op.id)));
+    if (!made.length && !gone.size) return mirrored;
+    const held = Array.isArray(mirrored?.photos) ? mirrored.photos : mirrored === undefined ? [] : null;
+    if (held === null) return mirrored;
+    const waiting = made.map(op => ({
+      id: op.tempId ?? -(op.seq || 1), date: op.body?.date, url: op.body?.url,
+      created_at: new Date(op.at || Date.now()).toISOString(), _pending: true,
+    }));
+    const photos = held.filter(p => !gone.has(Number(p.id))).concat(waiting);
+    return { ...(mirrored || {}), count: photos.length, photos };
+  }
+
   const memberDay = path.match(/^\/api\/trainer\/members\/\d+\/workout\/(\d{4}-\d{2}-\d{2})$/);
   if (memberDay && mirrored) {
     const notes = (ops || []).filter(op => op.kind === 'coach-note' && op.body?.workout_id === mirrored.id);
