@@ -27,7 +27,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -35,7 +38,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavHostController
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
@@ -62,6 +68,7 @@ import androidx.wear.compose.material3.TitleCard
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -183,7 +190,7 @@ fun WearApp(store: WearStore) {
 
     // While the app is open, keep up with the phone: a set ticked off there
     // should not need the watch to be closed and opened again.
-    LaunchedEffect(state.paired) {
+    WhileWatching(state.paired) {
         while (state.paired) {
             delay(45_000)
             store.refresh(quiet = true)
@@ -234,6 +241,63 @@ fun WearApp(store: WearStore) {
         }
     }
 }
+
+/**
+ * Work that only happens while the app is actually in front of you.
+ *
+ * A LaunchedEffect lives as long as the composition, and on a watch the
+ * composition outlives the screen by a long way: drop your wrist and the app
+ * stays top of the stack, just not visible. Anything ticking or polling in
+ * one of those carries on all night. Measured on a real watch: fifty minutes
+ * of "top sleeping" and most of the app's processor time spent with the
+ * screen off. Tying it to the lifecycle is the difference.
+ */
+@Composable
+private fun WhileWatching(vararg keys: Any?, block: suspend CoroutineScope.() -> Unit) {
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(owner, *keys) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { block() }
+    }
+}
+
+/**
+ * A list whose crown turns a number rather than scrolling. On the one screen
+ * where there is a number to change, spinning the crown is how a watch
+ * expects you to change it: going from 135 to 185 is a flick of the finger
+ * rather than ten taps on a plus sign. The list is short enough to reach
+ * with a finger, which is what pays for giving the crown away.
+ */
+@Composable
+private fun DialColumn(
+    listState: ScalingLazyListState,
+    onTurn: (Int) -> Unit,
+    content: ScalingLazyListScope.() -> Unit,
+) {
+    val focus = remember { FocusRequester() }
+    // A detent is worth a step; what a watch reports per detent varies, so
+    // this adds up what it sends and spends it a step at a time.
+    var carried by remember { mutableStateOf(0f) }
+    ScalingLazyColumn(
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .onRotaryScrollEvent { event ->
+                carried += event.verticalScrollPixels
+                var steps = 0
+                while (carried >= DETENT) { carried -= DETENT; steps++ }
+                while (carried <= -DETENT) { carried += DETENT; steps-- }
+                if (steps != 0) onTurn(steps)
+                true
+            }
+            .focusRequester(focus)
+            .focusable(),
+        content = content,
+    )
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+}
+
+/** How far the crown has to turn to be worth one step. */
+private const val DETENT = 40f
 
 /**
  * A list the crown scrolls, not only a finger, so the bezel works the way it
@@ -322,7 +386,7 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     var elapsed by remember(session) {
                         mutableStateOf(session?.elapsedMs(System.currentTimeMillis()) ?: 0L)
                     }
-                    LaunchedEffect(session) {
+                    WhileWatching(session) {
                         while (session != null && !session.paused) {
                             elapsed = session.elapsedMs(System.currentTimeMillis())
                             delay(1000)
@@ -596,7 +660,12 @@ private fun SetScreen(
             }
         },
     ) {
-        CrownColumn(listState) {
+        // The crown moves the weight, which is the number that actually
+        // changes between sets. Reps and a hold stay on their own taps.
+        DialColumn(listState, onTurn = { steps ->
+            draft = draft.copy(weight = maxOf(0.0, draft.weight + steps * step))
+            runCatching { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+        }) {
             item { ListHeader { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
             item {
                 Text(
@@ -704,7 +773,7 @@ private fun SessionTimeScreen(store: WearStore, nav: NavHostController) {
     var elapsed by remember(session) {
         mutableStateOf(session?.elapsedMs(System.currentTimeMillis()) ?: 0L)
     }
-    LaunchedEffect(session) {
+    WhileWatching(session) {
         while (session != null && !session.paused) {
             elapsed = session.elapsedMs(System.currentTimeMillis())
             delay(1000)
@@ -825,12 +894,12 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
     val context = LocalContext.current
     var remaining by remember { mutableStateOf(clock.secondsLeft()) }
 
-    LaunchedEffect(clock.endsAt) {
-        if (clock.endsAt <= 0L) return@LaunchedEffect
+    WhileWatching(clock.endsAt) {
+        if (clock.endsAt <= 0L) return@WhileWatching
         while (true) {
             remaining = clock.secondsLeft()
             if (remaining <= 0L) break
-            delay(250)
+            delay(500)
         }
         if (!clock.fired) {
             clock.markFired()
@@ -845,10 +914,14 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
         }
     }
 
-    // A timer you have to keep awake with a finger is no timer at all.
-    DisposableEffect(Unit) {
+    // A timer you have to keep awake with a finger is no timer at all, but
+    // only while it is counting: once it reaches zero the screen was being
+    // held on at full brightness until somebody swiped it away.
+    val counting = remaining > 0
+    DisposableEffect(counting) {
         val window = (context as? Activity)?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (counting) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
