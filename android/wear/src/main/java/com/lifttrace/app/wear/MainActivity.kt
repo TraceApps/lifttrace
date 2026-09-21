@@ -378,27 +378,17 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                 val opensGroup = exercise.inSuperset &&
                     (previous == null || previous.supersetId != exercise.supersetId)
                 val opensRun = !exercise.inSuperset && (previous == null || previous.inSuperset)
+                // Two headings, and every card sits under one of them. The
+                // same word the phone's own cards use for an exercise that
+                // belongs to no pairing, so the two apps agree. The A1 and A2
+                // on the cards carry the rest, so neither needs a count.
                 if (opensGroup && label != null) {
-                    val members = Session.group(day!!, exercise)
                     item(key = "head-" + exercise.uuid) {
-                        ListHeader {
-                            Text(
-                                "Superset ${label.first()} · ${members.size} together",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        ListHeader { Text("Superset ${label.first()}", maxLines = 1) }
                     }
                 } else if (opensRun) {
-                    val run = exercises.drop(index).takeWhile { !it.inSuperset }.size
                     item(key = "head-" + exercise.uuid) {
-                        ListHeader {
-                            Text(
-                                if (run == 1) "On its own" else "On their own · $run",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        ListHeader { Text("Standalone", maxLines = 1) }
                     }
                 }
                 item(key = exercise.uuid) {
