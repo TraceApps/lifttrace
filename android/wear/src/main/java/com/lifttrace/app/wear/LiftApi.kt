@@ -39,6 +39,13 @@ object LiftApi {
     suspend fun workout(cfg: Pairing.Config, date: String, id: Long = 0L): String =
         get(cfg, "/api/workout/$date" + if (id > 0) "?id=$id" else "")
 
+    /**
+     * The last few sessions, for what you did of each exercise last time. One
+     * request covers every exercise in today's session.
+     */
+    suspend fun recent(cfg: Pairing.Config, limit: Int = 20): String =
+        get(cfg, "/api/workout/recent?limit=$limit")
+
     /** Rest length, whether it starts by itself, and the weight unit. */
     suspend fun settings(cfg: Pairing.Config): JSONObject =
         runCatching { JSONObject(get(cfg, "/api/settings")) }.getOrDefault(JSONObject())

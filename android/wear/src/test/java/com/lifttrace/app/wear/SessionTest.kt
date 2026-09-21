@@ -323,6 +323,43 @@ class SessionTest {
     }
 
     @Test
+    fun `last time is the best working set of the last session that had one`() {
+        val recent = """
+            [
+              {"date":"2026-09-21","exercises":[{"exercise_id":11,"exercise_name":"Bench Press","sets":[
+                {"uuid":"x","reps":3,"weight":225,"completed":true}]}]},
+              {"date":"2026-09-18","exercises":[
+                {"exercise_id":11,"exercise_name":"Bench Press","sets":[
+                  {"uuid":"a","reps":10,"weight":135,"completed":true,"warmup":true},
+                  {"uuid":"b","reps":8,"weight":185,"completed":true},
+                  {"uuid":"c","reps":6,"weight":195,"completed":true},
+                  {"uuid":"d","reps":6,"weight":205,"completed":false}]},
+                {"exercise_id":7,"exercise_name":"Plank","set_type":"time","sets":[
+                  {"uuid":"e","duration_sec":45,"completed":true},
+                  {"uuid":"f","duration_sec":75,"completed":true}]}]},
+              {"date":"2026-09-15","exercises":[{"exercise_id":11,"exercise_name":"Bench Press","sets":[
+                {"uuid":"g","reps":8,"weight":175,"completed":true}]}]}
+            ]
+        """.trimIndent()
+        val lines = Session.lastTimes(recent, "2026-09-21", "lbs")
+        // Today is not last time, a warm-up is not the answer, and neither is
+        // a set that was planned but never done.
+        assertEquals("195 lbs x 6 reps", lines[11])
+        // A hold quotes the longest one.
+        assertEquals("1:15", lines[7])
+        assertNull(lines[99])
+    }
+
+    @Test
+    fun `last time survives a session with nothing completed`() {
+        val recent = """
+            [{"date":"2026-09-20","exercises":[{"exercise_id":11,"sets":[{"uuid":"a","reps":8,"weight":185,"completed":false}]}]},
+             {"date":"2026-09-18","exercises":[{"exercise_id":11,"sets":[{"uuid":"b","reps":8,"weight":180,"completed":true}]}]}]
+        """.trimIndent()
+        assertEquals("180 lbs x 8 reps", Session.lastTimes(recent, "2026-09-21", "lbs")[11])
+    }
+
+    @Test
     fun `progress reads the way a glance wants it`() {
         assertEquals("1 of 4", Session.progress(Session.parse(body)))
         assertEquals("No session", Session.progress(null))

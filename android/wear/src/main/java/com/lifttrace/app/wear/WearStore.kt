@@ -36,6 +36,8 @@ class WearStore(private val ctx: Context) {
         val restSeconds: Int = 90,
         val restEnabled: Boolean = false,
         val restAutoStart: Boolean = true,
+        /** What you did of each exercise last time, by catalogue id. */
+        val lastTimes: Map<Int, String> = emptyMap(),
     )
 
     private val _state = MutableStateFlow(State(paired = Pairing.config(ctx) != null))
@@ -58,6 +60,7 @@ class WearStore(private val ctx: Context) {
             restEnabled = Session.restEnabled(settings),
             restAutoStart = Session.restAutoStart(settings),
             pending = Pairing.outbox(ctx).size,
+            lastTimes = Pairing.lastTimes(ctx),
         )
     }
 
@@ -77,10 +80,12 @@ class WearStore(private val ctx: Context) {
         if (Pairing.outbox(ctx).isNotEmpty() && flush(cfg)) {
             _state.value = _state.value.copy(loading = false)
             readSettings(cfg)
+            readLastTimes(cfg)
             return
         }
         try {
             readSettings(cfg)
+            readLastTimes(cfg)
             val body = LiftApi.workout(cfg, today, sessionId())
             val workout = Session.parse(body)
             // Anything still waiting is the watch's own, and it is newer than
@@ -98,6 +103,20 @@ class WearStore(private val ctx: Context) {
             )
         } catch (e: Exception) {
             handle(e, quiet)
+        }
+    }
+
+    /**
+     * What you did of each exercise last time, asked for once a day. It is one
+     * request for the lot, and what it works out is kept, so the line is there
+     * in a basement as well as on wifi.
+     */
+    private suspend fun readLastTimes(cfg: Pairing.Config) {
+        if (Pairing.lastTimesDay(ctx) == today) return
+        runCatching {
+            val lines = Session.lastTimes(LiftApi.recent(cfg), today, _state.value.unit)
+            Pairing.putLastTimes(ctx, today, lines)
+            _state.value = _state.value.copy(lastTimes = lines)
         }
     }
 

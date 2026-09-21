@@ -472,6 +472,22 @@ private fun SetScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            // What you did of this lift last time, when there is something to
+            // say. One line, no tap, nothing to set up: the number you would
+            // otherwise take your phone out to look up.
+            state.lastTimes[exercise.exerciseId]?.let { last ->
+                item {
+                    Text(
+                        "Last time " + last,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                    )
+                }
+            }
             item {
                 Stepper(
                     text = Session.weightText(draft.weight, state.unit),

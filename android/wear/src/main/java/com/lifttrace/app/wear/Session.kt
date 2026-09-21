@@ -50,6 +50,8 @@ object Session {
 
     data class Exercise(
         val uuid: String,
+        /** The catalogue's id, which is what past sessions are matched on. */
+        val exerciseId: Int,
         val name: String,
         val setType: String,
         val loadType: String,
@@ -136,6 +138,7 @@ object Session {
             exercises.add(
                 Exercise(
                     uuid = e.optString("uuid"),
+                    exerciseId = e.optInt("exercise_id", 0),
                     name = e.optString("exercise_name").ifBlank { "Exercise" },
                     setType = setType(e, sets),
                     loadType = loadType(e),
@@ -321,6 +324,60 @@ object Session {
             e.copy(sets = sets)
         }
         return workout.copy(exercises = exercises, raw = upsert(workout.raw, change))
+    }
+
+    // ── What you did last time ───────────────────────────────────────────
+
+    /**
+     * The best working set you did of each exercise, the last time you did it.
+     * One line under the exercise's name on a watch, and the number people
+     * reach for a phone to look up mid-session.
+     *
+     * Built from the recent sessions in one go rather than a request per
+     * exercise: a watch should ask a server for as little as it can.
+     */
+    fun lastTimes(recent: String, today: String, unit: String): Map<Int, String> {
+        val rows = runCatching { JSONArray(recent) }.getOrNull() ?: return emptyMap()
+        val out = mutableMapOf<Int, String>()
+        for (i in 0 until rows.length()) {
+            val row = rows.optJSONObject(i) ?: continue
+            val date = row.optString("date")
+            // Today is not last time, and neither is anything ahead of it.
+            if (date.isBlank() || date >= today) continue
+            val exercises = row.optJSONArray("exercises") ?: continue
+            for (j in 0 until exercises.length()) {
+                val e = exercises.optJSONObject(j) ?: continue
+                val id = e.optInt("exercise_id", 0)
+                if (id <= 0 || out.containsKey(id)) continue
+                val sets = mutableListOf<Set>()
+                val rawSets = e.optJSONArray("sets") ?: JSONArray()
+                for (k in 0 until rawSets.length()) {
+                    val s = rawSets.optJSONObject(k) ?: continue
+                    sets.add(readSet(s))
+                }
+                val exercise = Exercise(
+                    uuid = e.optString("uuid"),
+                    exerciseId = id,
+                    name = e.optString("exercise_name").ifBlank { "Exercise" },
+                    setType = setType(e, sets),
+                    loadType = loadType(e),
+                    supersetId = null,
+                    supersetSize = 0,
+                    restSec = 0,
+                    sets = sets,
+                )
+                best(exercise)?.let { out[id] = setLine(exercise, it, unit) }
+            }
+        }
+        return out
+    }
+
+    /** The set worth quoting back: the longest hold, or the heaviest working set. */
+    private fun best(exercise: Exercise): Set? {
+        val done = exercise.working.filter { it.completed && it.hasNumbers }
+        if (done.isEmpty()) return null
+        return if (exercise.timed) done.maxByOrNull { it.durationSec }
+        else done.maxWithOrNull(compareBy({ it.weight }, { it.reps }))
     }
 
     // ── Resting ──────────────────────────────────────────────────────────

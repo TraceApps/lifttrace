@@ -34,6 +34,8 @@ object Pairing {
     private const val KEY_SETTINGS = "settings"
     private const val KEY_OUTBOX = "outbox"
     private const val KEY_TIMER = "timer"
+    private const val KEY_LASTS = "last_times"
+    private const val KEY_LASTS_DAY = "last_times_day"
     private const val KEY_REFUSED = "refused_token"
 
     private fun prefs(ctx: Context): SharedPreferences =
@@ -99,7 +101,8 @@ object Pairing {
     /** The phone says the account signed out, or the watch was unpaired. */
     fun clear(ctx: Context) {
         prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_REFUSED)
-            .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER).apply()
+            .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER)
+            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).apply()
     }
 
     // ── The last session the watch saw ───────────────────────────────────
@@ -121,6 +124,29 @@ object Pairing {
 
     fun putSettings(ctx: Context, settings: JSONObject) {
         prefs(ctx).edit().putString(KEY_SETTINGS, settings.toString()).apply()
+    }
+
+    // ── What you did last time ───────────────────────────────────────────
+
+    /**
+     * One line per exercise, worked out once a day and kept, so the number is
+     * there in a gym with no signal as well as one with.
+     */
+    fun lastTimes(ctx: Context): Map<Int, String> {
+        val raw = prefs(ctx).getString(KEY_LASTS, null) ?: return emptyMap()
+        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return emptyMap()
+        val out = mutableMapOf<Int, String>()
+        for (key in o.keys()) key.toIntOrNull()?.let { out[it] = o.optString(key) }
+        return out
+    }
+
+    /** Was that worked out today? If not it is worth asking again. */
+    fun lastTimesDay(ctx: Context): String = prefs(ctx).getString(KEY_LASTS_DAY, "").orEmpty()
+
+    fun putLastTimes(ctx: Context, day: String, lines: Map<Int, String>) {
+        val o = JSONObject()
+        lines.forEach { (id, line) -> o.put(id.toString(), line) }
+        prefs(ctx).edit().putString(KEY_LASTS, o.toString()).putString(KEY_LASTS_DAY, day).apply()
     }
 
     // ── A timer that outlives the screen ─────────────────────────────────
