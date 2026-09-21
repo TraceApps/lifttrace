@@ -315,6 +315,22 @@ export function queuedWorkoutReply(mirrored, body, tempId) {
 }
 
 /**
+ * Which kept answers to let go of, oldest first, once there are more than
+ * `keep`. The copy this browser holds has to have a ceiling: a database with
+ * no room left would refuse the outbox too, and then nothing could be
+ * logged offline at all, which is the one thing that must not happen.
+ */
+export function staleAnswerKeys(rows, keep) {
+  const held = (rows || []).filter(r => r && r.key != null);
+  if (held.length <= keep) return [];
+  return held
+    .slice()
+    .sort((a, b) => (a.at || 0) - (b.at || 0))
+    .slice(0, held.length - keep)
+    .map(r => r.key);
+}
+
+/**
  * A queued change in a few words, for telling someone their server refused
  * it. Never the raw path: "PUT /api/workout/2026-09-20" means nothing to the
  * person who logged the set.

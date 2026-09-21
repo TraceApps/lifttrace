@@ -22,7 +22,7 @@ import { writable } from 'svelte/store';
 import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs,
   answerWithOps, queuedWorkoutReply, newTempId, createdId, remapIds, remapPath,
-  describeOp, shouldRetryStatus,
+  describeOp, shouldRetryStatus, staleAnswerKeys,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -140,7 +140,27 @@ function _tx(store, mode, fn) {
 }
 const _all = (store) => _tx(store, 'readonly', s => s.getAll()).then(r => r || []);
 
-const _remember = (key, body) => _tx('answers', 'readwrite', s => s.put({ key, body, at: Date.now() }));
+// How many answers to keep. Enough for a season of training (every day
+// opened, every exercise looked at) and small enough that a browser never
+// runs out of room because of us: a full database would refuse the outbox
+// too, and then nothing could be logged offline at all.
+const KEEP_ANSWERS = 400;
+let _sinceTrim = 0;
+// Keeps two refusals in the same millisecond from landing on one another.
+let _refusedSeq = 0;
+
+const _remember = async (key, body) => {
+  await _tx('answers', 'readwrite', s => s.put({ key, body, at: Date.now() }));
+  // Not on every write: counting the store each time would cost more than
+  // the trimming saves.
+  if (++_sinceTrim >= 25) { _sinceTrim = 0; await _trimAnswers(); }
+};
+
+/** Drop the least recently kept answers, oldest first. */
+async function _trimAnswers() {
+  const stale = staleAnswerKeys(await _all('answers'), KEEP_ANSWERS);
+  if (stale.length) await _tx('answers', 'readwrite', s => { for (const key of stale) s.delete(key); });
+}
 
 /**
  * What was last seen for this call. An exact match first (the query is part
@@ -219,9 +239,16 @@ const _offlineReply = (url) => {
 
 async function _queue(op) {
   const ops = await _loadOps();
-  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
-  // No database to queue into (private mode, no space): say so rather than
-  // pretending it was saved.
+  let seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  if (seq == null) {
+    // Out of room, most likely. What you have changed matters more than a
+    // copy of something you can read again later, so make space and retry
+    // before telling anyone this cannot be saved.
+    await _tx('answers', 'readwrite', s => s.clear());
+    seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  }
+  // No database to queue into (private mode, no space at all): say so rather
+  // than pretending it was saved.
   if (seq == null) return null;
   op.seq = seq;
   ops.push(op);
@@ -299,7 +326,7 @@ async function _flushOnce() {
       // A refusal is the server's answer: trying again will not change it.
       // Set it aside, tell the person later, and carry on with the rest, so
       // one rejected change cannot hold up everything queued behind it.
-      refused.push({ at: Date.now() + refused.length, what: describeOp(op), reason: message });
+      refused.push({ at: Date.now() * 1000 + (_refusedSeq = (_refusedSeq + 1) % 1000), what: describeOp(op), reason: message });
       // Also into the log behind Settings, Diagnostics: a toast lasts four
       // seconds, and someone who looked away still deserves to find out.
       console.error(`[offline] your server refused ${describeOp(op)}: ${message} (${op.method} ${op.path})`);
