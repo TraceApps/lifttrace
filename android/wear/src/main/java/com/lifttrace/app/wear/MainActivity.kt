@@ -371,14 +371,30 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                 val day = state.workout
                 val label = day?.let { Session.supersetLabel(it, exercise) }
                 val previous = exercises.getOrNull(index - 1)
-                val opens = exercise.inSuperset &&
+                // A heading over every block, paired or not. Saying which
+                // exercises belong together only helps if it is equally plain
+                // which ones belong to nothing, and on a list you scroll past,
+                // the absence of a label says nothing at all.
+                val opensGroup = exercise.inSuperset &&
                     (previous == null || previous.supersetId != exercise.supersetId)
-                if (opens && label != null) {
+                val opensRun = !exercise.inSuperset && (previous == null || previous.inSuperset)
+                if (opensGroup && label != null) {
                     val members = Session.group(day!!, exercise)
                     item(key = "head-" + exercise.uuid) {
                         ListHeader {
                             Text(
-                                "Superset ${label.first()} · ${members.size} exercises",
+                                "Superset ${label.first()} · ${members.size} together",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                } else if (opensRun) {
+                    val run = exercises.drop(index).takeWhile { !it.inSuperset }.size
+                    item(key = "head-" + exercise.uuid) {
+                        ListHeader {
+                            Text(
+                                if (run == 1) "On its own" else "On their own · $run",
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )

@@ -1706,12 +1706,23 @@
     await saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
   }
 
+  /** Move whatever block this exercise belongs to past the next block.
+   *  Block level, exactly like drag-to-reorder (onGroupDrop): a superset
+   *  travels as a unit, and an exercise moving past one steps over the
+   *  whole thing. It used to swap with the single neighbouring entry in
+   *  the flat list, which for an exercise below a superset meant swapping
+   *  with that superset's LAST member, pulling it out of the group and
+   *  leaving it stranded below, since a group is a consecutive run of the
+   *  same superset_id. */
   async function moveExercise(idx, dir) {
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= exercises.length) return;
-    const updated = [...exercises];
-    [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
-    await saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
+    const groups = [...supersetGroups];
+    const from = groups.findIndex(g => idx >= g.startIdx && idx < g.startIdx + g.exercises.length);
+    if (from < 0) return;
+    const to = from + dir;
+    if (to < 0 || to >= groups.length) return;
+    const [moved] = groups.splice(from, 1);
+    groups.splice(to, 0, moved);
+    await saveWorkout($currentDate, { ...($todayLog || {}), exercises: groups.flatMap(g => g.exercises) });
   }
 
   async function moveWithinSuperset({ supersetId, fromIdx, toIdx }) {
@@ -2610,8 +2621,8 @@
               idx={group.startIdx}
               unit={$weightUnit}
               date={$currentDate}
-              canMoveUp={showReorderButtons && group.startIdx > 0}
-              canMoveDown={showReorderButtons && group.startIdx < exercises.length - 1}
+              canMoveUp={showReorderButtons && gIdx > 0}
+              canMoveDown={showReorderButtons && gIdx < supersetGroups.length - 1}
               autoCollapse={$autoCollapseCompleted}
               prSetIndices={prFlagsByIdx[group.startIdx]}
               on:update={e => updateExercise(group.startIdx, e.detail)}
