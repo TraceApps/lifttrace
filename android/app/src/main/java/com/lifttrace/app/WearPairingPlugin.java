@@ -26,6 +26,7 @@ import com.google.android.gms.wearable.Wearable;
 public class WearPairingPlugin extends Plugin {
 
     private static final String PATH = "/lifttrace/pairing";
+    private static final String TIMER_PATH = "/lifttrace/timer";
     private static final String TAG = "WearPairing";
 
     /** True when a watch is paired with this phone, so the UI can say so. */
@@ -73,6 +74,34 @@ public class WearPairingPlugin extends Plugin {
                 ret.put("sent", true);
                 call.resolve(ret);
             })
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    /**
+     * How long this session has been running. Sent as a start time and a
+     * running total rather than a count, so the watch keeps counting on its
+     * own with the phone out of range.
+     */
+    @PluginMethod
+    public void timer(PluginCall call) {
+        PutDataMapRequest req = PutDataMapRequest.create(TIMER_PATH);
+        req.getDataMap().putString("date", call.getString("date", ""));
+        req.getDataMap().putLong("startTime", call.getDouble("startTime", 0d).longValue());
+        req.getDataMap().putDouble("baseElapsed", call.getDouble("baseElapsed", 0d));
+        req.getDataMap().putBoolean("paused", Boolean.TRUE.equals(call.getBoolean("paused", false)));
+        req.getDataMap().putDouble("pausedElapsed", call.getDouble("pausedElapsed", 0d));
+        req.getDataMap().putLong("at", System.currentTimeMillis());
+        Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
+            .addOnSuccessListener(item -> call.resolve())
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    /** The session timer was cleared: the watch should stop showing one. */
+    @PluginMethod
+    public void clearTimer(PluginCall call) {
+        Wearable.getDataClient(getContext())
+            .deleteDataItems(new android.net.Uri.Builder().scheme("wear").path(TIMER_PATH).build())
+            .addOnSuccessListener(count -> call.resolve())
             .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
     }
 

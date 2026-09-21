@@ -34,6 +34,7 @@ object Pairing {
     private const val KEY_SETTINGS = "settings"
     private const val KEY_OUTBOX = "outbox"
     private const val KEY_TIMER = "timer"
+    private const val KEY_SESSION = "session_timer"
     private const val KEY_LASTS = "last_times"
     private const val KEY_LASTS_DAY = "last_times_day"
     private const val KEY_REFUSED = "refused_token"
@@ -62,6 +63,10 @@ object Pairing {
             var found: Config? = null
             for (item in items) {
                 val path = item.uri.path.orEmpty()
+                if (path.startsWith(PairingService.TIMER_PATH)) {
+                    putSession(ctx, DataMapItem.fromDataItem(item).dataMap)
+                    continue
+                }
                 if (!path.startsWith(PairingService.PATH)) continue
                 val map = DataMapItem.fromDataItem(item).dataMap
                 val url = map.getString("serverUrl").orEmpty()
@@ -102,7 +107,7 @@ object Pairing {
     fun clear(ctx: Context) {
         prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_REFUSED)
             .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER)
-            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).apply()
+            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).apply()
     }
 
     // ── The last session the watch saw ───────────────────────────────────
@@ -124,6 +129,53 @@ object Pairing {
 
     fun putSettings(ctx: Context, settings: JSONObject) {
         prefs(ctx).edit().putString(KEY_SETTINGS, settings.toString()).apply()
+    }
+
+    // ── How long the session has been running ────────────────────────────
+
+    /**
+     * The phone's workout timer, as it last said it stood. A start time and a
+     * running total rather than a count, so the watch keeps counting with the
+     * phone nowhere nearby.
+     */
+    data class SessionTimer(
+        val date: String,
+        val startTime: Long,
+        val baseElapsedSec: Double,
+        val paused: Boolean,
+        val pausedElapsedSec: Double,
+    ) {
+        fun elapsedMs(now: Long): Long =
+            if (paused) (pausedElapsedSec * 1000).toLong()
+            else maxOf(0L, (baseElapsedSec * 1000).toLong() + (now - startTime))
+    }
+
+    fun session(ctx: Context): SessionTimer? {
+        val raw = prefs(ctx).getString(KEY_SESSION, null) ?: return null
+        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val date = o.optString("date")
+        if (date.isBlank()) return null
+        return SessionTimer(
+            date = date,
+            startTime = o.optLong("startTime", 0L),
+            baseElapsedSec = o.optDouble("baseElapsed", 0.0),
+            paused = o.optBoolean("paused", false),
+            pausedElapsedSec = o.optDouble("pausedElapsed", 0.0),
+        )
+    }
+
+    fun putSession(ctx: Context, map: com.google.android.gms.wearable.DataMap) {
+        val o = JSONObject()
+            .put("date", map.getString("date").orEmpty())
+            .put("startTime", map.getLong("startTime"))
+            .put("baseElapsed", map.getDouble("baseElapsed"))
+            .put("paused", map.getBoolean("paused"))
+            .put("pausedElapsed", map.getDouble("pausedElapsed"))
+        prefs(ctx).edit().putString(KEY_SESSION, o.toString()).apply()
+    }
+
+    fun clearSession(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_SESSION).apply()
     }
 
     // ── What you did last time ───────────────────────────────────────────

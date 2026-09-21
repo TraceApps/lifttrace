@@ -280,6 +280,25 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             if (state.pending > 0 || state.offline || state.error != null) {
                 item { StatusLine(state) }
             }
+            // How long you have been at it, as the phone's own workout timer
+            // counts it. Read only: one timer, and it belongs to the phone.
+            state.session?.let { session ->
+                item {
+                    var elapsed by remember { mutableStateOf(session.elapsedMs(System.currentTimeMillis())) }
+                    LaunchedEffect(session) {
+                        while (!session.paused) {
+                            elapsed = session.elapsedMs(System.currentTimeMillis())
+                            delay(1000)
+                        }
+                    }
+                    Text(
+                        Session.elapsed(elapsed) + if (session.paused) " · paused" else "",
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
             if (state.workout != null) {
                 item {
                     Text(

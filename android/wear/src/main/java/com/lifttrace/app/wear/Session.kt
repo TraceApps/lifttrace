@@ -460,6 +460,16 @@ object Session {
         return "$number $unit"
     }
 
+    /** How long the session has run, the way the phone writes it: 42:10, 1:04:12. */
+    fun elapsed(ms: Long): String {
+        val total = maxOf(0L, ms / 1000)
+        val h = total / 3600
+        val m = (total % 3600) / 60
+        val s = total % 60
+        return if (h > 0) "$h:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}"
+        else "$m:${s.toString().padStart(2, '0')}"
+    }
+
     /** Counting down, as a watch shows it: 1:30, 0:45. */
     fun clock(seconds: Int): String {
         val safe = maxOf(0, seconds)

@@ -38,6 +38,8 @@ class WearStore(private val ctx: Context) {
         val restAutoStart: Boolean = true,
         /** What you did of each exercise last time, by catalogue id. */
         val lastTimes: Map<Int, String> = emptyMap(),
+        /** The phone's workout timer, when one is running for today. */
+        val session: Pairing.SessionTimer? = null,
     )
 
     private val _state = MutableStateFlow(State(paired = Pairing.config(ctx) != null))
@@ -61,6 +63,7 @@ class WearStore(private val ctx: Context) {
             restAutoStart = Session.restAutoStart(settings),
             pending = Pairing.outbox(ctx).size,
             lastTimes = Pairing.lastTimes(ctx),
+            session = sessionTimer(),
         )
     }
 
@@ -100,6 +103,7 @@ class WearStore(private val ctx: Context) {
                 loading = false, offline = false, error = null,
                 workout = shown,
                 pending = waiting.size,
+                session = sessionTimer(),
             )
         } catch (e: Exception) {
             handle(e, quiet)
@@ -208,6 +212,14 @@ class WearStore(private val ctx: Context) {
     fun clearFlash() {
         if (_state.value.flash != null) _state.value = _state.value.copy(flash = null)
     }
+
+    /**
+     * The phone's workout timer, if it is running for today. Yesterday's is
+     * not this session's, and a watch that was out of range when the phone
+     * cleared it should not keep counting a session that ended.
+     */
+    private fun sessionTimer(): Pairing.SessionTimer? =
+        Pairing.session(ctx)?.takeIf { it.date == today }
 
     /** The session the watch is in, so a date with more than one keeps its place. */
     private fun sessionId(): Long = _state.value.workout?.id ?: 0L

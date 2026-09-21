@@ -18,6 +18,11 @@ class PairingService : WearableListenerService() {
     override fun onDataChanged(events: DataEventBuffer) {
         for (event in events) {
             val path = event.dataItem.uri.path ?: continue
+            if (path.startsWith(TIMER_PATH)) {
+                if (event.type == DataEvent.TYPE_DELETED) Pairing.clearSession(this)
+                else Pairing.putSession(this, DataMapItem.fromDataItem(event.dataItem).dataMap)
+                continue
+            }
             if (!path.startsWith(PATH)) continue
             if (event.type == DataEvent.TYPE_DELETED) {
                 Pairing.clear(this)
@@ -38,5 +43,7 @@ class PairingService : WearableListenerService() {
 
     companion object {
         const val PATH = "/lifttrace/pairing"
+        /** How long the session has been running, as the phone counts it. */
+        const val TIMER_PATH = "/lifttrace/timer"
     }
 }

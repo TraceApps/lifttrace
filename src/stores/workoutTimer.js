@@ -9,6 +9,18 @@ function _load() {
 function _save(state) {
   if (state) localStorage.setItem(KEY, JSON.stringify(state));
   else localStorage.removeItem(KEY);
+  // A paired watch shows how long you have been training. It is told
+  // whenever the timer changes and counts on its own from there, so the
+  // phone can go back in a locker without the number freezing.
+  publishTimer(state);
+}
+
+function publishTimer(state) {
+  try {
+    import('../lib/wear-pairing.js')
+      .then(({ publishWorkoutTimer }) => publishWorkoutTimer(state))
+      .catch(() => {});
+  } catch { /* no watch, or no bundler support here */ }
 }
 
 // State shape:

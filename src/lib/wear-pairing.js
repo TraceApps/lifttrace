@@ -41,6 +41,37 @@ export async function pairWatch() {
   if (!(await hasWatch())) return false;
   try {
     await WearPairing.pair({ serverUrl, token });
+    // A watch paired part way through a session should still show its
+    // length, so whatever the timer is doing goes over with the pairing.
+    try {
+      await publishWorkoutTimer(JSON.parse(localStorage.getItem('lt:workoutTimer') || 'null'));
+    } catch { /* no timer running */ }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How long this session has been running, for the watch to show. The state is
+ * a start time and a running total rather than a count, so the watch keeps
+ * counting correctly with the phone out of range: it only needs telling again
+ * when the timer is paused, resumed or cleared.
+ */
+export async function publishWorkoutTimer(state) {
+  if (!isNative) return false;
+  try {
+    if (!state) {
+      await WearPairing.clearTimer();
+      return true;
+    }
+    await WearPairing.timer({
+      date: String(state.date || ''),
+      startTime: Number(state.startTime) || 0,
+      baseElapsed: Number(state.baseElapsed) || 0,
+      paused: !!state.paused,
+      pausedElapsed: Number(state.pausedElapsed) || 0,
+    });
     return true;
   } catch {
     return false;

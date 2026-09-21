@@ -383,6 +383,27 @@ class SessionTest {
     }
 
     @Test
+    fun `a session's length reads the way the phone writes it`() {
+        assertEquals("0:42", Session.elapsed(42_000))
+        assertEquals("42:10", Session.elapsed(2_530_000))
+        assertEquals("1:04:12", Session.elapsed(3_852_000))
+        assertEquals("0:00", Session.elapsed(-5))
+    }
+
+    @Test
+    fun `the session timer keeps counting without the phone, and stops when paused`() {
+        val now = 1_700_000_000_000L
+        val running = Pairing.SessionTimer("2026-09-21", now - 60_000, 120.0, false, 0.0)
+        // Two minutes on the clock when it started, one minute ago.
+        assertEquals(180_000L, running.elapsedMs(now))
+        // And it goes on counting on its own, with the phone nowhere near.
+        assertEquals(240_000L, running.elapsedMs(now + 60_000))
+        val paused = Pairing.SessionTimer("2026-09-21", now - 60_000, 120.0, true, 150.0)
+        assertEquals(150_000L, paused.elapsedMs(now))
+        assertEquals(150_000L, paused.elapsedMs(now + 60_000))
+    }
+
+    @Test
     fun `the countdown reads as a clock`() {
         assertEquals("1:30", Session.clock(90))
         assertEquals("0:05", Session.clock(5))
