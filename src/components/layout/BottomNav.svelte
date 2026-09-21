@@ -87,7 +87,11 @@
     position: absolute;
     top: 6px;
     height: calc(100% - 12px - var(--safe-bottom));
-    background: linear-gradient(135deg, var(--accent-dim), color-mix(in srgb, var(--accent-2) 22%, transparent));
+    /* The second stop used to be a hardcoded #FF7433 at 22%, which is the
+       default accent's own colour, so every other accent showed an orange
+       pill (#114). Reading --accent keeps the default theme identical and
+       lets the rest follow their own colour. */
+    background: linear-gradient(135deg, var(--accent-dim), color-mix(in srgb, var(--accent) 22%, transparent));
     border-radius: var(--radius-md);
     box-shadow: 0 0 16px var(--accent-dim);
     transition: left var(--dur-base) var(--ease-inout);
