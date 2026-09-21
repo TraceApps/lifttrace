@@ -516,6 +516,23 @@ object Session {
             member.working.mapIndexed { i, s -> s.number ?: (i + 1) }.maxOrNull() ?: 0
         } ?: 0
 
+    /** The short form, for a line that has other things to say: "Round 2". */
+    fun setLabel(exercise: Exercise, set: Set): String {
+        if (set.warmup) return "Warm-up"
+        val word = if (exercise.inSuperset) "Round" else "Set"
+        return "$word ${setNumber(exercise, set)}"
+    }
+
+    /**
+     * Where an exercise stands, for the list you scroll before you tap
+     * anything: what it is due for next, and how much of it is behind you.
+     */
+    fun standing(exercise: Exercise): String {
+        val next = exercise.sets.firstOrNull { !it.completed }
+            ?: return "All ${exercise.total} done"
+        return setLabel(exercise, next) + " · ${exercise.done}/${exercise.total} done"
+    }
+
     /**
      * What to call a set to its face: a round when it belongs to a pairing,
      * a set when the exercise stands alone, and a warm-up when that is all

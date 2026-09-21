@@ -405,10 +405,11 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            "${exercise.done} of ${exercise.total} sets" +
-                                (if (exercise.finished) " · done" else ""),
-                        )
+                        // Where this one stands, on the list itself: what it
+                        // is due for next and how much is behind you, with an
+                        // arrow on the one you are actually up to.
+                        val isNow = next?.exercise?.uuid == exercise.uuid
+                        Text((if (isNow) "→ " else "") + Session.standing(exercise))
                     }
                 }
             }

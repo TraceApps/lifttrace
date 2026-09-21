@@ -364,6 +364,36 @@ class SessionTest {
     }
 
     @Test
+    fun `the list says where each exercise stands without tapping into it`() {
+        var w = Session.parse(superset)!!
+        // Nothing done yet: due in round one, nothing behind you.
+        assertEquals("Round 1 · 0/2 done", Session.standing(w.exercise("a1")!!))
+        // The one on its own counts sets, not rounds.
+        assertEquals("Set 1 · 0/1 done", Session.standing(w.exercise("a3")!!))
+
+        w = Session.applyChange(w, Session.suggest(w.exercise("a1")!!, 0).copy(completed = true))
+        assertEquals("Round 2 · 1/2 done", Session.standing(w.exercise("a1")!!))
+        // Its partner has not moved.
+        assertEquals("Round 1 · 0/2 done", Session.standing(w.exercise("a2")!!))
+
+        w = Session.applyChange(w, Session.suggest(w.exercise("a1")!!, 1).copy(completed = true))
+        assertEquals("All 2 done", Session.standing(w.exercise("a1")!!))
+    }
+
+    @Test
+    fun `a warm-up says so on the list rather than claiming a round`() {
+        // The warm-up still to do, so that is what this exercise is due for.
+        val notYet = body.replace(
+            "{\"uuid\":\"s1\",\"reps\":10,\"weight\":135,\"completed\":true,\"warmup\":true}",
+            "{\"uuid\":\"s1\",\"reps\":10,\"weight\":135,\"completed\":false,\"warmup\":true}",
+        )
+        val w = Session.parse(notYet)!!
+        assertEquals("Warm-up · 0/3 done", Session.standing(w.exercise("e1")!!))
+        // Once it is out of the way, the working sets start counting at one.
+        assertEquals("Set 1 · 1/3 done", Session.standing(Session.parse(body)!!.exercise("e1")!!))
+    }
+
+    @Test
     fun `an exercise on its own has sets, not rounds`() {
         val w = Session.parse(body)!!
         val bench = w.exercise("e1")!!
