@@ -1595,6 +1595,16 @@
       if (!auto) showSummary = true;
       return;
     }
+    // A paired watch can have started, paused or stopped this session's
+    // timer while the phone sat open on this screen. Take its word before
+    // writing the length down, or a phone that kept counting would overwrite
+    // a length the watch has already saved.
+    if (isNative) {
+      try {
+        const { syncWorkoutTimer } = await import('../lib/wear-pairing.js');
+        await syncWorkoutTimer();
+      } catch { /* no watch */ }
+    }
     // Pause timer + persist elapsed
     let finalDuration = $todayLog?.duration_min || 0;
     if ($timerState && $timerState.date === $currentDate) {

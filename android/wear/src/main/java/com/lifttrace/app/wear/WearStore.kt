@@ -1,8 +1,14 @@
 package com.lifttrace.app.wear
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.time.LocalDate
 
@@ -45,6 +51,16 @@ class WearStore(private val ctx: Context) {
     private val _state = MutableStateFlow(State(paired = Pairing.config(ctx) != null))
     val state: StateFlow<State> = _state
 
+    /**
+     * Sending belongs to the store, not to whatever screen happened to be up
+     * when the wearer tapped. A set logged on the last screen of a session
+     * goes up even though that screen is gone by the time the request is made.
+     */
+    private val work = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** One send at a time: two at once would read the same day twice and race. */
+    private val sending = Mutex()
+
     private val today: String get() = LocalDate.now().toString()
 
     init {
@@ -54,7 +70,11 @@ class WearStore(private val ctx: Context) {
     /** Draw whatever the watch last saw, before anything touches the network. */
     private fun restore() {
         val settings = Pairing.settings(ctx)
-        val cached = Pairing.cache(ctx)?.let { runCatching { Session.parse(it) }.getOrNull() }
+        // Only today's. Yesterday's session drawn on a new morning would be
+        // something you could log into, and every set would land on yesterday.
+        val cached = Pairing.cache(ctx)
+            ?.let { runCatching { Session.parse(it) }.getOrNull() }
+            ?.takeIf { it.date == today }
         _state.value = _state.value.copy(
             workout = cached,
             unit = Session.weightUnit(settings),
@@ -95,8 +115,12 @@ class WearStore(private val ctx: Context) {
             // what came back: keep it on screen rather than letting the
             // server's answer undo it in front of the wearer.
             val waiting = Pairing.outbox(ctx)
+            // Only this day's. A template copied into two days can carry the
+            // same set ids into both, and laying yesterday's change over
+            // today's session would tick off a set nobody has done.
             val shown = workout?.let { w ->
-                waiting.fold(w) { acc, op -> op.change?.let { Session.applyChange(acc, it) } ?: acc }
+                waiting.filter { it.date == w.date }
+                    .fold(w) { acc, op -> op.change?.let { Session.applyChange(acc, it) } ?: acc }
             }
             if (shown != null) Pairing.putCache(ctx, wrap(shown))
             else Pairing.putCache(ctx, body)
@@ -161,7 +185,30 @@ class WearStore(private val ctx: Context) {
         redrawSurfaces()
         Pairing.queue(ctx, Pairing.Op(updated.date.ifBlank { today }, updated.id, change))
         _state.value = _state.value.copy(pending = Pairing.outbox(ctx).size)
-        Pairing.config(ctx)?.let { flush(it) }
+        send()
+    }
+
+    /**
+     * A hold is starting: write down which set it is for, so it is logged when
+     * it ends whether the watch is still showing it or not.
+     */
+    fun armHold(change: Session.Change) {
+        val day = _state.value.workout ?: return
+        Pairing.armHold(ctx, Pairing.Op(day.date.ifBlank { today }, day.id, change))
+    }
+
+    /** The hold ended while the app was watching. */
+    fun completeHold() {
+        if (!Pairing.completeHold(ctx)) return
+        restore()
+        _state.value = _state.value.copy(flash = "Hold logged")
+        send()
+    }
+
+    /** Send what is waiting, on the store's own time. */
+    private fun send() {
+        val cfg = Pairing.config(ctx) ?: return
+        work.launch { flush(cfg) }
     }
 
     // ── The session's own clock ──────────────────────────────────────────
@@ -196,10 +243,16 @@ class WearStore(private val ctx: Context) {
         val timer = _state.value.session ?: return
         val minutes = timer.minutes(System.currentTimeMillis())
         publishSession(null)
-        val day = _state.value.workout ?: return
+        val day = _state.value.workout
+        if (day == null) {
+            // Nothing to put the time on, and saying "Time saved" would be a
+            // lie. The timer still stops.
+            _state.value = _state.value.copy(error = "No session to put that time on")
+            return
+        }
         Pairing.queue(ctx, Pairing.Op(day.date.ifBlank { today }, day.id, minutes = minutes))
         _state.value = _state.value.copy(pending = Pairing.outbox(ctx).size, flash = "Time saved")
-        Pairing.config(ctx)?.let { flush(it) }
+        send()
     }
 
     private fun publishSession(timer: Pairing.SessionTimer?) {
@@ -212,18 +265,21 @@ class WearStore(private val ctx: Context) {
      * changes are replayed onto it, so what goes back carries everything the
      * phone did in the meantime rather than overwriting it.
      */
-    suspend fun flush(cfg: Pairing.Config): Boolean {
+    suspend fun flush(cfg: Pairing.Config): Boolean = sending.withLock { flushOnce(cfg) }
+
+    private suspend fun flushOnce(cfg: Pairing.Config): Boolean {
         val waiting = Pairing.outbox(ctx)
         if (waiting.isEmpty()) return true
         val date = waiting.first().date.ifBlank { today }
         val id = waiting.first().workoutId
+        val batch = waiting.filter { it.date == date }
         return try {
             val server = Session.parse(LiftApi.workout(cfg, date, id))
             if (server == null) {
                 // The session was deleted on the phone while the watch held
                 // changes for it. Recreating it behind the wearer's back would
                 // be worse than saying so.
-                Pairing.writeOutbox(ctx, waiting.filterNot { it.date == date })
+                forget(batch)
                 _state.value = _state.value.copy(
                     pending = Pairing.outbox(ctx).size,
                     error = "That session is no longer on your server",
@@ -231,12 +287,14 @@ class WearStore(private val ctx: Context) {
                 return false
             }
             var body = server.raw
-            for (op in waiting.filter { it.date == date }) {
+            for (op in batch) {
                 op.change?.let { body = Session.upsert(body, it) }
                 op.minutes?.let { body.put("duration_min", it) }
             }
             val saved = LiftApi.saveWorkout(cfg, date, body)
-            Pairing.writeOutbox(ctx, waiting.filterNot { it.date == date })
+            // Only what actually went up comes off the queue. Anything logged
+            // while this was in the air is a later entry and stays.
+            forget(batch)
             val workout = Session.parse(saved)
             if (workout != null) {
                 Pairing.putCache(ctx, wrap(workout))
@@ -255,6 +313,12 @@ class WearStore(private val ctx: Context) {
             handle(e, quiet = false)
             false
         }
+    }
+
+    /** Take the entries that went up off the queue, and nothing else. */
+    private fun forget(sent: List<Pairing.Op>) {
+        val seqs = sent.map { it.seq }.toSet()
+        Pairing.writeOutbox(ctx, Pairing.outbox(ctx).filterNot { it.seq in seqs })
     }
 
     fun clearFlash() {

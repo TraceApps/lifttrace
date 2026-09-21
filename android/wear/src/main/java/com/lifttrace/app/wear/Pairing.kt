@@ -34,6 +34,8 @@ object Pairing {
     private const val KEY_CACHE_AT = "cache_at"
     private const val KEY_SETTINGS = "settings"
     private const val KEY_OUTBOX = "outbox"
+    private const val KEY_SEQ = "outbox_seq"
+    private const val KEY_HOLD = "pending_hold"
     private const val KEY_TIMER = "timer"
     private const val KEY_SESSION = "session_timer"
     private const val KEY_LASTS = "last_times"
@@ -278,6 +280,48 @@ object Pairing {
         prefs(ctx).edit().remove(KEY_TIMER).apply()
     }
 
+    // ── A hold that logs itself ──────────────────────────────────────────
+
+    /**
+     * The set a running hold belongs to. A plank is done with your wrist on
+     * the floor and the watch back on its face, so the hold cannot depend on
+     * anyone watching it finish: it is written down here when it starts, and
+     * whatever gets there first, the app or the alarm, logs it.
+     */
+    fun armHold(ctx: Context, op: Op) {
+        prefs(ctx).edit().putString(KEY_HOLD, op.toJson().toString()).apply()
+    }
+
+    fun clearHold(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_HOLD).apply()
+    }
+
+    /**
+     * The hold is over: mark its set done in what the watch is showing and put
+     * it on the queue. Safe to call twice, since the queue keeps one entry per
+     * set and the change says what the set reads rather than nudging it.
+     */
+    fun completeHold(ctx: Context): Boolean {
+        val raw = prefs(ctx).getString(KEY_HOLD, null) ?: return false
+        val op = runCatching { Op.from(JSONObject(raw)) }.getOrNull() ?: run {
+            clearHold(ctx)
+            return false
+        }
+        val change = op.change ?: run {
+            clearHold(ctx)
+            return false
+        }
+        cache(ctx)?.let { body ->
+            runCatching {
+                val workout = Session.parse(body) ?: return@runCatching
+                putCache(ctx, JSONObject().put("workout", Session.applyChange(workout, change).raw).toString())
+            }
+        }
+        queue(ctx, op)
+        clearHold(ctx)
+        return true
+    }
+
     // ── Changes made with no connection ──────────────────────────────────
 
     /**
@@ -293,12 +337,19 @@ object Pairing {
         val change: Session.Change? = null,
         /** Or how long the session ran, when the timer was stopped here. */
         val minutes: Double? = null,
+        /**
+         * Which entry this is, counting up. A send only removes the entries it
+         * actually sent: something logged while the sending was still in the
+         * air is a different entry and stays for the next one, rather than
+         * being tidied away with the batch it was never part of.
+         */
+        val seq: Long = 0,
     ) {
         /** One entry per set, and one for the session's length. */
         val key: String get() = change?.setUuid ?: "duration"
 
         fun toJson(): JSONObject {
-            val o = JSONObject().put("date", date).put("workoutId", workoutId)
+            val o = JSONObject().put("date", date).put("workoutId", workoutId).put("seq", seq)
             if (minutes != null) return o.put("minutes", minutes)
             val c = change ?: return o
             return o
@@ -313,11 +364,15 @@ object Pairing {
         companion object {
             fun from(o: JSONObject): Op {
                 if (o.has("minutes")) {
-                    return Op(o.optString("date"), o.optLong("workoutId"), minutes = o.optDouble("minutes", 0.0))
+                    return Op(
+                        o.optString("date"), o.optLong("workoutId"),
+                        minutes = o.optDouble("minutes", 0.0), seq = o.optLong("seq", 0L),
+                    )
                 }
                 return Op(
                     date = o.optString("date"),
                     workoutId = o.optLong("workoutId"),
+                    seq = o.optLong("seq", 0L),
                     change = Session.Change(
                         exerciseUuid = o.optString("exerciseUuid"),
                         setUuid = o.optString("setUuid"),
@@ -343,9 +398,12 @@ object Pairing {
     fun queue(ctx: Context, op: Op) {
         // One entry per set: changing the same set twice is a correction, not
         // a second set, and the last word wins. The new entry goes at the end
-        // so the order changes were made in is the order they are replayed in.
+        // so the order changes were made in is the order they are replayed in,
+        // and carries its own number so a send in flight cannot tidy it away.
+        val next = prefs(ctx).getLong(KEY_SEQ, 0L) + 1
+        prefs(ctx).edit().putLong(KEY_SEQ, next).apply()
         val kept = outbox(ctx).filterNot { it.key == op.key && it.date == op.date }
-        writeOutbox(ctx, kept + op)
+        writeOutbox(ctx, kept + op.copy(seq = next))
     }
 
     fun writeOutbox(ctx: Context, ops: List<Op>) {

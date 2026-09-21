@@ -103,7 +103,7 @@ class Countdown(private val ctx: android.content.Context) {
     var endsAt by mutableStateOf(0L)
         private set
     /** What to do when it reaches zero, for a hold that logs itself. */
-    var onDone: (suspend () -> Unit)? = null
+    var onDone: (() -> Unit)? = null
         private set
     /**
      * Has this one already rung? Looking at a timer that ran out while you
@@ -124,7 +124,7 @@ class Countdown(private val ctx: android.content.Context) {
 
     val running: Boolean get() = endsAt > System.currentTimeMillis()
 
-    fun start(label: String, seconds: Int, onDone: (suspend () -> Unit)? = null) {
+    fun start(label: String, seconds: Int, onDone: (() -> Unit)? = null) {
         this.label = label
         this.total = seconds
         this.endsAt = System.currentTimeMillis() + seconds * 1000L
@@ -149,6 +149,9 @@ class Countdown(private val ctx: android.content.Context) {
         onDone = null
         RestAlarm.cancel(ctx)
         Pairing.clearTimer(ctx)
+        // Skipping a hold means it was not held: it should not log itself
+        // later because an alarm was still out there.
+        Pairing.clearHold(ctx)
     }
 
     private fun remember() {
@@ -538,10 +541,8 @@ private fun SetScreen(
                     Button(
                         onClick = {
                             val seconds = draft.durationSec
-                            val change = draft.copy(completed = true)
-                            clock.start(exercise.name, maxOf(1, seconds)) {
-                                store.save(change, "Hold logged")
-                            }
+                            store.armHold(draft.copy(completed = true))
+                            clock.start(exercise.name, maxOf(1, seconds)) { store.completeHold() }
                             nav.navigate("timer")
                         },
                         label = { Text("Start the hold") },
@@ -739,7 +740,11 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
         if (!clock.fired) {
             clock.markFired()
             // The alarm does the buzzing, so it happens whether or not this
-            // screen is still up. Here there is only the hold to write down.
+            // screen is still up. Here there is only the hold to write down,
+            // and the alarm will have done that too if it got there first.
+            // The hold is logged before the timer is cleared: clearing it is
+            // also what cancels a hold, and doing that first would throw away
+            // the very set this is here to write down.
             clock.onDone?.invoke()
             clock.stop()
         }

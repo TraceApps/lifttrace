@@ -429,17 +429,22 @@ class SessionTest {
         val set = Pairing.Op(
             "2026-09-21", 7,
             change = Session.Change("e1", "s2", 190.0, 7, null, null, 0, true, false),
+            seq = 12,
         )
         val back = Pairing.Op.from(set.toJson())
         assertEquals(set, back)
         assertEquals("s2", back.key)
 
-        val length = Pairing.Op("2026-09-21", 7, minutes = 47.3)
+        val length = Pairing.Op("2026-09-21", 7, minutes = 47.3, seq = 13)
         val lengthBack = Pairing.Op.from(length.toJson())
         assertEquals(length, lengthBack)
         assertEquals(47.3, lengthBack.minutes!!, 0.001)
         assertNull(lengthBack.change)
         assertEquals("duration", lengthBack.key)
+        // The number each entry carries is what a send removes it by, so it
+        // has to survive being written down.
+        assertEquals(12L, back.seq)
+        assertEquals(13L, lengthBack.seq)
     }
 
     @Test

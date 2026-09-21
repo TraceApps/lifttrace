@@ -88,6 +88,13 @@ object RestAlarm {
 class RestAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Pairing.clearTimer(context)
+        // A hold that was counting down is logged here rather than waiting for
+        // anyone to be looking: holding a plank is exactly when the watch is
+        // face down and the app is long gone from the screen.
+        if (Pairing.completeHold(context)) {
+            SessionTileService.refresh(context)
+            SetsComplicationService.refresh(context)
+        }
         RestAlarm.buzz(context)
     }
 }
