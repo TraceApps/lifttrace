@@ -16,11 +16,15 @@ import test from 'node:test';
 
 const { attachAssignedPrograms } = await import('../server/lib/assigned-programs.js');
 
-// better-sqlite3 in CI (where it is compiled), node:sqlite otherwise. Both
-// expose the prepare().all()/run() and exec() surface these tests use.
+// better-sqlite3 is a server-only dep, reached the same way the other DB
+// tests reach it. Where the native binding is not built (a checkout that
+// has never run the server's install), node:sqlite stands in: both expose
+// the exec() and prepare().all()/run() surface these tests use.
 async function openDb() {
   try {
-    const { default: Database } = await import('better-sqlite3');
+    const { createRequire } = await import('node:module');
+    const serverRequire = createRequire(new URL('../server/', import.meta.url));
+    const Database = serverRequire('better-sqlite3');
     return new Database(':memory:');
   } catch {
     const { DatabaseSync } = await import('node:sqlite');
