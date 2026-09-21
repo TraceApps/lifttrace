@@ -356,9 +356,9 @@ object Session {
      * Built from the recent sessions in one go rather than a request per
      * exercise: a watch should ask a server for as little as it can.
      */
-    fun lastTimes(recent: String, today: String, unit: String): Map<Int, String> {
+    fun lastTimes(recent: String, today: String, unit: String): Map<String, String> {
         val rows = runCatching { JSONArray(recent) }.getOrNull() ?: return emptyMap()
-        val out = mutableMapOf<Int, String>()
+        val out = mutableMapOf<String, String>()
         for (i in 0 until rows.length()) {
             val row = rows.optJSONObject(i) ?: continue
             val date = row.optString("date")
@@ -368,7 +368,12 @@ object Session {
             for (j in 0 until exercises.length()) {
                 val e = exercises.optJSONObject(j) ?: continue
                 val id = e.optInt("exercise_id", 0)
-                if (id <= 0 || out.containsKey(id)) continue
+                val name = e.optString("exercise_name")
+                // A session built from a template carries no catalogue ids at
+                // all, so the name is what matches it to the same lift last
+                // week. Both are written when both are known.
+                val keys = lastKeys(id, name)
+                if (keys.isEmpty() || keys.all { out.containsKey(it) }) continue
                 val sets = mutableListOf<Set>()
                 val rawSets = e.optJSONArray("sets") ?: JSONArray()
                 for (k in 0 until rawSets.length()) {
@@ -378,7 +383,7 @@ object Session {
                 val exercise = Exercise(
                     uuid = e.optString("uuid"),
                     exerciseId = id,
-                    name = e.optString("exercise_name").ifBlank { "Exercise" },
+                    name = name.ifBlank { "Exercise" },
                     setType = setType(e, sets),
                     loadType = loadType(e),
                     supersetId = null,
@@ -386,11 +391,22 @@ object Session {
                     restSec = 0,
                     sets = sets,
                 )
-                best(exercise)?.let { out[id] = setLine(exercise, it, unit) }
+                best(exercise)?.let { set ->
+                    val line = setLine(exercise, set, unit)
+                    for (key in keys) out.putIfAbsent(key, line)
+                }
             }
         }
         return out
     }
+
+    /** How an exercise is matched to the same one in an earlier session. */
+    fun lastKeys(exerciseId: Int, name: String): List<String> = buildList {
+        if (exerciseId > 0) add("id:$exerciseId")
+        if (name.isNotBlank()) add("name:" + name.trim().lowercase())
+    }
+
+    fun lastKeys(exercise: Exercise): List<String> = lastKeys(exercise.exerciseId, exercise.name)
 
     /** The set worth quoting back: the longest hold, or the heaviest working set. */
     private fun best(exercise: Exercise): Set? {

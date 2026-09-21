@@ -28,8 +28,8 @@ object Pairing {
 
     private const val TAG = "LiftTraceWear"
     private const val PREFS = "lifttrace.wear"
-    private const val KEY_URL = "server_url"
-    private const val KEY_TOKEN = "token"
+    const val KEY_URL = "server_url"
+    const val KEY_TOKEN = "token"
     private const val KEY_CACHE = "cache"
     private const val KEY_CACHE_AT = "cache_at"
     private const val KEY_SETTINGS = "settings"
@@ -37,13 +37,26 @@ object Pairing {
     private const val KEY_SEQ = "outbox_seq"
     private const val KEY_HOLD = "pending_hold"
     private const val KEY_TIMER = "timer"
-    private const val KEY_SESSION = "session_timer"
+    const val KEY_SESSION = "session_timer"
     private const val KEY_LASTS = "last_times"
     private const val KEY_LASTS_DAY = "last_times_day"
     private const val KEY_REFUSED = "refused_token"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * Tell me when any of this changes. The phone's half arrives on a
+     * background service, so without this the app would sit there showing
+     * what it read when it opened until something else made it look again.
+     */
+    fun watch(ctx: Context, onChange: (String) -> Unit): SharedPreferences.OnSharedPreferenceChangeListener {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key != null) onChange(key)
+        }
+        prefs(ctx).registerOnSharedPreferenceChangeListener(listener)
+        return listener
+    }
 
     /** The saved link, or null when the phone hasn't paired yet. */
     fun config(ctx: Context): Config? {
@@ -130,8 +143,18 @@ object Pairing {
     fun settings(ctx: Context): JSONObject? =
         prefs(ctx).getString(KEY_SETTINGS, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
 
+    /**
+     * Only what the watch actually reads. The settings a LiftTrace account
+     * holds include API keys, a radio password and notification tokens, and
+     * none of that has any business sitting on a wrist: four values decide how
+     * this app behaves, so four values are what it keeps.
+     */
+    private val KEPT_SETTINGS = listOf("restDuration", "restAutoStart", "restTimerEnabled", "weightUnit")
+
     fun putSettings(ctx: Context, settings: JSONObject) {
-        prefs(ctx).edit().putString(KEY_SETTINGS, settings.toString()).apply()
+        val kept = JSONObject()
+        for (key in KEPT_SETTINGS) if (settings.has(key)) kept.put(key, settings.get(key))
+        prefs(ctx).edit().putString(KEY_SETTINGS, kept.toString()).apply()
     }
 
     // ── How long the session has been running ────────────────────────────
@@ -238,20 +261,20 @@ object Pairing {
      * One line per exercise, worked out once a day and kept, so the number is
      * there in a gym with no signal as well as one with.
      */
-    fun lastTimes(ctx: Context): Map<Int, String> {
+    fun lastTimes(ctx: Context): Map<String, String> {
         val raw = prefs(ctx).getString(KEY_LASTS, null) ?: return emptyMap()
         val o = runCatching { JSONObject(raw) }.getOrNull() ?: return emptyMap()
-        val out = mutableMapOf<Int, String>()
-        for (key in o.keys()) key.toIntOrNull()?.let { out[it] = o.optString(key) }
+        val out = mutableMapOf<String, String>()
+        for (key in o.keys()) out[key] = o.optString(key)
         return out
     }
 
     /** Was that worked out today? If not it is worth asking again. */
     fun lastTimesDay(ctx: Context): String = prefs(ctx).getString(KEY_LASTS_DAY, "").orEmpty()
 
-    fun putLastTimes(ctx: Context, day: String, lines: Map<Int, String>) {
+    fun putLastTimes(ctx: Context, day: String, lines: Map<String, String>) {
         val o = JSONObject()
-        lines.forEach { (id, line) -> o.put(id.toString(), line) }
+        lines.forEach { (key, line) -> o.put(key, line) }
         prefs(ctx).edit().putString(KEY_LASTS, o.toString()).putString(KEY_LASTS_DAY, day).apply()
     }
 

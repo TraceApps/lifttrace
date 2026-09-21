@@ -380,10 +380,13 @@ class SessionTest {
         val lines = Session.lastTimes(recent, "2026-09-21", "lbs")
         // Today is not last time, a warm-up is not the answer, and neither is
         // a set that was planned but never done.
-        assertEquals("195 lbs x 6 reps", lines[11])
+        assertEquals("195 lbs x 6 reps", lines["id:11"])
         // A hold quotes the longest one.
-        assertEquals("1:15", lines[7])
-        assertNull(lines[99])
+        assertEquals("1:15", lines["id:7"])
+        assertNull(lines["id:99"])
+        // And the same answer is there under the name, for a session that
+        // carries no catalogue ids at all.
+        assertEquals("195 lbs x 6 reps", lines["name:bench press"])
     }
 
     @Test
@@ -392,7 +395,27 @@ class SessionTest {
             [{"date":"2026-09-20","exercises":[{"exercise_id":11,"sets":[{"uuid":"a","reps":8,"weight":185,"completed":false}]}]},
              {"date":"2026-09-18","exercises":[{"exercise_id":11,"sets":[{"uuid":"b","reps":8,"weight":180,"completed":true}]}]}]
         """.trimIndent()
-        assertEquals("180 lbs x 8 reps", Session.lastTimes(recent, "2026-09-21", "lbs")[11])
+        assertEquals("180 lbs x 8 reps", Session.lastTimes(recent, "2026-09-21", "lbs")["id:11"])
+    }
+
+    @Test
+    fun `a session with no catalogue ids still finds what you did last time`() {
+        // What a template-built session actually looks like: names, no ids.
+        val recent = """
+            [{"date":"2026-09-18","exercises":[
+              {"exercise_name":"Deadlifts - TB","uuid":"x1","sets":[
+                {"uuid":"a","reps":10,"weight":275,"completed":true}]}]}]
+        """.trimIndent()
+        val lines = Session.lastTimes(recent, "2026-09-21", "lbs")
+        assertEquals("275 lbs x 10 reps", lines["name:deadlifts - tb"])
+
+        val today = Session.parse(
+            """{"workout":{"id":1,"date":"2026-09-21","name":"Lower","exercises":[
+                 {"uuid":"y1","exercise_name":"Deadlifts - TB","sets":[
+                   {"uuid":"b","reps":10,"weight":225,"completed":false}]}]}}"""
+        )!!
+        val found = Session.lastKeys(today.exercises[0]).firstNotNullOfOrNull { lines[it] }
+        assertEquals("275 lbs x 10 reps", found)
     }
 
     @Test

@@ -43,8 +43,8 @@ class WearStore(private val ctx: Context) {
         val restSeconds: Int = 90,
         val restEnabled: Boolean = false,
         val restAutoStart: Boolean = true,
-        /** What you did of each exercise last time, by catalogue id. */
-        val lastTimes: Map<Int, String> = emptyMap(),
+        /** What you did of each exercise last time, by catalogue id or name. */
+        val lastTimes: Map<String, String> = emptyMap(),
         /** The phone's workout timer, when one is running for today. */
         val session: Pairing.SessionTimer? = null,
     )
@@ -61,6 +61,21 @@ class WearStore(private val ctx: Context) {
 
     /** One send at a time: two at once would read the same day twice and race. */
     private val sending = Mutex()
+
+    /**
+     * The phone's half of things arrives on a background service and is
+     * written down rather than handed over, so the app listens for it. Without
+     * this, stopping the timer on the phone would not show here until the
+     * watch next went looking, which could be the better part of a minute.
+     * Held as a field: what registers this keeps only a weak reference.
+     */
+    private val watcher = Pairing.watch(ctx) { key ->
+        when (key) {
+            Pairing.KEY_SESSION -> _state.update { it.copy(session = sessionTimer()) }
+            Pairing.KEY_URL, Pairing.KEY_TOKEN ->
+                _state.update { it.copy(paired = Pairing.config(ctx) != null) }
+        }
+    }
 
     private val today: String get() = LocalDate.now().toString()
 

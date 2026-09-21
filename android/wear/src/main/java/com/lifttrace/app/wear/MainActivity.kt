@@ -531,7 +531,7 @@ private fun SetScreen(
             // What you did of this lift last time, when there is something to
             // say. One line, no tap, nothing to set up: the number you would
             // otherwise take your phone out to look up.
-            state.lastTimes[exercise.exerciseId]?.let { last ->
+            Session.lastKeys(exercise).firstNotNullOfOrNull { state.lastTimes[it] }?.let { last ->
                 item {
                     Text(
                         "Last time " + last,
