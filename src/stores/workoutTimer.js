@@ -6,10 +6,16 @@ function _load() {
   try { return JSON.parse(localStorage.getItem(KEY) || 'null'); }
   catch { return null; }
 }
+const AT_KEY = 'lt:workoutTimerAt';
+
 function _save(state) {
   // Stamped, so that when the phone and the watch have both had a say, the
-  // later one is the one that counts.
-  const stamped = state ? { ...state, at: Date.now() } : null;
+  // later one is the one that counts. The stamp is kept even when the timer
+  // is stopped, or a stop would look older than the running state it ended
+  // and the watch would hand it straight back.
+  const at = Date.now();
+  const stamped = state ? { ...state, at } : null;
+  localStorage.setItem(AT_KEY, String(at));
   if (stamped) localStorage.setItem(KEY, JSON.stringify(stamped));
   else localStorage.removeItem(KEY);
   // A paired watch shows how long you have been training and can start, pause
@@ -21,7 +27,7 @@ function _save(state) {
 /** When the timer here was last changed, for settling that against the watch. */
 export function timerStampedAt() {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || 'null')?.at || 0;
+    return Number(localStorage.getItem(AT_KEY)) || 0;
   } catch {
     return 0;
   }
@@ -31,7 +37,8 @@ export function timerStampedAt() {
  * The watch started, paused or stopped the timer. Take its word for it
  * without telling it back what it just told us.
  */
-export function adoptTimer(state) {
+export function adoptTimer(state, at = 0) {
+  localStorage.setItem(AT_KEY, String(at || state?.at || Date.now()));
   if (state) localStorage.setItem(KEY, JSON.stringify(state));
   else localStorage.removeItem(KEY);
   timerState.set(state);

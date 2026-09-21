@@ -38,6 +38,7 @@ object Pairing {
     private const val KEY_HOLD = "pending_hold"
     private const val KEY_TIMER = "timer"
     const val KEY_SESSION = "session_timer"
+    private const val KEY_SESSION_AT = "session_timer_at"
     private const val KEY_LASTS = "last_times"
     private const val KEY_LASTS_DAY = "last_times_day"
     private const val KEY_REFUSED = "refused_token"
@@ -80,6 +81,8 @@ object Pairing {
             for (item in items) {
                 val path = item.uri.path.orEmpty()
                 if (path.startsWith(PairingService.TIMER_PATH)) {
+                    // putSession ignores anything older than what is known,
+                    // so the newest wins whatever order these arrive in.
                     putSession(ctx, DataMapItem.fromDataItem(item).dataMap)
                     continue
                 }
@@ -123,7 +126,7 @@ object Pairing {
     fun clear(ctx: Context) {
         prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_REFUSED)
             .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER)
-            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).apply()
+            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).remove(KEY_SESSION_AT).apply()
     }
 
     // ── The last session the watch saw ───────────────────────────────────
@@ -201,9 +204,17 @@ object Pairing {
         )
     }
 
+    /**
+     * Something the phone (or this watch) said about the timer. Anything older
+     * than what is already known is ignored: both devices keep their own
+     * record at this path, so an older one arriving afterwards is normal and
+     * must not undo the newer one.
+     */
     fun putSession(ctx: Context, map: com.google.android.gms.wearable.DataMap) {
+        val at = map.getLong("at", 0L)
+        if (at > 0 && at < prefs(ctx).getLong(KEY_SESSION_AT, 0L)) return
         if (map.getBoolean("cleared", false)) {
-            clearSession(ctx)
+            clearSession(ctx, at)
             return
         }
         val o = JSONObject()
@@ -212,11 +223,17 @@ object Pairing {
             .put("baseElapsed", map.getDouble("baseElapsed"))
             .put("paused", map.getBoolean("paused"))
             .put("pausedElapsed", map.getDouble("pausedElapsed"))
-        prefs(ctx).edit().putString(KEY_SESSION, o.toString()).apply()
+        prefs(ctx).edit()
+            .putString(KEY_SESSION, o.toString())
+            .putLong(KEY_SESSION_AT, if (at > 0) at else System.currentTimeMillis())
+            .apply()
     }
 
-    fun clearSession(ctx: Context) {
-        prefs(ctx).edit().remove(KEY_SESSION).apply()
+    fun clearSession(ctx: Context, at: Long = 0L) {
+        prefs(ctx).edit()
+            .remove(KEY_SESSION)
+            .putLong(KEY_SESSION_AT, if (at > 0) at else System.currentTimeMillis())
+            .apply()
     }
 
     /**
@@ -225,7 +242,8 @@ object Pairing {
      * the day when the workout is finished there.
      */
     fun publishSession(ctx: Context, timer: SessionTimer?) {
-        if (timer == null) clearSession(ctx) else putSession(ctx, timer)
+        val at = System.currentTimeMillis()
+        if (timer == null) clearSession(ctx, at) else putSession(ctx, timer, at)
         val request = PutDataMapRequest.create(PairingService.TIMER_PATH)
         request.dataMap.apply {
             if (timer == null) {
@@ -238,21 +256,21 @@ object Pairing {
                 putBoolean("paused", timer.paused)
                 putDouble("pausedElapsed", timer.pausedElapsedSec)
             }
-            putLong("at", System.currentTimeMillis())
+            putLong("at", at)
         }
         runCatching {
             Wearable.getDataClient(ctx).putDataItem(request.asPutDataRequest().setUrgent())
         }.onFailure { Log.w(TAG, "couldn't tell the phone about the timer: " + it.message) }
     }
 
-    private fun putSession(ctx: Context, timer: SessionTimer) {
+    private fun putSession(ctx: Context, timer: SessionTimer, at: Long) {
         val o = JSONObject()
             .put("date", timer.date)
             .put("startTime", timer.startTime)
             .put("baseElapsed", timer.baseElapsedSec)
             .put("paused", timer.paused)
             .put("pausedElapsed", timer.pausedElapsedSec)
-        prefs(ctx).edit().putString(KEY_SESSION, o.toString()).apply()
+        prefs(ctx).edit().putString(KEY_SESSION, o.toString()).putLong(KEY_SESSION_AT, at).apply()
     }
 
     // ── What you did last time ───────────────────────────────────────────

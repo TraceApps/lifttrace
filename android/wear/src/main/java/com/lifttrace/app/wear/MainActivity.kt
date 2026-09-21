@@ -359,18 +359,46 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             } else if (state.workout?.finished == true) {
                 item { Message(title = "Every set is done", body = "Finish the session on your phone.") }
             }
-            items(state.workout?.exercises.orEmpty(), key = { it.uuid }) { exercise ->
-                TitleCard(
-                    onClick = { nav.navigate("exercise/${exercise.uuid}") },
-                    title = { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    val label = state.workout?.let { Session.supersetLabel(it, exercise) }
-                    Text(
-                        (if (label != null) "$label · " else "") +
+            // Exercises in the order they are done, with each pairing given a
+            // heading of its own. A superset is two or three exercises you
+            // move between, and on a list you scroll past there is no other
+            // way to see where one starts and the next thing begins.
+            val exercises = state.workout?.exercises.orEmpty()
+            exercises.forEachIndexed { index, exercise ->
+                val day = state.workout
+                val label = day?.let { Session.supersetLabel(it, exercise) }
+                val previous = exercises.getOrNull(index - 1)
+                val opens = exercise.inSuperset &&
+                    (previous == null || previous.supersetId != exercise.supersetId)
+                if (opens && label != null) {
+                    val members = Session.group(day!!, exercise)
+                    item(key = "head-" + exercise.uuid) {
+                        ListHeader {
+                            Text(
+                                "Superset ${label.first()} · ${members.size} exercises",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+                item(key = exercise.uuid) {
+                    TitleCard(
+                        onClick = { nav.navigate("exercise/${exercise.uuid}") },
+                        title = {
+                            Text(
+                                (if (label != null) "$label  " else "") + exercise.name,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
                             "${exercise.done} of ${exercise.total} sets" +
-                            (if (exercise.finished) " · done" else ""),
-                    )
+                                (if (exercise.finished) " · done" else ""),
+                        )
+                    }
                 }
             }
             item {

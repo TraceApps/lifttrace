@@ -92,10 +92,18 @@ public class WearPairingPlugin extends Plugin {
         req.getDataMap().putBoolean("paused", Boolean.TRUE.equals(call.getBoolean("paused", false)));
         req.getDataMap().putDouble("pausedElapsed", call.getDouble("pausedElapsed", 0d));
         req.getDataMap().putBoolean("cleared", false);
-        req.getDataMap().putLong("at", System.currentTimeMillis());
+        // The stamp comes from whoever made the change, so both devices are
+        // judging by the same reading rather than by when a write happened.
+        req.getDataMap().putLong("at", stampOf(call));
         Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
             .addOnSuccessListener(item -> call.resolve())
             .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    private long stampOf(PluginCall call) {
+        Double at = call.getDouble("at", 0d);
+        long stamp = at == null ? 0L : at.longValue();
+        return stamp > 0 ? stamp : System.currentTimeMillis();
     }
 
     /**
@@ -110,18 +118,25 @@ public class WearPairingPlugin extends Plugin {
             .addOnSuccessListener(items -> {
                 JSObject ret = new JSObject();
                 ret.put("found", false);
+                // Each device keeps its own record at this path, so this has
+                // to be the NEWEST of them rather than whichever the loop
+                // happens to reach last.
+                long newest = 0L;
                 for (com.google.android.gms.wearable.DataItem item : items) {
                     String path = item.getUri().getPath();
                     if (path == null || !path.startsWith(TIMER_PATH)) continue;
                     com.google.android.gms.wearable.DataMap map =
                         DataMapItem.fromDataItem(item).getDataMap();
+                    long at = map.getLong("at", 0L);
+                    if (at < newest) continue;
+                    newest = at;
                     ret.put("found", true);
                     ret.put("date", map.getString("date", ""));
                     ret.put("startTime", map.getLong("startTime", 0L));
                     ret.put("baseElapsed", map.getDouble("baseElapsed", 0d));
                     ret.put("paused", map.getBoolean("paused", false));
                     ret.put("pausedElapsed", map.getDouble("pausedElapsed", 0d));
-                    ret.put("at", map.getLong("at", 0L));
+                    ret.put("at", at);
                     ret.put("cleared", map.getBoolean("cleared", false));
                 }
                 items.release();
@@ -143,7 +158,7 @@ public class WearPairingPlugin extends Plugin {
     public void clearTimer(PluginCall call) {
         PutDataMapRequest req = PutDataMapRequest.create(TIMER_PATH);
         req.getDataMap().putBoolean("cleared", true);
-        req.getDataMap().putLong("at", System.currentTimeMillis());
+        req.getDataMap().putLong("at", stampOf(call));
         Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
             .addOnSuccessListener(item -> call.resolve())
             .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));

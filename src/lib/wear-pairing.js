@@ -57,11 +57,11 @@ export async function pairWatch() {
  * counting correctly with the phone out of range: it only needs telling again
  * when the timer is paused, resumed or cleared.
  */
-export async function publishWorkoutTimer(state) {
+export async function publishWorkoutTimer(state, clearedAt = 0) {
   if (!isNative) return false;
   try {
     if (!state) {
-      await WearPairing.clearTimer();
+      await WearPairing.clearTimer({ at: clearedAt || Date.now() });
       return true;
     }
     await WearPairing.timer({
@@ -70,6 +70,9 @@ export async function publishWorkoutTimer(state) {
       baseElapsed: Number(state.baseElapsed) || 0,
       paused: !!state.paused,
       pausedElapsed: Number(state.pausedElapsed) || 0,
+      // The stamp travels with it: both sides must judge by the same clock
+      // reading, or a republish would look newer than it is.
+      at: Number(state.at) || Date.now(),
     });
     return true;
   } catch {
@@ -86,25 +89,29 @@ export async function publishWorkoutTimer(state) {
 export async function syncWorkoutTimer() {
   if (!isNative) return false;
   try {
+    // The newest word from either device. Each device keeps its own record
+    // at this path, so "the last one read" is not the same thing as "the
+    // most recent one", and taking the wrong one is how a paused timer
+    // starts itself again.
     const remote = await WearPairing.readTimer();
     const { timerStampedAt, adoptTimer } = await import('../stores/workoutTimer.js');
     const mine = timerStampedAt();
+    const theirs = remote?.found ? Number(remote.at || 0) : 0;
     const local = JSON.parse(localStorage.getItem('lt:workoutTimer') || 'null');
-    if (remote?.found && Number(remote.at || 0) > mine) {
+    if (theirs > mine) {
       adoptTimer(remote.cleared ? null : {
         date: String(remote.date || ''),
         startTime: Number(remote.startTime) || 0,
         baseElapsed: Number(remote.baseElapsed) || 0,
         paused: !!remote.paused,
         pausedElapsed: Number(remote.pausedElapsed) || 0,
-        at: Number(remote.at) || 0,
-      });
+        at: theirs,
+      }, theirs);
       return true;
     }
-    // Nothing either side: leave the watch alone rather than publishing a
-    // stopped marker on every glance at the phone.
-    if (!local && !remote?.found) return true;
-    await publishWorkoutTimer(local);
+    // Only speak up when this phone genuinely has the later word. Saying it
+    // again otherwise would restamp a stale record as the newest one.
+    if (mine > theirs) await publishWorkoutTimer(local, mine);
     return true;
   } catch {
     return false;
