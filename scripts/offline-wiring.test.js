@@ -135,7 +135,14 @@ test('a change the server refuses is set aside and named, not left blocking the 
 });
 
 test('a photo with no server to upload to travels inside the row', () => {
-  assert.ok(offline.includes('api\\/upload(\\/body-stats)?'), 'both upload endpoints are handled');
+  // Every upload endpoint: your profile picture, a progress photo, and a
+  // picture on an exercise.
+  assert.ok(offline.includes('api\\/upload(\\/body-stats|\\/exercise-media)?'), 'every upload endpoint is handled');
+  // A video is too big to carry in a row and still waits for a connection.
+  assert.match(offline, /const isVideo = String\(file\?\.type \|\| ''\)\.startsWith\('video\/'\)/);
+  // An animated GIF is never redrawn, which would leave one frame.
+  const embed2 = readFileSync(new URL('../src/lib/image-embed.js', import.meta.url), 'utf8');
+  assert.match(embed2, /image\\\/gif/);
   assert.match(offline, /embeddableDataUrl\(file\)/);
   // The row still holds an ordinary path: the server turns the embedded
   // photo into a file, it is never stored as a data URL.

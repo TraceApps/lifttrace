@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { localizeDataUrl } from '../lib/image-localizer.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
@@ -156,7 +157,11 @@ function _cleanSetType(v) {
 
 // POST /api/exercises — create custom exercise
 router.post('/', wrap((req, res) => {
-  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type } = req.body;
+  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, video_url, load_type, set_type } = req.body;
+  // A picture chosen with no connection arrives embedded in the row; it
+  // becomes a file here, so everything downstream sees an ordinary path.
+  const img_url = localizeDataUrl(req.body?.img_url);
+  const gif_url = localizeDataUrl(req.body?.gif_url);
   if (!name) return res.status(400).json({ error: 'Name required' });
   const result = db.prepare(
     `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type, source, is_global, created_by)
@@ -187,7 +192,11 @@ router.put('/:id', wrap((req, res) => {
   // reachable in normal use, but block it defensively (#49).
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!existing) return res.status(404).json({ error: 'Exercise not found' });
-  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type } = req.body;
+  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, video_url, load_type, set_type } = req.body;
+  // A picture chosen with no connection arrives embedded in the row; it
+  // becomes a file here, so everything downstream sees an ordinary path.
+  const img_url = localizeDataUrl(req.body?.img_url);
+  const gif_url = localizeDataUrl(req.body?.gif_url);
   // set_type follows the same omitted/null/explicit rules as load_type.
   const nextSetType = set_type === undefined
     ? existing.set_type

@@ -486,12 +486,18 @@ export async function offlineFetch(url, init, origFetch) {
   // An upload with no server to upload to: hand back the photo itself,
   // scaled down, so it can travel inside the row it belongs to. The server
   // turns it back into a file when the queue goes up.
-  if (/^\/api\/upload(\/body-stats)?$/.test(String(url).split('?')[0]) && init?.body instanceof FormData) {
+  if (/^\/api\/upload(\/body-stats|\/exercise-media)?$/.test(String(url).split('?')[0]) && init?.body instanceof FormData) {
     const file = init.body.get('file');
-    if (file && (!_online() || (await _loadOps()).length)) {
+    // A video is far too big to carry inside a row, so that one still waits
+    // for a connection; a picture or an animation does not have to.
+    const isVideo = String(file?.type || '').startsWith('video/');
+    if (file && !isVideo && (!_online() || (await _loadOps()).length)) {
       try {
         const { embeddableDataUrl } = await import('./image-embed.js');
-        return _json(200, { url: await embeddableDataUrl(file), queued: true, offline: true });
+        const embedded = await embeddableDataUrl(file);
+        // The exercise-media route answers with the kind as well as the url.
+        const kind = /^data:image\/gif/i.test(embedded) ? 'gif' : 'img';
+        return _json(200, { url: embedded, kind, queued: true, offline: true });
       } catch (err) {
         return _json(413, { error: err.message, offline: true });
       }
