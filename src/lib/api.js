@@ -83,6 +83,18 @@ export const LtApi = {
   // Two-step by design: upload the file, then attach the URL it returns.
   getProgressPhotos: (start, end) =>
     fetch(`/api/body-stats/photos?start=${start}&end=${end}`, opts).then(_json),
+  // Your own profile. Both go through here rather than a raw fetch, so the
+  // offline layer sees them and a picture chosen with no connection is kept
+  // until there is one (lib/offline-api.js). Same shape in NutriTrace and
+  // CookTrace.
+  uploadImage: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch('/api/upload', { ...opts, method: 'POST', body: fd }).then(_json);
+  },
+  updateProfile: (data) =>
+    fetch('/api/auth/profile', { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
+
   uploadProgressPhoto: (file) => {
     const fd = new FormData();
     fd.append('file', file);

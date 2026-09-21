@@ -7,10 +7,7 @@ import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { unlinkMediaFile, resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
-import { assertAllowedMedia } from '../lib/image-magic.js';
+import { localizeDataUrl } from '../lib/image-localizer.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -50,27 +47,6 @@ router.get('/photos', wrap((req, res) => {
 // Two-step: the client uploads to /api/upload/body-stats first, then
 // attaches the URL that route returns. Keeps the upload route unaware of
 // body-stats and reusable.
-// An embedded image becomes a file in the progress-photo directory and its
-// path; anything else is left exactly as it came.
-const _DATA_URL = /^data:image\/(jpeg|jpg|png|webp|gif|avif);base64,/i;
-const MAX_EMBEDDED_BYTES = 12 * 1024 * 1024;
-function _photoFromDataUrl(value) {
-  if (typeof value !== 'string' || !_DATA_URL.test(value)) return null;
-  const [head, b64] = value.split(',', 2);
-  const ext = head.match(/^data:image\/([a-z]+);/i)?.[1].toLowerCase().replace('jpeg', 'jpg') || 'jpg';
-  const bytes = Buffer.from(b64, 'base64');
-  if (!bytes.length || bytes.length > MAX_EMBEDDED_BYTES) throw new Error('That photo is too large.');
-  const dir = path.join(process.env.UPLOADS_PATH || './uploads', 'body-stats');
-  fs.mkdirSync(dir, { recursive: true });
-  const filename = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${ext}`;
-  fs.writeFileSync(path.join(dir, filename), bytes);
-  // The same magic-byte check the upload route runs: a client-sent type is
-  // not evidence of anything.
-  try { assertAllowedMedia(path.join(dir, filename), ['image']); }
-  catch (e) { try { fs.unlinkSync(path.join(dir, filename)); } catch {} throw e; }
-  return `/uploads/body-stats/${filename}`;
-}
-
 router.post('/photos', wrap((req, res) => {
   try {
     // A photo taken with no connection has nowhere to upload to, so it
@@ -78,7 +54,7 @@ router.post('/photos', wrap((req, res) => {
     // under the same directory the upload route writes to, and the row
     // still holds an ordinary path: addProgressPhotoCore rightly refuses
     // to store a data: value, and that stays true.
-    const url = _photoFromDataUrl(req.body?.url) ?? req.body?.url;
+    const url = localizeDataUrl(req.body?.url, { subdir: 'body-stats' });
     res.status(201).json(addProgressPhotoCore(uid(req), { date: req.body?.date, url }));
   } catch (e) {
     res.status(400).json({ error: e.message });

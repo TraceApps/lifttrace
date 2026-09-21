@@ -139,6 +139,10 @@ export function writeOp(method, url, body) {
     return { kind: m === 'PUT' ? 'prescription-update' : 'prescription-delete', key: `prescription:${match[1]}`, id: Number(match[1]) };
   }
 
+  // Your own profile: a name, a nickname, a picture. Nothing here decides
+  // what anyone else can see, so it queues like the rest.
+  if (path === '/api/auth/profile' && m === 'PUT') return { kind: 'profile', key: 'profile' };
+
   // A progress photo taken with no connection: the file rides inside this
   // request as a data URL and the server turns it into a file on arrival.
   if (path === '/api/body-stats/photos' && m === 'POST') return { kind: 'photo-add', key: null };
@@ -336,6 +340,7 @@ export function describeOp(op) {
     case 'prescription-create': return 'the work you prescribed';
     case 'prescription-update': return 'a prescription you changed';
     case 'prescription-delete': return 'a prescription you removed';
+    case 'profile':          return 'your profile';
     case 'photo-add':        return 'the progress photo you took';
     case 'photo-delete':     return 'a progress photo you removed';
     case 'setting':          return `the "${op.body?.key || 'setting'}" setting`;

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { localizeDataUrl } from '../lib/image-localizer.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import db from '../db.js';
@@ -179,7 +180,10 @@ router.post('/register', wrap((req, res) => {
 }));
 
 router.put('/profile', requireAuth, wrap((req, res) => {
-  const { full_name, nickname, birthday, gender, avatar_url, email } = req.body;
+  const { full_name, nickname, birthday, gender, email } = req.body;
+  // A picture chosen with no connection arrives embedded in this request,
+  // since there was nowhere to upload it to. It becomes a file here.
+  const avatar_url = localizeDataUrl(req.body?.avatar_url);
   db.prepare('UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?')
     .run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null, email ? email.trim().toLowerCase() : null, req.user.id);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);

@@ -406,7 +406,7 @@ export async function offlineFetch(url, init, origFetch) {
   // An upload with no server to upload to: hand back the photo itself,
   // scaled down, so it can travel inside the row it belongs to. The server
   // turns it back into a file when the queue goes up.
-  if (/^\/api\/upload\/body-stats$/.test(String(url).split('?')[0]) && init?.body instanceof FormData) {
+  if (/^\/api\/upload(\/body-stats)?$/.test(String(url).split('?')[0]) && init?.body instanceof FormData) {
     const file = init.body.get('file');
     if (file && (!_online() || (await _loadOps()).length)) {
       try {

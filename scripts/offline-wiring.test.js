@@ -135,7 +135,7 @@ test('a change the server refuses is set aside and named, not left blocking the 
 });
 
 test('a photo with no server to upload to travels inside the row', () => {
-  assert.match(offline, /\/\^\\\/api\\\/upload\\\/body-stats\$\//);
+  assert.ok(offline.includes('api\\/upload(\\/body-stats)?'), 'both upload endpoints are handled');
   assert.match(offline, /embeddableDataUrl\(file\)/);
   // The row still holds an ordinary path: the server turns the embedded
   // photo into a file, it is never stored as a data URL.
@@ -145,4 +145,25 @@ test('a photo with no server to upload to travels inside the row', () => {
   // And a photo too big to keep says so rather than being lost.
   const embed = readFileSync(new URL('../src/lib/image-embed.js', import.meta.url), 'utf8');
   assert.match(embed, /too large to keep until you are back online/);
+});
+
+test('your profile and its picture work the same way here as in the sibling apps', () => {
+  // One shape in all three: the picture goes through the API layer, which
+  // embeds it when there is no connection; the save goes through the API
+  // layer, so the queue sees it; the server turns the embedded picture into
+  // a file at the route, through the shared localiser.
+  const api = readFileSync(new URL('../src/lib/api.js', import.meta.url), 'utf8');
+  assert.match(api, /uploadImage: \(file\)/);
+  assert.match(api, /updateProfile: \(data\)/);
+  const profile = readFileSync(new URL('../src/routes/Profile.svelte', import.meta.url), 'utf8');
+  assert.match(profile, /await LtApi\.uploadImage\(file\)/);
+  assert.match(profile, /await LtApi\.updateProfile\(/);
+  assert.ok(!/fetch\('\/api\/auth\/profile'/.test(profile), 'no raw fetch around the API layer');
+  const localizer = readFileSync(new URL('../server/lib/image-localizer.js', import.meta.url), 'utf8');
+  assert.match(localizer, /export function localizeDataUrl/);
+  const auth = readFileSync(new URL('../server/routes/auth.js', import.meta.url), 'utf8');
+  assert.match(auth, /localizeDataUrl\(req\.body\?\.avatar_url\)/);
+  // Progress photos use the same helper, into their own directory.
+  const bodyStats = readFileSync(new URL('../server/routes/body-stats.js', import.meta.url), 'utf8');
+  assert.match(bodyStats, /localizeDataUrl\(req\.body\?\.url, \{ subdir: 'body-stats' \}\)/);
 });

@@ -13,6 +13,7 @@
   import { get } from 'svelte/store';
   import { currentUser, userMgmtActive, logout as logoutAuth } from '../stores/auth.js';
   import { showSuccess, showError } from '../stores/toast.js';
+  import { LtApi } from '../lib/api.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { localDateStr, DB } from '../lib/db.js';
   import { resolveAssetUrl, isNative, getServerUrl, getAuthToken } from '../lib/platform.js';
@@ -221,12 +222,10 @@
   async function handleAvatarFile(e) {
     const file = e.target?.files?.[0];
     if (!file) return;
-    const form = new FormData();
-    form.append('file', file);
     try {
-      const res = await fetch('/api/upload', { method: 'POST', credentials: 'include', body: form });
-      if (!res.ok) throw new Error('Upload failed');
-      const { url } = await res.json();
+      // Through the API layer, so a picture chosen with no connection is
+      // kept and travels with the profile when the connection returns.
+      const { url } = await LtApi.uploadImage(file);
       avatarUrl = url;
     } catch(e) {
       showError(e.message);
@@ -261,14 +260,10 @@
         push('/settings');
         return;
       }
-      const res = await fetch('/api/auth/profile', {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: fullName, nickname, email, birthday, gender, avatar_url: avatarUrl }),
+      const { user } = await LtApi.updateProfile({
+        full_name: fullName, nickname, email, birthday, gender, avatar_url: avatarUrl,
       });
-      if (!res.ok) throw new Error((await res.json()).error);
-      const { user } = await res.json();
-      currentUser.set(user);
+      if (user) currentUser.set(user);
       showSuccess($_('profile.saved'));
       push('/settings');
     } catch(e) {

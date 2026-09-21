@@ -337,3 +337,16 @@ test('a progress photo taken offline is queued, and the upload itself is not', (
   assert.equal(writeOp('POST', '/api/upload/body-stats', {}), null);
   assert.match(describeOp({ kind: 'photo-add' }), /progress photo you took/);
 });
+
+test('your own profile, picture included, is queued like everything else', () => {
+  assert.equal(writeOp('PUT', '/api/auth/profile', { nickname: 'Alex' }).key, 'profile');
+  // Saving it twice offline goes up once, with what it ended up saying.
+  const ops = [
+    op(1, 'PUT', '/api/auth/profile', { nickname: 'Al' }),
+    op(2, 'PUT', '/api/auth/profile', { nickname: 'Alex', avatar_url: 'data:image/jpeg;base64,x' }),
+  ];
+  const sent = collapseOps(ops);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body.nickname, 'Alex');
+  assert.match(describeOp({ kind: 'profile' }), /your profile/);
+});
