@@ -32,6 +32,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.1] - 2026-09-20
+
+### Fixed
+
+- **Coaching: a program assigned to an athlete never reached their phone** (reported on r/selfhosted). Assigning a program writes the assignment and nothing else, so the program and its workouts kept whatever "last changed" time they had when you built them. A phone only downloads what changed since its last sync, so it received the assignment without the plan it pointed at: the athlete's Programs tab stayed empty, there was nothing to pick a session from, and the Diary's Active Program card never appeared. Workouts you prescribed still arrived, since each of those is new, which is why it looked like only prescriptions came through. It worked only if you happened to assign a program shortly after building it. An assignment now brings its program and that program's workouts with it, whatever their dates say, and a phone already stuck in this state repairs itself on the next sync instead of needing a reinstall.
+
 ## [1.3.0] - 2026-09-20
 
 > **Action needed when you update: the container now listens on port 3002.**

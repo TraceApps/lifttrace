@@ -34,6 +34,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
+import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
@@ -152,6 +153,18 @@ router.get('/pull', wrap((req, res) => {
     : db.prepare(
         `SELECT * FROM program_assignments WHERE updated_at >= ? ORDER BY updated_at`
       ).all(sinceSql).map(parseRow);
+
+  // An assignment is written without touching the program it points at, so
+  // a differential pull would hand the athlete's device an assignment for a
+  // plan it has never seen. The plan travels with the assignment instead.
+  if (u != null) {
+    attachAssignedPrograms(db, {
+      assignments: program_assignments,
+      programs,
+      templates: workout_templates,
+      parseRow,
+    });
+  }
 
   const workout_log = db.prepare(
     `SELECT * FROM workout_log WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`

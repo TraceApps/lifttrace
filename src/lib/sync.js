@@ -283,6 +283,7 @@ export async function pullSnapshot(silent = false) {
     await _applyPrograms(pull.programs, result);
     await _applyTemplates(pull.workout_templates, result);
     await _applyAssignments(pull.program_assignments, result);
+    await _healAssignedPrograms(result);
     await _applyWorkouts(pull.workout_log, result);
     // Option C (2026-08-11): apply server-side per-entry tombstones so a
     // delete performed on another device drops the matching items/sets
@@ -377,6 +378,48 @@ async function _applyExercises(rows, result) {
     );
   }
   result.tables.exercises = rows.length;
+}
+
+// Devices that pulled an assignment before the server learned to send the
+// plan with it are left holding an assignment for a program they do not
+// have, and no future differential pull mentions that assignment again.
+// Repair it once per run: ask the server for any assigned program the
+// device is missing, and store it with its workouts.
+const _healedPrograms = new Set();
+
+async function _healAssignedPrograms(result) {
+  let orphans;
+  try {
+    orphans = await dbQuery(
+      `SELECT a.program_id AS pid
+         FROM program_assignments a
+         LEFT JOIN programs p ON p.id = a.program_id
+        WHERE p.id IS NULL AND a.program_id IS NOT NULL`
+    );
+  } catch { return; }
+  if (!orphans?.length) return;
+
+  for (const { pid } of orphans) {
+    if (pid == null || _healedPrograms.has(pid)) continue;
+    _healedPrograms.add(pid);
+    try {
+      const program = await _serverFetch('GET', `/api/programs/${pid}`);
+      if (!program?.id) continue;
+      await _applyPrograms([program], { tables: {} });
+      if (program.templates?.length) {
+        await _applyTemplates(program.templates, { tables: {} });
+      }
+      result.tables.programsHealed = (result.tables.programsHealed || 0) + 1;
+      _dlog('[sync] healed assigned program', pid);
+    } catch (e) {
+      // A refusal (gone, or no longer ours) is an answer: stop asking. Any
+      // other failure is the connection, so let the next pull try again
+      // rather than failing this one over it.
+      const status = e?.status;
+      if (!(status >= 400 && status < 500)) _healedPrograms.delete(pid);
+      _dlog('[sync] heal failed for program', pid, status, e?.message);
+    }
+  }
 }
 
 async function _applyPrograms(rows, result) {
