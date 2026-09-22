@@ -139,6 +139,65 @@ tooltip names the actual number.
 
 **Effort:** half a day.
 
+### [ ] 6b. The rest timer visible in the shade while it runs
+
+**Today:** nothing appears until the rest is over. `_scheduleNativeFinish()` posts
+one "Rest complete" notification at zero, deliberately silent, because the sound and
+haptics come from `RestTimerCue`'s BroadcastReceivers rather than from a channel.
+Between starting a rest and that message there is nothing to look at: checking how
+long is left means unlocking the phone and reopening the app.
+
+**Design:** post an ongoing notification when the rest starts, on the same silent
+`REST_TIMER_CHANNEL_FINISH` channel, and let Android draw the countdown itself with
+`setUsesChronometer(true)`, `setChronometerCountDown(true)` and
+`setWhen(now + remainingMs)`. The system ticks it once a second on the lock screen
+and in the shade at no cost to us: no repeating alarm, no per-second post, no
+foreground service. Two actions on it, `+30s` and `Skip`, so the common adjustments
+do not need the app at all.
+
+Three things it has to get right:
+
+- **Cancelling.** The `RestTimerCue` receiver that fires at zero cancels it, not the
+  webview, because the app may not be alive by then. Pausing, skipping or cancelling
+  the rest from the app cancels it directly.
+- **Local-only**, for the same reason the finish message is: Wear mirrors a phone's
+  notifications, and the watch runs its own rest with its own words.
+- **Ongoing, not persistent.** `setOngoing(true)` with `FOREGROUND_SERVICE_IMMEDIATE`
+  priority so it appears at once rather than after the shade's usual delay, but it
+  is a plain notification, so nothing here needs the foreground-service permission.
+
+**Prior art:** `pawan67/lift` does exactly this and it is the one place that app is
+clearly ahead of ours. The idea is the chronometer flag, not their code.
+
+**Effort:** 1 day.
+
+### [ ] 6c. Rest cue on the alarm stream, for people who train with Do Not Disturb on
+
+**Today:** `RestTimerCueReceiver` plays the tone through `MediaPlayer` with
+`USAGE_NOTIFICATION_EVENT` + `CONTENT_TYPE_SONIFICATION`. That is the right default
+and should stay: it puts the cue on the notification volume slider rather than the
+media one, so earbuds on the bench do not swallow it, and it makes Spotify or our own
+radio duck for the beep and come back.
+
+**What it cannot do:** Do Not Disturb suppresses notification-stream audio. Someone
+who trains with DND on gets a silent rest timer and no indication why. Alarm-stream
+audio is exempt from DND in the usual configuration, and is louder, which is also the
+point in a noisy gym.
+
+**Design:** one setting, `restAlertOutput`, `notification` (default) or `alarm`,
+alongside the existing `restAlertTone`/`restAlertVibrate` pair in Settings > Workout.
+Pass it through `scheduleCues()` into the cue payload so the receiver swaps
+`USAGE_NOTIFICATION_EVENT` for `USAGE_ALARM`, keeping `CONTENT_TYPE_SONIFICATION`
+either way. Opt-in, because alarm volume is startling if you did not ask for it, and
+the setting's help text should say what it is for rather than naming an audio stream.
+
+Notification channels are not involved, since we have never used a channel's own
+sound for the cue. `pawan67/lift` reaches the same outcome by creating one channel per
+route, because a channel's sound and attributes are immutable once created; playing
+the tone ourselves means that whole dance is machinery we do not need to import.
+
+**Effort:** half a day, most of it the setting and its translations.
+
 ---
 
 ## Release 1.5: the progression engine
@@ -459,7 +518,7 @@ CookTrace and NoteTrace get the same treatment and most of the work carries over
 
 | Release | Contents |
 |---|---|
-| 1.4 | Week start setting, wake lock, bodyweight exercises, bar weight, past workout logging, heatmap shading |
+| 1.4 | Week start setting, wake lock, bodyweight exercises, bar weight, past workout logging, heatmap shading, rest timer in the shade, alarm-stream rest cue |
 | 1.4.x | Static demo for LiftTrace on GitHub Pages (pilot), lazy locales, OpenAPI spec |
 | 1.5 | Progression engine, planned deloads, muscle map modes, RIR, drop sets, unit conversion, rescheduling |
 | Later | Passkeys, routine sharing and print, demos for the other three apps |
