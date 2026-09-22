@@ -130,6 +130,22 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
   CREATE INDEX IF NOT EXISTS idx_exercises_source   ON exercises(source);
+
+  -- Per-user relative muscle loads for a shared exercise. user_id is NULL
+  -- in single-user mode, matching workout_log/body_stats_log scoping.
+  CREATE TABLE IF NOT EXISTS exercise_muscle_overrides (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    exercise_id  INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+    muscle_loads TEXT NOT NULL DEFAULT '{}',
+    created_at   TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_emo_user_exercise
+    ON exercise_muscle_overrides(user_id, exercise_id)
+    WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_emo_single_exercise
+    ON exercise_muscle_overrides(exercise_id)
+    WHERE user_id IS NULL;
 `);
 
 // ── Programs & Templates ──────────────────────────────────────────────────
@@ -772,6 +788,7 @@ try {
 // handlers don't have to remember.
 const SYNCABLE = [
   { table: 'exercises',         hasCreated: 'created_at',  byUser: false }, // is_global filter, not user-scoped
+  { table: 'exercise_muscle_overrides', hasCreated: 'created_at', byUser: 'user_id' },
   { table: 'programs',          hasCreated: 'created_at',  byUser: false },
   { table: 'workout_templates', hasCreated: 'created_at',  byUser: false },
   { table: 'program_assignments', hasCreated: 'assigned_at', byUser: 'assigned_to' },
@@ -846,7 +863,7 @@ db.exec(`
 try {
   const firstAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").get();
   if (firstAdmin?.id) {
-    for (const table of ['workout_log', 'body_stats_log', 'ai_chat_history']) {
+    for (const table of ['workout_log', 'body_stats_log', 'ai_chat_history', 'exercise_muscle_overrides']) {
       const r = db.prepare(`UPDATE ${table} SET user_id = ? WHERE user_id IS NULL`).run(firstAdmin.id);
       if (r.changes > 0) {
         // eslint-disable-next-line no-console
@@ -934,6 +951,40 @@ export function dedupeExercisesOnce({ force = false } = {}) {
     return touched;
   }
 
+  function rewriteMuscleOverrides(remap) {
+    if (remap.size === 0) return 0;
+    let touched = 0;
+    for (const [duplicateId, survivorId] of remap) {
+      const rows = db.prepare(
+        'SELECT * FROM exercise_muscle_overrides WHERE exercise_id = ? ORDER BY id'
+      ).all(duplicateId);
+      for (const row of rows) {
+        const existing = db.prepare(
+          'SELECT * FROM exercise_muscle_overrides WHERE exercise_id = ? AND user_id IS ? LIMIT 1'
+        ).get(survivorId, row.user_id);
+        if (!existing) {
+          db.prepare('UPDATE exercise_muscle_overrides SET exercise_id = ? WHERE id = ?')
+            .run(survivorId, row.id);
+        } else {
+          // If both duplicate catalog rows had a profile in the same scope,
+          // retain a live row over a tombstone, then the most recently edited.
+          const rowWins = (!!existing.deleted_at && !row.deleted_at)
+            || (!!existing.deleted_at === !!row.deleted_at
+              && String(row.updated_at || row.created_at || '') > String(existing.updated_at || existing.created_at || ''));
+          if (rowWins) {
+            db.prepare(`UPDATE exercise_muscle_overrides
+                           SET muscle_loads = ?, created_at = ?, updated_at = ?, deleted_at = ?
+                         WHERE id = ?`)
+              .run(row.muscle_loads, row.created_at, row.updated_at, row.deleted_at, existing.id);
+          }
+          db.prepare('DELETE FROM exercise_muscle_overrides WHERE id = ?').run(row.id);
+        }
+        touched++;
+      }
+    }
+    return touched;
+  }
+
   const remap = new Map();
   let mergedGroups = 0;
 
@@ -973,12 +1024,13 @@ export function dedupeExercisesOnce({ force = false } = {}) {
     const wlTouched = rewriteBlobs('workout_log', remap);
     const wtTouched = rewriteBlobs('workout_templates', remap);
     const cpTouched = rewriteBlobs('coach_prescriptions', remap);
+    const muscleTouched = rewriteMuscleOverrides(remap);
 
     if (remap.size > 0) {
       const del = db.prepare(`DELETE FROM exercises WHERE id = ?`);
       for (const dupId of remap.keys()) del.run(dupId);
       // eslint-disable-next-line no-console
-      console.log(`[db] dedupe: merged ${remap.size} duplicate exercise row(s) across ${mergedGroups} group(s); rewrote workout_log=${wlTouched}, workout_templates=${wtTouched}, coach_prescriptions=${cpTouched}`);
+      console.log(`[db] dedupe: merged ${remap.size} duplicate exercise row(s) across ${mergedGroups} group(s); rewrote workout_log=${wlTouched}, workout_templates=${wtTouched}, coach_prescriptions=${cpTouched}, muscle_overrides=${muscleTouched}`);
     }
 
     db.prepare(`INSERT INTO app_config (key, value) VALUES (?, ?)

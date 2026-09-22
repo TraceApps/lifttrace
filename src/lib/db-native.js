@@ -168,6 +168,18 @@ async function _createSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
     CREATE INDEX IF NOT EXISTS idx_exercises_source   ON exercises(source);
 
+    CREATE TABLE IF NOT EXISTS exercise_muscle_overrides (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL DEFAULT 1,
+      exercise_id  INTEGER NOT NULL,
+      muscle_loads TEXT NOT NULL DEFAULT '{}',
+      created_at   TEXT DEFAULT (datetime('now')),
+      updated_at   TEXT DEFAULT (datetime('now')),
+      deleted_at   TEXT,
+      UNIQUE(user_id, exercise_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_emo_exercise ON exercise_muscle_overrides(exercise_id);
+
     -- ── Programs & Templates ───────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS programs (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

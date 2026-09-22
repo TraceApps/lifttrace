@@ -661,6 +661,16 @@
     "front":                 "Front",
     "back":                  "Back"
   },
+  "muscle_load": {
+    "title":                 "Personal Muscle Load",
+    "description":           "Choose how strongly this exercise loads each muscle for your statistics and recovery estimate. This does not change the shared exercise catalog.",
+    "independent_hint":      "Percentages are independent relative loads and do not need to add up to 100%.",
+    "customized":            "Customized for you",
+    "catalog_defaults":      "Using catalog defaults",
+    "reset":                 "Reset to Defaults",
+    "toast_saved":           "Personal muscle load saved",
+    "toast_reset":           "Catalog muscle defaults restored"
+  },
   "exercise_info": {
     "primary_muscles":       "Primary Muscles",
     "secondary_muscles":     "Secondary Muscles",

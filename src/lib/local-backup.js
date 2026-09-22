@@ -39,6 +39,7 @@ const TABLES = [
   'app_config',
   'ai_chat_history',
   'exercises',
+  'exercise_muscle_overrides',
   'programs',
   'workout_templates',
   'program_assignments',

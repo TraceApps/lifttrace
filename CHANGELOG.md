@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Personal muscle-load profiles for every exercise** ([#110](https://github.com/TraceApps/lifttrace/issues/110)). Set independent 0–100% loads for the 18 muscles on an exercise, and LiftTrace uses that profile in effective-set statistics and muscle recovery. Each workout keeps a snapshot, so later edits do not rewrite training history. Profiles work on the web and Android, including offline sync and backups.
+
 ### Fixed
 
 - **A FitNotes export in kilos no longer comes in as pounds.** Current FitNotes exports put the unit in its own column rather than in the weight column's name, which the importer never read, so it assumed pounds and divided everything by 2.20462: a 74.6 kg bench arrived as 33.84. The unit is now read per row, so a file mixing kilos and pounds imports both correctly. Reported on r/selfhosted with the export that proved it.

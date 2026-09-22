@@ -9,6 +9,7 @@
   import { confirmDialog } from '../stores/confirmDialog.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
   import ExerciseEditor from '../components/exercises/ExerciseEditor.svelte';
+  import MuscleLoadEditor from '../components/exercises/MuscleLoadEditor.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import { findSimilarExercises } from '../lib/exerciseSimilarity.js';
   import { exportExercise } from '../lib/exerciseShare.js';
@@ -23,12 +24,17 @@
   }
 
   let showEditor = false;
+  let showMuscleLoadEditor = false;
 
   $: isCustom = exercise && !exercise.is_global;
 
   async function onEditorSaved() {
     // Refresh the exercise after a save so changes are visible immediately.
     try { exercise = await LtApi.getExercise(params.id); } catch {}
+  }
+
+  function onMuscleLoadSaved(event) {
+    exercise = { ...exercise, muscle_load: event.detail || null };
   }
 
   async function removeExercise() {
@@ -155,6 +161,7 @@
         equipment: exercise.equipment,
         primary_muscles: exercise.primary_muscles,
         secondary_muscles: exercise.secondary_muscles,
+        muscle_load: exercise.muscle_load,
         img_url: exercise.img_url,
         gif_url: exercise.gif_url,
       }));
@@ -185,6 +192,7 @@
   </header>
 
   <ExerciseEditor bind:open={showEditor} {exercise} on:saved={onEditorSaved} />
+  <MuscleLoadEditor bind:open={showMuscleLoadEditor} {exercise} on:saved={onMuscleLoadSaved} />
 
   {#if loading}
     <Spinner block label="Loading exercise…" />
@@ -193,6 +201,15 @@
       <button class="log-today-btn" on:click={logToday}>
         <span class="material-symbols-rounded">add_circle</span>
         Log this in today's workout
+      </button>
+
+      <button class="muscle-load-btn" on:click={() => showMuscleLoadEditor = true}>
+        <span class="material-symbols-rounded">tune</span>
+        <span class="muscle-load-copy">
+          <strong>{$_('muscle_load.title')}</strong>
+          <small>{exercise.muscle_load ? $_('muscle_load.customized') : $_('muscle_load.catalog_defaults')}</small>
+        </span>
+        <span class="material-symbols-rounded chevron">chevron_right</span>
       </button>
 
       <ExerciseInfo {exercise} {pr} {history} />
@@ -268,6 +285,16 @@
   .header-btn:hover { color: var(--text-1); background: var(--surface-2); }
   .header-btn.danger:hover { color: var(--danger); background: rgba(255,92,92,0.1); }
   .content { padding: 16px var(--page-px); }
+  .muscle-load-btn {
+    width: 100%; display: flex; align-items: center; gap: 10px; margin: 10px 0 16px;
+    padding: 11px 12px; color: var(--text-2); text-align: left; cursor: pointer;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-md);
+  }
+  .muscle-load-btn:hover { border-color: var(--accent); }
+  .muscle-load-copy { display: flex; flex: 1; flex-direction: column; gap: 2px; }
+  .muscle-load-copy strong { color: var(--text-1); font-size: 13px; }
+  .muscle-load-copy small { color: var(--text-3); font-size: 11px; }
+  .muscle-load-btn .chevron { color: var(--text-3); }
 
   /* Log Today shortcut — direct path from this exercise to today's diary.
      Saves a member from having to nav → Diary → Add Exercise → search. */

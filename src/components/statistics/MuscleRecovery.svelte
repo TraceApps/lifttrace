@@ -34,6 +34,10 @@
     const d = Math.round(h / 24);
     return `${d} day${d === 1 ? '' : 's'} ago`;
   }
+  function setsLabel(key) {
+    const n = recovery[key]?.sets || 0;
+    return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '');
+  }
   // Friendly key → display name.
   const NAMES = {
     chest: 'Chest', back: 'Back', shoulders: 'Shoulders',
@@ -91,7 +95,7 @@
       {#if focused}
         <span class="cap-name">{NAMES[focused] || focused}</span>
         <span class="cap-state" style="color:{fillFor(focused)}">{labelFor(focused)}</span>
-        <span class="cap-meta">·  {hoursLabel(focused)}  ·  {recovery[focused]?.sets || 0} sets</span>
+        <span class="cap-meta">·  {hoursLabel(focused)}  ·  {setsLabel(focused)} effective sets</span>
       {/if}
     </div>
   </div>

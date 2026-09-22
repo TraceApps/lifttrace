@@ -5,6 +5,7 @@ import { requireAuth, uid } from '../middleware/auth.js';
 import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } from '../lib/volume.js';
 import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
 import { musclesOf } from '../lib/muscle-load.js';
+import { muscleOverrideMap } from '../lib/exercise-muscle-overrides.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -190,7 +191,9 @@ router.get('/muscle-group-volume', wrap((req, res) => {
 //   Returns { [slug]: effectiveSets } for the 18 drawable muscles.
 router.get('/muscle-effective-sets', wrap((req, res) => {
   const { start, end } = req.query;
-  const rows = getWorkouts(uid(req), start, end);
+  const userId = uid(req);
+  const rows = getWorkouts(userId, start, end);
+  const overrides = muscleOverrideMap(userId);
   const exRows = db.prepare('SELECT id, primary_muscles, secondary_muscles, category FROM exercises').all();
   const exMap = {};
   for (const ex of exRows) {
@@ -206,7 +209,8 @@ router.get('/muscle-effective-sets', wrap((req, res) => {
       const info = exMap[ex.exercise_id] || { primary: [], secondary: [], category: '' };
       const setCount = (ex.sets || []).filter(s => s.completed && !s.warmup).length;
       if (!setCount) continue;
-      const perMuscle = musclesOf(info);
+      const loads = ex.muscle_load ?? overrides.get(Number(ex.exercise_id)) ?? null;
+      const perMuscle = musclesOf({ ...info, loads });
       for (const slug in perMuscle) {
         load[slug] = (load[slug] || 0) + perMuscle[slug] * setCount;
       }

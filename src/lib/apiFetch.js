@@ -141,16 +141,14 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
 
   try {
     const res = await origFetch(absolute, { ...init, headers, credentials: 'omit' });
-    // A workout save or delete that reached the server also updates the
-    // device's copy, which the Diary reads first, so reopening that day
-    // offline shows what was just saved (issue #102). It runs behind the
-    // reply so a save isn't slowed by it; reads of the device copy wait for
-    // it (see _localWrites), so none can see the older version.
+    // Writes whose screens read local-first also update the device's copy,
+    // so reopening the screen cannot show the older value until the next
+    // pull. This runs behind the reply; local reads wait on _localWrites.
     if (isWrite && res.ok) {
       const copy = res.clone();
       // Capped, so a stuck update can never hold reads for more than a moment.
       _localWrites = _localWrites
-        .then(() => Promise.race([_mirrorWorkoutWrite(url, method, copy), new Promise(r => setTimeout(r, 3000))]))
+        .then(() => Promise.race([_mirrorSuccessfulWrite(url, method, init, copy), new Promise(r => setTimeout(r, 3000))]))
         .catch(() => {});
     }
     return res;
@@ -202,8 +200,17 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
 // Chain of device-copy updates still running behind a server reply.
 let _localWrites = Promise.resolve();
 
-async function _mirrorWorkoutWrite(url, method, res) {
+async function _mirrorSuccessfulWrite(url, method, init, res) {
   try {
+    const path = _stripBase(url).split('?')[0];
+    if (/^\/api\/exercises\/\d+\/muscle-load$/.test(path)) {
+      let body = null;
+      if (typeof init?.body === 'string') {
+        try { body = JSON.parse(init.body); } catch {}
+      }
+      await LtApiNative.handle(method, path, body, {});
+      return;
+    }
     const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate } = await import('./sync.js');
     const date = workoutDateOf(_stripBase(url));
     if (!date) return;

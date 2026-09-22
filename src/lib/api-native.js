@@ -20,7 +20,7 @@ import {
 } from './db-native.js';
 import { currentPlanWeek } from './programWeek.js';
 import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
-import { musclesOf } from './muscle-load.js';
+import { musclesOf, validateMuscleLoads } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
 
 const ME = 1; // single-user id in standalone mode
@@ -53,13 +53,16 @@ const _stringify = v => v == null ? null : (typeof v === 'string' ? v : JSON.str
  */
 function _exerciseFromRow(r) {
   if (!r) return null;
-  return {
+  const out = {
     ...r,
     primary_muscles:   _parseJson(r.primary_muscles, []),
     secondary_muscles: _parseJson(r.secondary_muscles, []),
     equipment:         _parseJson(r.equipment, []),
     is_global:         !!r.is_global,
+    muscle_load:       _parseJson(r.personal_muscle_loads, null),
   };
+  delete out.personal_muscle_loads;
+  return out;
 }
 
 function _programFromRow(r) {
@@ -248,8 +251,12 @@ const Exercises = {
     if (params.category) { where.push(`LOWER(category) = LOWER(?)`); args.push(params.category); }
     if (params.search)   { where.push(`LOWER(name) LIKE LOWER(?)`); args.push(`%${params.search}%`); }
     const rows = await dbQuery(
-      `SELECT * FROM exercises WHERE ${where.join(' AND ')} ORDER BY name COLLATE NOCASE LIMIT 5000`,
-      args
+      `SELECT exercises.*,
+              (SELECT muscle_loads FROM exercise_muscle_overrides o
+                WHERE o.exercise_id = exercises.id AND o.user_id = ? AND o.deleted_at IS NULL
+                LIMIT 1) AS personal_muscle_loads
+         FROM exercises WHERE ${where.join(' AND ')} ORDER BY name COLLATE NOCASE LIMIT 5000`,
+      [ME, ...args]
     );
     return rows.map(_exerciseFromRow);
   },
@@ -258,8 +265,44 @@ const Exercises = {
     // #49). A tap on a Records row for an exercise the user has cleared
     // from their library should still resolve to that exercise's detail
     // page rather than a bare 404.
-    const rows = await dbQuery(`SELECT * FROM exercises WHERE id = ?`, [id]);
+    const rows = await dbQuery(
+      `SELECT exercises.*,
+              (SELECT muscle_loads FROM exercise_muscle_overrides o
+                WHERE o.exercise_id = exercises.id AND o.user_id = ? AND o.deleted_at IS NULL
+                LIMIT 1) AS personal_muscle_loads
+         FROM exercises WHERE id = ?`, [ME, id]);
     return _exerciseFromRow(rows[0]);
+  },
+  async getMuscleLoad(id) {
+    const rows = await dbQuery(
+      `SELECT muscle_loads FROM exercise_muscle_overrides
+        WHERE user_id = ? AND exercise_id = ? AND deleted_at IS NULL LIMIT 1`,
+      [ME, id]
+    );
+    return { exercise_id: id, muscle_load: _parseJson(rows[0]?.muscle_loads, null) };
+  },
+  async saveMuscleLoad(id, value) {
+    const load = validateMuscleLoads(value);
+    const now = _now();
+    await dbRun(
+      `INSERT INTO exercise_muscle_overrides
+         (user_id, exercise_id, muscle_loads, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+         muscle_loads = excluded.muscle_loads,
+         updated_at = excluded.updated_at,
+         deleted_at = NULL`,
+      [ME, id, JSON.stringify(load), now, now]
+    );
+    return { exercise_id: id, muscle_load: load };
+  },
+  async deleteMuscleLoad(id) {
+    await dbRun(
+      `UPDATE exercise_muscle_overrides SET deleted_at = ?, updated_at = ?
+        WHERE user_id = ? AND exercise_id = ?`,
+      [_now(), _now(), ME, id]
+    );
+    return { ok: true, exercise_id: id, muscle_load: null };
   },
   async create(body) {
     const r = await dbRun(
@@ -1056,7 +1099,12 @@ const Stats = {
   },
   async _library() {
     // Includes cleared library rows (#49) so old sets still resolve.
-    const rows = await dbQuery(`SELECT id, primary_muscles, secondary_muscles, category, load_type FROM exercises`, []);
+    const rows = await dbQuery(
+      `SELECT exercises.id, primary_muscles, secondary_muscles, category, load_type,
+              (SELECT muscle_loads FROM exercise_muscle_overrides o
+                WHERE o.exercise_id = exercises.id AND o.user_id = ? AND o.deleted_at IS NULL
+                LIMIT 1) AS personal_muscle_loads
+         FROM exercises`, [ME]);
     const map = new Map();
     for (const r of rows) {
       map.set(Number(r.id), {
@@ -1064,6 +1112,7 @@ const Stats = {
         secondary: _parseJson(r.secondary_muscles, []),
         category: r.category || '',
         load_type: r.load_type || null,
+        muscle_load: _parseJson(r.personal_muscle_loads, null),
       });
     }
     return map;
@@ -1233,7 +1282,8 @@ const Stats = {
         const info = lib.get(Number(ex.exercise_id)) || { primary: [], secondary: [], category: '' };
         const setCount = (ex.sets || []).filter(s => s.completed && !s.warmup).length;
         if (!setCount) continue;
-        const per = musclesOf({ primary: info.primary, secondary: info.secondary, category: String(info.category || '').toLowerCase() });
+        const loads = ex.muscle_load ?? info.muscle_load ?? null;
+        const per = musclesOf({ primary: info.primary, secondary: info.secondary, category: String(info.category || '').toLowerCase(), loads });
         for (const slug in per) load[slug] = (load[slug] || 0) + per[slug] * setCount;
       }
     }
@@ -1392,6 +1442,9 @@ async function handle(method, path, body, query) {
     if (id === 'sources' && sub === 'clear'  && m === 'POST')   return Exercises.sourcesClear(body?.source);
     if (id === 'sources')                                        Exercises.unsupported();
     if (id === 'sync-wger' && m === 'POST')                     return Exercises.sourcesImport('wger');
+    if (/^\d+$/.test(id) && sub === 'muscle-load' && m === 'GET')    return Exercises.getMuscleLoad(Number(id));
+    if (/^\d+$/.test(id) && sub === 'muscle-load' && m === 'PUT')    return Exercises.saveMuscleLoad(Number(id), body?.muscle_load);
+    if (/^\d+$/.test(id) && sub === 'muscle-load' && m === 'DELETE') return Exercises.deleteMuscleLoad(Number(id));
     if (/^\d+$/.test(id) && m === 'GET')    return Exercises.get(Number(id));
     if (/^\d+$/.test(id) && m === 'PUT')    return Exercises.update(Number(id), body || {});
     if (/^\d+$/.test(id) && m === 'DELETE') return Exercises.del(Number(id));

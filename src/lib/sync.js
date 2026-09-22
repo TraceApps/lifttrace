@@ -280,6 +280,7 @@ export async function pullSnapshot(silent = false) {
     // INSERT OR REPLACE everything else. Each upsert is O(1); the whole
     // pull is a small batch in steady state.
     await _applyExercises(pull.exercises, result);
+    await _applyExerciseMuscleOverrides(pull.exercise_muscle_overrides, result);
     await _applyPrograms(pull.programs, result);
     await _applyTemplates(pull.workout_templates, result);
     await _applyAssignments(pull.program_assignments, result);
@@ -378,6 +379,48 @@ async function _applyExercises(rows, result) {
     );
   }
   result.tables.exercises = rows.length;
+}
+
+async function _queuedMuscleOverrideIds() {
+  const rows = await dbQuery(
+    `SELECT table_name FROM sync_queue WHERE table_name LIKE '/api/exercises/%/muscle-load'`, []
+  );
+  const ids = new Set();
+  for (const row of rows) {
+    const match = String(row.table_name || '').match(/^\/api\/exercises\/(\d+)\/muscle-load$/);
+    if (match) ids.add(Number(match[1]));
+  }
+  return ids;
+}
+
+async function _applyExerciseMuscleOverrides(rows, result) {
+  if (!rows?.length) { result.tables.exerciseMuscleOverrides = 0; return; }
+  const queued = await _queuedMuscleOverrideIds();
+  for (const row of rows) {
+    const exerciseId = Number(row.exercise_id);
+    if (queued.has(exerciseId)) continue;
+    if (row.deleted_at) {
+      await dbRun(`DELETE FROM exercise_muscle_overrides WHERE user_id = 1 AND exercise_id = ?`, [exerciseId]);
+      continue;
+    }
+    await dbRun(
+      `INSERT INTO exercise_muscle_overrides
+         (user_id, exercise_id, muscle_loads, created_at, updated_at, deleted_at)
+       VALUES (1, ?, ?, ?, ?, NULL)
+       ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+         muscle_loads = excluded.muscle_loads,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at,
+         deleted_at = NULL`,
+      [
+        exerciseId,
+        typeof row.muscle_loads === 'string' ? row.muscle_loads : JSON.stringify(row.muscle_loads || {}),
+        row.created_at || new Date().toISOString(),
+        row.updated_at || new Date().toISOString(),
+      ]
+    );
+  }
+  result.tables.exerciseMuscleOverrides = rows.length;
 }
 
 // Devices that pulled an assignment before the server learned to send the

@@ -94,6 +94,10 @@ export function writeOp(method, url, body) {
   if (match && m === 'PUT') return { kind: 'body-stats', key: `body:${match[1]}` };
 
   if (path === '/api/exercises' && m === 'POST') return { kind: 'exercise-create', key: null };
+  match = path.match(/^\/api\/exercises\/(-?\d+)\/muscle-load$/);
+  if (match && (m === 'PUT' || m === 'DELETE')) {
+    return { kind: 'exercise-muscle-load', key: `muscle-load:${match[1]}`, id: Number(match[1]) };
+  }
   match = path.match(/^\/api\/exercises\/(-?\d+)$/);
   if (match && (m === 'PUT' || m === 'DELETE')) {
     return { kind: m === 'PUT' ? 'exercise-update' : 'exercise-delete', key: `exercise:${match[1]}`, id: Number(match[1]) };
@@ -310,15 +314,26 @@ export function answerWithOps(url, mirrored, ops) {
       .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
   }
 
+  const muscleChanges = new Map((ops || [])
+    .filter(op => op.kind === 'exercise-muscle-load')
+    .map(op => [Number(op.id), op.method === 'DELETE' ? null : (op.body?.muscle_load || null)]));
+
   if (path === '/api/exercises') {
     const made = (ops || []).filter(op => op.kind === 'exercise-create');
     const gone = new Set((ops || []).filter(op => op.kind === 'exercise-delete').map(op => Number(op.id)));
-    if (!made.length && !gone.size) return mirrored;
+    if (!made.length && !gone.size && !muscleChanges.size) return mirrored;
     const list = Array.isArray(mirrored) ? mirrored : mirrored?.exercises ?? (mirrored === undefined ? [] : null);
     if (!Array.isArray(list)) return mirrored;
     const rows = list.filter(e => !gone.has(Number(e.id)))
+      .map(e => muscleChanges.has(Number(e.id))
+        ? { ...e, muscle_load: muscleChanges.get(Number(e.id)), _pending: true }
+        : e)
       .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
     return Array.isArray(mirrored) ? rows : { ...mirrored, exercises: rows };
+  }
+  const exerciseDetail = path.match(/^\/api\/exercises\/(-?\d+)$/);
+  if (exerciseDetail && mirrored && muscleChanges.has(Number(exerciseDetail[1]))) {
+    return { ...mirrored, muscle_load: muscleChanges.get(Number(exerciseDetail[1])), _pending: true };
   }
   return mirrored;
 }
@@ -395,6 +410,7 @@ export function describeOp(op) {
     case 'exercise-create':  return `the exercise "${op.body?.name || 'you added'}"`;
     case 'exercise-update':  return 'an exercise you changed';
     case 'exercise-delete':  return 'an exercise you deleted';
+    case 'exercise-muscle-load': return 'an exercise muscle-load profile you changed';
     case 'program-activate': return 'the program you started';
     case 'program-week':     return 'the program week you moved to';
     case 'coach-note':       return 'the note you left for your member';

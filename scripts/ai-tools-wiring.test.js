@@ -86,6 +86,7 @@ const COVERED = {
   body_stats_log:      /\/api\/body-stats/,
   cardio_log:          /\/api\/cardio/,
   exercises:           /\/api\/exercises/,
+  exercise_muscle_overrides: /\/api\/exercises/,
   programs:            /\/api\/programs/,
   workout_log:         /\/api\/workout/,
   workout_templates:   /\/api\/(templates|workout)/,

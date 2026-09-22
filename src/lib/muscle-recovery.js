@@ -2,8 +2,8 @@
  * muscle-recovery.js — Hours-since-last-trained per muscle group.
  *
  * Walks a list of recent workouts, attributes each completed non-warmup
- * set to the exercise's primary muscles (or the exercise's category as a
- * fallback when the primary_muscles array is empty), and returns a
+ * set through its workout snapshot, personal muscle-load profile, or
+ * catalog primary/secondary defaults, and returns a
  * { muscleKey: { lastDate, hoursAgo, sets, volume } } map.
  *
  * Buckets mirror server/routes/stats.js#_normalizeMuscle so the recovery
@@ -12,6 +12,7 @@
  * Pure helper — no DB / fetch. Caller passes in workouts + exercises.
  */
 import { isTimedSet } from './workout.js';
+import { musclesOf } from './muscle-load.js';
 
 export const MUSCLE_BUCKETS = [
   'chest', 'back', 'shoulders',
@@ -41,23 +42,13 @@ export function freshnessFor(hoursAgo) {
   return FRESHNESS[FRESHNESS.length - 1];
 }
 
-function _normalizeMuscle(m) {
-  const s = (m || '').toLowerCase().trim();
-  if (s.includes('chest') || s.includes('pec')) return 'chest';
-  if (s.includes('back') || s.includes('lat') || s.includes('trap') || s.includes('rhomboid')) return 'back';
-  if (s.includes('shoulder') || s.includes('delt')) return 'shoulders';
-  if (s.includes('bicep')) return 'biceps';
-  if (s.includes('tricep')) return 'triceps';
-  if (s.includes('forearm')) return 'forearms';
-  if (s.includes('ab') || s.includes('core') || s.includes('oblique')) return 'core';
-  if (s.includes('quad')) return 'quads';
-  if (s.includes('hamstring')) return 'hamstrings';
-  if (s.includes('glute')) return 'glutes';
-  if (s.includes('calf') || s.includes('calve')) return 'calves';
-  if (s.includes('leg')) return null;  // ambiguous fallback — skip
-  if (s.includes('arm')) return null;  // ambiguous fallback — skip
-  return null;
-}
+const _RECOVERY_BUCKET = {
+  trapezius: 'back', deltoids: 'shoulders', chest: 'chest', 'upper-back': 'back', serratus: 'back',
+  biceps: 'biceps', triceps: 'triceps', forearm: 'forearms',
+  abs: 'core', obliques: 'core', 'lower-back': 'back',
+  gluteal: 'glutes', quadriceps: 'quads', hamstring: 'hamstrings',
+  adductors: 'quads', 'hip-flexors': 'quads', calves: 'calves', tibialis: 'calves',
+};
 
 /**
  * Compute per-muscle recovery state from recent workouts.
@@ -75,13 +66,15 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
   // parsed array (typical client) or a JSON string (raw DB row).
   const exMap = {};
   for (const ex of exerciseLibrary || []) {
-    let muscles = ex.primary_muscles;
-    if (typeof muscles === 'string') {
-      try { muscles = JSON.parse(muscles); } catch { muscles = []; }
-    }
+    let primary = ex.primary_muscles;
+    let secondary = ex.secondary_muscles;
+    if (typeof primary === 'string') { try { primary = JSON.parse(primary); } catch { primary = []; } }
+    if (typeof secondary === 'string') { try { secondary = JSON.parse(secondary); } catch { secondary = []; } }
     exMap[ex.id] = {
-      muscles: Array.isArray(muscles) ? muscles : [],
+      primary: Array.isArray(primary) ? primary : [],
+      secondary: Array.isArray(secondary) ? secondary : [],
       category: ex.category || '',
+      loads: ex.muscle_load || null,
     };
   }
 
@@ -96,9 +89,23 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
     if (isNaN(ts) || ts < cutoff) continue;
 
     for (const ex of w.exercises || []) {
-      const info = exMap[ex.exercise_id] || { muscles: [], category: '' };
-      const rawGroups = info.muscles.length ? info.muscles : [info.category];
-      const groups = [...new Set(rawGroups.map(_normalizeMuscle).filter(Boolean))];
+      const info = exMap[ex.exercise_id] || { primary: [], secondary: [], category: '', loads: null };
+      const perMuscle = musclesOf({
+        primary: info.primary,
+        secondary: info.secondary,
+        category: String(info.category || '').toLowerCase(),
+        loads: ex.muscle_load ?? info.loads,
+      });
+      // Recovery currently draws 11 broad regions while Muscle Balance uses
+      // 18. Collapse the detailed profile by taking the highest contribution
+      // within a region, so one set never counts twice merely because both
+      // abs and obliques were selected.
+      const groupLoads = {};
+      for (const [slug, load] of Object.entries(perMuscle)) {
+        const group = _RECOVERY_BUCKET[slug];
+        if (group) groupLoads[group] = Math.max(groupLoads[group] || 0, load);
+      }
+      const groups = Object.entries(groupLoads);
       if (!groups.length) continue;
 
       for (const set of ex.sets || []) {
@@ -111,10 +118,10 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
         if (!timed && (weight <= 0 || reps <= 0)) continue;
         const vol = timed ? 0 : weight * reps;
 
-        for (const g of groups) {
+        for (const [g, load] of groups) {
           if (!out[g]) out[g] = { lastDate: w.date, lastTs: ts, sets: 0, volume: 0 };
-          out[g].sets++;
-          out[g].volume += vol;
+          out[g].sets += load;
+          out[g].volume += vol * load;
           if (ts > out[g].lastTs) {
             out[g].lastTs = ts;
             out[g].lastDate = w.date;

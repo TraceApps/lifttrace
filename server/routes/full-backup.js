@@ -223,6 +223,7 @@ function restoreFromZip(zip) {
     db.prepare('DELETE FROM workout_templates').run();
     db.prepare('DELETE FROM program_assignments').run();
     db.prepare('DELETE FROM programs').run();
+    db.prepare('DELETE FROM exercise_muscle_overrides').run();
     db.prepare('DELETE FROM exercises WHERE is_global = 0').run(); // keep global seeds, restore custom
     // OIDC: clear in dependency order — links FK to providers, both FK to users.
     try { db.prepare('DELETE FROM user_oidc_links').run(); } catch {}
@@ -238,6 +239,13 @@ function restoreFromZip(zip) {
     // Restore custom exercises (user-created, not global seeds)
     const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type)`);
     for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, ...e });
+
+    const insMuscleOverride = db.prepare(`INSERT OR IGNORE INTO exercise_muscle_overrides
+      (id,user_id,exercise_id,muscle_loads,created_at,updated_at,deleted_at)
+      VALUES (@id,@user_id,@exercise_id,@muscle_loads,@created_at,@updated_at,@deleted_at)`);
+    for (const o of data.exercise_muscle_overrides || []) {
+      insMuscleOverride.run({ created_at: null, updated_at: null, deleted_at: null, ...o });
+    }
 
     const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete)`);
     for (const p of data.programs || []) insProgram.run(_withProgramDefaults(p));
@@ -392,6 +400,7 @@ function dumpDatabase() {
   return {
     users:               db.prepare('SELECT * FROM users').all(),
     exercises:           db.prepare('SELECT * FROM exercises').all(),
+    exercise_muscle_overrides: safe('SELECT * FROM exercise_muscle_overrides'),
     programs:            db.prepare('SELECT * FROM programs').all(),
     workout_templates:   db.prepare('SELECT * FROM workout_templates').all(),
     program_assignments: db.prepare('SELECT * FROM program_assignments').all(),
