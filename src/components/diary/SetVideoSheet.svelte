@@ -21,6 +21,7 @@
   import Sheet from '../ui/Sheet.svelte';
   import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
+  import { posterFromElement, posterFromBlob } from '../../lib/video-poster.js';
 
   export let open = false;
   export let exercise = null;      // the exercise the clip belongs to
@@ -44,6 +45,12 @@
   let tick = null;
   let clipBlob = null;
   let clipUrl = null;
+  // A still for the review player. Without one, Android draws its own giant
+  // play glyph over the black box until the clip is played, which reads as a
+  // broken thumbnail. Filming grabs the frame off the live preview; a picked
+  // file is decoded once, offscreen.
+  let posterUrl = null;
+
   let previewEl;
   let progress = 0;
   let canRecord = typeof navigator !== 'undefined'
@@ -60,7 +67,7 @@
   function reset() {
     stopStream();
     if (clipUrl) URL.revokeObjectURL(clipUrl);
-    clipUrl = null; clipBlob = null; chunks = []; elapsed = 0;
+    clipUrl = null; clipBlob = null; posterUrl = null; chunks = []; elapsed = 0;
     progress = 0; stage = 'choose'; setUuid = null;
   }
 
@@ -100,6 +107,7 @@
     recorder = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: RECORD_BITRATE });
     recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
     recorder.onstop = () => {
+      posterUrl = posterFromElement(previewEl);   // before stopStream() takes the picture away
       clipBlob = new Blob(chunks, { type: chunks[0]?.type || mime || 'video/mp4' });
       if (clipUrl) URL.revokeObjectURL(clipUrl);
       clipUrl = URL.createObjectURL(clipBlob);
@@ -130,7 +138,9 @@
     clipBlob = file;
     if (clipUrl) URL.revokeObjectURL(clipUrl);
     clipUrl = URL.createObjectURL(file);
+    posterUrl = null;
     stage = 'review';
+    posterFromBlob(file).then(p => { posterUrl = p; });
   }
 
   async function attach() {
@@ -222,12 +232,12 @@
       {:else if stage === 'review'}
         <div class="sv-stage">
           <!-- svelte-ignore a11y-media-has-caption -->
-          <video class="sv-video" src={clipUrl} controls playsinline></video>
+          <video class="sv-video" src={clipUrl} poster={posterUrl || undefined} preload="metadata" controls playsinline></video>
           <p class="sv-meta">
             {#if elapsed}{clock(elapsed)} · {/if}{sizeMb} MB
           </p>
           <div class="sv-confirm">
-            <button type="button" class="btn-ghost" on:click={() => { stage = 'choose'; clipBlob = null; }}>
+            <button type="button" class="btn-ghost" on:click={() => { stage = 'choose'; clipBlob = null; posterUrl = null; }}>
               {$_('set_video.retake')}
             </button>
             <button type="button" class="btn-primary" on:click={attach}>

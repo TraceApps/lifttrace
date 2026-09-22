@@ -21,6 +21,7 @@
   import { isNative } from '../../lib/platform.js';
   import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
+  import { posterFromBlob } from '../../lib/video-poster.js';
 
   export let open = false;
   export let media = null;         // row from /api/set-media
@@ -42,6 +43,7 @@
   let videoEl;
   let objectUrl = null;
   let loading = false;
+  let posterUrl = null;
   let replyText = '';
   let sending = false;
 
@@ -56,7 +58,10 @@
     try {
       const res = await fetch(media.file_url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      objectUrl = URL.createObjectURL(await res.blob());
+      const bytes = await res.blob();
+      objectUrl = URL.createObjectURL(bytes);
+      // Without a poster the WebView shows its own play glyph over a black box.
+      posterUrl = await posterFromBlob(bytes);
     } catch (e) {
       showError($_('set_video.playback_failed'));
     } finally {
@@ -149,7 +154,7 @@
       <div class="vp-loading">{$_('set_video.loading')}</div>
     {:else if src}
       <!-- svelte-ignore a11y-media-has-caption -->
-      <video class="vp-video" bind:this={videoEl} {src} controls playsinline preload="metadata"></video>
+      <video class="vp-video" bind:this={videoEl} {src} poster={posterUrl || undefined} controls playsinline preload="metadata"></video>
     {/if}
 
     <!-- The member reads the note and answers it; the coach writes it below
