@@ -288,6 +288,46 @@ class WearStore(private val ctx: Context) {
         send()
     }
 
+    /**
+     * The session is over, said from the wrist.
+     *
+     * Everything this needs is already here: the sets are logged, the clock
+     * knows how long it ran, and the day goes back the same way a set does.
+     * Sending someone to their phone to press one more button, after they
+     * have done the whole workout on their watch, is the app getting in the
+     * way of the thing it is for.
+     *
+     * Queued like anything else, so a gym with no signal still finishes the
+     * session; it goes up with the rest of the work when there is one.
+     */
+    suspend fun finishSession() {
+        val day = _state.value.workout ?: run {
+            _state.update { it.copy(error = "No session to finish") }
+            return
+        }
+        // Whatever the clock says, before it is stopped. A session finished
+        // on the wrist should carry its length with it.
+        val timer = _state.value.session
+        val minutes = timer?.minutes(System.currentTimeMillis())
+        if (timer != null) publishSession(null)
+        Pairing.queue(
+            ctx,
+            Pairing.Op(day.date.ifBlank { today }, day.id, minutes = minutes, finished = true),
+        )
+        // Shown as finished at once: the wearer is walking out of the gym,
+        // not waiting for a server.
+        val body = JSONObject(day.raw.toString()).put("completed", 1)
+        minutes?.let { body.put("duration_min", it) }
+        val updated = Session.parse(JSONObject().put("workout", body).toString())
+        if (updated != null) {
+            Pairing.putCache(ctx, wrap(updated))
+            _state.update { it.copy(workout = updated) }
+        }
+        _state.update { it.copy(pending = Pairing.outbox(ctx).size, flash = "Session finished") }
+        redrawSurfaces()
+        send()
+    }
+
     private fun publishSession(timer: Pairing.SessionTimer?) {
         Pairing.publishSession(ctx, timer)
         _state.update { it.copy(session = sessionTimer()) }
@@ -323,6 +363,7 @@ class WearStore(private val ctx: Context) {
             for (op in batch) {
                 op.change?.let { body = Session.upsert(body, it) }
                 op.minutes?.let { body.put("duration_min", it) }
+                if (op.finished) body.put("completed", 1)
             }
             val saved = LiftApi.saveWorkout(cfg, date, body)
             // Only what actually went up comes off the queue. Anything logged

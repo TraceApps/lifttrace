@@ -444,6 +444,8 @@ object Pairing {
         val change: Session.Change? = null,
         /** Or how long the session ran, when the timer was stopped here. */
         val minutes: Double? = null,
+        /** Or that the session is over, when it was finished here. */
+        val finished: Boolean = false,
         /**
          * Which entry this is, counting up. A send only removes the entries it
          * actually sent: something logged while the sending was still in the
@@ -452,11 +454,12 @@ object Pairing {
          */
         val seq: Long = 0,
     ) {
-        /** One entry per set, and one for the session's length. */
-        val key: String get() = change?.setUuid ?: "duration"
+        /** One entry per set, one for the session's length, one for the end. */
+        val key: String get() = change?.setUuid ?: if (finished) "finished" else "duration"
 
         fun toJson(): JSONObject {
             val o = JSONObject().put("date", date).put("workoutId", workoutId).put("seq", seq)
+            if (finished) return o.put("finished", true).put("minutes", minutes ?: JSONObject.NULL)
             if (minutes != null) return o.put("minutes", minutes)
             val c = change ?: return o
             return o
@@ -470,6 +473,13 @@ object Pairing {
 
         companion object {
             fun from(o: JSONObject): Op {
+                if (o.optBoolean("finished", false)) {
+                    return Op(
+                        o.optString("date"), o.optLong("workoutId"),
+                        minutes = if (o.isNull("minutes")) null else o.optDouble("minutes", 0.0),
+                        finished = true, seq = o.optLong("seq", 0L),
+                    )
+                }
                 if (o.has("minutes")) {
                     return Op(
                         o.optString("date"), o.optLong("workoutId"),

@@ -318,6 +318,34 @@ class SessionTest {
         assertFalse(Session.blockDone(Session.blocks(w)[0]))
     }
 
+    @Test
+    fun `finishing the session survives the outbox with its length`() {
+        val op = Pairing.Op("2026-09-21", 7L, minutes = 42.5, finished = true, seq = 3L)
+        val back = Pairing.Op.from(op.toJson())
+        assertTrue(back.finished)
+        assertEquals(42.5, back.minutes!!, 0.001)
+        assertEquals(7L, back.workoutId)
+        assertEquals(3L, back.seq)
+    }
+
+    @Test
+    fun `finishing is its own entry, not the one the clock uses`() {
+        // Same key would mean queueing one throws the other away, and the
+        // session would arrive finished with no length, or timed but open.
+        val timed = Pairing.Op("2026-09-21", 7L, minutes = 42.5)
+        val over = Pairing.Op("2026-09-21", 7L, minutes = 42.5, finished = true)
+        assertEquals("duration", timed.key)
+        assertEquals("finished", over.key)
+    }
+
+    @Test
+    fun `a session finished with no clock running carries no length`() {
+        val op = Pairing.Op("2026-09-21", 7L, minutes = null, finished = true, seq = 1L)
+        val back = Pairing.Op.from(op.toJson())
+        assertTrue(back.finished)
+        assertNull(back.minutes)
+    }
+
     private fun log(w: Session.Workout, ex: String, set: String): Session.Workout {
         val exercise = w.exercise(ex)!!
         val index = exercise.sets.indexOfFirst { it.uuid == set }

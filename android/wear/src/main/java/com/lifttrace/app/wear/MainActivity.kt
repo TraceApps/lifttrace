@@ -412,6 +412,31 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
     val scope = rememberCoroutineScope()
     val listState = rememberScalingLazyListState()
     val next = Session.next(state.workout)
+    // Finishing with work left is a deliberate thing to do, so it is asked
+    // about. Finishing a session where every set is done is not.
+    var finishing by remember { mutableStateOf(false) }
+
+    val day = state.workout
+    AlertDialog(
+        visible = finishing,
+        onDismissRequest = { finishing = false },
+        title = { Text("Finish anyway?") },
+        text = {
+            val left = (day?.setsTotal ?: 0) - (day?.setsDone ?: 0)
+            Text(
+                if (left == 1) "One set is not done. It stays as it is."
+                else "$left sets are not done. They stay as they are.",
+            )
+        },
+        confirmButton = {
+            AlertDialogDefaults.ConfirmButton(onClick = {
+                finishing = false
+                clock.stop()
+                scope.launch { store.finishSession() }
+            })
+        },
+        dismissButton = { AlertDialogDefaults.DismissButton(onClick = { finishing = false }) },
+    )
 
     ScreenScaffold(scrollState = listState) {
         if (!state.paired) {
@@ -464,7 +489,7 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                 }
             } else if (state.workout?.finished == true) {
                 item(key = "all-done") {
-                    Message(title = "Every set is done", body = "Finish the session on your phone.")
+                    Message(title = "Every set is done", body = "Finish it below, or add a set.")
                 }
             }
             if (state.workout != null) {
@@ -521,13 +546,32 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             }
             // What is left to do, in the order you do it, and then what is
             // finished under a heading of its own.
-            val day = state.workout
             if (day != null) {
                 val (todo, finished) = Session.ordered(day)
                 exerciseBlocks(day, todo, next?.exercise?.uuid) { nav.navigate("exercise/$it") }
                 if (finished.isNotEmpty()) {
                     item(key = "completed") { ListHeader { Text("Completed", maxLines = 1) } }
                     exerciseBlocks(day, finished, next?.exercise?.uuid) { nav.navigate("exercise/$it") }
+                }
+            }
+            // The session ends here too. Everything it needs is on the watch
+            // already: the sets are logged and the clock knows how long it
+            // ran, so walking to a phone to press one more button is the app
+            // getting in the way of the thing it is for.
+            if (day != null && !day.completed) {
+                item(key = "finish") {
+                    Button(
+                        onClick = {
+                            if (day.finished) {
+                                clock.stop()
+                                scope.launch { store.finishSession() }
+                            } else {
+                                finishing = true
+                            }
+                        },
+                        label = { Text("Finish the session") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
             item {
