@@ -1909,6 +1909,8 @@
       "manual":      "Manual Only"
     },
     "available_generic":     "A New Version Is Available",
+    "ready_headline":     "Update Ready",
+    "ready_cta":     "Reload to get the latest version.",
     "banner_reload":         "Reload",
     "last_checked":          "Last Checked",
     "last_checked_never":    "Never",
