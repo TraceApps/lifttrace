@@ -231,6 +231,9 @@ async function _ensureNativeNotifReady() {
 
 async function _scheduleNativeFinish(state) {
   if (!isNative || !state) return;
+  // Settle the question of whether the watch has this rest before deciding
+  // whether the notification is allowed to reach it.
+  try { await _telling; } catch { /* answered as "no watch" already */ }
   await _ensureNativeNotifReady();
   try {
     // Cancel any previously-scheduled rest-timer artifacts from older
@@ -468,14 +471,20 @@ function _restStamped(at) {
   try { localStorage.setItem(REST_AT, String(at)); } catch {}
 }
 
+let _telling = null;
 function _tellWatch(state) {
   if (!isNative) return;
   const at = Date.now();
   _restStamped(at);
-  import('../lib/wear-pairing.js')
+  // Kept, because whether the watch took it is what decides if this phone's
+  // own notification may mirror across, and the notification is scheduled in
+  // the same breath as the send. Reading _onWatch before this settles would
+  // mean the first rest of a session always mirrored, which is the double
+  // buzz this is here to stop.
+  _telling = import('../lib/wear-pairing.js')
     .then(({ publishRest }) => publishRest(state, at))
-    .then(took => { _onWatch = !!took; })
-    .catch(() => {});
+    .then(took => { _onWatch = !!took; return _onWatch; })
+    .catch(() => { _onWatch = false; return false; });
 }
 
 /**
