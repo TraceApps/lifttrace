@@ -519,53 +519,15 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     onOpen = { nav.navigate("timer") },
                 )
             }
-            // Exercises in the order they are done, with each pairing given a
-            // heading of its own. A superset is two or three exercises you
-            // move between, and on a list you scroll past there is no other
-            // way to see where one starts and the next thing begins.
-            val exercises = state.workout?.exercises.orEmpty()
-            exercises.forEachIndexed { index, exercise ->
-                val day = state.workout
-                val label = day?.let { Session.supersetLabel(it, exercise) }
-                val previous = exercises.getOrNull(index - 1)
-                // A heading over every block, paired or not. Saying which
-                // exercises belong together only helps if it is equally plain
-                // which ones belong to nothing, and on a list you scroll past,
-                // the absence of a label says nothing at all.
-                val opensGroup = exercise.inSuperset &&
-                    (previous == null || previous.supersetId != exercise.supersetId)
-                val opensRun = !exercise.inSuperset && (previous == null || previous.inSuperset)
-                // Two headings, and every card sits under one of them. The
-                // same word the phone's own cards use for an exercise that
-                // belongs to no pairing, so the two apps agree. The A1 and A2
-                // on the cards carry the rest, so neither needs a count.
-                if (opensGroup && label != null) {
-                    item(key = "head-" + exercise.uuid) {
-                        ListHeader { Text("Superset ${label.first()}", maxLines = 1) }
-                    }
-                } else if (opensRun) {
-                    item(key = "head-" + exercise.uuid) {
-                        ListHeader { Text("Standalone", maxLines = 1) }
-                    }
-                }
-                item(key = exercise.uuid) {
-                    TitleCard(
-                        onClick = { nav.navigate("exercise/${exercise.uuid}") },
-                        title = {
-                            Text(
-                                (if (label != null) "$label  " else "") + exercise.name,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        // Where this one stands, on the list itself: what it
-                        // is due for next and how much is behind you, with an
-                        // arrow on the one you are actually up to.
-                        val isNow = next?.exercise?.uuid == exercise.uuid
-                        Text((if (isNow) "→ " else "") + Session.standing(exercise))
-                    }
+            // What is left to do, in the order you do it, and then what is
+            // finished under a heading of its own.
+            val day = state.workout
+            if (day != null) {
+                val (todo, finished) = Session.ordered(day)
+                exerciseBlocks(day, todo, next?.exercise?.uuid) { nav.navigate("exercise/$it") }
+                if (finished.isNotEmpty()) {
+                    item(key = "completed") { ListHeader { Text("Completed", maxLines = 1) } }
+                    exerciseBlocks(day, finished, next?.exercise?.uuid) { nav.navigate("exercise/$it") }
                 }
             }
             item {
@@ -1169,6 +1131,58 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
                     },
                     modifier = Modifier.size(40.dp),
                 ) { Text(if (remaining > 0) "Skip" else "Done") }
+            }
+        }
+    }
+}
+
+/**
+ * A run of exercise cards, with a heading over every block.
+ *
+ * A superset is two or three exercises you move between, and on a list you
+ * scroll past there is no other way to see where one starts and the next
+ * begins. Saying which exercises belong together only helps if it is equally
+ * plain which ones belong to nothing, so a run of standalone lifts gets one
+ * heading too, the same word the phone's own cards use.
+ */
+private fun ScalingLazyListScope.exerciseBlocks(
+    day: Session.Workout,
+    blocks: List<List<Session.Exercise>>,
+    nowUuid: String?,
+    onOpen: (String) -> Unit,
+) {
+    blocks.forEachIndexed { index, block ->
+        val first = block.first()
+        val label = Session.supersetLabel(day, first)
+        if (first.inSuperset && label != null) {
+            item(key = "head-" + first.uuid) {
+                ListHeader { Text("Superset ${label.first()}", maxLines = 1) }
+            }
+        } else if (!first.inSuperset && blocks.getOrNull(index - 1)?.first()?.inSuperset != false) {
+            // One heading over a run of them, not one each.
+            item(key = "head-" + first.uuid) {
+                ListHeader { Text("Standalone", maxLines = 1) }
+            }
+        }
+        block.forEach { exercise ->
+            val own = Session.supersetLabel(day, exercise)
+            item(key = exercise.uuid) {
+                TitleCard(
+                    onClick = { onOpen(exercise.uuid) },
+                    title = {
+                        Text(
+                            (if (own != null) "$own  " else "") + exercise.name,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    // Where this one stands, on the list itself: what it is
+                    // due for next and how much is behind you, with an arrow
+                    // on the one you are actually up to.
+                    Text((if (nowUuid == exercise.uuid) "→ " else "") + Session.standing(exercise))
+                }
             }
         }
     }

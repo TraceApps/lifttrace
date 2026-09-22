@@ -259,6 +259,65 @@ class SessionTest {
         ]}}
     """.trimIndent()
 
+    @Test
+    fun `a pairing is one block, and a standalone lift is its own`() {
+        val w = Session.parse(superset)!!
+        val blocks = Session.blocks(w)
+        assertEquals(2, blocks.size)
+        assertEquals(listOf("a1", "a2"), blocks[0].map { it.uuid })
+        assertEquals(listOf("a3"), blocks[1].map { it.uuid })
+    }
+
+    @Test
+    fun `half a superset is still work`() {
+        var w = Session.parse(superset)!!
+        w = log(w, "a1", "c1")
+        w = log(w, "a1", "c2")
+        // Both of the Curl sets are behind you, and the Pushdown is not: the
+        // pairing has not moved anywhere.
+        assertFalse(Session.blockDone(Session.blocks(w)[0]))
+        assertEquals(2, Session.ordered(w).first.size)
+        assertTrue(Session.ordered(w).second.isEmpty())
+    }
+
+    @Test
+    fun `a finished pairing moves under what is left, whole`() {
+        var w = Session.parse(superset)!!
+        for (set in listOf("c1" to "a1", "c2" to "a1", "d1" to "a2", "d2" to "a2")) {
+            w = log(w, set.second, set.first)
+        }
+        val (todo, finished) = Session.ordered(w)
+        assertEquals(1, todo.size)
+        assertEquals(listOf("a3"), todo[0].map { it.uuid })
+        assertEquals(1, finished.size)
+        assertEquals(listOf("a1", "a2"), finished[0].map { it.uuid })
+    }
+
+    @Test
+    fun `reopening a set brings the block straight back`() {
+        var w = Session.parse(superset)!!
+        for (set in listOf("c1" to "a1", "c2" to "a1", "d1" to "a2", "d2" to "a2")) {
+            w = log(w, set.second, set.first)
+        }
+        assertEquals(1, Session.ordered(w).second.size)
+        val curl = w.exercise("a1")!!
+        val reopened = Session.suggest(curl, 0).copy(completed = false)
+        w = Session.applyChange(w, reopened)
+        assertTrue(Session.ordered(w).second.isEmpty())
+        assertEquals(2, Session.ordered(w).first.size)
+    }
+
+    @Test
+    fun `an exercise with no sets is not finished by having none`() {
+        val empty = """
+            {"workout":{"id":6,"date":"2026-09-21","name":"Empty","exercises":[
+              {"uuid":"z1","exercise_id":41,"exercise_name":"Nothing Yet","sets":[]}
+            ]}}
+        """.trimIndent()
+        val w = Session.parse(empty)!!
+        assertFalse(Session.blockDone(Session.blocks(w)[0]))
+    }
+
     private fun log(w: Session.Workout, ex: String, set: String): Session.Workout {
         val exercise = w.exercise(ex)!!
         val index = exercise.sets.indexOfFirst { it.uuid == set }

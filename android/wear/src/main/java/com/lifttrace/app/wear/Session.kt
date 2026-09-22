@@ -238,6 +238,43 @@ object Session {
         return "$letter$position"
     }
 
+    /**
+     * The exercises grouped the way the list shows them: a pairing you move
+     * between, or one exercise standing on its own.
+     */
+    fun blocks(workout: Workout): List<List<Exercise>> {
+        val out = ArrayList<MutableList<Exercise>>()
+        for (exercise in workout.exercises) {
+            val last = out.lastOrNull()
+            val sameGroup = last != null && exercise.inSuperset &&
+                last.first().inSuperset && last.first().supersetId == exercise.supersetId
+            if (sameGroup && last != null) last.add(exercise) else out.add(mutableListOf(exercise))
+        }
+        return out
+    }
+
+    /**
+     * Everything in this block is behind you. A pairing counts as done only
+     * when the whole pairing is: half a superset is still work.
+     */
+    fun blockDone(block: List<Exercise>): Boolean =
+        block.isNotEmpty() && block.all { it.total > 0 && it.done >= it.total }
+
+    /**
+     * What is left, in the order you do it, and what is finished.
+     *
+     * A finished block moves out of the way rather than out of sight: it goes
+     * under a heading of its own, keeping the order it was done in, so the
+     * end of a long day is not six dead cards to scroll past before the one
+     * you are up to. Nothing moves until a whole block is done, which is a
+     * natural stopping point rather than a card jumping out from under the
+     * tap that finished it, and reopening a set brings it straight back.
+     */
+    fun ordered(workout: Workout): Pair<List<List<Exercise>>, List<List<Exercise>>> {
+        val all = blocks(workout)
+        return all.filterNot { blockDone(it) } to all.filter { blockDone(it) }
+    }
+
     /** The other exercises in the pairing, for saying what this one goes with. */
     fun partners(workout: Workout, exercise: Exercise): List<Exercise> =
         if (!exercise.inSuperset) emptyList()
