@@ -75,7 +75,7 @@
           ></iframe>
         </div>
       {:else if previewKind === 'video'}
-        <video class="preview-frame" src={previewUrl} controls preload="metadata"></video>
+        <video class="preview-frame" src={previewUrl} poster={img_url || gif_url || undefined} controls preload="metadata"></video>
       {:else}
         <img class="preview-frame" src={previewUrl} alt="Exercise media preview" />
       {/if}

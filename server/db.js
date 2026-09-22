@@ -448,6 +448,10 @@ db.exec(`
 // Each try/catch guards a single ALTER — repeat-runs are no-ops.
 function addColumnIfMissing(table, column, ddl) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  // A fresh database has not created the table yet: the schema below will,
+  // with the column already in it. Ordering a migration above its own CREATE
+  // TABLE used to take the server down on a brand new install.
+  if (cols.length === 0) return;
   if (!cols.some(c => c.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
   }
@@ -489,10 +493,6 @@ addColumnIfMissing('exercises', 'load_type', 'load_type TEXT DEFAULT NULL');
 // exercises (plank, wall sit, dead hang) log a duration instead of reps.
 addColumnIfMissing('exercises', 'set_type', 'set_type TEXT DEFAULT NULL');
 
-// A coach note can hang off a set video and name the moment it is about, so
-// tapping the timestamp seeks the player there (issue #57).
-addColumnIfMissing('coach_feedback', 'media_id', 'media_id INTEGER');
-addColumnIfMissing('coach_feedback', 'media_time_sec', 'media_time_sec REAL');
 // Pinned cardio templates (NT activity_log parity).
 addColumnIfMissing('cardio_log', 'is_template', 'is_template INTEGER DEFAULT 0');
 
@@ -551,6 +551,10 @@ try { db.exec(`DROP INDEX IF EXISTS idx_coach_feedback_unique`); } catch {}
 // member reordering or deleting an exercise moved someone's note onto the
 // wrong lift. The uuid each exercise already carries is the stable anchor;
 // the index stays for notes written before this, and as a fallback.
+// A coach note can hang off a set video and name the moment it is about, so
+// tapping the timestamp seeks the player there (issue #57).
+addColumnIfMissing('coach_feedback', 'media_id', 'media_id INTEGER');
+addColumnIfMissing('coach_feedback', 'media_time_sec', 'media_time_sec REAL');
 addColumnIfMissing('coach_feedback', 'exercise_uuid', 'exercise_uuid TEXT');
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_feedback_unique

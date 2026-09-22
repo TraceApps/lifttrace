@@ -35,7 +35,7 @@
       {#if /youtube\.com|youtu\.be/.test(exercise.video_url)}
         <iframe class="media-video" src={exercise.video_url.replace('watch?v=', 'embed/')} title="Demo" allowfullscreen frameborder="0"></iframe>
       {:else}
-        <video class="media-video" src={exercise.video_url} controls playsinline></video>
+        <video class="media-video" src={exercise.video_url} poster={exercise.img_url || exercise.gif_url || undefined} controls playsinline></video>
       {/if}
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
