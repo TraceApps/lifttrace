@@ -26,6 +26,7 @@ The important reads:
 - `server/routes/`, Express handlers, one file per entity
 - `src/routes/`, top-level Svelte page components
 - `src/components/settings/`, one file per settings section
+- `android/wear/src/main/java/com/lifttrace/app/wear/`, the Wear OS app: `Session.kt` (every decision the watch makes on its own, pure data in and out, unit-tested), `WearStore.kt` (state plus the outbox), `Pairing.kt` (prefs, cache and the Wearable Data Layer), `LiftApi.kt` (the same day read and written as everywhere else)
 
 Everything else is discoverable with `grep` and `ls`.
 
@@ -159,6 +160,31 @@ Similar-exercise scoring is in `src/lib/exerciseSimilarity.js`,
 `primary*3 + secondary - (differentEquipment ? 1 : 0)`, requires
 at least one primary overlap. Rendered on ExerciseDetail as a
 responsive grid of thumbnails.
+
+### The watch is a client, not a satellite
+
+`android/wear` is a standalone Wear OS app that talks to the server itself
+over the same REST routes the phone and browser use: it reads one day and
+writes one day, so the merge on the server is the one already in use. The
+phone hands over the address and a token through the Wearable Data Layer and
+nothing is typed on the watch. Both APKs must carry the same package name and
+signing certificate or the Data Layer silently carries nothing.
+
+Four paths cross the Data Layer, each one record per device, each stamped by
+the clock of whoever wrote it, newest wins, and a deletion is the Data Layer
+tidying up after a device rather than a signal to act on:
+
+- `/lifttrace/pairing`, the server address and token
+- `/lifttrace/timer`, the session stopwatch
+- `/lifttrace/rest`, the rest between sets
+- `/lifttrace/awake`, written by the watch whenever its app opens, and the
+  gate the phone reads before sending a rest: a watch on a charger in another
+  room should not be woken for one, let alone buzz
+
+Anything that has to happen with the app off the screen is an AlarmManager
+exact alarm carrying a deadline, never something counting; anything repeating
+on screen is inside `repeatOnLifecycle(RESUMED)`. Both rules exist because
+breaking either one was measurable in the battery stats.
 
 ### Security posture
 
