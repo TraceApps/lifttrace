@@ -31,7 +31,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.focusRequester
@@ -116,6 +119,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The phone only sends a rest to a watch that has been used lately,
+        // and this is what it goes by.
+        Pairing.publishAwake(applicationContext)
         // Coming back from the watch face should show where the session is now,
         // and is the moment to send anything logged while there was no signal.
         lifecycleScope.launch { store.refresh() }
@@ -147,13 +153,32 @@ class Countdown(private val ctx: android.content.Context) {
     var fired by mutableStateOf(true)
         private set
 
+    /**
+     * The phone can start a rest too, and it arrives on a background service
+     * as a written record rather than a call into this. Held as a field
+     * because what registers it keeps only a weak reference.
+     */
+    private val watcher = Pairing.watch(ctx) { key ->
+        if (key == Pairing.KEY_TIMER) reload()
+    }
+
     init {
-        Pairing.timer(ctx)?.let { saved ->
-            label = saved.label
-            total = saved.total
-            endsAt = saved.endsAt
-            fired = saved.endsAt <= System.currentTimeMillis()
+        reload()
+    }
+
+    /** Whatever the saved rest now says, without telling anyone about it. */
+    private fun reload() {
+        val saved = Pairing.timer(ctx)
+        if (saved == null) {
+            endsAt = 0L
+            onDone = null
+            fired = true
+            return
         }
+        label = saved.label
+        total = saved.total
+        endsAt = saved.endsAt
+        fired = saved.endsAt <= System.currentTimeMillis()
     }
 
     val running: Boolean get() = endsAt > System.currentTimeMillis()
@@ -184,6 +209,7 @@ class Countdown(private val ctx: android.content.Context) {
         RestAlarm.cancel(ctx)
         Pairing.clearTimer(ctx)
         RestOngoing.hide(ctx)
+        Pairing.publishRest(ctx, null)
         // Skipping a hold means it was not held: it should not log itself
         // later because an alarm was still out there.
         Pairing.clearHold(ctx)
@@ -193,6 +219,7 @@ class Countdown(private val ctx: android.content.Context) {
         Pairing.putTimer(ctx, Pairing.Timer(label, total, endsAt))
         RestAlarm.schedule(ctx, endsAt)
         RestOngoing.refresh(ctx)
+        Pairing.publishRest(ctx, Pairing.Timer(label, total, endsAt))
     }
 
     fun secondsLeft(): Long =
@@ -309,15 +336,18 @@ private fun WhileWatching(vararg keys: Any?, block: suspend CoroutineScope.() ->
 }
 
 /**
- * A list whose crown turns a number rather than scrolling. On the one screen
- * where there is a number to change, spinning the crown is how a watch
- * expects you to change it: going from 135 to 185 is a flick of the finger
- * rather than ten taps on a plus sign. The list is short enough to reach
- * with a finger, which is what pays for giving the crown away.
+ * A list the crown scrolls, until you pick a number for it to turn.
+ *
+ * The crown is the scroll wheel of a watch, and taking that away by default
+ * is a surprise: a turn on any other screen moves the list, so on this one it
+ * should too. Tapping a number hands the crown to it, which is the fast way
+ * to go from 135 to 185 without ten taps on a plus sign, and tapping again
+ * gives it back to the list.
  */
 @Composable
 private fun DialColumn(
     listState: ScalingLazyListState,
+    dialing: Boolean,
     onTurn: (Int) -> Unit,
     content: ScalingLazyListScope.() -> Unit,
 ) {
@@ -325,10 +355,8 @@ private fun DialColumn(
     // A detent is worth a step; what a watch reports per detent varies, so
     // this adds up what it sends and spends it a step at a time.
     var carried by remember { mutableStateOf(0f) }
-    ScalingLazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
+    val crown = if (dialing) {
+        Modifier
             .onRotaryScrollEvent { event ->
                 carried += event.verticalScrollPixels
                 var steps = 0
@@ -338,10 +366,21 @@ private fun DialColumn(
                 true
             }
             .focusRequester(focus)
-            .focusable(),
+            .focusable()
+    } else {
+        Modifier.rotaryScrollable(RotaryScrollableDefaults.behavior(listState), focusRequester = focus)
+    }
+    ScalingLazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().then(crown),
         content = content,
     )
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    // Whichever mode it is in has to hold the crown, and half a turn carried
+    // over from the other one is not part of the next.
+    LaunchedEffect(dialing) {
+        carried = 0f
+        runCatching { focus.requestFocus() }
+    }
 }
 
 /** How far the crown has to turn to be worth one step. */
@@ -656,6 +695,9 @@ private fun SetScreen(
     // Keyed on the set, so moving to another one starts from its own numbers
     // rather than keeping what the last one was edited to.
     var draft by remember(setUuid) { mutableStateOf(suggested) }
+    // Which number the crown is turning, if any. Nothing by default: the
+    // crown scrolls the list until you tap a number to hand it over.
+    var dialing by remember(setUuid) { mutableStateOf<String?>(null) }
     val step = Session.weightStep(state.unit)
     val done = fresh == null && exercise.sets[index].completed
     val label = state.workout?.let { Session.supersetLabel(it, exercise) }
@@ -706,13 +748,32 @@ private fun SetScreen(
             }
         },
     ) {
-        // The crown moves the weight, which is the number that actually
-        // changes between sets. Reps and a hold stay on their own taps.
-        DialColumn(listState, onTurn = { steps ->
-            draft = draft.copy(weight = maxOf(0.0, draft.weight + steps * step))
+        // The crown scrolls, as it does everywhere else, until you tap a
+        // number to hand it over. Then it turns that one, and tapping it
+        // again gives the crown back to the list.
+        DialColumn(listState, dialing = dialing != null, onTurn = { steps ->
+            draft = when (dialing) {
+                "weight" -> draft.copy(weight = maxOf(0.0, draft.weight + steps * step))
+                "hold" -> draft.copy(durationSec = maxOf(0, draft.durationSec + steps * 5))
+                "reps" -> draft.copy(reps = maxOf(0, draft.reps + steps))
+                "left" -> draft.copy(repsLeft = maxOf(0, (draft.repsLeft ?: 0) + steps))
+                "right" -> draft.copy(repsRight = maxOf(0, (draft.repsRight ?: 0) + steps))
+                else -> draft
+            }
             runCatching { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
         }) {
             item { ListHeader { Text(exercise.name, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
+            if (dialing == null) {
+                item {
+                    Text(
+                        "Tap a number to turn it with the crown",
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                    )
+                }
+            }
             item {
                 Text(
                     position + (if (done) " · done" else ""),
@@ -741,6 +802,8 @@ private fun SetScreen(
             item {
                 Stepper(
                     text = Session.weightText(draft.weight, state.unit),
+                    selected = dialing == "weight",
+                    onSelect = { dialing = if (dialing == "weight") null else "weight" },
                     onDown = { draft = draft.copy(weight = maxOf(0.0, draft.weight - step)) },
                     onUp = { draft = draft.copy(weight = draft.weight + step) },
                 )
@@ -749,6 +812,8 @@ private fun SetScreen(
                 item {
                     Stepper(
                         text = Session.clock(draft.durationSec) + " hold",
+                        selected = dialing == "hold",
+                        onSelect = { dialing = if (dialing == "hold") null else "hold" },
                         onDown = { draft = draft.copy(durationSec = maxOf(0, draft.durationSec - 5)) },
                         onUp = { draft = draft.copy(durationSec = draft.durationSec + 5) },
                     )
@@ -769,6 +834,8 @@ private fun SetScreen(
                 item {
                     Stepper(
                         text = "${draft.repsLeft ?: 0} left",
+                        selected = dialing == "left",
+                        onSelect = { dialing = if (dialing == "left") null else "left" },
                         onDown = { draft = draft.copy(repsLeft = maxOf(0, (draft.repsLeft ?: 0) - 1)) },
                         onUp = { draft = draft.copy(repsLeft = (draft.repsLeft ?: 0) + 1) },
                     )
@@ -776,6 +843,8 @@ private fun SetScreen(
                 item {
                     Stepper(
                         text = "${draft.repsRight ?: 0} right",
+                        selected = dialing == "right",
+                        onSelect = { dialing = if (dialing == "right") null else "right" },
                         onDown = { draft = draft.copy(repsRight = maxOf(0, (draft.repsRight ?: 0) - 1)) },
                         onUp = { draft = draft.copy(repsRight = (draft.repsRight ?: 0) + 1) },
                     )
@@ -784,6 +853,8 @@ private fun SetScreen(
                 item {
                     Stepper(
                         text = "${draft.reps} reps",
+                        selected = dialing == "reps",
+                        onSelect = { dialing = if (dialing == "reps") null else "reps" },
                         onDown = { draft = draft.copy(reps = maxOf(0, draft.reps - 1)) },
                         onUp = { draft = draft.copy(reps = draft.reps + 1) },
                     )
@@ -901,7 +972,13 @@ private fun SessionTimeScreen(store: WearStore, nav: NavHostController) {
 
 /** A number with a tap either side of it, sized for a thumb. */
 @Composable
-private fun Stepper(text: String, onDown: () -> Unit, onUp: () -> Unit) {
+private fun Stepper(
+    text: String,
+    selected: Boolean = false,
+    onSelect: (() -> Unit)? = null,
+    onDown: () -> Unit,
+    onUp: () -> Unit,
+) {
     val haptics = LocalHapticFeedback.current
     val tap = { action: () -> Unit ->
         runCatching { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
@@ -916,12 +993,31 @@ private fun Stepper(text: String, onDown: () -> Unit, onUp: () -> Unit) {
             onClick = { tap(onDown) },
             modifier = Modifier.size(40.dp),
         ) { Text("−") }
+        // Outlined while it holds the crown, so which number a turn will move
+        // is something you can see rather than remember.
+        val picked = Modifier
+            .weight(1f)
+            .padding(horizontal = 4.dp)
+            .then(
+                if (selected) {
+                    Modifier.border(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(percent = 50),
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .then(if (onSelect == null) Modifier else Modifier.clickable { tap(onSelect) })
+            .padding(vertical = 4.dp)
         Text(
             text,
             textAlign = TextAlign.Center,
             maxLines = 1,
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            modifier = picked,
         )
         FilledTonalIconButton(
             onClick = { tap(onUp) },

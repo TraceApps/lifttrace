@@ -80,6 +80,71 @@ export async function publishWorkoutTimer(state, clearedAt = 0) {
   }
 }
 
+/** How long a watch counts as "here" after its app was last opened. */
+const AWAKE_FOR = 30 * 60 * 1000;
+
+/**
+ * Is the watch app in use? The watch writes the moment it is opened, and a
+ * rest is only sent over while that is recent.
+ *
+ * The alternative is waking a watch in a drawer and buzzing it about a rest
+ * nobody is going to look at, which is worse than not syncing at all.
+ */
+export async function watchInUse() {
+  if (!isNative) return false;
+  try {
+    const { at } = await WearPairing.watchAwake();
+    return Number(at || 0) > Date.now() - AWAKE_FOR;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The rest between sets, for the watch to hold and ring. Returns true when
+ * the watch actually has it, which is also what decides whether this phone's
+ * own notification is allowed to mirror across.
+ */
+export async function publishRest(state, at = 0) {
+  if (!isNative) return false;
+  if (!(await watchInUse())) return false;
+  try {
+    if (!state) {
+      await WearPairing.rest({ cleared: true, at: at || Date.now() });
+      return true;
+    }
+    await WearPairing.rest({
+      cleared: false,
+      label: String(state.exerciseName || ''),
+      total: Number(state.total) || 0,
+      endsAt: Number(state.endTime) || 0,
+      at: at || Date.now(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** What the watch says about the rest, when it has the later word. */
+export async function readRest(mine = 0) {
+  if (!isNative) return undefined;
+  try {
+    const remote = await WearPairing.readRest();
+    if (!remote?.found) return undefined;
+    if (Number(remote.at || 0) <= mine) return undefined;
+    return {
+      at: Number(remote.at || 0),
+      cleared: !!remote.cleared,
+      label: String(remote.label || ''),
+      total: Number(remote.total) || 0,
+      endsAt: Number(remote.endsAt) || 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Settle the session timer between the phone and the watch. Either can start,
  * pause or stop it, so whichever spoke last is the one that counts; this runs

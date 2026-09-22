@@ -34,6 +34,7 @@ object RestOngoing {
 
     private const val CHANNEL = "rest"
     private const val NOTE_ID = 4300
+    private const val RANG_ID = 4301
 
     /**
      * Post, update or take down the entry, from whatever the saved rest now
@@ -91,6 +92,33 @@ object RestOngoing {
 
     fun hide(ctx: Context) {
         runCatching { NotificationManagerCompat.from(ctx).cancel(NOTE_ID) }
+    }
+
+    /**
+     * It rang. The buzz on its own says something happened but not what, and
+     * a watch buzzes for plenty of reasons, so this is what is left on screen
+     * to answer that: which app, which lift, and a way back in.
+     *
+     * Silent, because the alarm has already done the buzzing as a proper
+     * alarm; this is only the words.
+     */
+    fun rang(ctx: Context, label: String) {
+        hide(ctx)
+        if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return
+        channel(ctx)
+        val note = NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_timer)
+            .setContentTitle("Rest over")
+            .setContentText(
+                if (label.isBlank()) "Your LiftTrace rest has finished."
+                else "Back to $label.",
+            )
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setContentIntent(open(ctx))
+            .build()
+        runCatching { NotificationManagerCompat.from(ctx).notify(RANG_ID, note) }
     }
 
     /** Tapping it goes to the timer, not to wherever the app was left. */

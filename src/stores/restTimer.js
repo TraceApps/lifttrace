@@ -278,14 +278,26 @@ async function _scheduleNativeFinish(state) {
         const at = T + offset;
         if (at > Date.now()) cues.push({ at, sound: '', vibrate: true, finale: false });
       }
-      if (T > Date.now()) cues.push({ at: T, sound: '', vibrate: true, finale: true });
     }
 
-    // Schedule a SILENT visible notification at zero for the "look at
-    // your phone, you're done" cue. Sound + vibration handled by the
-    // plugin's broadcasts above; this notification adds nothing audible
-    // and just surfaces the message in the shade.
+    // The message at zero, and the finale buzz, ride on one cue. The
+    // receiver posts it local-only, so it stays in this phone's shade: Wear
+    // mirrors a phone's notifications to the watch by default, and the watch
+    // app runs its own rest with its own alarm and its own words. Two copies
+    // of the same fact, one of them unlabelled, is how a buzz on a wrist
+    // becomes a mystery.
     const body = state.exerciseName ? `Ready for your next ${state.exerciseName} set` : 'Back to work!';
+    if (T > Date.now()) {
+      cues.push({
+        at: T, sound: '', vibrate: wantVibe, finale: true,
+        title: 'Rest complete', body,
+        // Mirrored to the watch only when the watch does not have the rest
+        // itself. When it does, it rings with its own alarm and its own
+        // words, and a second unlabelled copy of this is the thing that made
+        // a buzz on the wrist unaccountable.
+        localOnly: _onWatch,
+      });
+    }
     const fireAt = new Date(T);
     const notifications = [{
       id:        REST_TIMER_AUDIO_ID,
@@ -301,6 +313,10 @@ async function _scheduleNativeFinish(state) {
     if (cues.length && isCuePluginAvailable()) {
       const r = await scheduleCues(cues);
       console.log(`[restTimer] cue plugin scheduled ${r.scheduled}/${cues.length} broadcasts`);
+      // The finale cue carries the message, so there is nothing left for
+      // LocalNotifications to post. That is the point: what it posts cannot
+      // be marked local-only, and so it mirrors to the watch.
+      return;
     } else if (cues.length && !isCuePluginAvailable()) {
       // Plugin unavailable (PWA / older build) — there's no clean way to
       // fire audio without a notification, so log + skip the per-beep
@@ -432,6 +448,65 @@ function _tick() {
   if (remaining <= 0) _stopTick();
 }
 
+// ── The wrist ──────────────────────────────────────────────────────────────
+/**
+ * A rest is one thing happening to one person, so both devices hold it and
+ * either can ring. Whichever spoke last is the one that counts.
+ *
+ * Only while the watch app is in use: `publishRest` checks that itself, and
+ * says whether the watch actually took it. That answer also decides whether
+ * this phone's own notification may mirror across, since a watch that has
+ * the rest will say so in its own words and does not need a second copy.
+ */
+const REST_AT = 'lt:rest-at';
+let _onWatch = false;
+
+function _restStamp() {
+  try { return Number(localStorage.getItem(REST_AT) || 0) || 0; } catch { return 0; }
+}
+function _restStamped(at) {
+  try { localStorage.setItem(REST_AT, String(at)); } catch {}
+}
+
+function _tellWatch(state) {
+  if (!isNative) return;
+  const at = Date.now();
+  _restStamped(at);
+  import('../lib/wear-pairing.js')
+    .then(({ publishRest }) => publishRest(state, at))
+    .then(took => { _onWatch = !!took; })
+    .catch(() => {});
+}
+
+/**
+ * The watch started, extended or skipped a rest. Take its word if it is
+ * newer than ours. Called when the app comes back to the front, which is
+ * before anyone can press anything here.
+ */
+export async function syncRest() {
+  if (!isNative) return false;
+  const { readRest } = await import('../lib/wear-pairing.js');
+  const theirs = await readRest(_restStamp());
+  if (!theirs) return false;
+  _restStamped(theirs.at);
+  if (theirs.cleared || theirs.endsAt <= Date.now()) {
+    if (get(restTimer)) stopRest(false, { fromWatch: true });
+    return true;
+  }
+  const state = {
+    startedAt: theirs.endsAt - theirs.total * 1000,
+    endTime: theirs.endsAt,
+    total: theirs.total || Math.max(1, Math.round((theirs.endsAt - Date.now()) / 1000)),
+    exerciseId: get(restTimer)?.exerciseId ?? null,
+    exerciseName: theirs.label || '',
+  };
+  restTimer.set(state);
+  _persist(state);
+  _scheduleBeeps(state.endTime);
+  _startTick();
+  return true;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 export function startRest({ exerciseId, exerciseName, durationSec } = {}) {
   // Prefer per-exercise memory if caller didn't specify
@@ -462,6 +537,7 @@ export function startRest({ exerciseId, exerciseName, durationSec } = {}) {
   restTimer.set(state);
   _persist(state);
   _scheduleBeeps(state.endTime);
+  _tellWatch(state);
   // Only arm the OS notification if the user is already backgrounded —
   // otherwise the in-app Web Audio path handles cues and an OS schedule
   // would double up at -3s. The visibilitychange handler at the bottom of
@@ -487,11 +563,12 @@ export function addRestTime(extraSec = 30) {
   restTimer.set(next);
   _persist(next);
   _scheduleBeeps(next.endTime);
+  _tellWatch(next);
   _scheduleNativeFinish(next);
 }
 
 export function stopRest(rememberIfFull = true, opts = {}) {
-  const { keepNativeNotif = false } = opts;
+  const { keepNativeNotif = false, fromWatch = false } = opts;
   const state = get(restTimer);
   // Write back per-exercise memory on natural finish (or skip > 0 remaining)
   if (rememberIfFull && state && state.exerciseId != null && state.total > 0) {
@@ -505,6 +582,10 @@ export function stopRest(rememberIfFull = true, opts = {}) {
   _persist(null);
   _clearBeeps();
   if (!keepNativeNotif) _cancelNativeFinish();
+  // Not back to the watch when the watch is the one that said so: that is an
+  // echo, and the newer stamp on it would beat the next thing either device
+  // actually does.
+  if (!fromWatch) _tellWatch(null);
   _stopTick();
 }
 

@@ -3,6 +3,7 @@ package com.lifttrace.app.wear
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.google.android.gms.wearable.DataMap
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
@@ -36,7 +37,8 @@ object Pairing {
     private const val KEY_OUTBOX = "outbox"
     private const val KEY_SEQ = "outbox_seq"
     private const val KEY_HOLD = "pending_hold"
-    private const val KEY_TIMER = "timer"
+    const val KEY_TIMER = "timer"
+    private const val KEY_REST_AT = "rest_at"
     const val KEY_SESSION = "session_timer"
     private const val KEY_SESSION_AT = "session_timer_at"
     private const val KEY_LASTS = "last_times"
@@ -320,6 +322,65 @@ object Pairing {
     fun putTimer(ctx: Context, timer: Timer) {
         val o = JSONObject().put("label", timer.label).put("total", timer.total).put("endsAt", timer.endsAt)
         prefs(ctx).edit().putString(KEY_TIMER, o.toString()).apply()
+    }
+
+    /**
+     * "I am here", said by the watch whenever its app is opened.
+     *
+     * The phone only sends a rest over when this is recent. A rest set on the
+     * phone has no business waking a watch in a drawer, let alone buzzing it,
+     * and the phone cannot otherwise tell the difference between a watch on a
+     * wrist and one on a charger in another room.
+     */
+    fun publishAwake(ctx: Context) {
+        val request = PutDataMapRequest.create(PairingService.AWAKE_PATH)
+        request.dataMap.putLong("at", System.currentTimeMillis())
+        runCatching {
+            Wearable.getDataClient(ctx).putDataItem(request.asPutDataRequest().setUrgent())
+        }.onFailure { Log.w(TAG, "couldn't say hello to the phone: " + it.message) }
+    }
+
+    /** The wearer started, extended or skipped a rest. Tell the phone. */
+    fun publishRest(ctx: Context, timer: Timer?) {
+        val at = System.currentTimeMillis()
+        prefs(ctx).edit().putLong(KEY_REST_AT, at).apply()
+        val request = PutDataMapRequest.create(PairingService.REST_PATH)
+        request.dataMap.apply {
+            if (timer == null || timer.endsAt <= at) {
+                putBoolean("cleared", true)
+            } else {
+                putBoolean("cleared", false)
+                putString("label", timer.label)
+                putInt("total", timer.total)
+                putLong("endsAt", timer.endsAt)
+            }
+            putLong("at", at)
+        }
+        runCatching {
+            Wearable.getDataClient(ctx).putDataItem(request.asPutDataRequest().setUrgent())
+        }.onFailure { Log.w(TAG, "couldn't tell the phone about the rest: " + it.message) }
+    }
+
+    /**
+     * A rest started on the phone. The later word wins, as everywhere else,
+     * and the alarm is made to match so the buzz happens with the app long
+     * gone from the screen.
+     */
+    fun adoptRest(ctx: Context, map: DataMap) {
+        val at = map.getLong("at", 0L)
+        if (at > 0 && at < prefs(ctx).getLong(KEY_REST_AT, 0L)) return
+        val now = System.currentTimeMillis()
+        val endsAt = map.getLong("endsAt", 0L)
+        if (map.getBoolean("cleared", false) || endsAt <= now) {
+            RestAlarm.cancel(ctx)
+            clearTimer(ctx)
+            RestOngoing.hide(ctx)
+        } else {
+            putTimer(ctx, Timer(map.getString("label").orEmpty(), map.getInt("total", 0), endsAt))
+            RestAlarm.schedule(ctx, endsAt)
+            RestOngoing.refresh(ctx)
+        }
+        prefs(ctx).edit().putLong(KEY_REST_AT, if (at > 0) at else now).apply()
     }
 
     fun clearTimer(ctx: Context) {

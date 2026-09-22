@@ -420,6 +420,18 @@
         } catch {}
         // And on launch, once auth has settled.
         setTimeout(() => import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {}), 2500);
+        // A rest can be started, extended or skipped on either device, so
+        // coming back to the front is the moment to settle which of the two
+        // spoke last. Nothing is asked of the watch unless its app has been
+        // opened lately.
+        document.addEventListener('visibilitychange', async () => {
+          if (document.visibilityState !== 'visible') return;
+          try {
+            const { syncRest } = await import('./stores/restTimer.js');
+            await syncRest();
+          } catch {}
+        });
+        setTimeout(() => import('./stores/restTimer.js').then(({ syncRest }) => syncRest()).catch(() => {}), 3000);
         // Web/PWA fallbacks — same reason as above but for the browser
         // page lifecycle (tab hidden, page unload). Cheap idempotent
         // flush; no-op if nothing pending.

@@ -29,6 +29,13 @@ class PairingService : WearableListenerService() {
                 }
                 continue
             }
+            if (path.startsWith(REST_PATH)) {
+                // Same again: a skipped rest arrives as a record saying so.
+                if (event.type != DataEvent.TYPE_DELETED) {
+                    Pairing.adoptRest(this, DataMapItem.fromDataItem(event.dataItem).dataMap)
+                }
+                continue
+            }
             if (!path.startsWith(PATH)) continue
             if (event.type == DataEvent.TYPE_DELETED) {
                 Pairing.clear(this)
@@ -51,5 +58,8 @@ class PairingService : WearableListenerService() {
         const val PATH = "/lifttrace/pairing"
         /** How long the session has been running, as the phone counts it. */
         const val TIMER_PATH = "/lifttrace/timer"
+        /** A rest started on the phone, and the watch saying it is awake. */
+        const val REST_PATH = "/lifttrace/rest"
+        const val AWAKE_PATH = "/lifttrace/awake"
     }
 }

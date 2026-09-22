@@ -87,9 +87,12 @@ object RestAlarm {
 
 class RestAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // What it was for, before the record of it is cleared.
+        val label = Pairing.timer(context)?.label.orEmpty()
         Pairing.clearTimer(context)
-        // The rest is over, so it comes off the face with it.
-        RestOngoing.hide(context)
+        // The counting entry goes, and words take its place: a buzz with
+        // nothing on screen is a buzz you cannot account for.
+        RestOngoing.rang(context, label)
         // A hold that was counting down is logged here rather than waiting for
         // anyone to be looking: holding a plank is exactly when the watch is
         // face down and the app is long gone from the screen.
