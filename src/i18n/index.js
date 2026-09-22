@@ -13,6 +13,22 @@ export const AVAILABLE_LOCALES = [
   { code: 'it', label: 'Italiano' },
 ];
 
+/**
+ * The locale to use when the user has never chosen one: the phone or
+ * browser's own language if we have it, English otherwise.
+ *
+ * Exported because the `language` setting has to default to the same value.
+ * When it defaulted to a hardcoded 'en' instead, a Spanish phone ran the app
+ * in Spanish while the picker in Settings sat on English, since the two were
+ * deciding separately and never compared notes. Reported on r/selfhosted.
+ */
+export function pickInitialLocale() {
+  const nav = getLocaleFromNavigator();
+  if (!nav) return 'en';
+  const short = nav.split('-')[0];
+  return AVAILABLE_LOCALES.some(l => l.code === short) ? short : 'en';
+}
+
 export function initI18n(initialLocale) {
   init({
     fallbackLocale: 'en',
@@ -22,11 +38,4 @@ export function initI18n(initialLocale) {
     // that isn't fully translated yet.
     warnOnMissingMessages: !!import.meta.env.DEV,
   });
-}
-
-function pickInitialLocale() {
-  const nav = getLocaleFromNavigator();
-  if (!nav) return 'en';
-  const short = nav.split('-')[0];
-  return AVAILABLE_LOCALES.some(l => l.code === short) ? short : 'en';
 }

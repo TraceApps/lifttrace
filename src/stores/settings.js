@@ -1,5 +1,6 @@
 import { writable, get, derived } from 'svelte/store';
 import { DB } from '../lib/db.js';
+import { pickInitialLocale } from '../i18n/index.js';
 
 // Server-driven env-lock state. Populated from /api/app-config/env-locks
 // on app startup. Drives both the "Configured via environment variables"
@@ -143,7 +144,10 @@ function createSettingStore(key, defaultValue) {
 
 // Appearance
 export const appearance       = createSettingStore('appearance',       'system');
-export const language         = createSettingStore('language',          'en');
+// Defaults to the phone or browser's own language rather than English, so
+// the picker shows the language the app is actually running in. See
+// pickInitialLocale().
+export const language         = createSettingStore('language',          pickInitialLocale());
 export const accentColor      = createSettingStore('accentColor',      'orange');
 export const navStyle         = createSettingStore('navStyle',         'both');
 export const sidebarPersistent = createSettingStore('sidebarPersistent', false);

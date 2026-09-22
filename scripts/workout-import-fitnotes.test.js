@@ -93,3 +93,12 @@ test('the app and the server parse a file the same way', () => {
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
   assert.equal(read('../server/lib/workout-import/fitnotes.js'), read('../src/lib/workout-import/fitnotes.js'));
 });
+
+test('the language picker defaults to the language the app actually picked', () => {
+  // Both sides used to decide separately: i18n read the navigator, the
+  // setting was hardcoded to English, so a Spanish phone showed a Spanish
+  // app above a picker that said English.
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  assert.match(read('../src/i18n/index.js'), /export function pickInitialLocale/);
+  assert.match(read('../src/stores/settings.js'), /createSettingStore\('language',\s+pickInitialLocale\(\)\)/);
+});
