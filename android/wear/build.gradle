@@ -16,8 +16,8 @@ android {
         minSdkVersion 30
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Its own numbering; the name tracks the phone app it pairs with.
-        versionCode 1
-        versionName "1.3.0"
+        versionCode 2
+        versionName "1.4.0"
     }
 
     buildFeatures {
