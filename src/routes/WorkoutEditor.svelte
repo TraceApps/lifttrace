@@ -268,7 +268,12 @@
     const ex = exercises[idx];
     const updated = [...exercises];
     updated[idx] = { ...ex, set_type: next };
-    exercises = updated;
+    // commit(), not `exercises = updated`: `exercises` is derived from
+    // template.exercises, and save() sends template.exercises. Assigning the
+    // derived value showed the new chip and sent the old data, so the choice
+    // came back undone on the next visit. Every other edit here already went
+    // through commit(); these two did not.
+    commit(updated);
     loadMenuIdx = null;
     if (rememberLoadType && ex.exercise_id != null) {
       exerciseSetTypes.update(curr => ({ ...(curr || {}), [ex.exercise_id]: next }));
@@ -278,7 +283,7 @@
     const ex = exercises[idx];
     const updated = [...exercises];
     updated[idx] = { ...ex, load_type: next };
-    exercises = updated;
+    commit(updated);          // see pickSetType: the derived array is not what saves
     loadMenuIdx = null;
     if (rememberLoadType && ex.exercise_id != null) {
       exerciseLoadTypes.update(curr => ({ ...(curr || {}), [ex.exercise_id]: next }));

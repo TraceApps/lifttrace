@@ -64,6 +64,19 @@ test('picking still writes to the exercise that was clicked', () => {
   assert.match(card, /on:pickSetType=\{\(e\) => pickSetType\(e\.detail\)\}/);
 });
 
+test('a choice made in the editor reaches the save, not just the chip', () => {
+  // `exercises` is derived from template.exercises, and save() sends
+  // template.exercises. These two functions assigned the derived array, so
+  // the chip changed, the payload did not, and the choice was gone on the
+  // next visit. Every other edit in the file already went through commit().
+  for (const fn of ['pickSetType', 'pickLoadType']) {
+    const body = editor.slice(editor.indexOf(`function ${fn}(idx, next)`));
+    const end = body.indexOf('\n  }');
+    assert.match(body.slice(0, end), /commit\(updated\)/, `${fn} commits to template.exercises`);
+    assert.doesNotMatch(body.slice(0, end), /\n\s*exercises = updated;/, `${fn} does not assign the derived array`);
+  }
+});
+
 test('the backdrop and the back button still close it', () => {
   assert.match(menu, /class="ltm-backdrop" on:click\|stopPropagation=\{close\}/);
   assert.match(menu, /use:closeOnBack=\{close\}/);
