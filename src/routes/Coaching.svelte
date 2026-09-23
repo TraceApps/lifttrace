@@ -119,9 +119,22 @@
     return 'var(--text-3)';
   }
 
+  /**
+   * SQLite writes datetime('now') as "YYYY-MM-DD HH:MM:SS" with no zone, and
+   * that string is UTC. Handed to Date as it stands, the browser reads it as
+   * local time, so a reply sent seconds earlier came back "2h ago" for
+   * anyone not on UTC (found by @backmind while testing #57).
+   */
+  function serverDate(s) {
+    const t = String(s || '').trim();
+    return /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(t)
+      ? new Date(t.replace(' ', 'T') + 'Z')
+      : new Date(t);
+  }
+
   function activityRelative(occurred) {
     if (!occurred) return '';
-    const then = new Date(occurred).getTime();
+    const then = serverDate(occurred).getTime();
     const diff = Date.now() - then;
     const mins = Math.round(diff / 60000);
     if (mins < 60) return mins <= 1 ? 'just now' : `${mins}m ago`;
@@ -129,7 +142,7 @@
     if (hrs < 24) return `${hrs}h ago`;
     const days = Math.round(hrs / 24);
     if (days < 7) return `${days}d ago`;
-    return new Date(occurred).toLocaleDateString();
+    return serverDate(occurred).toLocaleDateString();
   }
   // Alias used by the coach's read-receipt + reply-time labels. Same shape.
   const relTime = activityRelative;
@@ -268,7 +281,24 @@
   let clipOpen = false;
   let clipMedia = null;
   let clipIdx = null;
-  $: clipsByExercise = new Map((clips || []).filter(c => c.exercise_uuid).map(c => [c.exercise_uuid, c]));
+  // Every clip on an exercise, not one. Keying the map by exercise_uuid and
+  // storing the row meant the last write won, so a member who filmed two
+  // sets of the same lift got one Watch chip on the coach's side, opening
+  // the older clip, while their own diary showed both (issue #57, found by
+  // @backmind). Oldest first, so the chips read in set order.
+  $: clipsByExercise = (clips || []).filter(c => c.exercise_uuid).reduce((m, c) => {
+    const list = m.get(c.exercise_uuid) || [];
+    list.unshift(c);                       // the server sends newest first
+    m.set(c.exercise_uuid, list);
+    return m;
+  }, new Map());
+
+  /** Which set a clip is on, 1-based, or null when the set is gone. */
+  function clipSetNumber(ex, clip) {
+    if (!clip?.set_uuid) return null;
+    const i = (ex?.sets || []).findIndex(s => s.uuid === clip.set_uuid);
+    return i >= 0 ? i + 1 : null;
+  }
 
   async function loadClips(workoutId) {
     if (!workoutId) { clips = []; return; }
@@ -971,12 +1001,18 @@
             <div class="wd-ex-head">
               <span class="wd-ex-name">{ex.exercise_name}</span>
               <span class="wd-ex-count">{done.length} {done.length === 1 ? 'set' : 'sets'}</span>
-              {#if clipsByExercise.get(ex.uuid)}
+              <div class="wd-ex-clips">
+              {#each clipsByExercise.get(ex.uuid) || [] as clip (clip.id)}
+                {@const setNo = clipSetNumber(ex, clip)}
                 <button type="button" class="wd-ex-clip"
-                  on:click={() => openClip(clipsByExercise.get(ex.uuid), idx)}>
-                  <span class="material-symbols-rounded">play_circle</span>{$_('set_video.watch')}
+                  on:click={() => openClip(clip, idx)}>
+                  <span class="material-symbols-rounded">play_circle</span>{
+                    (clipsByExercise.get(ex.uuid) || []).length > 1 && setNo
+                      ? $_('set_video.watch_set', { values: { n: setNo } })
+                      : $_('set_video.watch')}
                 </button>
-              {/if}
+              {/each}
+              </div>
             </div>
             <div class="wd-sets">
               {#each done as s, i}
@@ -1274,7 +1310,7 @@
   }
   /* Watch affordance on an exercise the member filmed. */
   .wd-ex-clip {
-    margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+    display: inline-flex; align-items: center; gap: 4px;
     padding: 3px 10px 3px 6px; border-radius: 999px;
     background: var(--accent-dim); color: var(--accent);
     font-size: 12px; font-weight: 700;
@@ -1284,8 +1320,12 @@
 
   .wd-ex-head {
     display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; flex-wrap: wrap;
     margin-bottom: 8px;
   }
+  /* One chip per filmed set, kept together on the right and wrapping under
+     the name rather than squeezing it. */
+  .wd-ex-clips { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
   .wd-ex-name { font-size: 14px; font-weight: 700; color: var(--text-1); }
   .wd-ex-count { font-size: 11px; color: var(--text-3); }
   .wd-sets { display: flex; flex-direction: column; gap: 4px; }

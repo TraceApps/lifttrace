@@ -602,6 +602,7 @@
     "save_note":         "Save Note",
     "note_failed":       "That note could not be saved.",
     "watch":             "Watch",
+    "watch_set":         "Set {n}",
     "their_reply":       "Their reply"
   },
   "hold_timer": {

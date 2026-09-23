@@ -141,12 +141,31 @@ const setVideoStorage = multer.diskStorage({
   },
 });
 
+// Extension to canonical type, for the fallback below. Kept to the video
+// extensions safeUploadExtension() already knows, so a normalized type and
+// the stored filename agree.
+const VIDEO_EXT_TYPE = {
+  mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm',
+  mov: 'video/quicktime', ogv: 'video/ogg', '3gp': 'video/3gpp',
+};
+
 const setVideoUpload = multer({
   storage: setVideoStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) cb(null, true);
-    else cb(new Error('Videos only'));
+    if (file.mimetype?.startsWith('video/')) return cb(null, true);
+    // busboy answers 'text/plain' for any part whose Content-Type it cannot
+    // parse, and MediaRecorder produces one it cannot: the comma in
+    // "video/mp4;codecs=vp9,opus" is unquoted, so the app's own recordings
+    // were refused as "Videos only" (issue #57, found by @backmind). The
+    // claimed type was never the gate anyway, the file's own bytes are
+    // checked below, so fall back to the name and let that decide.
+    const ext = path.extname(file.originalname || '').slice(1).toLowerCase();
+    if (VIDEO_EXT_TYPE[ext]) {
+      file.mimetype = VIDEO_EXT_TYPE[ext];   // read again by storage.filename
+      return cb(null, true);
+    }
+    cb(new Error('Videos only'));
   },
 });
 
@@ -158,6 +177,9 @@ router.post('/set-video', requireAuth, (req, res, next) => {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({ error: 'That clip is over 200 MB. Film a shorter set, or record it in the app.' });
       }
+      // A refused file is the caller's mistake, not the server falling over.
+      // This used to reach the error handler and answer 500.
+      if (err.message === 'Videos only') return res.status(415).json({ error: err.message });
       return next(err);
     }
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });

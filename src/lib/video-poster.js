@@ -24,22 +24,25 @@ export function posterFromElement(el) {
 }
 
 /**
- * A still from a clip that is only bytes: decode one frame offscreen.
- * Resolves null rather than throwing, and gives up after `timeoutMs` so a
- * file this browser cannot decode never holds a screen up.
+ * Decode a clip offscreen for the two things we want before uploading it: a
+ * still, and how long it runs. Resolves { poster, duration } with nulls
+ * rather than throwing, and gives up after `timeoutMs` so a file this
+ * browser cannot decode never holds a screen up.
  */
-export function posterFromBlob(blob, { timeoutMs = 3000 } = {}) {
+export function probeVideoBlob(blob, { timeoutMs = 3000 } = {}) {
   return new Promise((resolve) => {
-    if (!blob) return resolve(null);
+    if (!blob) return resolve({ poster: null, duration: null });
     let url;
-    try { url = URL.createObjectURL(blob); } catch { return resolve(null); }
+    try { url = URL.createObjectURL(blob); } catch { return resolve({ poster: null, duration: null }); }
     const video = document.createElement('video');
     let settled = false;
     const done = (poster) => {
       if (settled) return;
       settled = true;
+      const duration = Number.isFinite(video.duration) && video.duration > 0
+        ? Math.round(video.duration) : null;
       try { URL.revokeObjectURL(url); } catch {}
-      resolve(poster);
+      resolve({ poster, duration });
     };
     video.muted = true;
     video.playsInline = true;
@@ -54,4 +57,9 @@ export function posterFromBlob(blob, { timeoutMs = 3000 } = {}) {
     video.addEventListener('error', () => done(null));
     setTimeout(() => done(null), timeoutMs);
   });
+}
+
+/** Just the still, for callers that do not care how long the clip runs. */
+export function posterFromBlob(blob, opts) {
+  return probeVideoBlob(blob, opts).then(r => r.poster);
 }

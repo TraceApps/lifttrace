@@ -346,14 +346,16 @@
           {#if timed}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
         </button>
       </div>
-      <span class="ex-meta">{completedCount}/{workingSets.length} sets</span>
-      {#if exerciseMedia.length}
-        <button type="button" class="ex-clip" on:click|stopPropagation={() => dispatch('openMedia', exerciseMedia[0])}
-          title="Watch this set" aria-label="Watch this set">
-          <span class="material-symbols-rounded">play_circle</span>
-          {#if exerciseMedia.length > 1}<span class="ex-clip-n">{exerciseMedia.length}</span>{/if}
-        </button>
-      {/if}
+      <div class="ex-meta-row">
+        <span class="ex-meta">{completedCount}/{workingSets.length} sets</span>
+        {#if exerciseMedia.length}
+          <button type="button" class="ex-clip" on:click|stopPropagation={() => dispatch('openMedia', exerciseMedia[0])}
+            title="Watch this set" aria-label="Watch this set">
+            <span class="material-symbols-rounded">play_circle</span>
+            {#if exerciseMedia.length > 1}<span class="ex-clip-n">{exerciseMedia.length}</span>{/if}
+          </button>
+        {/if}
+      </div>
     </div>
     <div class="ex-actions">
       {#if canMoveUp}
@@ -531,9 +533,14 @@
 
   /* Filmed-set marker on the card header, so a collapsed card still shows
      there is footage under it. */
+  /* The chip sits beside the set count. On its own it was a direct child of
+     the column flex .ex-info, where align-items: stretch pulled a pill with
+     one icon in it across the whole card (found by @backmind). */
+  .ex-meta-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .ex-clip {
+    flex: 0 0 auto;
     display: inline-flex; align-items: center; gap: 2px;
-    padding: 2px 6px; margin-left: 6px;
+    padding: 2px 6px;
     border-radius: 999px; background: var(--accent-dim); color: var(--accent);
     font-size: 11px; font-weight: 700;
   }
