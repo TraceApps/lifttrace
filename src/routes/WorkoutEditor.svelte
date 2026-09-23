@@ -14,6 +14,7 @@
   import Sheet from '../components/ui/Sheet.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
+  import LoadTypeMenu from '../components/ui/LoadTypeMenu.svelte';
 
   export let params = {};
 
@@ -227,6 +228,16 @@
   // editor and live logging feel consistent.
   let loadMenuIdx = null;
   let rememberLoadType = false;
+  // The chip's own rect, taken at the click. One menu serves every row, so
+  // the trigger cannot be held in a single `bind:this` the way a one-card
+  // component does it: the rect is what tells the menu which chip it
+  // belongs to (issue #116).
+  let loadMenuAnchor = null;
+  function toggleLoadMenu(e, idx) {
+    if (loadMenuIdx === idx) { loadMenuIdx = null; return; }
+    loadMenuAnchor = e.currentTarget.getBoundingClientRect();
+    loadMenuIdx = idx;
+  }
   function exLoadType(ex) {
     // Full four-tier resolution: per-instance → library default →
     // client-side per-user pref → 'bilateral'. See src/lib/workout.js
@@ -823,7 +834,7 @@
                         <span class="ex-name">{ex.exercise_name}</span>
                         {#each [exLoadType(ex)] as lt}
                           <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) === 'time'}
-                                  on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
+                                  on:click|stopPropagation={(e) => toggleLoadMenu(e, idx)}
                                   title={$_('workout_editor.load_type')}>
                             {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
                             {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
@@ -847,42 +858,6 @@
                           <span class="material-symbols-rounded">more_vert</span>
                         </button>
                       </div>
-                      {#if loadMenuIdx === idx}
-                        <!-- svelte-ignore a11y-click-events-have-key-events -->
-                        <!-- svelte-ignore a11y-no-static-element-interactions -->
-                        <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null} use:closeOnBack={() => loadMenuIdx = null}></div>
-                        <div class="load-menu" on:click|stopPropagation>
-                          <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
-                          {#each [['bilateral','workout_editor.load_bilateral','workout_editor.load_hint_bilateral'],
-                                  ['paired','workout_editor.load_paired','workout_editor.load_hint_paired'],
-                                  ['unilateral','workout_editor.load_unilateral','workout_editor.load_hint_unilateral']] as [val, labelKey, hintKey]}
-                            <button class="load-menu-item" class:active={exLoadType(ex) === val} type="button"
-                                    on:click={() => pickLoadType(idx, val)}>
-                              <div class="lm-text">
-                                <span class="lm-label">{$_(labelKey)}</span>
-                                <span class="lm-hint">{$_(hintKey)}</span>
-                              </div>
-                              {#if exLoadType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
-                            </button>
-                          {/each}
-                          <div class="load-menu-head">{$_('exercise_card.tracked_by')}</div>
-                          {#each [['reps', 'exercise_card.set_type_reps', 'exercise_card.set_type_reps_hint'],
-                                  ['time', 'exercise_card.set_type_time', 'exercise_card.set_type_time_hint']] as [val, labelKey, hintKey]}
-                            <button class="load-menu-item" class:active={exSetType(ex) === val} type="button"
-                                    on:click={() => pickSetType(idx, val)}>
-                              <div class="lm-text">
-                                <span class="lm-label">{$_(labelKey)}</span>
-                                <span class="lm-hint">{$_(hintKey)}</span>
-                              </div>
-                              {#if exSetType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
-                            </button>
-                          {/each}
-                          <label class="load-menu-remember">
-                            <input type="checkbox" bind:checked={rememberLoadType} />
-                            <span>{$_('workout_editor.remember_ex')}</span>
-                          </label>
-                        </div>
-                      {/if}
                       {#if ex.set_specs && ex.set_specs.length > 0}
                         <div class="per-set-rows">
                           {#each ex.set_specs as spec, setIdx}
@@ -974,7 +949,7 @@
                 <span class="ex-name">{ex.exercise_name}</span>
                 {#each [exLoadType(ex)] as lt}
                   <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) === 'time'}
-                          on:click|stopPropagation={() => loadMenuIdx = (loadMenuIdx === idx ? null : idx)}
+                          on:click|stopPropagation={(e) => toggleLoadMenu(e, idx)}
                           title={$_('workout_editor.load_type')}>
                     {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
                     {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
@@ -998,42 +973,6 @@
                   <span class="material-symbols-rounded">more_vert</span>
                 </button>
               </div>
-              {#if loadMenuIdx === idx}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <div class="load-menu-backdrop" on:click|stopPropagation={() => loadMenuIdx = null} use:closeOnBack={() => loadMenuIdx = null}></div>
-                <div class="load-menu" on:click|stopPropagation>
-                  <div class="load-menu-head">{$_('workout_editor.load_type')}</div>
-                  {#each [['bilateral','workout_editor.load_bilateral','workout_editor.load_hint_bilateral'],
-                          ['paired','workout_editor.load_paired','workout_editor.load_hint_paired'],
-                          ['unilateral','workout_editor.load_unilateral','workout_editor.load_hint_unilateral']] as [val, labelKey, hintKey]}
-                    <button class="load-menu-item" class:active={exLoadType(ex) === val} type="button"
-                            on:click={() => pickLoadType(idx, val)}>
-                      <div class="lm-text">
-                        <span class="lm-label">{$_(labelKey)}</span>
-                        <span class="lm-hint">{$_(hintKey)}</span>
-                      </div>
-                      {#if exLoadType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
-                    </button>
-                  {/each}
-                  <div class="load-menu-head">{$_('exercise_card.tracked_by')}</div>
-                  {#each [['reps', 'exercise_card.set_type_reps', 'exercise_card.set_type_reps_hint'],
-                          ['time', 'exercise_card.set_type_time', 'exercise_card.set_type_time_hint']] as [val, labelKey, hintKey]}
-                    <button class="load-menu-item" class:active={exSetType(ex) === val} type="button"
-                            on:click={() => pickSetType(idx, val)}>
-                      <div class="lm-text">
-                        <span class="lm-label">{$_(labelKey)}</span>
-                        <span class="lm-hint">{$_(hintKey)}</span>
-                      </div>
-                      {#if exSetType(ex) === val}<span class="material-symbols-rounded lm-check">check</span>{/if}
-                    </button>
-                  {/each}
-                  <label class="load-menu-remember">
-                    <input type="checkbox" bind:checked={rememberLoadType} />
-                    <span>{$_('workout_editor.remember_ex')}</span>
-                  </label>
-                </div>
-              {/if}
               {#if ex.set_specs && ex.set_specs.length > 0}
                 <div class="per-set-rows">
                   {#each ex.set_specs as spec, setIdx}
@@ -1111,6 +1050,20 @@
 <Sheet open={showPicker} on:close={() => { showPicker = false; addingToSsId = null; replacingIdx = null; }} height="full">
   <ExercisePicker on:select={e => addExercise(e.detail)} />
 </Sheet>
+
+<!-- One Load Type chooser for every row: it is portaled to <body> and
+     positioned from the clicked chip's rect, so it cannot be clipped by a
+     superset's overflow or drift away from the exercise (issue #116). -->
+{#if loadMenuIdx != null && exercises[loadMenuIdx]}
+  <LoadTypeMenu
+    anchor={loadMenuAnchor}
+    loadType={exLoadType(exercises[loadMenuIdx])}
+    setType={exSetType(exercises[loadMenuIdx])}
+    bind:remember={rememberLoadType}
+    on:pickLoad={(e) => pickLoadType(loadMenuIdx, e.detail)}
+    on:pickSetType={(e) => pickSetType(loadMenuIdx, e.detail)}
+    on:close={() => loadMenuIdx = null} />
+{/if}
 
 <!-- Exercise info sheet -->
 <ExerciseInfoSheet bind:open={infoSheetOpen} exerciseId={infoSheetExerciseId} exerciseName={infoSheetExerciseName} on:replace={handleInfoReplace} />
@@ -1243,43 +1196,6 @@
     background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent);
     border-style: solid;
   }
-  .load-menu-backdrop {
-    position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,0.2);
-  }
-  .load-menu {
-    position: absolute; top: 36px; left: 14px; right: 14px;
-    z-index: 31;
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
-    padding: 8px;
-    display: flex; flex-direction: column; gap: 2px;
-  }
-  .load-menu-head {
-    font-size: 11px; font-weight: 800; letter-spacing: 0.06em;
-    text-transform: uppercase; color: var(--text-3);
-    padding: 4px 6px 6px;
-  }
-  .load-menu-item {
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 8px; padding: 8px 10px;
-    background: none; border: none; cursor: pointer;
-    text-align: left; font-family: inherit;
-    color: var(--text-1); border-radius: var(--radius-md);
-  }
-  .load-menu-item:hover { background: var(--surface-2); }
-  .load-menu-item.active { background: var(--accent-dim); }
-  .lm-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-  .lm-label { font-size: 14px; font-weight: 700; color: var(--text-1); }
-  .lm-hint  { font-size: 11px; color: var(--text-3); line-height: 1.35; }
-  .lm-check { font-size: 18px; color: var(--accent); flex-shrink: 0; margin-top: 2px; }
-  .load-menu-remember {
-    display: flex; align-items: center; gap: 6px;
-    padding: 8px 10px;
-    font-size: 12px; color: var(--text-2); cursor: pointer;
-    border-top: 1px solid var(--border);
-    margin-top: 4px;
-  }
-  .load-menu-remember input { accent-color: var(--accent); }
   .reorder-btns { display: flex; flex-direction: column; gap: 0; flex-shrink: 0; }
   .btn-icon-xs {
     width: 26px; height: 20px;
