@@ -409,6 +409,7 @@ async function _forgetTouched(sent) {
     if (op.kind?.startsWith('workout')) { prefixes.add('/api/workout'); prefixes.add('/api/stats'); }
     if (op.kind?.startsWith('cardio')) prefixes.add('/api/cardio');
     if (op.kind?.startsWith('exercise')) prefixes.add('/api/exercises');
+    if (op.kind === 'recovery-adjustment') prefixes.add('/api/stats/muscle-recovery-adjustments');
     if (op.kind?.startsWith('program')) prefixes.add('/api/programs');
     if (op.kind === 'body-stats') prefixes.add('/api/body-stats');
     if (op.kind?.startsWith('photo')) prefixes.add('/api/body-stats');

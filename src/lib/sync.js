@@ -281,6 +281,7 @@ export async function pullSnapshot(silent = false) {
     // pull is a small batch in steady state.
     await _applyExercises(pull.exercises, result);
     await _applyExerciseMuscleOverrides(pull.exercise_muscle_overrides, result);
+    await _applyMuscleRecoveryAdjustments(pull.muscle_recovery_adjustments, result);
     await _applyPrograms(pull.programs, result);
     await _applyTemplates(pull.workout_templates, result);
     await _applyAssignments(pull.program_assignments, result);
@@ -421,6 +422,54 @@ async function _applyExerciseMuscleOverrides(rows, result) {
     );
   }
   result.tables.exerciseMuscleOverrides = rows.length;
+}
+
+async function _queuedRecoveryMuscles() {
+  const rows = await dbQuery(
+    `SELECT table_name FROM sync_queue
+      WHERE table_name LIKE '/api/stats/muscle-recovery-adjustments/%'`, []
+  );
+  const muscles = new Set();
+  for (const row of rows) {
+    const match = String(row.table_name || '').match(/^\/api\/stats\/muscle-recovery-adjustments\/([a-z-]+)$/);
+    if (match) muscles.add(match[1]);
+  }
+  return muscles;
+}
+
+async function _applyMuscleRecoveryAdjustments(rows, result) {
+  if (!rows?.length) { result.tables.muscleRecoveryAdjustments = 0; return; }
+  const queued = await _queuedRecoveryMuscles();
+  for (const row of rows) {
+    const muscle = String(row.muscle || '');
+    if (!muscle || queued.has(muscle)) continue;
+    if (row.deleted_at) {
+      await dbRun(`DELETE FROM muscle_recovery_adjustments WHERE user_id = 1 AND muscle = ?`, [muscle]);
+      continue;
+    }
+    await dbRun(
+      `INSERT INTO muscle_recovery_adjustments
+         (user_id, muscle, effective_age_hours, adjusted_at, basis_workout_timestamp,
+          created_at, updated_at, deleted_at)
+       VALUES (1, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(user_id, muscle) DO UPDATE SET
+         effective_age_hours = excluded.effective_age_hours,
+         adjusted_at = excluded.adjusted_at,
+         basis_workout_timestamp = excluded.basis_workout_timestamp,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at,
+         deleted_at = NULL`,
+      [
+        muscle,
+        Number(row.effective_age_hours),
+        row.adjusted_at,
+        row.basis_workout_timestamp ?? null,
+        row.created_at || new Date().toISOString(),
+        row.updated_at || new Date().toISOString(),
+      ]
+    );
+  }
+  result.tables.muscleRecoveryAdjustments = rows.length;
 }
 
 // Devices that pulled an assignment before the server learned to send the

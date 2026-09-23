@@ -4,7 +4,8 @@
  * Walks a list of recent workouts, attributes each completed non-warmup
  * set through its workout snapshot, personal muscle-load profile, or
  * catalog primary/secondary defaults, and returns a
- * { muscleKey: { lastDate, hoursAgo, sets, volume } } map.
+ * { muscleKey: { lastDate, hoursAgo, sets, volume, basisWorkoutTimestamp } }
+ * map.
  *
  * Buckets mirror server/routes/stats.js#_normalizeMuscle so the recovery
  * view and the muscle-volume chart speak the same language.
@@ -31,6 +32,16 @@ export const FRESHNESS = [
   { maxHours: Infinity, label: 'Fresh', color: '#10b981' }, // green
 ];
 
+// A manual recovery state is stored as an effective age rather than a
+// frozen label. That lets an adjustment keep moving through the normal
+// recovery bands as time passes instead of remaining "Recovering" forever.
+export const RECOVERY_ADJUSTMENT_HOURS = {
+  Fatigued: 12,
+  Recovering: 36,
+  Ready: 60,
+  Fresh: 84,
+};
+
 export function freshnessFor(hoursAgo) {
   // Distinct from the body fill on purpose: an untrained muscle should still
   // show as a region. Matching the silhouette hid the whole map for anyone
@@ -40,6 +51,53 @@ export function freshnessFor(hoursAgo) {
   }
   for (const t of FRESHNESS) if (hoursAgo < t.maxHours) return t;
   return FRESHNESS[FRESHNESS.length - 1];
+}
+
+function _timeMs(value) {
+  if (!value) return 0;
+  const raw = String(value);
+  const parsed = Date.parse(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function _workoutBasis(workout) {
+  return workout?.updated_at || workout?.created_at || (workout?.id != null
+    ? `${workout.date}#${workout.id}`
+    : workout?.date) || null;
+}
+
+/**
+ * Apply the user's subjective recovery corrections to a computed estimate.
+ * An adjustment is valid only for the workout state it was based on. A later
+ * session (or an edit to that session) changes the basis and automatically
+ * returns the muscle to the computed estimate.
+ */
+export function applyRecoveryAdjustments(recovery, adjustments, now = Date.now()) {
+  const byMuscle = new Map((adjustments || [])
+    .filter(row => row && !row.deleted_at)
+    .map(row => [row.muscle, row]));
+  const result = {};
+  for (const key of MUSCLE_BUCKETS) {
+    const estimate = recovery?.[key] || {
+      lastDate: null, hoursAgo: null, sets: 0, volume: 0, basisWorkoutTimestamp: null,
+    };
+    const adjustment = byMuscle.get(key);
+    const currentBasis = estimate.basisWorkoutTimestamp ?? null;
+    const savedBasis = adjustment?.basis_workout_timestamp ?? null;
+    const effectiveAge = Number(adjustment?.effective_age_hours);
+    const adjustedAt = _timeMs(adjustment?.adjusted_at);
+    if (!adjustment || currentBasis !== savedBasis || !Number.isFinite(effectiveAge) || effectiveAge < 0 || !adjustedAt) {
+      result[key] = estimate;
+      continue;
+    }
+    result[key] = {
+      ...estimate,
+      hoursAgo: effectiveAge + Math.max(0, now - adjustedAt) / 36e5,
+      adjusted: true,
+      adjustedAt: adjustment.adjusted_at,
+    };
+  }
+  return result;
 }
 
 const _RECOVERY_BUCKET = {
@@ -59,7 +117,7 @@ const _RECOVERY_BUCKET = {
  *   `primary_muscles` (array or JSON string), `category`).
  * @param {number} [windowDays=7] - how far back to look. Anything older
  *   counts as "fresh / untrained recently".
- * @returns {Object<string, { lastDate:string, hoursAgo:number, sets:number, volume:number }>}
+ * @returns {Object<string, { lastDate:string, hoursAgo:number, sets:number, volume:number, basisWorkoutTimestamp:string|null }>}
  */
 export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7) {
   // Build id → muscles[] lookup. Tolerate primary_muscles being either a
@@ -87,6 +145,8 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
     // on DST boundaries.
     const ts = new Date(`${w.date}T12:00:00`).getTime();
     if (isNaN(ts) || ts < cutoff) continue;
+    const basisWorkoutTimestamp = _workoutBasis(w);
+    const basisMs = _timeMs(basisWorkoutTimestamp);
 
     for (const ex of w.exercises || []) {
       const info = exMap[ex.exercise_id] || { primary: [], secondary: [], category: '', loads: null };
@@ -119,12 +179,25 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
         const vol = timed ? 0 : weight * reps;
 
         for (const [g, load] of groups) {
-          if (!out[g]) out[g] = { lastDate: w.date, lastTs: ts, sets: 0, volume: 0 };
+          if (!out[g]) out[g] = {
+            lastDate: w.date,
+            lastTs: ts,
+            basisWorkoutTimestamp,
+            basisMs,
+            sets: 0,
+            volume: 0,
+          };
           out[g].sets += load;
           out[g].volume += vol * load;
-          if (ts > out[g].lastTs) {
+          if (ts > out[g].lastTs || (ts === out[g].lastTs && (
+            basisMs > out[g].basisMs
+            || (basisMs === out[g].basisMs
+              && String(basisWorkoutTimestamp || '') > String(out[g].basisWorkoutTimestamp || ''))
+          ))) {
             out[g].lastTs = ts;
             out[g].lastDate = w.date;
+            out[g].basisWorkoutTimestamp = basisWorkoutTimestamp;
+            out[g].basisMs = basisMs;
           }
         }
       }
@@ -136,12 +209,16 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
   const result = {};
   for (const key of MUSCLE_BUCKETS) {
     const e = out[key];
-    if (!e) { result[key] = { lastDate: null, hoursAgo: null, sets: 0, volume: 0 }; continue; }
+    if (!e) {
+      result[key] = { lastDate: null, hoursAgo: null, sets: 0, volume: 0, basisWorkoutTimestamp: null };
+      continue;
+    }
     result[key] = {
       lastDate: e.lastDate,
       hoursAgo: Math.max(0, Math.round((now - e.lastTs) / 36e5)),
       sets: e.sets,
       volume: e.volume,
+      basisWorkoutTimestamp: e.basisWorkoutTimestamp,
     };
   }
   return result;

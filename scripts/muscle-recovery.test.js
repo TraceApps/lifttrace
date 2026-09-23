@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeMuscleRecovery } from '../src/lib/muscle-recovery.js';
+import {
+  applyRecoveryAdjustments,
+  computeMuscleRecovery,
+  RECOVERY_ADJUSTMENT_HOURS,
+} from '../src/lib/muscle-recovery.js';
 
 test('recovery uses snapshots first and weights personal and catalog muscle loads', () => {
   const realNow = Date.now;
@@ -41,6 +45,56 @@ test('recovery uses snapshots first and weights personal and catalog muscle load
   } finally {
     Date.now = realNow;
   }
+});
+
+test('manual recovery adjustments age naturally and keep the estimate metadata', () => {
+  const estimate = {
+    chest: {
+      lastDate: '2026-09-21', hoursAgo: 24, sets: 3, volume: 300,
+      basisWorkoutTimestamp: '2026-09-21 18:00:00',
+    },
+  };
+  const now = new Date('2026-09-22T14:00:00Z').getTime();
+  const adjusted = applyRecoveryAdjustments(estimate, [{
+    muscle: 'chest',
+    effective_age_hours: RECOVERY_ADJUSTMENT_HOURS.Recovering,
+    adjusted_at: '2026-09-22T12:00:00.000Z',
+    basis_workout_timestamp: '2026-09-21 18:00:00',
+  }], now);
+
+  assert.equal(adjusted.chest.hoursAgo, 38);
+  assert.equal(adjusted.chest.sets, 3);
+  assert.equal(adjusted.chest.adjusted, true);
+});
+
+test('newer training supersedes a subjective recovery adjustment', () => {
+  const estimate = {
+    chest: {
+      lastDate: '2026-09-22', hoursAgo: 2, sets: 3, volume: 300,
+      basisWorkoutTimestamp: '2026-09-22 12:00:00',
+    },
+  };
+  const adjusted = applyRecoveryAdjustments(estimate, [{
+    muscle: 'chest', effective_age_hours: 60,
+    adjusted_at: '2026-09-22T12:00:00.000Z',
+    basis_workout_timestamp: '2026-09-21 12:00:00',
+  }], new Date('2026-09-22T14:00:00Z').getTime());
+
+  assert.equal(adjusted.chest.hoursAgo, 2);
+  assert.equal(adjusted.chest.adjusted, undefined);
+});
+
+test('an untrained muscle can be adjusted until its first relevant workout', () => {
+  const estimate = {
+    calves: { lastDate: null, hoursAgo: null, sets: 0, volume: 0, basisWorkoutTimestamp: null },
+  };
+  const adjusted = applyRecoveryAdjustments(estimate, [{
+    muscle: 'calves', effective_age_hours: 12,
+    adjusted_at: '2026-09-22T12:00:00.000Z', basis_workout_timestamp: null,
+  }], new Date('2026-09-22T13:00:00Z').getTime());
+
+  assert.equal(adjusted.calves.hoursAgo, 13);
+  assert.equal(adjusted.calves.adjusted, true);
 });
 
 test('recovery uses a personal profile when an older workout has no snapshot', () => {

@@ -136,6 +136,16 @@ router.get('/pull', wrap((req, res) => {
           WHERE updated_at >= ? AND user_id IS NULL ORDER BY updated_at`
       ).all(sinceSql).map(parseRow);
 
+  const muscle_recovery_adjustments = u != null
+    ? db.prepare(
+        `SELECT * FROM muscle_recovery_adjustments
+          WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at`
+      ).all(sinceSql, u).map(parseRow)
+    : db.prepare(
+        `SELECT * FROM muscle_recovery_adjustments
+          WHERE updated_at >= ? AND user_id IS NULL ORDER BY updated_at`
+      ).all(sinceSql).map(parseRow);
+
   // programs has created_by, not user_id. Include programs the user
   // created OR has been assigned (server-side join with program_assignments
   // is overkill here — assignments are pulled separately).
@@ -218,11 +228,12 @@ router.get('/pull', wrap((req, res) => {
   // were deleted on another device. See lib/workout-merge.js.
   const workout_tombstones = _loadTombstonesSince(u, sinceSql);
 
-  logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} muscle_overrides=${exercise_muscle_overrides.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
+  logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} muscle_overrides=${exercise_muscle_overrides.length} recovery_adjustments=${muscle_recovery_adjustments.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
 
   res.json({
     exercises,
     exercise_muscle_overrides,
+    muscle_recovery_adjustments,
     programs,
     workout_templates,
     program_assignments,

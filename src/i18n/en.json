@@ -659,7 +659,29 @@
     "ready":                 "Ready",
     "fresh":                 "Fresh",
     "front":                 "Front",
-    "back":                  "Back"
+    "back":                  "Back",
+    "description":           "Estimated from completed sets in the past {days} days",
+    "diagram_label":         "Interactive muscle recovery diagram",
+    "tap_to_adjust":         "Select a muscle to adjust how recovered it feels.",
+    "adjusted":              "Adjusted",
+    "adjust_title":          "Adjust {muscle}",
+    "adjust_help":           "Choose how this muscle feels now. The adjustment will continue aging normally and new training will replace it with a fresh estimate.",
+    "reset_estimate":        "Use Estimated Recovery",
+    "effective_sets":        "{n} effective sets",
+    "just_now":              "just now",
+    "hours_ago":             "{n}h ago",
+    "days_ago":              "{n, plural, one {# day ago} other {# days ago}}",
+    "no_recent_work":        "no recent work",
+    "untrained":             "Untrained",
+    "toast_saved":           "Recovery adjustment saved",
+    "toast_reset":           "Estimated recovery restored",
+    "toast_failed":          "Could not update recovery",
+    "muscles": {
+      "chest": "Chest", "back": "Back", "shoulders": "Shoulders",
+      "biceps": "Biceps", "triceps": "Triceps", "forearms": "Forearms",
+      "core": "Core", "quads": "Quads", "hamstrings": "Hamstrings",
+      "glutes": "Glutes", "calves": "Calves"
+    }
   },
   "muscle_load": {
     "title":                 "Personal Muscle Load",

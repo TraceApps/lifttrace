@@ -22,6 +22,7 @@ import { currentPlanWeek } from './programWeek.js';
 import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
 import { musclesOf, validateMuscleLoads } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
+import { MUSCLE_BUCKETS, RECOVERY_ADJUSTMENT_HOURS } from './muscle-recovery.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -240,6 +241,7 @@ const Settings = {
     await dbRun(`DELETE FROM workout_log WHERE user_id = ?`, [ME]);
     await dbRun(`DELETE FROM body_stats_log WHERE user_id = ?`, [ME]);
     await dbRun(`DELETE FROM ai_chat_history WHERE user_id = ?`, [ME]);
+    await dbRun(`DELETE FROM muscle_recovery_adjustments WHERE user_id = ?`, [ME]);
     return { ok: true };
   },
 };
@@ -1074,6 +1076,58 @@ const Cardio = {
 };
 
 const Stats = {
+  async recoveryAdjustments() {
+    return dbQuery(
+      `SELECT * FROM muscle_recovery_adjustments
+        WHERE user_id = ? AND deleted_at IS NULL ORDER BY muscle`,
+      [ME]
+    );
+  },
+  async saveRecoveryAdjustment(muscle, body) {
+    const key = String(muscle || '').toLowerCase();
+    if (!MUSCLE_BUCKETS.includes(key)) throw new Error('Unknown muscle group');
+    const state = body?.state;
+    if (!Object.hasOwn(RECOVERY_ADJUSTMENT_HOURS, state)) throw new Error('Invalid recovery state');
+    const basis = body?.basis_workout_timestamp ?? null;
+    if (basis != null && typeof basis !== 'string') throw new Error('Invalid workout basis');
+    const now = _now();
+    const adjustedAt = body?.adjusted_at || now;
+    const adjustedMs = Date.parse(String(adjustedAt).includes('T')
+      ? adjustedAt
+      : String(adjustedAt).replace(' ', 'T') + 'Z');
+    if (!Number.isFinite(adjustedMs) || adjustedMs > Date.now() + 5 * 60 * 1000) {
+      throw new Error('Invalid adjustment time');
+    }
+    await dbRun(
+      `INSERT INTO muscle_recovery_adjustments
+         (user_id, muscle, effective_age_hours, adjusted_at, basis_workout_timestamp,
+          created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(user_id, muscle) DO UPDATE SET
+         effective_age_hours = excluded.effective_age_hours,
+         adjusted_at = excluded.adjusted_at,
+         basis_workout_timestamp = excluded.basis_workout_timestamp,
+         updated_at = excluded.updated_at,
+         deleted_at = NULL`,
+      [ME, key, RECOVERY_ADJUSTMENT_HOURS[state], adjustedAt, basis, now, now]
+    );
+    const rows = await dbQuery(
+      `SELECT * FROM muscle_recovery_adjustments WHERE user_id = ? AND muscle = ?`,
+      [ME, key]
+    );
+    return { adjustment: { ...rows[0], state } };
+  },
+  async deleteRecoveryAdjustment(muscle) {
+    const key = String(muscle || '').toLowerCase();
+    if (!MUSCLE_BUCKETS.includes(key)) throw new Error('Unknown muscle group');
+    const now = _now();
+    await dbRun(
+      `UPDATE muscle_recovery_adjustments SET deleted_at = ?, updated_at = ?
+        WHERE user_id = ? AND muscle = ?`,
+      [now, now, ME, key]
+    );
+    return { ok: true, muscle: key, adjustment: null };
+  },
   async _allWorkouts() {
     const rows = await dbQuery(
       `SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL`,
@@ -1631,6 +1685,9 @@ async function handle(method, path, body, query) {
     // older caller (issue #101: the Statistics page sends start/end, so the
     // range used to be ignored here).
     const from = query?.start ?? query?.from, to = query?.end ?? query?.to;
+    if (id === 'muscle-recovery-adjustments' && !sub && m === 'GET') return Stats.recoveryAdjustments();
+    if (id === 'muscle-recovery-adjustments' && sub && m === 'PUT') return Stats.saveRecoveryAdjustment(sub, body || {});
+    if (id === 'muscle-recovery-adjustments' && sub && m === 'DELETE') return Stats.deleteRecoveryAdjustment(sub);
     if (id === 'earliest-workout-date')  return Stats.earliestWorkoutDate();
     if (id === 'streaks')                return Stats.streaks();
     if (id === 'volume')                 return Stats.volume(from, to);

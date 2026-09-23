@@ -146,6 +146,25 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_emo_single_exercise
     ON exercise_muscle_overrides(exercise_id)
     WHERE user_id IS NULL;
+
+  -- Subjective recovery corrections. The effective age keeps advancing from
+  -- adjusted_at; basis_workout_timestamp makes newer training supersede the
+  -- correction without deleting the user's historical choice.
+  CREATE TABLE IF NOT EXISTS muscle_recovery_adjustments (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id                  INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    muscle                   TEXT NOT NULL,
+    effective_age_hours      REAL NOT NULL,
+    adjusted_at              TEXT NOT NULL,
+    basis_workout_timestamp  TEXT,
+    created_at               TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_mra_user_muscle
+    ON muscle_recovery_adjustments(user_id, muscle)
+    WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_mra_single_muscle
+    ON muscle_recovery_adjustments(muscle)
+    WHERE user_id IS NULL;
 `);
 
 // ── Programs & Templates ──────────────────────────────────────────────────
@@ -789,6 +808,7 @@ try {
 const SYNCABLE = [
   { table: 'exercises',         hasCreated: 'created_at',  byUser: false }, // is_global filter, not user-scoped
   { table: 'exercise_muscle_overrides', hasCreated: 'created_at', byUser: 'user_id' },
+  { table: 'muscle_recovery_adjustments', hasCreated: 'created_at', byUser: 'user_id' },
   { table: 'programs',          hasCreated: 'created_at',  byUser: false },
   { table: 'workout_templates', hasCreated: 'created_at',  byUser: false },
   { table: 'program_assignments', hasCreated: 'assigned_at', byUser: 'assigned_to' },
@@ -863,7 +883,7 @@ db.exec(`
 try {
   const firstAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").get();
   if (firstAdmin?.id) {
-    for (const table of ['workout_log', 'body_stats_log', 'ai_chat_history', 'exercise_muscle_overrides']) {
+    for (const table of ['workout_log', 'body_stats_log', 'ai_chat_history', 'exercise_muscle_overrides', 'muscle_recovery_adjustments']) {
       const r = db.prepare(`UPDATE ${table} SET user_id = ? WHERE user_id IS NULL`).run(firstAdmin.id);
       if (r.changes > 0) {
         // eslint-disable-next-line no-console

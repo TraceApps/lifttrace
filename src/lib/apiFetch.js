@@ -203,7 +203,8 @@ let _localWrites = Promise.resolve();
 async function _mirrorSuccessfulWrite(url, method, init, res) {
   try {
     const path = _stripBase(url).split('?')[0];
-    if (/^\/api\/exercises\/\d+\/muscle-load$/.test(path)) {
+    if (/^\/api\/exercises\/\d+\/muscle-load$/.test(path)
+      || /^\/api\/stats\/muscle-recovery-adjustments\/[a-z-]+$/.test(path)) {
       let body = null;
       if (typeof init?.body === 'string') {
         try { body = JSON.parse(init.body); } catch {}

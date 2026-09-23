@@ -79,6 +79,7 @@ const EXEMPT = {
   coach_feedback:        'returned inside get_workout detail',
   body_stat_media:       'covered by get_progress_photos',
   set_media:             'video Trace cannot watch; the coach note on a clip is returned inside get_workout detail',
+  muscle_recovery_adjustments: 'subjective UI state, not an objective coaching measurement',
 };
 
 // table -> a tool whose implementation must mention this API path

@@ -6,6 +6,11 @@ import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } fr
 import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
 import { musclesOf } from '../lib/muscle-load.js';
 import { muscleOverrideMap } from '../lib/exercise-muscle-overrides.js';
+import {
+  deleteRecoveryAdjustment,
+  listRecoveryAdjustments,
+  saveRecoveryAdjustment,
+} from '../lib/muscle-recovery-adjustments.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -29,6 +34,36 @@ function getAllWorkouts(userId) {
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   return rows.filter(r => hasCompletedSet(r.exercises));
 }
+
+// A subjective correction is intentionally separate from the workout log:
+// it changes the recovery display, never the recorded training session.
+router.get('/muscle-recovery-adjustments', wrap((req, res) => {
+  res.json(listRecoveryAdjustments(uid(req)));
+}));
+
+router.put('/muscle-recovery-adjustments/:muscle', wrap((req, res) => {
+  try {
+    const adjustment = saveRecoveryAdjustment(
+      uid(req),
+      req.params.muscle,
+      req.body?.state,
+      req.body?.basis_workout_timestamp ?? null,
+      req.body?.adjusted_at || new Date().toISOString(),
+    );
+    res.json({ adjustment });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
+
+router.delete('/muscle-recovery-adjustments/:muscle', wrap((req, res) => {
+  try {
+    deleteRecoveryAdjustment(uid(req), req.params.muscle);
+    res.json({ ok: true, muscle: req.params.muscle, adjustment: null });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
 
 // Library-level load_type lookup for volume calculators. Kept as a
 // {exercise_id → load_type} map so stat handlers can resolve per exercise

@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- **Personal muscle-load profiles for every exercise** ([#110](https://github.com/TraceApps/lifttrace/issues/110)). Set independent 0–100% loads for the 18 muscles on an exercise, and LiftTrace uses that profile in effective-set statistics and muscle recovery. Each workout keeps a snapshot, so later edits do not rewrite training history. Profiles work on the web and Android, including offline sync and backups.
+- **Personal muscle-load profiles and recovery corrections** ([#110](https://github.com/TraceApps/lifttrace/issues/110)). Set independent 0–100% loads for the 18 muscles on an exercise, and LiftTrace uses that profile in effective-set statistics and muscle recovery. Each workout keeps a snapshot, so later edits do not rewrite training history. When the estimate does not match how a muscle feels, select it on the recovery diagram and mark it Fatigued, Recovering, Ready, or Fresh; the correction keeps aging normally and new training replaces it. Both controls work on the web and Android, including offline sync and backups.
 
 ### Fixed
 

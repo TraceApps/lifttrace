@@ -224,6 +224,7 @@ function restoreFromZip(zip) {
     db.prepare('DELETE FROM program_assignments').run();
     db.prepare('DELETE FROM programs').run();
     db.prepare('DELETE FROM exercise_muscle_overrides').run();
+    db.prepare('DELETE FROM muscle_recovery_adjustments').run();
     db.prepare('DELETE FROM exercises WHERE is_global = 0').run(); // keep global seeds, restore custom
     // OIDC: clear in dependency order — links FK to providers, both FK to users.
     try { db.prepare('DELETE FROM user_oidc_links').run(); } catch {}
@@ -245,6 +246,15 @@ function restoreFromZip(zip) {
       VALUES (@id,@user_id,@exercise_id,@muscle_loads,@created_at,@updated_at,@deleted_at)`);
     for (const o of data.exercise_muscle_overrides || []) {
       insMuscleOverride.run({ created_at: null, updated_at: null, deleted_at: null, ...o });
+    }
+
+    const insRecoveryAdjustment = db.prepare(`INSERT OR IGNORE INTO muscle_recovery_adjustments
+      (id,user_id,muscle,effective_age_hours,adjusted_at,basis_workout_timestamp,created_at,updated_at,deleted_at)
+      VALUES (@id,@user_id,@muscle,@effective_age_hours,@adjusted_at,@basis_workout_timestamp,@created_at,@updated_at,@deleted_at)`);
+    for (const a of data.muscle_recovery_adjustments || []) {
+      insRecoveryAdjustment.run({
+        basis_workout_timestamp: null, created_at: null, updated_at: null, deleted_at: null, ...a,
+      });
     }
 
     const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete)`);
@@ -401,6 +411,7 @@ function dumpDatabase() {
     users:               db.prepare('SELECT * FROM users').all(),
     exercises:           db.prepare('SELECT * FROM exercises').all(),
     exercise_muscle_overrides: safe('SELECT * FROM exercise_muscle_overrides'),
+    muscle_recovery_adjustments: safe('SELECT * FROM muscle_recovery_adjustments'),
     programs:            db.prepare('SELECT * FROM programs').all(),
     workout_templates:   db.prepare('SELECT * FROM workout_templates').all(),
     program_assignments: db.prepare('SELECT * FROM program_assignments').all(),

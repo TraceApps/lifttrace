@@ -24,7 +24,7 @@ import { deleteMediaForUser as deleteSetMediaForUser } from './set-media.js';
 export const CLAIM_NULL = [
   'workout_log', 'workout_tombstones', 'body_stats_log',
   'body_stat_media', 'set_media', 'cardio_log', 'ai_chat_history',
-  'exercise_muscle_overrides',
+  'exercise_muscle_overrides', 'muscle_recovery_adjustments',
 ];
 
 const ORPHAN_EXTRA_COUNTS = [
