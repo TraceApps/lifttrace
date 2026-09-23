@@ -230,6 +230,16 @@
         return exs.some(e => (e.sets || []).some(s => s.completed));
       }).map(r => r.date));
     } catch {}
+    // Cardio is opt-in (settings.cardioEnabled, off by default), and turning
+    // it on is what makes those days count. While it's off we don't fetch it
+    // at all, and we drop anything fetched earlier, so nobody gets streak
+    // credit from sessions their Diary isn't showing them. The setting lives
+    // on the Settings page, so changing it means leaving the Diary — and the
+    // route key remounts this component on the way back, re-running mount.
+    if (!$cardioEnabled) {
+      cardioDateSet = new Set();
+      return;
+    }
     try {
       // Bare GET (no start/end) — cardio's own recent-rows shape, capped
       // at 500 server-side. Loaded alongside workoutDateSet so a cardio-only
@@ -244,8 +254,11 @@
   // streak/dot indicator below actually wants. Kept separate from
   // workoutDateSet itself since that still means "lifted", specifically,
   // wherever it's read on its own (nowhere left in this file, but the name
-  // is worth keeping honest for the next reader).
-  $: activeDateSet = new Set([...workoutDateSet, ...cardioDateSet]);
+  // is worth keeping honest for the next reader). Gated on the setting here
+  // as well as at the fetch, so the union can never outlive the opt-in.
+  $: activeDateSet = $cardioEnabled
+    ? new Set([...workoutDateSet, ...cardioDateSet])
+    : workoutDateSet;
 
   // Current streak from activeDateSet — consecutive days back from today
   // (or yesterday, so the user doesn't lose their streak the moment a new
@@ -2718,7 +2731,9 @@
                here to avoid duplicate display below the whole block. -->
           {#if group.type !== 'superset'}
             {#each group.exercises as gEx, gOff}
-              {#each ($todayLog?.feedback || []).filter(f => f.exercise_idx === group.startIdx + gOff) as f (f.id)}
+              <!-- A note follows its exercise by uuid; the position is only
+                   used for notes written before notes carried one. -->
+              {#each ($todayLog?.feedback || []).filter(f => (f.exercise_uuid ? f.exercise_uuid === gEx.uuid : f.exercise_idx === group.startIdx + gOff)) as f (f.id)}
                 <div class="ex-feedback" in:fade={{ duration: 180 }}>
                   <div class="avatar-chip coach sm">
                     {#if f.trainer_avatar_url}
@@ -2813,7 +2828,10 @@
        on rest days without needing to add a lifting exercise first. -->
   {#if $cardioEnabled}
     <div class="cardio-slot">
-      <CardioCard />
+      <!-- Logging or deleting a session changes whether this day counts,
+           so reload the date sets the streak/dots read instead of waiting
+           for the next visit to the Diary. -->
+      <CardioCard on:change={loadWorkoutDates} />
     </div>
   {/if}
 
