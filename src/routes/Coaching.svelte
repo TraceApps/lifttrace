@@ -1001,8 +1001,12 @@
             <div class="wd-ex-head">
               <span class="wd-ex-name">{ex.exercise_name}</span>
               <span class="wd-ex-count">{done.length} {done.length === 1 ? 'set' : 'sets'}</span>
+              {#if (clipsByExercise.get(ex.uuid) || []).length}
+              <!-- Only when there is something in it: an empty div here still
+                   takes the margin-left:auto below, which pulled the set count
+                   off the right edge on every exercise with no clip. -->
               <div class="wd-ex-clips">
-              {#each clipsByExercise.get(ex.uuid) || [] as clip (clip.id)}
+              {#each clipsByExercise.get(ex.uuid) as clip (clip.id)}
                 {@const setNo = clipSetNumber(ex, clip)}
                 <button type="button" class="wd-ex-clip"
                   on:click={() => openClip(clip, idx)}>
@@ -1013,6 +1017,7 @@
                 </button>
               {/each}
               </div>
+              {/if}
             </div>
             <div class="wd-sets">
               {#each done as s, i}

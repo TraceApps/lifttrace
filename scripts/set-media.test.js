@@ -164,8 +164,18 @@ test('the coach sees every clip on an exercise, not the last one written', () =>
   const build = coaching.slice(coaching.indexOf('$: clipsByExercise'), coaching.indexOf('function clipSetNumber'));
   assert.match(build, /list\.unshift\(c\)/, 'rows accumulate per exercise');
   assert.doesNotMatch(build, /map\(c => \[c\.exercise_uuid, c\]\)/, 'never one row per exercise again');
-  assert.match(coaching, /\{#each clipsByExercise\.get\(ex\.uuid\) \|\| \[\] as clip \(clip\.id\)\}/, 'one chip each');
+  assert.match(coaching, /\{#each clipsByExercise\.get\(ex\.uuid\) as clip \(clip\.id\)\}/, 'one chip each');
   assert.match(coaching, /set_video\.watch_set/, 'labelled by set when there is more than one');
+});
+
+test('the chips container exists only when there are chips in it', () => {
+  // .wd-ex-head is justify-content: space-between and the container carries
+  // margin-left: auto, so an empty one still absorbed the free space and
+  // pulled the set count off the right edge on every exercise with no clip.
+  // Measured at 456px off before, 0 after.
+  const coaching = read('../src/routes/Coaching.svelte');
+  const head = coaching.slice(coaching.indexOf('<div class="wd-ex-head">'), coaching.indexOf('<div class="wd-sets">'));
+  assert.match(head, /\{#if \(clipsByExercise\.get\(ex\.uuid\) \|\| \[\]\)\.length\}\s*\n(\s*<!--[\s\S]*?-->\s*\n)?\s*<div class="wd-ex-clips">/);
 });
 
 test('a timestamp written by the server is read as UTC', () => {
