@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- **The in-app updater can no longer hand a phone the watch build.** A release carries both APKs, and they share a package id so the watch app installs straight over the phone one. The updater took whichever `.apk` the release listed first, which is upload order and no promise at all. It now picks the phone's build by name, and offers nothing at all rather than a watch build.
 
 - **An OpenAI-compatible provider with `/api` in its address works in the Android app** ([#118](https://github.com/TraceApps/lifttrace/issues/118), reported by @kgenerozov). The app claimed any request whose path began `/api/` as its own, whatever server it was addressed to, so a base URL like `https://openrouter.ai/api` was sent to your LiftTrace server instead and came back 404, both in Test Connection and in Trace. Requests are now only rerouted when they are addressed to the app or to the server it is connected to. The same fault caught shared exercise links and music streams served from an `/api/` path.
 - **A FitNotes export in kilos no longer comes in as pounds.** Current FitNotes exports put the unit in its own column rather than in the weight column's name, which the importer never read, so it assumed pounds and divided everything by 2.20462: a 74.6 kg bench arrived as 33.84. The unit is now read per row, so a file mixing kilos and pounds imports both correctly. Reported on r/selfhosted with the export that proved it.
