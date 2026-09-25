@@ -12,6 +12,7 @@
  * and positioning taken from the trigger rather than from a CSS offset.
  */
 import assert from 'node:assert/strict';
+import { placeAnchoredMenu } from '../src/lib/fold-core.js';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -29,15 +30,40 @@ test('the menu is positioned from the trigger, not from a CSS offset', () => {
 });
 
 test('it opens below the chip, flips above, and scrolls when neither side fits', () => {
-  const place = menu.slice(menu.indexOf('async function place'), menu.indexOf('const close ='));
-  assert.match(place, /rect\.bottom \+ GAP/, 'below by default');
-  assert.match(place, /rect\.top - GAP - height/, 'above when below does not fit');
-  assert.match(place, /maxHeight: below/, 'and constrained rather than off-screen when neither does');
+  // The arithmetic moved into placeAnchoredMenu, which every Trace app shares
+  // and which is unit-tested on its own, so this checks the behaviour through
+  // it rather than pattern-matching the component's sums.
+  const below = placeAnchoredMenu({ anchorTop: 100, anchorBottom: 140, viewportHeight: 900, maxHeight: 300 });
+  assert.equal(below.above, false, 'below by default');
+  assert.equal(below.top, 144);
+
+  const flipped = placeAnchoredMenu({ anchorTop: 700, anchorBottom: 740, viewportHeight: 800, maxHeight: 300 });
+  assert.equal(flipped.above, true, 'above when below does not fit');
+
+  // Neither side fits a 700px menu on an 800px screen: it is capped to the
+  // roomier side rather than running off the screen.
+  const capped = placeAnchoredMenu({ anchorTop: 300, anchorBottom: 340, viewportHeight: 800, maxHeight: 700 });
+  assert.ok(capped.maxHeight < 700, 'constrained rather than off-screen');
+  assert.ok(capped.top >= 0 && capped.top + capped.maxHeight <= 800, 'and inside the screen');
+
   assert.match(menu, /overflow-y:auto/, 'with its own scroll once constrained');
+});
+
+test('the menu hands the shared placement its real measured height', () => {
+  const place = menu.slice(menu.indexOf('async function place'), menu.indexOf('const close ='));
+  assert.match(place, /menuEl\?\.offsetHeight/, 'measured, not assumed');
+  assert.match(place, /placeAnchoredMenu\(\{/);
+  assert.match(place, /maxHeight: height \|\| 320/);
   // innerWidth counts the scrollbar; against a 420px page it reported 438
   // and put the menu 4px past the right edge.
   assert.match(place, /document\.documentElement\.clientWidth/);
   assert.match(place, /document\.documentElement\.clientHeight/);
+});
+
+test('a book fold moves it sideways, since it carries its own width', () => {
+  const place = menu.slice(menu.indexOf('async function place'), menu.indexOf('const close ='));
+  assert.match(place, /keepOffCrease\(\{/);
+  assert.match(place, /crease\?\.posture === 'book'/);
 });
 
 test('the chooser exists once, and every caller uses it', () => {

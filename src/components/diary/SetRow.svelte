@@ -1,5 +1,8 @@
 <script>
   import { closeOnBack } from '../../lib/back-stack.js';
+  import { get } from 'svelte/store';
+  import { fold } from '../../lib/fold.js';
+  import { placeAnchoredMenu } from '../../lib/fold-core.js';
   import { createEventDispatcher } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { trackRpe } from '../../stores/settings.js';
@@ -72,7 +75,7 @@
   function openRpePicker() {
     if (!rpeTriggerEl) { rpeOpen = true; return; }
     const r = rpeTriggerEl.getBoundingClientRect();
-    rpePickerPos = { top: r.bottom + 4, left: Math.max(4, r.right - 200) };
+    rpePickerPos = pickerAt(r, Math.max(4, r.right - 200));
     rpeOpen = true;
     clearTimeout(rpeLockTimer);
     rpeLocked = true;
@@ -97,7 +100,7 @@
   function openNumPicker() {
     if (!numTriggerEl) { numOpen = true; return; }
     const r = numTriggerEl.getBoundingClientRect();
-    numPickerPos = { top: r.bottom + 4, left: r.left };
+    numPickerPos = pickerAt(r, r.left);
     numOpen = true;
     clearTimeout(numLockTimer);
     numLocked = true;
@@ -192,6 +195,20 @@
     const n = parser(raw);
     if (Number.isNaN(n)) return;
     if (n !== set[field]) update(field, n);
+  }
+
+  // These pickers are four buttons wide and two or three rows tall, and they
+  // only ever opened downwards, so near the bottom of a screen they ran off
+  // it. They now take the roomier side, and on a foldable lying open the
+  // crease is the end of the room rather than a line to straddle.
+  const PICKER_H = 120;
+  function pickerAt(rect, left) {
+    const place = placeAnchoredMenu({
+      anchorTop: rect.top, anchorBottom: rect.bottom,
+      viewportHeight: document.documentElement.clientHeight || window.innerHeight,
+      maxHeight: PICKER_H, gap: 4, margin: 4, fold: get(fold),
+    });
+    return { top: place.top, left };
   }
 </script>
 
