@@ -988,8 +988,11 @@
       // of only covering this one entry path.
       openLoadWorkout();
     } else if (action === 'clear') {
-      await saveWorkout($currentDate, { ...($todayLog || {}), name: '', template_id: null, program_id: null, exercises: [], notes: '' });
+      // `completed` goes too: the row outlives the clear, and a finished
+      // flag left on an empty row keeps counting as a trained day.
+      await saveWorkout($currentDate, { ...($todayLog || {}), name: '', template_id: null, program_id: null, exercises: [], notes: '', completed: false });
       notes = '';
+      loadWorkoutDates();
       showSuccess($_('diary.toast.workout_cleared'));
     } else if (action === 'copy_yesterday') {
       await copyFromYesterday();
@@ -1014,6 +1017,7 @@
       })) return;
       await deleteSession($currentDate, $currentSessionId);
       notes = '';
+      loadWorkoutDates();
       showSuccess($_('diary.toast.workout_deleted'));
     }
   }

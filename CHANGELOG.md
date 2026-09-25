@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A cleared workout no longer counts as a trained day** ([#120](https://github.com/TraceApps/lifttrace/pull/120)). Clear Workout empties the day but keeps its row, and Statistics drew its activity heatmap, the streak card's dots and the weekly goal ring from every row, so the day stayed lit. A finished workout also stayed marked as finished after clearing, which the coach's view counted. The Diary's week strip and streak now refresh after a clear or a delete, rather than on the next visit.
+
 ---
 
 ## [1.4.0-dev02] - 2026-09-25 (pre-release)
