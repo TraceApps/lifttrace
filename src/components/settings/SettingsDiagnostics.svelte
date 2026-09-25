@@ -14,6 +14,7 @@
   import Sheet from '../ui/Sheet.svelte';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { isNative } from '../../lib/platform.js';
+  import { fold } from '../../lib/fold.js';
   import {
     getLogBufferText,
     clearLogBuffer,
@@ -87,7 +88,22 @@
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <div class="card">
-        <div class="setting-row">
+        <!-- What the device reports about its own hinge. Foldable layouts are
+         driven entirely by this, so when one does not behave, this is the
+         first thing to look at: a phone says "not a foldable", an opened one
+         says "opened flat", and only a half-open one reports a crease. -->
+    <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="setting-label">Foldable</span>
+      <div class="setting-desc">
+        {#if $fold}
+          Half open, {$fold.posture === 'book' ? 'like a book' : 'like a laptop'}. Crease at {$fold.start}-{$fold.end}px.
+        {:else}
+          No crease reported: not a foldable, or opened flat.
+        {/if}
+      </div>
+    </div>
+
+    <div class="setting-row">
           <div class="setting-label-group">
             <span class="setting-label">{$_('settings_diagnostics.verbose_logging')}</span>
             <span class="setting-hint">
