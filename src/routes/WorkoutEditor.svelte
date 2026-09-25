@@ -14,6 +14,7 @@
   import Sheet from '../components/ui/Sheet.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
+  import { musclesOf } from '../lib/muscle-load.js';
   import LoadTypeMenu from '../components/ui/LoadTypeMenu.svelte';
 
   export let params = {};
@@ -22,6 +23,16 @@
   let loading = true;
   let showPicker = false;
   let saving = false;
+
+  function muscleLoadSnapshot(ex) {
+    const load = musclesOf({
+      primary: ex?.primary_muscles || [],
+      secondary: ex?.secondary_muscles || [],
+      category: String(ex?.category || '').toLowerCase(),
+      loads: ex?.muscle_load,
+    });
+    return Object.keys(load).length ? { ...load } : undefined;
+  }
 
   $: exercises = template?.exercises || [];
 
@@ -349,6 +360,7 @@
       ...arr[idx],
       exercise_id: newEx.id,
       exercise_name: newEx.name,
+      muscle_load: muscleLoadSnapshot(newEx),
     };
     commit(arr);
     showSuccess($_('workout_editor.toast.replaced_with', { values: { name: newEx.name } }));
@@ -482,6 +494,7 @@
     const startTimed = ex.set_type === 'time'
       || (ex.set_type !== 'reps' && (remembered === 'time'
         || (remembered !== 'reps' && defaultSetTypeForName(ex.name) === 'time')));
+    const muscleLoad = muscleLoadSnapshot(ex);
     const newEx = {
       exercise_id: ex.id,
       exercise_name: ex.name,
@@ -490,6 +503,7 @@
       target_weight: '',
       notes: '',
       sets: [],
+      ...(muscleLoad ? { muscle_load: muscleLoad } : {}),
       ...(savedLoadType && savedLoadType !== 'bilateral' ? { load_type: savedLoadType } : {}),
       ...(startTimed ? { set_type: 'time', target_duration: '' } : {}),
     };

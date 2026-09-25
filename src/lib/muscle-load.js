@@ -20,6 +20,30 @@ export const MUSCLES_18 = [
   'gluteal','quadriceps','hamstring','adductors','hip-flexors',
   'calves','tibialis',
 ];
+const _MUSCLE_SET = new Set(MUSCLES_18);
+
+/**
+ * Validate and canonicalise a personal muscle-load profile.
+ * Values are independent relative loads in the 0..1 range; they do not
+ * need to sum to one. Zeroes are omitted because an override replaces the
+ * catalog defaults wholesale, so absence already means "not loaded".
+ */
+export function validateMuscleLoads(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('muscle_load must be an object');
+  }
+  const out = {};
+  for (const [muscle, raw] of Object.entries(value)) {
+    if (!_MUSCLE_SET.has(muscle)) throw new Error(`Unknown muscle: ${muscle}`);
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 1) {
+      throw new Error(`Load for ${muscle} must be between 0 and 1`);
+    }
+    const load = raw;
+    if (load > 0) out[muscle] = Math.round(load * 100) / 100;
+  }
+  if (!Object.keys(out).length) throw new Error('At least one muscle must have a load above 0');
+  return out;
+}
 
 // Every spelling that shows up in wger/exerciseDB/free-db + custom imports,
 // folded onto the 18 drawable muscles. null = deliberately not drawable
@@ -74,6 +98,11 @@ const _BY_CATEGORY = {
 // a { slug: 0…1 } map. Takes the max weight per slug (a muscle listed as
 // both primary and secondary counts as primary, not 1.4).
 export function musclesOf(info) {
+  // A workout snapshot or personal profile is authoritative. Invalid stored
+  // data falls through to catalog defaults rather than breaking Statistics.
+  if (info?.loads != null) {
+    try { return validateMuscleLoads(info.loads); } catch { /* fallback */ }
+  }
   const out = {};
   const add = (name, w) => {
     const slug = _ALIAS[String(name || '').toLowerCase().trim()];

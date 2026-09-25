@@ -94,6 +94,14 @@ export function writeOp(method, url, body) {
   if (match && m === 'PUT') return { kind: 'body-stats', key: `body:${match[1]}` };
 
   if (path === '/api/exercises' && m === 'POST') return { kind: 'exercise-create', key: null };
+  match = path.match(/^\/api\/exercises\/(-?\d+)\/muscle-load$/);
+  if (match && (m === 'PUT' || m === 'DELETE')) {
+    return { kind: 'exercise-muscle-load', key: `muscle-load:${match[1]}`, id: Number(match[1]) };
+  }
+  match = path.match(/^\/api\/stats\/muscle-recovery-adjustments\/([a-z-]+)$/);
+  if (match && (m === 'PUT' || m === 'DELETE')) {
+    return { kind: 'recovery-adjustment', key: `recovery:${match[1]}`, muscle: match[1] };
+  }
   match = path.match(/^\/api\/exercises\/(-?\d+)$/);
   if (match && (m === 'PUT' || m === 'DELETE')) {
     return { kind: m === 'PUT' ? 'exercise-update' : 'exercise-delete', key: `exercise:${match[1]}`, id: Number(match[1]) };
@@ -246,6 +254,26 @@ export function sentSeqs(ops, doneKeys) {
  */
 export function answerWithOps(url, mirrored, ops) {
   const path = pathOf(url);
+  if (path === '/api/stats/muscle-recovery-adjustments') {
+    const changed = collapseOps(ops || []).filter(op => op.kind === 'recovery-adjustment');
+    if (!changed.length) return mirrored;
+    const rows = new Map((Array.isArray(mirrored) ? mirrored : []).map(row => [row.muscle, row]));
+    for (const op of changed) {
+      if (op.method === 'DELETE') {
+        rows.delete(op.muscle);
+        continue;
+      }
+      rows.set(op.muscle, {
+        ...(rows.get(op.muscle) || {}),
+        muscle: op.muscle,
+        effective_age_hours: ({ Fatigued: 12, Recovering: 36, Ready: 60, Fresh: 84 })[op.body?.state],
+        adjusted_at: op.body?.adjusted_at || new Date(op.at || Date.now()).toISOString(),
+        basis_workout_timestamp: op.body?.basis_workout_timestamp ?? null,
+        _pending: true,
+      });
+    }
+    return [...rows.values()].sort((a, b) => a.muscle.localeCompare(b.muscle));
+  }
   const day = path.match(/^\/api\/workout\/(\d{4}-\d{2}-\d{2})$/);
   if (day) {
     const queued = (ops || []).filter(op => op.kind === 'workout' && op.key.startsWith(`workout:${day[1]}#`));
@@ -310,15 +338,26 @@ export function answerWithOps(url, mirrored, ops) {
       .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
   }
 
+  const muscleChanges = new Map((ops || [])
+    .filter(op => op.kind === 'exercise-muscle-load')
+    .map(op => [Number(op.id), op.method === 'DELETE' ? null : (op.body?.muscle_load || null)]));
+
   if (path === '/api/exercises') {
     const made = (ops || []).filter(op => op.kind === 'exercise-create');
     const gone = new Set((ops || []).filter(op => op.kind === 'exercise-delete').map(op => Number(op.id)));
-    if (!made.length && !gone.size) return mirrored;
+    if (!made.length && !gone.size && !muscleChanges.size) return mirrored;
     const list = Array.isArray(mirrored) ? mirrored : mirrored?.exercises ?? (mirrored === undefined ? [] : null);
     if (!Array.isArray(list)) return mirrored;
     const rows = list.filter(e => !gone.has(Number(e.id)))
+      .map(e => muscleChanges.has(Number(e.id))
+        ? { ...e, muscle_load: muscleChanges.get(Number(e.id)), _pending: true }
+        : e)
       .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
     return Array.isArray(mirrored) ? rows : { ...mirrored, exercises: rows };
+  }
+  const exerciseDetail = path.match(/^\/api\/exercises\/(-?\d+)$/);
+  if (exerciseDetail && mirrored && muscleChanges.has(Number(exerciseDetail[1]))) {
+    return { ...mirrored, muscle_load: muscleChanges.get(Number(exerciseDetail[1])), _pending: true };
   }
   return mirrored;
 }
@@ -356,6 +395,18 @@ export function queuedReply(op, body, tempId) {
     case 'exercise-update':
     case 'prescription-update':
       return { ...(body || {}), id: op.id, updated_at: now, ...queued };
+    case 'recovery-adjustment':
+      if (op.method === 'DELETE') return { ok: true, muscle: op.muscle, adjustment: null, ...queued };
+      return {
+        adjustment: {
+          muscle: op.muscle,
+          effective_age_hours: ({ Fatigued: 12, Recovering: 36, Ready: 60, Fresh: 84 })[body?.state],
+          adjusted_at: body?.adjusted_at || now,
+          basis_workout_timestamp: body?.basis_workout_timestamp ?? null,
+          _pending: true,
+        },
+        ...queued,
+      };
     default:
       return { ok: true, ...(body || {}), ...queued };
   }
@@ -395,6 +446,8 @@ export function describeOp(op) {
     case 'exercise-create':  return `the exercise "${op.body?.name || 'you added'}"`;
     case 'exercise-update':  return 'an exercise you changed';
     case 'exercise-delete':  return 'an exercise you deleted';
+    case 'exercise-muscle-load': return 'an exercise muscle-load profile you changed';
+    case 'recovery-adjustment': return 'a muscle recovery adjustment you changed';
     case 'program-activate': return 'the program you started';
     case 'program-week':     return 'the program week you moved to';
     case 'coach-note':       return 'the note you left for your member';

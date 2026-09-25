@@ -41,9 +41,20 @@
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
+  import { musclesOf } from '../lib/muscle-load.js';
 
   let showPicker = false;
   let showSmartLog = false;
+
+  function muscleLoadSnapshot(ex) {
+    const load = musclesOf({
+      primary: ex?.primary_muscles || [],
+      secondary: ex?.secondary_muscles || [],
+      category: String(ex?.category || '').toLowerCase(),
+      loads: ex?.muscle_load,
+    });
+    return Object.keys(load).length ? { ...load } : undefined;
+  }
 
   async function handleSmartLogSave(mergedExercises) {
     await saveWorkout($currentDate, { ...($todayLog || {}), exercises: mergedExercises });
@@ -1152,6 +1163,16 @@
     // Current plan week for a multi-week program — drives week-aware prefill.
     // Only meaningful when this template's program is the active one.
     const planWeek = selectedProgram?.is_active ? (selectedProgram?.current_week || null) : null;
+    // Templates created before muscle-load snapshots existed do not carry
+    // one. Resolve those once, at the moment they become a workout, so a
+    // later profile edit still cannot rewrite this session's history.
+    let libraryById = new Map();
+    if ((template.exercises || []).some(ex => !ex.muscle_load)) {
+      try {
+        const library = await LtApi.getExercises();
+        libraryById = new Map((library || []).map(ex => [Number(ex.id), ex]));
+      } catch { /* catalog fallback remains available to Statistics */ }
+    }
     // Clone the template exercises, auto-filling from last session if enabled
     const templateExercises = await Promise.all((template.exercises || []).map(async ex => {
       // Last session split into warm-ups and working sets: a template's
@@ -1241,7 +1262,16 @@
       }
       // Surface the resolved week's tempo/rest onto the logged exercise so the
       // rest timer (and any display) can use the plan's per-exercise values.
-      return { ...ex, tempo: eff.tempo, rest_sec: eff.rest_sec, sets };
+      const muscleLoad = ex.muscle_load
+        ? { ...ex.muscle_load }
+        : muscleLoadSnapshot(libraryById.get(Number(ex.exercise_id)) || ex);
+      return {
+        ...ex,
+        ...(muscleLoad ? { muscle_load: muscleLoad } : {}),
+        tempo: eff.tempo,
+        rest_sec: eff.rest_sec,
+        sets,
+      };
     }));
 
     // Prepend warm-up ramp when the user has opted into auto-warm-ups and
@@ -1434,6 +1464,7 @@
         ...updated[idx],
         exercise_id: ex.id,
         exercise_name: ex.name,
+        muscle_load: muscleLoadSnapshot(ex),
       };
       await saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
       showSuccess($_('diary_extra.toast.replaced_with', { values: { name: ex.name } }));
@@ -1481,6 +1512,7 @@
         || (ex.set_type !== 'reps' && (remembered === 'time'
           || (remembered !== 'reps' && defaultSetTypeForName(ex.name) === 'time')))));
     if (startTimed) targetReps = '';
+    const muscleLoad = muscleLoadSnapshot(ex);
     const newExercise = {
       exercise_id: ex.id,
       exercise_name: ex.name,
@@ -1489,6 +1521,7 @@
       target_weight: targetWeight,
       notes: '',
       sets,
+      ...(muscleLoad ? { muscle_load: muscleLoad } : {}),
       ...(savedLoadType && savedLoadType !== 'bilateral' ? { load_type: savedLoadType } : {}),
       ...(startTimed ? { set_type: 'time' } : {}),
     };

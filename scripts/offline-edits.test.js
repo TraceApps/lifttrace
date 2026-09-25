@@ -45,6 +45,10 @@ test('the writes this layer takes on are recognised, and nothing else is', () =>
   assert.equal(writeOp('POST', '/api/exercises', {}).kind, 'exercise-create');
   assert.equal(writeOp('PUT', '/api/exercises/12', {}).kind, 'exercise-update');
   assert.equal(writeOp('DELETE', '/api/exercises/12').kind, 'exercise-delete');
+  assert.equal(writeOp('PUT', '/api/exercises/12/muscle-load', { muscle_load: { chest: 1 } }).key, 'muscle-load:12');
+  assert.equal(writeOp('DELETE', '/api/exercises/12/muscle-load').key, 'muscle-load:12');
+  assert.equal(writeOp('PUT', '/api/stats/muscle-recovery-adjustments/chest', { state: 'Ready' }).key, 'recovery:chest');
+  assert.equal(writeOp('DELETE', '/api/stats/muscle-recovery-adjustments/chest').kind, 'recovery-adjustment');
   assert.equal(writeOp('PUT', '/api/settings', { key: 'unit' }).key, 'setting:unit');
   // Uploads, imports, Trace and admin are not queued.
   assert.equal(writeOp('POST', '/api/upload/exercise-media', {}), null);
@@ -196,6 +200,44 @@ test('an exercise made offline is in the list at once, and a deleted one is gone
   const shown = answerWithOps('/api/exercises', [{ id: 5, name: 'Old' }, { id: 6, name: 'Keep' }], ops);
   assert.deepEqual(shown.map(e => e.name), ['Keep', 'Sled Push']);
   assert.equal(shown.find(e => e.name === 'Sled Push').id, tempId);
+});
+
+test('a personal muscle-load edit is visible offline and only its latest state is replayed', () => {
+  const ops = [
+    op(1, 'PUT', '/api/exercises/6/muscle-load', { muscle_load: { quadriceps: 1 } }),
+    op(2, 'PUT', '/api/exercises/6/muscle-load', { muscle_load: { gluteal: 1, hamstring: 0.5 } }),
+  ];
+  const sent = collapseOps(ops);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].body.muscle_load, { gluteal: 1, hamstring: 0.5 });
+
+  const detail = answerWithOps('/api/exercises/6', { id: 6, name: 'Lunge', muscle_load: null }, ops);
+  assert.deepEqual(detail.muscle_load, { gluteal: 1, hamstring: 0.5 });
+  const list = answerWithOps('/api/exercises', [{ id: 6, name: 'Lunge', muscle_load: null }], ops);
+  assert.deepEqual(list[0].muscle_load, { gluteal: 1, hamstring: 0.5 });
+
+  const reset = [op(3, 'DELETE', '/api/exercises/6/muscle-load')];
+  assert.equal(answerWithOps('/api/exercises/6', detail, reset).muscle_load, null);
+});
+
+test('a recovery correction is visible offline and reset removes it', () => {
+  const changes = [
+    op(1, 'PUT', '/api/stats/muscle-recovery-adjustments/chest', {
+      state: 'Ready', basis_workout_timestamp: 'workout-1',
+    }),
+  ];
+  const shown = answerWithOps('/api/stats/muscle-recovery-adjustments', [], changes);
+  assert.equal(shown[0].muscle, 'chest');
+  assert.equal(shown[0].effective_age_hours, 60);
+  assert.equal(shown[0].basis_workout_timestamp, 'workout-1');
+  assert.equal(shown[0]._pending, true);
+
+  const reply = queuedReply(changes[0], changes[0].body, -1);
+  assert.equal(reply.adjustment.effective_age_hours, 60);
+  assert.equal(reply.adjustment.muscle, 'chest');
+
+  const reset = [op(2, 'DELETE', '/api/stats/muscle-recovery-adjustments/chest')];
+  assert.deepEqual(answerWithOps('/api/stats/muscle-recovery-adjustments', shown, reset), []);
 });
 
 test('the reply to a queued save looks like the route\'s own', () => {

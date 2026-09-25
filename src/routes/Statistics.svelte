@@ -96,6 +96,7 @@
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
   let exercises = [];
+  let recoveryAdjustments = [];
   let loading = true;
 
   // ── Exercise-progress state ──────────────────────────────────────────
@@ -227,9 +228,10 @@
         LtApi.getWeekdayDistribution(startDate, endDate),
         LtApi.getCardioWeekly(startDate, endDate).catch(() => []),
         LtApi.listCardio(startDate, endDate).catch(() => []),
+        LtApi.getMuscleRecoveryAdjustments(),
       ]);
       if (seq !== _loadSeq) return;
-      const [v, f, r, s, mg, mes, wd, cw, cs] = results.map(x => (x.status === 'fulfilled' ? x.value : undefined));
+      const [v, f, r, s, mg, mes, wd, cw, cs, ra] = results.map(x => (x.status === 'fulfilled' ? x.value : undefined));
       const failed = results.filter(x => x.status === 'rejected');
       failed.forEach(x => console.error(x.reason));
       if (v !== undefined) volume = v;
@@ -241,6 +243,7 @@
       if (wd !== undefined) weekdayDist = wd;
       cardioWeekly = Array.isArray(cw) ? cw : [];
       cardioSessions = Array.isArray(cs) ? cs : [];
+      if (Array.isArray(ra)) recoveryAdjustments = ra;
       loadError = failed.length > 0;
       if (loadError) showError($_('statistics.load_failed'));
 
@@ -265,6 +268,13 @@
       if (seq === _loadSeq) { loadError = true; showError($_('statistics.load_failed')); }
     }
     if (seq === _loadSeq) loading = false;
+  }
+
+  function updateRecoveryAdjustment(event) {
+    const { muscle, adjustment } = event.detail;
+    recoveryAdjustments = adjustment
+      ? [...recoveryAdjustments.filter(row => row.muscle !== muscle), adjustment]
+      : recoveryAdjustments.filter(row => row.muscle !== muscle);
   }
 
   async function loadBodyWeights() {
@@ -749,7 +759,8 @@
           </div>
         </div>
 
-        <MuscleRecovery workouts={recentWorkouts} {exercises} windowDays={7} />
+        <MuscleRecovery workouts={recentWorkouts} {exercises} adjustments={recoveryAdjustments}
+          windowDays={7} on:adjustment={updateRecoveryAdjustment} />
 
         <WeeklyVolumeChart {volume} unit={$weightUnit} detailed total={totalVolume} />
         <WorkoutFrequencyChart {frequency} detailed avg={avgFreq} goal={$weeklyWorkoutGoal} />

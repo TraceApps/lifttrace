@@ -21,6 +21,9 @@ export const LtApi = {
   getExerciseUsage: () => fetch('/api/exercises/usage', opts).then(_json),
   createExercise: (data) => fetch('/api/exercises', { ...jsonOpts, method: 'POST', body: JSON.stringify(data) }).then(_json),
   updateExercise: (id, data) => fetch(`/api/exercises/${id}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
+  getExerciseMuscleLoad: (id) => fetch(`/api/exercises/${id}/muscle-load`, opts).then(_json),
+  saveExerciseMuscleLoad: (id, muscle_load) => fetch(`/api/exercises/${id}/muscle-load`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ muscle_load }) }).then(_json),
+  resetExerciseMuscleLoad: (id) => fetch(`/api/exercises/${id}/muscle-load`, { ...opts, method: 'DELETE' }).then(_json),
   deleteExercise: (id) => fetch(`/api/exercises/${id}`, { ...opts, method: 'DELETE' }).then(_json),
   deleteAllCustomExercises: () => fetch('/api/exercises/custom/all', { ...opts, method: 'DELETE' }).then(_json),
   syncWger: () => fetch('/api/exercises/sync-wger', { ...opts, method: 'POST' }).then(_json),
@@ -132,6 +135,15 @@ export const LtApi = {
   getStreaks: () => fetch('/api/stats/streaks', opts).then(_json),
   getMuscleGroupVolume: (start, end) => fetch(`/api/stats/muscle-group-volume?start=${start}&end=${end}`, opts).then(_json),
   getMuscleEffectiveSets: (start, end) => fetch(`/api/stats/muscle-effective-sets?start=${start}&end=${end}`, opts).then(_json),
+  getMuscleRecoveryAdjustments: () => fetch('/api/stats/muscle-recovery-adjustments', opts).then(_json),
+  saveMuscleRecoveryAdjustment: (muscle, state, basis_workout_timestamp, adjusted_at = new Date().toISOString()) =>
+    fetch(`/api/stats/muscle-recovery-adjustments/${muscle}`, {
+      ...jsonOpts,
+      method: 'PUT',
+      body: JSON.stringify({ state, basis_workout_timestamp, adjusted_at }),
+    }).then(_json),
+  resetMuscleRecoveryAdjustment: (muscle) =>
+    fetch(`/api/stats/muscle-recovery-adjustments/${muscle}`, { ...opts, method: 'DELETE' }).then(_json),
 
   // ── Cardio ─────────────────────────────────────────────────────────────
   listCardio: (start, end) => {

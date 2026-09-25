@@ -4,6 +4,9 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
+import {
+  muscleOverrideMap, getMuscleOverride, saveMuscleOverride, deleteMuscleOverride,
+} from '../lib/exercise-muscle-overrides.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -51,11 +54,13 @@ router.get('/', wrap((req, res) => {
 
   const rows = db.prepare(sql).all(...params);
   // Parse JSON fields
+  const overrides = muscleOverrideMap(userId);
   const exercises = rows.map(r => ({
     ...r,
     primary_muscles:   JSON.parse(r.primary_muscles || '[]'),
     secondary_muscles: JSON.parse(r.secondary_muscles || '[]'),
     equipment:         JSON.parse(r.equipment || '[]'),
+    muscle_load:       overrides.get(Number(r.id)) || null,
   }));
   res.json(exercises);
 }));
@@ -133,12 +138,40 @@ router.get('/media-urls', wrap((req, res) => {
 // exercise the user has cleared from their library should still resolve to
 // that exercise's detail page rather than a bare 404 (#49). Callers that
 // want to hide soft-deleted rows filter at their own layer.
+// Personal relative muscle load for any catalog exercise. This is separate
+// from PUT /:id because global catalog rows are shared by every user.
+router.get('/:id/muscle-load', wrap((req, res) => {
+  const id = parseInt(req.params.id);
+  const exercise = db.prepare('SELECT id FROM exercises WHERE id = ? AND deleted_at IS NULL').get(id);
+  if (!exercise) return res.status(404).json({ error: 'Exercise not found' });
+  res.json({ exercise_id: id, muscle_load: getMuscleOverride(uid(req), id) });
+}));
+
+router.put('/:id/muscle-load', wrap((req, res) => {
+  const id = parseInt(req.params.id);
+  const exercise = db.prepare('SELECT id FROM exercises WHERE id = ? AND deleted_at IS NULL').get(id);
+  if (!exercise) return res.status(404).json({ error: 'Exercise not found' });
+  try {
+    const muscleLoad = saveMuscleOverride(uid(req), id, req.body?.muscle_load);
+    res.json({ exercise_id: id, muscle_load: muscleLoad });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
+
+router.delete('/:id/muscle-load', wrap((req, res) => {
+  const id = parseInt(req.params.id);
+  deleteMuscleOverride(uid(req), id);
+  res.json({ ok: true, exercise_id: id, muscle_load: null });
+}));
+
 router.get('/:id', wrap((req, res) => {
   const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(parseInt(req.params.id));
   if (!row) return res.status(404).json({ error: 'Exercise not found' });
   row.primary_muscles   = JSON.parse(row.primary_muscles || '[]');
   row.secondary_muscles = JSON.parse(row.secondary_muscles || '[]');
   row.equipment         = JSON.parse(row.equipment || '[]');
+  row.muscle_load       = getMuscleOverride(uid(req), row.id);
   res.json(row);
 }));
 

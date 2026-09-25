@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Personal muscle-load profiles and recovery corrections** ([#110](https://github.com/TraceApps/lifttrace/issues/110)). Set independent 0–100% loads for the 18 muscles on an exercise, and LiftTrace uses that profile in effective-set statistics and muscle recovery. Each workout keeps a snapshot, so later edits do not rewrite training history. When the estimate does not match how a muscle feels, select it on the recovery diagram and mark it Fatigued, Recovering, Ready, or Fresh; the correction keeps aging normally and new training replaces it. Both controls work on the web and Android, including offline sync and backups.
 - **Foldables use the crease.** Half open like a book, Settings puts its section list on one side and the section on the other, dialogs, sheets, the rest timer and Trace keep off the fold, and a menu opened near it takes the roomier side rather than being cut in half by the hinge. In laptop posture Trace sits on the half lying flat, leaving the session readable on the half standing up. The load type, RPE and rep pickers also flip above their row when there is no room below, which they never did on any phone. The diary, charts and photos still cross the fold freely: an opened foldable is a bigger screen to train from.
 
 ---
