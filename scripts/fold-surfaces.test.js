@@ -45,3 +45,15 @@ test('the rules read the crease rather than guessing where it is', () => {
   assert.match(css, /var\(--fold-start\)/);
   assert.match(css, /var\(--fold-end\)/);
 });
+
+test('Settings splits at the crease, and measures where the page starts', () => {
+  const settings = readFileSync(new URL('../src/routes/Settings.svelte', import.meta.url), 'utf8');
+  assert.match(settings, /foldRailW >= 200/);
+  assert.match(settings, /paneW - foldRailW >= 320/);
+  assert.match(settings, /\.settings-two-pane\.fold-snap/);
+  assert.match(settings, /getBoundingClientRect\(\)/);
+  // The store is read in the instance script; a reactive statement in the
+  // module block does not compile at all.
+  const instance = settings.slice(settings.indexOf('<script>'));
+  assert.ok(instance.includes('$fold'), 'the fold is read where components can read it');
+});
