@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **The updater can no longer offer a phone the watch build.** Both APKs ship in one release under the same package id, and the updater took whichever was listed first. It now picks the phone's build by name.
 - **An OpenAI-compatible provider with `/api` in its address works in the Android app** ([#118](https://github.com/TraceApps/lifttrace/issues/118), reported by @kgenerozov). The app claimed every request beginning `/api/` as its own, so a base URL like `https://openrouter.ai/api` went to your LiftTrace server and came back 404. It also caught shared exercise links and music served from an `/api/` path.
+- **A cardio-only day counts toward your streak and week strip** ([#115](https://github.com/TraceApps/lifttrace/pull/115), found and fixed by @benniemosher), for anyone with cardio turned on. A run with no lifting that day used to look like nothing at all, and the dot now appears as soon as the session is saved.
 - **A FitNotes export in kilos no longer comes in as pounds.** The unit is now read per row, so a file mixing the two imports both correctly. Reported on r/selfhosted.
 - **A FitNotes export from a phone not set to English imports its workouts.** Day-first dates were skipped, turning a whole history into an empty import. Both orders are read now, decided across the file.
 - **The language picker shows the language the app is actually in**, rather than claiming English on a phone set to something else. Reported on r/selfhosted.

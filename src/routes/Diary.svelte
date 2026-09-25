@@ -220,6 +220,7 @@
   $: prCountToday = Object.values(prFlagsByIdx).reduce((sum, s) => sum + s.size, 0);
 
   let workoutDateSet = new Set();
+  let cardioDateSet = new Set();
   async function loadWorkoutDates() {
     try {
       const rows = await LtApi.getRecentWorkouts(365);
@@ -229,26 +230,54 @@
         return exs.some(e => (e.sets || []).some(s => s.completed));
       }).map(r => r.date));
     } catch {}
+    // Cardio is opt-in (settings.cardioEnabled, off by default), and turning
+    // it on is what makes those days count. While it's off we don't fetch it
+    // at all, and we drop anything fetched earlier, so nobody gets streak
+    // credit from sessions their Diary isn't showing them. The setting lives
+    // on the Settings page, so changing it means leaving the Diary — and the
+    // route key remounts this component on the way back, re-running mount.
+    if (!$cardioEnabled) {
+      cardioDateSet = new Set();
+      return;
+    }
+    try {
+      // Bare GET (no start/end) — cardio's own recent-rows shape, capped
+      // at 500 server-side. Loaded alongside workoutDateSet so a cardio-only
+      // day counts as "done" too: the streak/week-strip/calendar dots below
+      // only ever meant "you did something today", not "you lifted today".
+      const cardioRows = await LtApi.listCardio();
+      cardioDateSet = new Set(cardioRows.map(r => r.date));
+    } catch {}
   }
 
-  // Current streak from workoutDateSet — consecutive days back from today
+  // Union of lifting days and cardio days — this is the "done" set every
+  // streak/dot indicator below actually wants. Kept separate from
+  // workoutDateSet itself since that still means "lifted", specifically,
+  // wherever it's read on its own (nowhere left in this file, but the name
+  // is worth keeping honest for the next reader). Gated on the setting here
+  // as well as at the fetch, so the union can never outlive the opt-in.
+  $: activeDateSet = $cardioEnabled
+    ? new Set([...workoutDateSet, ...cardioDateSet])
+    : workoutDateSet;
+
+  // Current streak from activeDateSet — consecutive days back from today
   // (or yesterday, so the user doesn't lose their streak the moment a new
   // day starts before they've logged). Returns 0 if neither today nor
-  // yesterday has a workout. Reactive so it updates when the diary saves
-  // a fresh completed set and workoutDateSet is reloaded.
+  // yesterday has anything logged. Reactive so it updates when the diary
+  // saves a fresh completed set (or cardio session) and the date sets reload.
   $: streakCount = (() => {
-    if (!workoutDateSet.size) return 0;
+    if (!activeDateSet.size) return 0;
     const today = localDateStr();
     const yest = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return localDateStr(d); })();
     // Pick the latest "anchor" — today first, fall back to yesterday so
     // the streak survives the morning grace period.
     let anchor;
-    if (workoutDateSet.has(today)) anchor = today;
-    else if (workoutDateSet.has(yest)) anchor = yest;
+    if (activeDateSet.has(today)) anchor = today;
+    else if (activeDateSet.has(yest)) anchor = yest;
     else return 0;
     let count = 0;
     const d = new Date(anchor + 'T12:00:00');
-    while (workoutDateSet.has(localDateStr(d))) {
+    while (activeDateSet.has(localDateStr(d))) {
       count++;
       d.setDate(d.getDate() - 1);
     }
@@ -336,9 +365,9 @@
   let _railResizeObs = null;
 
   // 7-day peek for the desktop right rail. Returns the last 7 dates
-  // (oldest first, today last) with a flag for whether workoutDateSet
-  // has a completed workout that day. Reactive on workoutDateSet so it
-  // updates as new sessions land.
+  // (oldest first, today last) with a flag for whether activeDateSet
+  // has a completed workout or cardio session that day. Reactive on
+  // activeDateSet so it updates as new sessions land.
   $: weekPeekDays = (() => {
     const out = [];
     const base = new Date();
@@ -350,7 +379,7 @@
         key,
         dow: d.toLocaleDateString(undefined, { weekday: 'narrow' }),
         dom: d.getDate(),
-        done: workoutDateSet.has(key),
+        done: activeDateSet.has(key),
         isToday: i === 0,
       });
     }
@@ -360,7 +389,7 @@
 
   function calHasWorkout(day) {
     const key = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    return workoutDateSet.has(key);
+    return activeDateSet.has(key);
   }
 
   function openDatePicker() {
@@ -2799,7 +2828,10 @@
        on rest days without needing to add a lifting exercise first. -->
   {#if $cardioEnabled}
     <div class="cardio-slot">
-      <CardioCard />
+      <!-- Logging or deleting a session changes whether this day counts,
+           so reload the date sets the streak/dots read instead of waiting
+           for the next visit to the Diary. -->
+      <CardioCard on:change={loadWorkoutDates} />
     </div>
   {/if}
 
@@ -2895,8 +2927,8 @@
     </div>
   </header>
   <!-- 7-day peek — always visible. Dots colored by whether that
-       date has any completed set in workoutDateSet. Today gets a
-       ring. Clicking a day jumps the diary to that date. -->
+       date is in activeDateSet (a completed set, a cardio session, or
+       both). Today gets a ring. Clicking a day jumps the diary there. -->
   <div class="rail-card">
       <div class="rail-card-head">
         <span class="material-symbols-rounded">calendar_view_week</span>
