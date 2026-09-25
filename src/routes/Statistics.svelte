@@ -95,6 +95,10 @@
   let cardioSessions = []; // individual sessions in range, newest first, for the session list under the chart
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
+  const _hasCompletedSet = w => {
+    const exs = typeof w.exercises === 'string' ? JSON.parse(w.exercises || '[]') : (w.exercises || []);
+    return exs.some(e => (e.sets || []).some(s => s.completed));
+  };
   let exercises = [];
   let loading = true;
 
@@ -250,7 +254,10 @@
         const recent = await fetch('/api/workout/recent?limit=365', { credentials: 'include' });
         if (recent.ok) {
           const logs = await recent.json();
-          workoutDates = new Set(logs.map(l => l.date));
+          // Only days with at least one completed set, the same rule as the
+          // Diary's dots and /api/stats/streaks. A cleared workout keeps its
+          // row with no exercises, and would otherwise light up the heatmap.
+          workoutDates = new Set(logs.filter(_hasCompletedSet).map(l => l.date));
           recentWorkouts = logs;
         }
       } catch {}
@@ -339,7 +346,7 @@
     const startStr = localDateStr(start);
     const todayStr = localDateStr();
     const count = recentWorkouts.filter(w =>
-      w.completed && w.date >= startStr && w.date <= todayStr
+      w.completed && _hasCompletedSet(w) && w.date >= startStr && w.date <= todayStr
     ).length;
     const pct = Math.min(100, Math.round((count / goal) * 100));
     return { count, goal, pct };
