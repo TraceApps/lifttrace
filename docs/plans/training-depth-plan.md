@@ -259,6 +259,42 @@ function, not in the UI, so MCP, the REST API and Trace all get the same sentenc
 parity, the offline path, the UI for configuring them and the explanations are the
 rest.
 
+### [ ] 7b. Round targets to the weights you own
+
+**Today:** nothing knows what weights someone has. The progression nudge in
+`ExerciseCard` adds a flat 5 lb or 2.5 kg, and item 7's linear rule would add a
+fixed increment per equipment type. For anyone training at home that is often a
+weight they cannot pick up: with 20, 25 and 35 lb dumbbells, "+5 lb" from 25 asks
+for a 30 that is not on the rack. Asked for by a user comparing LiftTrace with
+Fitbod and Hevy, which both let you say which weights you have.
+
+**Design:** an optional inventory in Settings > Workout, per equipment type and in
+the user's unit:
+
+- **Dumbbells and kettlebells:** the weights you own, as a list (`5, 10, 15, 20,
+  25, 35`). Pairs are assumed for dumbbells.
+- **Plates:** each size and how many you have, plus your bar or bars.
+
+The progression engine computes its target as it would anyway, then snaps it to a
+load you can actually make: the next owned dumbbell above the old weight for an
+increase, the nearest one at or below for a deload, and for a barbell the closest
+total the plate inventory can build on your bar. The explained target says so:
+"35 lb, the next dumbbell you own after 25". The flat nudge on today's card uses
+the same snapping, so it stops suggesting weights that do not exist before 1.5
+lands anywhere else. Item 4's plate math reads the same inventory, so it can say
+when a target cannot be built rather than printing an impossible split.
+
+Only exercises whose equipment is dumbbell, kettlebell or barbell are touched.
+Machines, cables and bodyweight keep their increments. An empty inventory means
+exactly today's behavior, so nothing changes for anyone who never fills it in.
+
+Snapping is a pure function in the same `progression.js` pair as item 7, so the
+phone computes identical targets offline. Unit switching (item 11b) has to convert
+the inventory along with everything else, or a switch from lb to kg would leave a
+rack of 35 kg dumbbells.
+
+**Effort:** 2 days on top of item 7.
+
 ### [ ] 8. Planned deloads
 
 Once rules exist: a flag on a program or a single week marking it excluded from
@@ -397,6 +433,40 @@ dynamic import per locale, keeping English in the bundle as the fallback.
 
 **Effort:** 1 day. Worth doing before the locale count grows, not after.
 
+### [ ] 16. My Equipment: a picker that starts from what you have
+
+**Today:** the exercise picker has an equipment filter, but it is one type at a
+time and lives in `sessionStorage`, so it is gone once the app is closed. With
+about 1,800 exercises in the library, someone who only owns dumbbells scrolls past
+barbell and machine work every time they add an exercise. (`customEquipment`
+sounds related but is only the names used on your own custom exercises.) Asked for
+by a user coming from Fitbod and Hevy.
+
+**Design:** a `myEquipment` setting, in `SERVER_SETTINGS` so it syncs and comes
+along offline with the rest of the settings, set from a Settings > Workout card of
+checkboxes. It stores the normalized equipment names rather than the six display
+buckets in `equipment.js`, because the buckets put kettlebells, bands, benches and
+pull-up bars together under Other, and those are exactly the things people do or do
+not have at home.
+
+- The picker opens filtered to exercises whose equipment you own, all of it: an
+  exercise that needs a barbell and a bench shows only if both are ticked.
+  Bodyweight always counts as owned.
+- A "Show All Equipment" switch at the top of the list widens it for that visit,
+  and the existing one-type filter still narrows within whichever set is showing.
+- The Exercises library keeps showing everything, with My Equipment as one more
+  filter there, since browsing the whole catalog is what that page is for.
+- Trace gets the list through `buildContext()` so it stops suggesting exercises
+  for equipment you do not have.
+- Nothing ticked means today's behavior exactly.
+
+Settings search needs the new keywords (`equipment`, `dumbbells`, `home gym`) in
+`SECTION_KEYWORDS`, and the card's strings go into `en.json` in the same change.
+Optional follow-up: offer it as a step in the setup wizard, the way Fitbod asks at
+onboarding.
+
+**Effort:** 1 day.
+
 ---
 
 ## Public demo instances
@@ -519,8 +589,8 @@ CookTrace and NoteTrace get the same treatment and most of the work carries over
 | Release | Contents |
 |---|---|
 | 1.4 | Week start setting, wake lock, bodyweight exercises, bar weight, past workout logging, heatmap shading, rest timer in the shade, alarm-stream rest cue |
-| 1.4.x | Static demo for LiftTrace on GitHub Pages (pilot), lazy locales, OpenAPI spec |
-| 1.5 | Progression engine, planned deloads, muscle map modes, RIR, drop sets, unit conversion, rescheduling |
+| 1.4.x | Static demo for LiftTrace on GitHub Pages (pilot), lazy locales, OpenAPI spec, My Equipment |
+| 1.5 | Progression engine, rounding to the weights you own, planned deloads, muscle map modes, RIR, drop sets, unit conversion, rescheduling |
 | Later | Passkeys, routine sharing and print, demos for the other three apps |
 
 The 1.4 items are deliberately all small and independent, so any of them can drop
