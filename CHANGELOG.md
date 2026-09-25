@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0-dev02] - 2026-09-25 (pre-release)
+
+Second dev pre-release of 1.4.0. Almost all fixes: most came from testing dev01 on set videos, the rest from issues and a Reddit thread. Cardio-only days now count toward your streak.
+
 ### Fixed
 
 - **The updater can no longer offer a phone the watch build.** Both APKs ship in one release under the same package id, and the updater took whichever was listed first. It now picks the phone's build by name.
@@ -23,6 +29,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **"Replied just now" no longer says hours ago.** Server times are UTC and were read as local. Found by @backmind.
 - **A clip picked from the phone records how long it runs**, the same as one filmed in the app. Found by @backmind.
 - **The play marker on an exercise card is a small chip again**, rather than a bar across the card. Found by @backmind.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
 
 ---
 
