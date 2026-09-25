@@ -1,5 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { fold } from '../lib/fold.js';
+  import { columnsAcrossFold, gridTemplateAcrossFold, columnForIndex } from '../lib/fold-core.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -107,6 +109,28 @@
     if (_wideMode) _loadPreview(p);
     else push(`/programs/${p.id}`);
   }
+
+  // Half open like a book, the programs are dealt onto the two pages rather
+  // than run in one long column. The grid above only exists on a desktop-sized
+  // viewport, which a foldable's inner display never reaches, so this turns it
+  // on from the crease instead, with an empty track where the hinge is.
+  const CARD_MIN = 320;
+  const GRID_GAP = 12;
+  let listEl, listLeft = 0, listW = 0;
+  function measureList() {
+    const box = listEl?.getBoundingClientRect();
+    listLeft = box?.left ?? 0;
+    listW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measureList();
+    const ro = new ResizeObserver(measureList);
+    if (listEl) ro.observe(listEl);
+    return () => ro.disconnect();
+  });
+  $: if ($fold !== undefined && listEl) measureList();
+  $: listSplit = columnsAcrossFold({ width: listW, left: listLeft, gap: GRID_GAP, minCard: CARD_MIN, fold: $fold });
+  $: listTemplate = gridTemplateAcrossFold(listSplit, null);
 </script>
 
 <div class="page">
@@ -137,9 +161,10 @@
         <button class="btn btn-primary" on:click={() => showCreate = true}>{$_('programs.create_program')}</button>
       </div>
     {:else}
-      <div class="program-list">
-        {#each programs as p}
-          <button class="program-card"
+      <div class="program-list" class:fold-split={!!listSplit} bind:this={listEl}
+        style={listTemplate ? `grid-template-columns:${listTemplate}` : ''}>
+        {#each programs as p, _i}
+          <button class="program-card" style={listSplit ? `grid-column:${columnForIndex(_i, listSplit)}` : ''}
                   class:is-active={p.is_active}
                   class:selected-for-preview={_wideMode && _previewSelected?.id === p.id}
                   on:click={() => _openProgram(p)}>
@@ -545,5 +570,14 @@
     .ppp-empty-icon { font-size: 32px; opacity: 0.6; }
     .ppp-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
     .ppp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
+
+  /* Dealt onto the two pages of a half-open foldable. The rule above waits for
+     a desktop-sized viewport, which a foldable never reaches, so this turns
+     the same grid on from the crease. */
+  :global(html.fold-book) .program-list.fold-split {
+    display: grid;
+    gap: 12px;
+    align-items: start;
   }
 </style>
