@@ -136,3 +136,68 @@ test('filming in the app is what keeps a clip small', () => {
   assert.match(sheet, /videoBitsPerSecond: RECORD_BITRATE/);
   assert.match(sheet, /const MAX_SECONDS = 60/);
 });
+
+test('a recording is not refused for the way its type is spelled', () => {
+  // MediaRecorder types its output "video/mp4;codecs=vp9,opus". busboy 1.6
+  // cannot parse that unquoted comma and hands multer 'text/plain', so the
+  // app's own recordings came back "Videos only" while a picked file, whose
+  // File carries a bare type, went through (found by @backmind).
+  const sheet = read('../src/components/diary/SetVideoSheet.svelte');
+  assert.match(sheet, /const bareType = \(clipBlob\.type \|\| 'video\/mp4'\)\.split\(';'\)\[0\]/, 'the client sends a bare type');
+  assert.match(sheet, /type: bareType/);
+
+  const block = upload.slice(upload.indexOf('const setVideoUpload'), upload.indexOf("router.post('/set-video'"));
+  assert.match(block, /VIDEO_EXT_TYPE\[ext\]/, 'and the server falls back to the name rather than refusing');
+  // The bytes stay the real gate either way.
+  assert.match(upload, /assertAllowedMedia\(req\.file\.path, \['video'\]\)/);
+});
+
+test('a refused file answers 4xx, not 500', () => {
+  assert.match(upload, /if \(err\.message === 'Videos only'\) return res\.status\(415\)/);
+});
+
+test('the coach sees every clip on an exercise, not the last one written', () => {
+  // clipsByExercise was a Map keyed by exercise_uuid holding one row, so two
+  // filmed sets of the same lift gave the coach a single chip onto the older
+  // clip while the member's diary showed both.
+  const coaching = read('../src/routes/Coaching.svelte');
+  const build = coaching.slice(coaching.indexOf('$: clipsByExercise'), coaching.indexOf('function clipSetNumber'));
+  assert.match(build, /list\.unshift\(c\)/, 'rows accumulate per exercise');
+  assert.doesNotMatch(build, /map\(c => \[c\.exercise_uuid, c\]\)/, 'never one row per exercise again');
+  assert.match(coaching, /\{#each clipsByExercise\.get\(ex\.uuid\) as clip \(clip\.id\)\}/, 'one chip each');
+  assert.match(coaching, /set_video\.watch_set/, 'labelled by set when there is more than one');
+});
+
+test('the chips container exists only when there are chips in it', () => {
+  // .wd-ex-head is justify-content: space-between and the container carries
+  // margin-left: auto, so an empty one still absorbed the free space and
+  // pulled the set count off the right edge on every exercise with no clip.
+  // Measured at 456px off before, 0 after.
+  const coaching = read('../src/routes/Coaching.svelte');
+  const head = coaching.slice(coaching.indexOf('<div class="wd-ex-head">'), coaching.indexOf('<div class="wd-sets">'));
+  assert.match(head, /\{#if \(clipsByExercise\.get\(ex\.uuid\) \|\| \[\]\)\.length\}\s*\n(\s*<!--[\s\S]*?-->\s*\n)?\s*<div class="wd-ex-clips">/);
+});
+
+test('a timestamp written by the server is read as UTC', () => {
+  // datetime('now') has no zone and is UTC. Parsed as local, a reply sent
+  // seconds earlier read "2h ago" east of UTC.
+  const coaching = read('../src/routes/Coaching.svelte');
+  assert.match(coaching, /function serverDate\(s\)/);
+  assert.match(coaching, /new Date\(t\.replace\(' ', 'T'\) \+ 'Z'\)/);
+  assert.doesNotMatch(coaching, /const then = new Date\(occurred\)/, 'the raw parse is gone');
+});
+
+test('a picked clip carries its length, the same as a recorded one', () => {
+  const sheet = read('../src/components/diary/SetVideoSheet.svelte');
+  assert.match(sheet, /probeVideoBlob\(file\)\.then\(\(\{ poster, duration \}\)/);
+  assert.match(sheet, /if \(duration\) elapsed = duration;/);
+});
+
+test('the header chip is sized to what is in it', () => {
+  // As a direct child of the column-flex .ex-info, align-items: stretch
+  // pulled a pill holding one icon across the whole card.
+  const card = read('../src/components/diary/ExerciseCard.svelte');
+  assert.match(card, /<div class="ex-meta-row">/);
+  assert.match(card, /\.ex-meta-row \{ display: flex;/);
+  assert.match(card, /\.ex-clip \{\s*\n\s*flex: 0 0 auto;/);
+});

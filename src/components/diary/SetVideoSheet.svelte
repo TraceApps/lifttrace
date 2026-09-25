@@ -21,7 +21,7 @@
   import Sheet from '../ui/Sheet.svelte';
   import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
-  import { posterFromElement, posterFromBlob } from '../../lib/video-poster.js';
+  import { posterFromElement, probeVideoBlob } from '../../lib/video-poster.js';
 
   export let open = false;
   export let exercise = null;      // the exercise the clip belongs to
@@ -140,7 +140,12 @@
     clipUrl = URL.createObjectURL(file);
     posterUrl = null;
     stage = 'review';
-    posterFromBlob(file).then(p => { posterUrl = p; });
+    // The same decode gives the still and the length. Only recordings used
+    // to set a duration, so a picked clip was stored without one.
+    probeVideoBlob(file).then(({ poster, duration }) => {
+      posterUrl = poster;
+      if (duration) elapsed = duration;
+    });
   }
 
   async function attach() {
@@ -149,9 +154,14 @@
     progress = 10;
     try {
       const ext = (clipBlob.type || '').includes('webm') ? 'webm' : 'mp4';
+      // Without the parameters. MediaRecorder types its output
+      // "video/mp4;codecs=vp9,opus", and that unquoted comma is one busboy
+      // cannot parse, so the upload came back "Videos only" (issue #57,
+      // found by @backmind). The blob keeps its full type for playback here.
+      const bareType = (clipBlob.type || 'video/mp4').split(';')[0].trim() || 'video/mp4';
       const file = clipBlob instanceof File
         ? clipBlob
-        : new File([clipBlob], `set-${Date.now()}.${ext}`, { type: clipBlob.type || 'video/mp4' });
+        : new File([clipBlob], `set-${Date.now()}.${ext}`, { type: bareType });
       const up = await LtApi.uploadSetVideo(file);
       progress = 70;
       const row = await LtApi.attachSetVideo({

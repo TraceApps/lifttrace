@@ -21,6 +21,9 @@
    * page to find it.
    */
   import { createEventDispatcher, tick } from 'svelte';
+  import { get } from 'svelte/store';
+  import { fold } from '../../lib/fold.js';
+  import { placeAnchoredMenu, keepOffCrease } from '../../lib/fold-core.js';
   import { _ } from 'svelte-i18n';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { portal } from '../../lib/portal.js';
@@ -69,18 +72,24 @@
     await tick();
 
     const height = menuEl?.offsetHeight || 0;
-    const below = vh - rect.bottom - GAP - MARGIN;
-    const above = rect.top - GAP - MARGIN;
-
-    if (height <= below) {
-      pos = { top: rect.bottom + GAP, left, width, maxHeight: null };
-    } else if (height <= above) {
-      pos = { top: rect.top - GAP - height, left, width, maxHeight: null };
-    } else if (below >= above) {
-      pos = { top: rect.bottom + GAP, left, width, maxHeight: below };
-    } else {
-      pos = { top: MARGIN, left, width, maxHeight: above };
-    }
+    // Its real height decides where it goes, and on a foldable lying open the
+    // crease counts as the end of the room, so the list is never cut in half
+    // by the hinge.
+    const crease = get(fold);
+    const place = placeAnchoredMenu({
+      anchorTop: rect.top, anchorBottom: rect.bottom,
+      viewportHeight: vh, maxHeight: height || 320,
+      gap: GAP, margin: MARGIN, fold: crease,
+    });
+    // This menu carries its own width rather than the trigger's, so it can
+    // also step sideways off a book fold without losing what it belongs to.
+    const x = crease?.posture === 'book'
+      ? keepOffCrease({ pos: left, size: width, start: crease.start, end: crease.end, min: MARGIN, max: vw - MARGIN })
+      : left;
+    pos = {
+      top: place.top, left: x, width,
+      maxHeight: height && place.maxHeight >= height ? null : place.maxHeight,
+    };
     placed = true;
   }
 

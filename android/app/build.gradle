@@ -78,6 +78,9 @@ dependencies {
     implementation project(':capacitor-android')
     // WorkManager — drives ReminderWorker (15-min periodic background job)
     implementation "androidx.work:work-runtime:2.9.1"
+    // Where a foldable's crease is, for layouts that keep off it.
+    implementation "androidx.window:window:1.3.0"
+    implementation "androidx.window:window-java:1.3.0"
     // OkHttp — used by StreamProxyPlugin to fetch radio streams. We need
     // HTTP/2 support for hosts like cloud.revma.ihrhls.com that strictly
     // require it; Java's HttpURLConnection on Android speaks HTTP/1.1 only.

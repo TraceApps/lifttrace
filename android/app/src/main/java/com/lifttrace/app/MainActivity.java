@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(RadioPlayerPlugin.class);
         registerPlugin(RestTimerCuePlugin.class);
         registerPlugin(WearPairingPlugin.class);
+        registerPlugin(FoldPlugin.class);
 
         super.onCreate(savedInstanceState);
 

@@ -16,6 +16,7 @@
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
 import { LtApiNative } from './api-native.js';
 import { installOffline, offlineFetch } from './offline-api.js';
+import { isInterceptable, ownOrigins } from './api-route.js';
 
 const _basePath = (typeof window !== 'undefined' && window.__LT_CONFIG__ && window.__LT_CONFIG__.basePath) || '';
 
@@ -228,13 +229,12 @@ async function _mirrorSuccessfulWrite(url, method, init, res) {
   } catch { /* the next pull brings the copy up to date */ }
 }
 
+// Ours only when it is relative, or absolute at the page's origin or the
+// connected server's. The path alone claimed third parties too (issue #118);
+// see api-route.js.
 function _isInterceptable(url) {
-  if (!url) return false;
-  // Absolute URL pointing at our own server URL? still an API call
-  const path = url.startsWith('http')
-    ? new URL(url).pathname + (new URL(url).search || '')
-    : url;
-  return path.startsWith('/api/') || path.startsWith('/uploads/');
+  const page = typeof window !== 'undefined' ? window.location?.origin : '';
+  return isInterceptable(url, ownOrigins(page, getServerUrl()));
 }
 
 /** An /api/ call, as opposed to an upload the service worker caches. */

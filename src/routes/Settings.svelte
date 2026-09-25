@@ -6,6 +6,7 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
+  import { fold } from '../lib/fold.js';
   import { slide, fade } from 'svelte/transition';
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -716,6 +717,30 @@
     }
     return cards.filter(c => !_onboardingDismissed.has(c.key));
   })();
+  // Half open like a book, the section list fills the panel on the left of the
+  // crease and the section itself the panel on the right, with the crease as
+  // the divider. The page's own left edge is measured rather than worked out
+  // from the sidebar's width, since a pinned sidebar, a rail and an overlay
+  // are all different numbers and a centred page would be none of them.
+  let paneEl, paneLeft = 0, paneW = 0;
+  function measurePane() {
+    const box = paneEl?.getBoundingClientRect();
+    paneLeft = box?.left ?? 0;
+    paneW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measurePane();
+    const ro = new ResizeObserver(measurePane);
+    if (paneEl) ro.observe(paneEl);
+    return () => ro.disconnect();
+  });
+  // Folding moves the crease without resizing the page.
+  $: if ($fold !== undefined && paneEl) measurePane();
+  $: foldRailW = $fold?.posture === 'book' && paneW > 0 ? $fold.start - paneLeft : null;
+  // Only when both panels are left usable.
+  $: railSnap = foldRailW != null && foldRailW >= 200 && paneW - foldRailW >= 320;
+  $: hingeW = railSnap ? Math.max(0, $fold.end - $fold.start) : 0;
+
 </script>
 
 <!-- Rail + mobile-index section list. Same list markup rendered in two
@@ -913,7 +938,8 @@
          rail becomes a sticky 280px column with its own scroll and
          the pane takes the remaining space. Matches NutriTrace's
          shell 1:1 so the family stays visually uniform. -->
-    <div class="settings-two-pane">
+    <div class="settings-two-pane" bind:this={paneEl} class:fold-snap={railSnap}
+      style={railSnap ? `--rail-w:${foldRailW}px; --hinge:${hingeW}px` : ''}>
       <aside class="settings-nav-rail" aria-label="Settings sections"
              bind:this={_railEl}>
         <!-- Sliding highlight pill. Absolutely positioned; its
@@ -2299,6 +2325,13 @@
       grid-template-columns: 280px minmax(0, 1fr);
       gap: 24px;
       align-items: start;
+    }
+
+    /* Snapped to the fold: the crease is the divider, so the rail reaches it
+       and the section starts on the other side of it. */
+    :global(html:not(.force-mobile-layout)) .settings-two-pane.fold-snap {
+      grid-template-columns: var(--rail-w) minmax(0, 1fr);
+      gap: var(--hinge);
     }
 
     /* Left rail — sticky below the header + search bar, own scroll if

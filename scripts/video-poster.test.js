@@ -15,7 +15,8 @@ const player = read('../src/components/diary/SetVideoPlayer.svelte');
 
 test('the helper makes a still from a playing element and from bytes', () => {
   assert.match(helper, /export function posterFromElement\(el\)/);
-  assert.match(helper, /export function posterFromBlob\(blob/);
+  assert.match(helper, /export function probeVideoBlob\(blob/);
+  assert.match(helper, /export function posterFromBlob\(blob/, 'still there for callers that only want the still');
   assert.match(helper, /toDataURL\('image\/jpeg'/);
   assert.match(helper, /setTimeout\(\(\) => done\(null\), timeoutMs\)/, 'never holds a screen up');
 });
@@ -26,7 +27,8 @@ test('the review player gets a poster, filmed or picked', () => {
   const stop = sheet.slice(sheet.indexOf('recorder.onstop'), sheet.indexOf('recorder.start()'));
   assert.ok(stop.indexOf('posterFromElement(previewEl)') < stop.indexOf('stopStream()'), 'grabbed before the stream stops');
   // A picked file: decoded offscreen, without blocking the review screen.
-  assert.match(sheet, /posterFromBlob\(file\)\.then/);
+  // One decode now answers both the still and the clip's length.
+  assert.match(sheet, /probeVideoBlob\(file\)\.then\(\(\{ poster, duration \}\)/);
 });
 
 test('the coach player gets one too, from the bytes it already fetched', () => {

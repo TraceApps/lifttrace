@@ -10,14 +10,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - **Personal muscle-load profiles and recovery corrections** ([#110](https://github.com/TraceApps/lifttrace/issues/110)). Set independent 0–100% loads for the 18 muscles on an exercise, and LiftTrace uses that profile in effective-set statistics and muscle recovery. Each workout keeps a snapshot, so later edits do not rewrite training history. When the estimate does not match how a muscle feels, select it on the recovery diagram and mark it Fatigued, Recovering, Ready, or Fresh; the correction keeps aging normally and new training replaces it. Both controls work on the web and Android, including offline sync and backups.
+- **Foldables use the crease.** Half open like a book, Settings puts its section list on one side and the section on the other, dialogs, sheets, the rest timer and Trace keep off the fold, and a menu opened near it takes the roomier side rather than being cut in half by the hinge. In laptop posture Trace sits on the half lying flat, leaving the session readable on the half standing up. The load type, RPE and rep pickers also flip above their row when there is no room below, which they never did on any phone. The diary, charts and photos still cross the fold freely: an opened foldable is a bigger screen to train from.
+
+---
+
+## [1.4.0-dev02] - 2026-09-25 (pre-release)
+
+Second dev pre-release of 1.4.0. Almost all fixes: most came from testing dev01 on set videos, the rest from issues and a Reddit thread. Cardio-only days now count toward your streak.
 
 ### Fixed
 
-- **A FitNotes export in kilos no longer comes in as pounds.** Current FitNotes exports put the unit in its own column rather than in the weight column's name, which the importer never read, so it assumed pounds and divided everything by 2.20462: a 74.6 kg bench arrived as 33.84. The unit is now read per row, so a file mixing kilos and pounds imports both correctly. Reported on r/selfhosted with the export that proved it.
-- **A FitNotes export from a phone that is not set to English imports its workouts.** FitNotes writes the date in the phone's locale, so a Spanish or German export reads 23/12/2025 where an English one reads 2025-12-23. The importer accepted only the second form and skipped every other row, turning a whole training history into an empty import. Day-first and month-first files are both read now, decided across the file rather than row by row.
-- **The language picker shows the language the app is actually in.** On a phone set to Spanish or Italian, the app opened translated while Settings claimed English, because the setting defaulted to English instead of to the language the app had picked. Reported on r/selfhosted.
-- **The Load Type chooser opens next to the exercise you tapped** ([#116](https://github.com/TraceApps/lifttrace/issues/116), reported by @kgenerozov). In a program's workout editor the chooser was positioned against the page rather than against the chip, so it drifted further away the further down the list you went: on the last exercise of a long workout it opened around 3,000 pixels above the top of the screen, with nothing visible to tap. It now opens beside the chip wherever that is, flips above when there is no room below, and stays on screen in a short window. The Diary and the editor share one chooser now instead of three copies, which also means the Diary's options are translated rather than English only.
-- **A Load Type or Tracked By choice made in the workout editor now survives saving.** The chip changed and the save sent the old value, so the choice was quietly gone the next time the template was opened. Found while testing [#116](https://github.com/TraceApps/lifttrace/issues/116); it was a separate fault of its own, present since the chooser was added.
+- **The updater can no longer offer a phone the watch build.** Both APKs ship in one release under the same package id, and the updater took whichever was listed first. It now picks the phone's build by name.
+- **An OpenAI-compatible provider with `/api` in its address works in the Android app** ([#118](https://github.com/TraceApps/lifttrace/issues/118), reported by @kgenerozov). The app claimed every request beginning `/api/` as its own, so a base URL like `https://openrouter.ai/api` went to your LiftTrace server and came back 404. It also caught shared exercise links and music served from an `/api/` path.
+- **A cardio-only day counts toward your streak and week strip** ([#115](https://github.com/TraceApps/lifttrace/pull/115), found and fixed by @benniemosher), for anyone with cardio turned on. A run with no lifting that day used to look like nothing at all, and the dot now appears as soon as the session is saved.
+- **A FitNotes export in kilos no longer comes in as pounds.** The unit is now read per row, so a file mixing the two imports both correctly. Reported on r/selfhosted.
+- **A FitNotes export from a phone not set to English imports its workouts.** Day-first dates were skipped, turning a whole history into an empty import. Both orders are read now, decided across the file.
+- **The language picker shows the language the app is actually in**, rather than claiming English on a phone set to something else. Reported on r/selfhosted.
+- **The Load Type chooser opens next to the exercise you tapped** ([#116](https://github.com/TraceApps/lifttrace/issues/116), reported by @kgenerozov). Far down a long workout it could open thousands of pixels off screen. The Diary and the editor now share one chooser, so the Diary's options are translated too.
+- **A Load Type or Tracked By choice made in the workout editor survives saving.** The chip changed and the save sent the old value.
+- **Filming a set in the app works again.** The recording's content type carries an unquoted comma, which the server's parser could not read, so the upload was refused as "Videos only". Picking an existing clip was never affected. Found by @backmind while testing [#57](https://github.com/TraceApps/lifttrace/issues/57).
+- **A coach sees every set you filmed on an exercise, not just one.** Each clip has its own button now, named for the set. Found by @backmind.
+- **The set count sits at the right of an exercise again in Coaching**, on exercises with no clip. Found by @backmind.
+- **"Replied just now" no longer says hours ago.** Server times are UTC and were read as local. Found by @backmind.
+- **A clip picked from the phone records how long it runs**, the same as one filmed in the app. Found by @backmind.
+- **The play marker on an exercise card is a small chip again**, rather than a bar across the card. Found by @backmind.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
 
 ---
 
