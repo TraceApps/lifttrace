@@ -1,0 +1,53 @@
+/*
+ * fold.css: layouts for a foldable that's half open (lib/fold.js sets the
+ * classes and --fold-start / --fold-end).
+ *
+ * Book (fold top to bottom): windows that would sit across the crease open on
+ * the right side of it instead.
+ * Tabletop (fold side to side): what you read stays above the fold; what you
+ * reach for stays below it, on the half lying flat.
+ *
+ * These are for surfaces you cannot move mid-set. A scrolling diary, a chart
+ * and a photo are free to cross the crease: they can be scrolled or panned out
+ * of the way, and an opened foldable is a bigger screen to train from.
+ */
+
+/* ── Book ─────────────────────────────────────────────────────────── */
+html.fold-book .dialog-backdrop,
+html.fold-book .sheet-backdrop,
+html.fold-book .as-backdrop {
+  padding-left: calc(var(--fold-end) + 16px) !important;
+  padding-right: 16px !important;
+}
+/* Trace fills the panel beside the crease rather than being a card that
+   happens to straddle it. */
+html.fold-book .lb-panel {
+  left: calc(var(--fold-end) + 16px) !important;
+  right: 16px !important;
+  width: auto !important;
+}
+/* The rest between sets is read at a glance mid-session: it sits on one side
+   of the crease rather than being split down the middle. It is centred in
+   what it is given, so moving its left edge is enough. */
+html.fold-book .rest-sticky { left: calc(var(--fold-end) + 12px) !important; }
+
+/* ── Tabletop ─────────────────────────────────────────────────────── */
+/* A dialog is read, so it stays above the crease. */
+html.fold-tabletop .dialog-backdrop {
+  padding-top: 16px !important;
+  padding-bottom: calc(100dvh - var(--fold-start) + 24px) !important;
+}
+/* A sheet is reached for rather than read, so it keeps to the half lying
+   flat, where your hands already are. */
+html.fold-tabletop .sheet-panel,
+html.fold-tabletop .as-panel {
+  max-height: calc(100dvh - var(--fold-start) - 12px) !important;
+}
+/* Trace: the conversation and the box you type in on the flat half, the
+   session still readable on the half standing up. */
+html.fold-tabletop .lb-panel {
+  height: calc(100dvh - var(--fold-start)) !important;
+  max-height: calc(100dvh - var(--fold-start)) !important;
+  border-radius: 0 !important;
+  border-top: 1px solid var(--border) !important;
+}
