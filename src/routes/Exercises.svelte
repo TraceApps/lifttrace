@@ -606,7 +606,12 @@
         {#if _detailLoading}
           <div class="loading">Loading…</div>
         {:else}
-          <ExerciseInfo exercise={_detailSelected} pr={_detailPr} history={_detailHistory} />
+          <!-- ExerciseInfo renders several siblings, so it needs a wrapper to
+               be the one scrolling region. The card's heading and Full Details
+               sit outside it and stay put. -->
+          <div class="edp-scroll">
+            <ExerciseInfo exercise={_detailSelected} pr={_detailPr} history={_detailHistory} />
+          </div>
           <button class="btn btn-primary edp-full-btn" on:click={() => push(`/exercise/${_detailSelected.id}`)}>
             <span class="material-symbols-rounded">open_in_new</span>
             {$_('programs.full_details')}
@@ -1074,4 +1079,17 @@
 
   /* 28px was under the touch-target minimum on a device. */
   .edp-close { min-width: 40px; min-height: 40px; }
+
+  /* The card's heading and Full Details stay put; the exercise information
+     between them is what scrolls. */
+  :global(html.wide-content) .ex-detail-pane { overflow: hidden; min-height: 0; }
+  :global(html.wide-content) .ex-detail-pane .edp-head,
+  :global(html.wide-content) .ex-detail-pane .edp-full-btn { flex: none; }
+  :global(html.wide-content) .ex-detail-pane .edp-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
 </style>

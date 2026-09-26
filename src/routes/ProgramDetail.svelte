@@ -705,14 +705,43 @@
   /* Gated on the room available rather than a 1280px viewport, so a
      foldable open flat (about 852px) gets the two-pane layout too. */
   @media all {
+    /* The program header and description stay put, and the workouts and the
+       selected workout scroll independently underneath them. The chain of
+       min-height: 0 is what lets a flex child actually shrink; without it
+       each one sizes to its content and the page scrolls as a whole. */
+    :global(html.wide-content) .page {
+      height: 100dvh;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      /* The region fills the page, so the page is what has to leave room for
+         the nav and for the mini player and timer bars. --bottom-overlays
+         already includes the mini player, so it replaces it here rather than
+         being added on top. */
+      padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + var(--bottom-overlays, 0px) + 16px);
+    }
+    :global(html.wide-content) .page > .content,
+    :global(html.wide-content) .content > .section {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
     :global(html.wide-content) .pd-body {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 20px;
-      align-items: start;
+      align-items: stretch;
+      flex: 1;
+      min-height: 0;
     }
     :global(html.wide-content) .pd-body > .template-list {
       min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
     }
     :global(html.wide-content) .pd-body :global(.template-card.selected-for-preview) {
       border-color: var(--accent);
@@ -726,19 +755,15 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       padding: 14px;
-      position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
-      align-self: start;
-      max-height: calc(100vh
-        - var(--page-top, var(--safe-top))
-        - 150px
-        - var(--hamburger-row, 0px)
-        - var(--nav-h, 0px)
-        - var(--bottom-overlays, 0px)
-        - var(--safe-bottom, 0px));
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: var(--border) transparent;
+      /* Neither sticky nor fixed. The two-pane region below fills whatever
+         the header and description leave, so the card simply fills its own
+         column and never moves. Sticky could only travel the height of its
+         grid area, so on a long program it detached and rode down with the
+         list; a fixed top needed a magic number that went stale the moment
+         anything above it scrolled away. */
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
     }
     .ptp-head {
       display: flex;
@@ -762,6 +787,12 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
+      /* This is the part that scrolls, so the card's heading stays visible. */
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
     }
     .ptp-exercise {
       display: flex;

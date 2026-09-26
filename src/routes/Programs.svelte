@@ -675,4 +675,20 @@
   .ppp-template-btn .ppp-template-body { min-width: 0; flex: 1; }
   .ppp-template-chev { margin-left: auto; opacity: 0.5; font-size: 20px; flex: none; }
   .ppp-template-btn:hover .ppp-template-chev { opacity: 0.9; }
+
+  /* Same rule as the program page: the card's heading and its primary action
+     stay put, and only the list between them scrolls. Putting overflow on the
+     whole card scrolled the title out of view. */
+  :global(html.wide-content) .programs-preview-pane { overflow: hidden; min-height: 0; }
+  :global(html.wide-content) .programs-preview-pane .ppp-head,
+  :global(html.wide-content) .programs-preview-pane .ppp-desc,
+  :global(html.wide-content) .programs-preview-pane .ppp-templates-head,
+  :global(html.wide-content) .programs-preview-pane .ppp-full-btn { flex: none; }
+  :global(html.wide-content) .programs-preview-pane .ppp-templates {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
 </style>
