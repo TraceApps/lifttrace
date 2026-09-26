@@ -788,7 +788,7 @@
   .group-title { font-size: 13px; font-weight: 700; color: var(--accent); text-transform: capitalize; margin: 0 0 8px; letter-spacing: 0.04em; }
   .group-list { display: flex; flex-direction: column; gap: 4px; }
 
-  .exercise-row { display: flex; align-items: center; gap: 0; border-bottom: 1px solid var(--border); }
+  .exercise-row { display: flex; align-items: center; gap: 0; border-bottom: 1px solid var(--border); min-width: 0; }
   .exercise-row:last-child { border-bottom: none; }
   .fav-btn {
     background: none; border: none; cursor: pointer; padding: 10px 8px;
@@ -938,7 +938,7 @@
       /* Half and half. Each pane is about a phone's width on a foldable open
          flat, which is room enough for both, and an equal split means the
          reserved track and the portaled pane cannot drift apart. */
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 24px;
       align-items: start;
     }
@@ -953,7 +953,10 @@
       /* One column until there is genuinely room for two. Beside the detail
          pane a foldable leaves about 500px, and two columns of 240px wrapped
          every exercise name onto three lines. */
-      grid-template-columns: 1fr;
+      /* minmax(0, 1fr), never a bare 1fr: a bare 1fr takes min-content as its
+         automatic minimum, so one long exercise name stretches the track and
+         every row with it, straight out over the detail pane. */
+      grid-template-columns: minmax(0, 1fr);
       gap: 8px;
     }
     @media (min-width: 1280px) {

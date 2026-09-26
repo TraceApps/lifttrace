@@ -403,7 +403,7 @@
       display: grid;
       /* The pane gives ground when there is less room, so the card column
          keeps its 320px minimum. At 1280px this still resolves to 380px. */
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 24px;
       align-items: start;
     }

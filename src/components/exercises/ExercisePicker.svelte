@@ -502,7 +502,7 @@
     }
     :global(html.wide-content) .picker-body {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 16px;
       padding: 0 16px 16px;
       min-height: 0;
