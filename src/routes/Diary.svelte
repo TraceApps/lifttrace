@@ -5176,5 +5176,13 @@
        .diary-body never reaches it. The overlay variant stays, since that is
        the one the edge tab opens on purpose. */
     :global(html.wide-content .diary-right-rail:not(.diary-right-rail-overlay)) { display: none; }
+
+    /* The exercise card's own two-column split (history beside the sets) needs
+       the desktop centre column. Here the centre is about 520px, so the sets
+       were left roughly 210px and the weight and reps boxes clipped their own
+       numbers. The card stays linear and the inputs get the full width. */
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone) {
+      display: block;
+    }
   }
 </style>
