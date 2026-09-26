@@ -4,6 +4,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
+import { canChangeExercise } from '../lib/exercise-owner.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -192,6 +193,14 @@ router.put('/:id', wrap((req, res) => {
   // reachable in normal use, but block it defensively (#49).
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!existing) return res.status(404).json({ error: 'Exercise not found' });
+  // Only your own custom exercises. A library exercise is shared by everyone,
+  // and someone else's is theirs; this used to accept both (see
+  // lib/exercise-owner.js). Another user's reads as not found, since you
+  // cannot see it either.
+  if (Number(existing.is_global) !== 0) {
+    return res.status(403).json({ error: 'Library exercises are shared, so they cannot be edited.' });
+  }
+  if (!canChangeExercise(existing, uid(req))) return res.status(404).json({ error: 'Exercise not found' });
   const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, video_url, load_type, set_type } = req.body;
   // A picture chosen with no connection arrives embedded in the row; it
   // becomes a file here, so everything downstream sees an ordinary path.
@@ -243,7 +252,13 @@ router.delete('/custom/all', wrap((req, res) => {
 // DELETE /api/exercises/:id
 router.delete('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  db.prepare('DELETE FROM exercises WHERE id = ? AND is_global = 0').run(id);
+  const row = db.prepare('SELECT id, is_global, created_by FROM exercises WHERE id = ?').get(id);
+  // Already gone is still a success, so a delete replayed from a phone or
+  // the offline queue does not come back as a refusal.
+  if (!row) return res.json({ ok: true });
+  // Only your own custom exercises; this used to delete anyone's by id.
+  if (!canChangeExercise(row, uid(req))) return res.status(404).json({ error: 'Exercise not found' });
+  db.prepare('DELETE FROM exercises WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
 

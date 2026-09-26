@@ -11,6 +11,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Foldables use the crease.** Half open like a book, Settings puts its section list on one side and the section on the other, dialogs, sheets, the rest timer and Trace keep off the fold, and a menu opened near it takes the roomier side rather than being cut in half by the hinge. In laptop posture Trace sits on the half lying flat, leaving the session readable on the half standing up. The load type, RPE and rep pickers also flip above their row when there is no room below, which they never did on any phone. The diary, charts and photos still cross the fold freely: an opened foldable is a bigger screen to train from.
 
+
+### Security
+
+- **Only the owner can change an exercise.** Any signed-in member could change a library exercise for everyone, or edit or delete another member's own exercises, through the edit and delete routes and through the phone's sync. Imported catalogs were also listed and deleted by name across every member, so deleting yours removed anyone else's with the same name. Everything the app itself offers is unchanged. Found while looking into [#110](https://github.com/TraceApps/lifttrace/issues/110).
+
 ---
 
 ## [1.4.0-dev02] - 2026-09-25 (pre-release)
