@@ -364,8 +364,11 @@
     gap: 12px;
   }
   @media (min-width: 560px)  { .pp-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (min-width: 900px)  { .pp-grid { grid-template-columns: repeat(3, 1fr); } }
-  @media (min-width: 1280px) { .pp-grid { grid-template-columns: repeat(4, 1fr); } }
+  /* Three across on the room available rather than a 900px viewport, which a
+     foldable open flat missed by 48px. minmax(0, 1fr), never a bare 1fr, so a
+     wide tile cannot stretch the track. */
+  :global(html.wide-content) .pp-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (min-width: 1280px) { :global(html.wide-content) .pp-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
   .pp-tile {
     border: 1px solid var(--border);
