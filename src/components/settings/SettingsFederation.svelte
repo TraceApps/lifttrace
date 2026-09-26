@@ -9,16 +9,18 @@
    * in the browser), and on success the federation toggle auto-flips.
    * From then on Diary.finishWorkout() pushes the completed workout's
    * estimated calories burned to NT.
-   */
+  */
+  import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
   import {
-    ntInstanceUrl, ntInstanceToken, ntFederationEnabled, ntConnectionVerified,
-    caloriesBurnedEnabled,
+    ntInstanceUrl, ntInstanceToken, ntFederationEnabled, ntConnectionVerified, ntConnectionIdentity,
+    ntBodySyncEnabled, ntBodySource, ntBodyLastSyncAt, caloriesBurnedEnabled,
   } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
+  import { syncNtBodyMeasurements } from '../../lib/nt-body-sync.js';
 
   export let expanded = false;
   export let visible = true;
@@ -32,6 +34,11 @@
   let testStatus = '';   // '' | 'ok' | 'fail' | 'testing'
   let lastConnectedUser = '';
   let lastError = '';
+  let capabilities = null;
+  let bodyStatus = '';
+  let bodyError = '';
+  let bodySources = [];
+  let bodySyncing = false;
 
   // Derive the visible Connected/Failed pill state from a combination of the
   // local in-flight test and the persisted verified flag, so the pill
@@ -43,13 +50,19 @@
       : '');
 
   $: canTest = !!urlDraft.trim() && !!tokenDraft.trim();
+  $: bodyReadAvailable = !!capabilities?.bodyMeasurementsRead;
+  $: bodySourceOptions = [...new Set([...bodySources, $ntBodySource].filter(Boolean))];
 
   function _invalidate() {
     testStatus = '';
     lastError = '';
+    capabilities = null;
+    bodyStatus = '';
+    bodyError = '';
     // Any field edit invalidates the previous verification — the URL or
     // token might now be different from what was tested.
     if ($ntConnectionVerified) ntConnectionVerified.set(false);
+    if ($ntConnectionIdentity) ntConnectionIdentity.set(null);
     if ($ntFederationEnabled) ntFederationEnabled.set(false);
   }
 
@@ -61,7 +74,7 @@
     await test({ silentOk: false });
   }
 
-  async function test({ silentOk = false } = {}) {
+  async function test({ silentOk = false, silentFail = false, preserveExistingOnFail = false } = {}) {
     if (!canTest) {
       showError($_('settings_federation.url_token_required'));
       return;
@@ -84,24 +97,89 @@
       if (body.ok) {
         testStatus = 'ok';
         lastConnectedUser = body.user?.username || body.user?.full_name || 'NutriTrace';
+        capabilities = body.capabilities || {
+          workoutWrite: (body.scopes || []).includes('write:workouts'),
+          bodyMeasurementsRead: (body.scopes || []).includes('read:body-measurements'),
+        };
+        // Svelte reactive declarations run after this function yields. Use
+        // the response-derived value here so a missing optional scope is
+        // handled during this test, not only after the next render.
+        const bodyRead = !!capabilities.bodyMeasurementsRead;
+        bodyStatus = bodyRead ? '' : 'scope-missing';
+        bodyError = bodyRead ? '' : $_('settings_federation.body_sync_scope_missing');
+        if (!bodyRead) ntBodySyncEnabled.set(false);
         ntFederationEnabled.set(true);
         ntConnectionVerified.set(true);
+        ntConnectionIdentity.set(body.connectionIdentity);
         if (!silentOk) showSuccess(`Connected to NutriTrace as ${lastConnectedUser}`);
       } else {
-        testStatus = 'fail';
-        lastError = body.error || 'Connection failed';
-        ntFederationEnabled.set(false);
-        ntConnectionVerified.set(false);
-        showError(lastError);
+        testStatus = preserveExistingOnFail ? '' : 'fail';
+        lastError = preserveExistingOnFail ? '' : (body.error || 'Connection failed');
+        capabilities = null;
+        bodyStatus = '';
+        bodyError = '';
+        if (!preserveExistingOnFail) {
+          ntFederationEnabled.set(false);
+          ntConnectionVerified.set(false);
+        }
+        if (!preserveExistingOnFail) ntConnectionIdentity.set(null);
+        if (!silentFail) showError(lastError);
       }
     } catch (e) {
-      testStatus = 'fail';
-      lastError = e.message || 'Connection failed';
-      ntFederationEnabled.set(false);
-      ntConnectionVerified.set(false);
-      showError(lastError);
+      testStatus = preserveExistingOnFail ? '' : 'fail';
+      lastError = preserveExistingOnFail ? '' : (e.message || 'Connection failed');
+      capabilities = null;
+      bodyStatus = '';
+      bodyError = '';
+      if (!preserveExistingOnFail) {
+        ntFederationEnabled.set(false);
+        ntConnectionVerified.set(false);
+      }
+      if (!preserveExistingOnFail) ntConnectionIdentity.set(null);
+      if (!silentFail) showError(lastError);
     } finally { testing = false; }
   }
+
+  async function syncBodyNow() {
+    if (!bodyReadAvailable || bodySyncing) return;
+    bodySyncing = true;
+    bodyError = '';
+    try {
+      const result = await syncNtBodyMeasurements({ manual: true });
+      bodyStatus = result.status;
+      bodySources = result.sources || [];
+      if (result.status === 'error') bodyError = result.error;
+      else if (result.status === 'connection-verification-required') bodyError = $_('settings_federation.body_sync_connection_verification_required');
+      else if (result.status === 'connection-change-blocked') bodyError = $_('settings_federation.body_sync_connection_change_blocked');
+      else if (result.status === 'source-selection-required') bodyError = $_('settings_federation.body_sync_source_required');
+      else if (result.status === 'source-change-blocked') bodyError = $_('settings_federation.body_sync_source_change_blocked', { values: { source: result.syncedSource || '' } });
+      else if (result.status === 'selected-empty') bodyError = $_('settings_federation.body_sync_selected_empty');
+      else if (result.status === 'no-data') bodyError = $_('settings_federation.body_sync_no_data');
+      else if (result.status === 'ok') showSuccess($_('settings_federation.body_sync_complete'));
+    } catch (e) {
+      bodyStatus = 'error';
+      bodyError = e.message || $_('settings_federation.body_sync_failed');
+    } finally { bodySyncing = false; }
+  }
+
+  function onBodySyncToggle(event) {
+    if (event.detail) syncBodyNow();
+  }
+
+  function formatLastSync(value) {
+    if (!value) return '';
+    try { return new Date(Number(value)).toLocaleString(); } catch { return ''; }
+  }
+
+  // Capabilities are returned by the connection check rather than persisted
+  // as a second source of truth. Refresh them when this settings section is
+  // remounted so a previously verified workout connection still exposes the
+  // body-sync scope state after navigating away and back.
+  onMount(() => {
+    if ($ntConnectionVerified && $ntFederationEnabled && canTest) {
+      test({ silentOk: true, silentFail: true, preserveExistingOnFail: true });
+    }
+  });
 </script>
 
 {#if visible}
@@ -129,6 +207,52 @@
             </span>
           </div>
           <Toggle bind:checked={$ntFederationEnabled} />
+        </div>
+
+        <div class="body-sync-block">
+          <div class="body-sync-heading">{$_('settings_federation.body_sync_title')}</div>
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <span class="setting-label">{$_('settings_federation.body_sync_enable')}</span>
+              <span class="setting-hint">
+                {$_('settings_federation.body_sync_enable_hint')} {$_('settings_federation.body_sync_current_weight_hint')}
+              </span>
+            </div>
+            <Toggle bind:checked={$ntBodySyncEnabled} on:change={onBodySyncToggle} disabled={!bodyReadAvailable || !$ntFederationEnabled} />
+          </div>
+
+          {#if $ntConnectionVerified && capabilities && !bodyReadAvailable}
+            <p class="body-sync-warning">{$_('settings_federation.body_sync_scope_missing')}</p>
+          {/if}
+
+          {#if bodySourceOptions.length > 0 || $ntBodySource}
+            <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+              <div class="setting-label-group" style="width:100%">
+                <span class="setting-label">{$_('settings_federation.body_sync_source')}</span>
+                <span class="setting-hint">{$_('settings_federation.body_sync_source_hint')}</span>
+              </div>
+              <select class="form-input-sm" style="width:100%" bind:value={$ntBodySource} disabled={bodySyncing}>
+                <option value="">{$_('settings_federation.body_sync_source_auto')}</option>
+                {#each bodySourceOptions as source}
+                  <option value={source}>{source}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
+
+          <div class="body-sync-actions">
+            <button class="btn btn-secondary" on:click={syncBodyNow} disabled={bodySyncing || !bodyReadAvailable || !$ntFederationEnabled}>
+              {bodySyncing ? $_('settings_federation.body_sync_syncing') : $_('settings_federation.body_sync_now')}
+            </button>
+            {#if $ntBodyLastSyncAt}
+              <span class="setting-hint">{$_('settings_federation.body_sync_last_sync', { values: { when: formatLastSync($ntBodyLastSyncAt) } })}</span>
+            {/if}
+          </div>
+          {#if bodyError}
+            <p class="body-sync-warning">{bodyError}</p>
+          {:else if bodyStatus === 'ok'}
+            <p class="body-sync-ok">{$_('settings_federation.body_sync_ready')}</p>
+          {/if}
         </div>
 
         {#if !$caloriesBurnedEnabled}
@@ -202,6 +326,15 @@
   }
   .btn-icon-toggle:hover { color: var(--text-1); }
   .save-btn { height: 36px; font-size: 13px; white-space: nowrap; padding: 0 14px; flex-shrink: 0; }
+  .body-sync-block { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+  .body-sync-heading { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .body-sync-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0 0; }
+  .body-sync-warning { color: var(--warning, #f59e0b); font-size: 12px; line-height: 1.45; margin: 6px 0; }
+  .body-sync-ok { color: var(--success, #22c55e); font-size: 12px; line-height: 1.45; margin: 6px 0; }
+  .body-sync-heading,
+  .body-sync-actions,
+  .body-sync-warning,
+  .body-sync-ok { padding-inline: 16px; }
   code {
     font-family: 'SFMono-Regular', 'Menlo', monospace;
     font-size: 11px;
