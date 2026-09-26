@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
-import { requireAuth, uid } from '../middleware/auth.js';
+import { requireAuth, uid, userMgmtActive } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
+import { canChangeExercise } from '../lib/exercise-owner.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -187,6 +188,14 @@ router.put('/:id', wrap((req, res) => {
   // reachable in normal use, but block it defensively (#49).
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!existing) return res.status(404).json({ error: 'Exercise not found' });
+  // Only your own custom exercises. A library exercise is shared by everyone,
+  // and someone else's is theirs; this used to accept both (see
+  // lib/exercise-owner.js). Another user's reads as not found, since you
+  // cannot see it either.
+  if (Number(existing.is_global) !== 0) {
+    return res.status(403).json({ error: 'Library exercises are shared, so they cannot be edited.' });
+  }
+  if (!canChangeExercise(existing, uid(req))) return res.status(404).json({ error: 'Exercise not found' });
   const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type } = req.body;
   // set_type follows the same omitted/null/explicit rules as load_type.
   const nextSetType = set_type === undefined
@@ -234,7 +243,13 @@ router.delete('/custom/all', wrap((req, res) => {
 // DELETE /api/exercises/:id
 router.delete('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  db.prepare('DELETE FROM exercises WHERE id = ? AND is_global = 0').run(id);
+  const row = db.prepare('SELECT id, is_global, created_by FROM exercises WHERE id = ?').get(id);
+  // Already gone is still a success, so a delete replayed from a phone or
+  // the offline queue does not come back as a refusal.
+  if (!row) return res.json({ ok: true });
+  // Only your own custom exercises; this used to delete anyone's by id.
+  if (!canChangeExercise(row, uid(req))) return res.status(404).json({ error: 'Exercise not found' });
+  db.prepare('DELETE FROM exercises WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
 
@@ -262,6 +277,17 @@ router.get('/sources/list', wrap(async (req, res) => {
 }));
 
 // POST /api/exercises/sources/toggle — enable/disable a source
+// Importing a source into the shared library, or clearing one out of it,
+// changes the catalog for every user at once, so it is the admin's to do.
+// Any signed-in member could, including wiping all of wger for everyone.
+// With user management off there is one person, and they are the admin.
+// Turning a source on or off stays per user, below, and anyone may import
+// a catalog of their own through /exercise-import.
+function requireLibraryAdmin(req, res, next) {
+  if (!userMgmtActive() || req.user?.role === 'admin') return next();
+  return res.status(403).json({ error: 'Only an admin can change the shared exercise library.' });
+}
+
 router.post('/sources/toggle', wrap((req, res) => {
   const { source, enabled } = req.body || {};
   if (!source) return res.status(400).json({ error: 'source required' });
@@ -279,7 +305,7 @@ router.post('/sources/toggle', wrap((req, res) => {
 
 // POST /api/exercises/sources/import — import a single source
 // body: { source: 'wger' | 'free-db' | 'exercisedb', apiKey?: string }
-router.post('/sources/import', wrap(async (req, res) => {
+router.post('/sources/import', requireLibraryAdmin, wrap(async (req, res) => {
   const { importSource } = await import('../exercise-sources/index.js');
   const { source, apiKey } = req.body || {};
   if (!source) return res.status(400).json({ error: 'source required' });
@@ -293,7 +319,7 @@ router.post('/sources/import', wrap(async (req, res) => {
 
 // POST /api/exercises/sources/clear — remove every globally-seeded row from a source
 // body: { source: 'wger' }
-router.post('/sources/clear', wrap(async (req, res) => {
+router.post('/sources/clear', requireLibraryAdmin, wrap(async (req, res) => {
   const { clearSource } = await import('../exercise-sources/index.js');
   const { source } = req.body || {};
   if (!source) return res.status(400).json({ error: 'source required' });
@@ -302,7 +328,7 @@ router.post('/sources/clear', wrap(async (req, res) => {
 }));
 
 // Legacy endpoint kept for back-compat with the existing Settings sync button
-router.post('/sync-wger', wrap(async (req, res) => {
+router.post('/sync-wger', requireLibraryAdmin, wrap(async (req, res) => {
   const { importSource } = await import('../exercise-sources/index.js');
   const count = await importSource('wger');
   res.json({ ok: true, count });
