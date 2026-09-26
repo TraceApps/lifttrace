@@ -734,7 +734,7 @@
   @media all {
     :global(html.wide-content) .pd-body {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) clamp(300px, 34%, 400px);
+      grid-template-columns: 1fr 1fr;
       gap: 20px;
       align-items: start;
     }
@@ -846,5 +846,13 @@
     .ptp-empty-icon { font-size: 32px; opacity: 0.6; }
     .ptp-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
     .ptp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
+
+  /* Desktop keeps its fixed-width pane. The half-and-half split above is for
+     the in-between widths a foldable lands in. */
+  @media (min-width: 1280px) {
+    :global(html.wide-content) .pd-body {
+      grid-template-columns: minmax(0, 1fr) 400px;
+    }
   }
 </style>

@@ -502,7 +502,7 @@
     }
     :global(html.wide-content) .picker-body {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) clamp(300px, 32%, 380px);
+      grid-template-columns: 1fr 1fr;
       gap: 16px;
       padding: 0 16px 16px;
       min-height: 0;
@@ -629,5 +629,13 @@
     .pip-empty-icon { font-size: 32px; opacity: 0.6; }
     .pip-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
     .pip-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
+
+  /* Desktop keeps its fixed-width pane. The half-and-half split above is for
+     the in-between widths a foldable lands in. */
+  @media (min-width: 1280px) {
+    :global(html.wide-content) .picker-body {
+      grid-template-columns: minmax(0, 1fr) 380px;
+    }
   }
 </style>

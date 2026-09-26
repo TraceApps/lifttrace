@@ -403,7 +403,7 @@
       display: grid;
       /* The pane gives ground when there is less room, so the card column
          keeps its 320px minimum. At 1280px this still resolves to 380px. */
-      grid-template-columns: minmax(0, 1fr) clamp(300px, 30%, 380px);
+      grid-template-columns: 1fr 1fr;
       gap: 24px;
       align-items: start;
     }
@@ -571,5 +571,13 @@
     display: grid;
     gap: 12px;
     align-items: start;
+  }
+
+  /* Desktop keeps its fixed-width pane. The half-and-half split above is for
+     the in-between widths a foldable lands in. */
+  @media (min-width: 1280px) {
+    :global(html.wide-content) .content {
+      grid-template-columns: minmax(0, 1fr) 380px;
+    }
   }
 </style>

@@ -210,7 +210,11 @@
     const measured = tracks.length > 1 ? parseFloat(tracks[tracks.length - 1]) : NaN;
     const colWidth = Number.isFinite(measured) && measured > 0 ? measured : _detailFixedWidthPx;
     if (colWidth !== _detailFixedWidthPx) _detailFixedWidthPx = colWidth;
-    const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
+    // gridRect.right is the padded edge; the last track ends one padding in,
+    // so without this the pane sat flush to the screen while the list kept
+    // its page margin.
+    const padRight = parseFloat(getComputedStyle(_contentEl).paddingRight || '0') || 0;
+    const leftPx = Math.max(0, Math.round(gridRect.right - padRight - colWidth));
     const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
     const pad = parseFloat(getComputedStyle(_contentEl).paddingTop || '0') || 0;
     const naturalDocTop = gridRect.top + scrollY + pad;
@@ -221,6 +225,9 @@
     if (topPx  !== _detailStickyTopPx)  _detailStickyTopPx  = topPx;
     if (leftPx !== _detailFixedLeftPx)  _detailFixedLeftPx  = leftPx;
   }
+  // A phone never fires a resize after load, so measuring only there left the
+  // pane at its 380px default and drew it over the list.
+  $: if (_wideMode !== undefined && _contentEl) requestAnimationFrame(_measureDetailPane);
   onMount(() => {
     requestAnimationFrame(() => requestAnimationFrame(_measureDetailPane));
     try {
@@ -928,7 +935,10 @@
     }
     :global(html.wide-content) .content {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) clamp(300px, 32%, 380px);
+      /* Half and half. Each pane is about a phone's width on a foldable open
+         flat, which is room enough for both, and an equal split means the
+         reserved track and the portaled pane cannot drift apart. */
+      grid-template-columns: 1fr 1fr;
       gap: 24px;
       align-items: start;
     }
@@ -1046,5 +1056,13 @@
     .edp-empty-icon { font-size: 32px; opacity: 0.6; }
     .edp-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
     .edp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
+
+  /* Desktop keeps its fixed-width pane. The half-and-half split above is for
+     the in-between widths a foldable lands in. */
+  @media (min-width: 1280px) {
+    :global(html.wide-content) .content {
+      grid-template-columns: minmax(0, 1fr) 380px;
+    }
   }
 </style>
