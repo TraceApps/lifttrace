@@ -299,7 +299,11 @@
         {#if _infoLoading}
           <div class="loading">Loading…</div>
         {:else}
-          <ExerciseInfo exercise={_infoSelected} pr={_infoPr} history={_infoHistory} />
+          <!-- ExerciseInfo renders several siblings, so it needs a wrapper to be
+               the one scrolling region. The heading and Add stay outside it. -->
+          <div class="pip-scroll">
+            <ExerciseInfo exercise={_infoSelected} pr={_infoPr} history={_infoHistory} />
+          </div>
           <button class="btn btn-primary pip-add-btn" on:click={() => select(_infoSelected)}>
             <span class="material-symbols-rounded">add_circle</span>
             Add to workout
@@ -510,11 +514,24 @@
     :global(html.wide-content) .picker-body > .exercise-list {
       padding: 0;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      /* One column until 1280. Beside the preview pane a foldable leaves the
+         list about 400px, and two columns of ~195px wrapped every name onto
+         three lines with the add and info buttons landing on top of it. */
+      grid-template-columns: minmax(0, 1fr);
+      /* min-content, not auto. Now that the sheet body no longer scrolls, this
+         grid has a definite height, and auto tracks collapse to the rows'
+         automatic minimum, which is 0 because .exercise-row is overflow:hidden.
+         Every card rendered as a 2px hairline. */
+      grid-auto-rows: min-content;
       gap: 8px;
       align-content: start;
       overflow-y: auto;
       min-height: 0;
+    }
+    @media (min-width: 1280px) {
+      :global(html.wide-content) .picker-body > .exercise-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
     /* The "create from search" affordance spans both columns so it
        stays as one visually-distinct row above the results. */
@@ -637,5 +654,18 @@
     :global(html.wide-content) .picker-body {
       grid-template-columns: minmax(0, 1fr) 380px;
     }
+  }
+
+  /* The preview stays put while the list scrolls, and scrolls on its own when
+     its content is taller than the pane. */
+  :global(html.wide-content) .picker-info-pane { min-height: 0; overflow: hidden; }
+  :global(html.wide-content) .picker-info-pane .pip-head,
+  :global(html.wide-content) .picker-info-pane .pip-add-btn { flex: none; }
+  :global(html.wide-content) .picker-info-pane .pip-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
 </style>

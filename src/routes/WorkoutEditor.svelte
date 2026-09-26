@@ -1052,7 +1052,7 @@
 </div>
 
 <!-- Exercise picker -->
-<Sheet open={showPicker} on:close={() => { showPicker = false; addingToSsId = null; replacingIdx = null; }} height="full">
+<Sheet open={showPicker} wide on:close={() => { showPicker = false; addingToSsId = null; replacingIdx = null; }} height="full">
   <ExercisePicker on:select={e => addExercise(e.detail)} />
 </Sheet>
 
