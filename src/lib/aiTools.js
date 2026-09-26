@@ -803,24 +803,49 @@ async function _getPrs({ exercise_name, date_from, date_to, limit } = {}) {
       }));
 }
 
+export function flattenBodyStatRows(rows, stat) {
+  const series = [];
+  for (const row of (Array.isArray(rows) ? rows : [])) {
+    const stats = row?.stats || {};
+
+    // LiftTrace stores body fat canonically as `bodyFat`, while Trace's
+    // external tool contract historically exposed `body_fat`. Resolve that
+    // alias at read time so normalized rows remain visible without adding a
+    // second storage key or changing the write tool.
+    if (stat === 'body_fat') {
+      const hasCanonical = Object.prototype.hasOwnProperty.call(stats, 'bodyFat');
+      const key = hasCanonical ? 'bodyFat' : 'body_fat';
+      if (!Object.prototype.hasOwnProperty.call(stats, key)) continue;
+      const raw = stats[key];
+      if (raw == null || raw === '') continue;
+      const value = typeof raw === 'object' ? raw.value : raw;
+      if (value == null || value === '') continue;
+      series.push({ date: row.date, stat: 'body_fat', value: Number(value), unit: '%' });
+      continue;
+    }
+
+    for (const key of Object.keys(stats)) {
+      // A malformed/legacy row can contain both aliases. The canonical value
+      // is the one semantic observation; do not expose the legacy duplicate.
+      if (key === 'body_fat' && Object.prototype.hasOwnProperty.call(stats, 'bodyFat')) continue;
+      if (stat && key !== stat) continue;
+      const raw = stats[key];
+      if (raw == null || raw === '') continue;
+      const value = typeof raw === 'object' ? raw.value : raw;
+      const unit  = key === 'bodyFat' ? '%' : (typeof raw === 'object' ? raw.unit : _defaultUnit(key));
+      series.push({ date: row.date, stat: key, value: Number(value), unit });
+    }
+  }
+  return series;
+}
+
 async function _getBodyStats({ stat, date_from, date_to } = {}) {
   const from = date_from || _daysAgo(90);
   const to   = date_to   || _today();
   const rows = await _get(`/api/body-stats/range?start=${from}&end=${to}`);
-  // rows[i].stats is an object like { weight: 82, body_fat: 15 }. Flatten
-  // to { date, stat, value } tuples.
-  const series = [];
-  for (const row of rows) {
-    const stats = row.stats || {};
-    for (const key of Object.keys(stats)) {
-      if (stat && key !== stat) continue;
-      const v = stats[key];
-      if (v == null || v === '') continue;
-      const value = typeof v === 'object' ? v.value : v;
-      const unit  = typeof v === 'object' ? v.unit  : _defaultUnit(key);
-      series.push({ date: row.date, stat: key, value: Number(value), unit });
-    }
-  }
+  // Flatten to { date, stat, value } tuples while preserving the legacy
+  // external body_fat spelling and canonical storage key.
+  const series = flattenBodyStatRows(rows, stat);
   series.sort((a, b) => a.date.localeCompare(b.date));
   if (stat) {
     const numericValues = series.map(s => s.value).filter(n => Number.isFinite(n));

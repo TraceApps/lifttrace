@@ -8,6 +8,7 @@
  * Endpoints (all require LiftTrace auth):
  *   POST /test          verify URL + token via NT /api/v1/me
  *   POST /log-workout   forward a completed workout to NT /api/v1/workouts
+ *   GET  /body-measurements  read persisted NT body measurements
  */
 import { Router } from 'express';
 import db from '../db.js';
@@ -71,16 +72,80 @@ router.post('/test', wrap(async (req, res) => {
     const body = await ntRes.json().catch(() => ({}));
     // Surface the token's scopes so the UI can warn if write:workouts is missing.
     const scopes = Array.isArray(body?.scopes) ? body.scopes : [];
+    const capabilities = {
+      workoutWrite: scopes.includes('write:workouts'),
+      bodyMeasurementsRead: scopes.includes('read:body-measurements'),
+    };
+    // The body federation provenance guard needs the canonical identity from
+    // NutriTrace itself, not the URL typed into LiftTrace. A token is not part
+    // of this identity so rotating credentials for the same connection is
+    // safe.
+    const instanceUrl = typeof body?.instance?.url === 'string'
+      ? body.instance.url.replace(/\/+$/, '')
+      : '';
+    const userId = body?.user?.id;
+    if (!instanceUrl || (userId == null || String(userId).length === 0)) {
+      return res.json({
+        ok: false,
+        error: 'NutriTrace response did not include a stable connection identity.',
+        user: body.user || null,
+        scopes,
+        capabilities,
+      });
+    }
+    const connectionIdentity = { instanceUrl, userId: String(userId) };
     if (!scopes.includes('write:workouts')) {
       return res.json({
         ok: false,
         error: 'Token is missing the write:workouts scope. Edit the token in NutriTrace and re-check the box.',
         user: body.user || null,
+        scopes,
+        capabilities,
+        connectionIdentity,
       });
     }
-    return res.json({ ok: true, user: body.user || null });
+    return res.json({ ok: true, user: body.user || null, scopes, capabilities, connectionIdentity });
   } catch (e) {
     return res.json({ ok: false, error: e.message || 'Connection failed' });
+  }
+}));
+
+// GET /body-measurements — a narrow proxy for the federation read contract.
+// Only the documented query parameters are forwarded; _ntFetch keeps the
+// NutriTrace bearer token server-side.
+router.get('/body-measurements', wrap(async (req, res) => {
+  const u = uid(req);
+  const cfg = _config(u);
+  if (!cfg || !cfg.enabled) return res.status(503).json({ error: 'Federation not enabled' });
+
+  const { start, end, source } = req.query || {};
+  for (const [name, value] of [['start', start], ['end', end]]) {
+    if (value != null && (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))) {
+      return res.status(400).json({ error: `${name} must be YYYY-MM-DD` });
+    }
+  }
+  if (source != null && typeof source !== 'string') {
+    return res.status(400).json({ error: 'source must be a string' });
+  }
+
+  const query = new URLSearchParams();
+  if (start) query.set('start', start);
+  if (end) query.set('end', end);
+  if (source) query.set('source', source);
+  const path = `/api/v1/body-measurements${query.toString() ? `?${query}` : ''}`;
+
+  try {
+    const ntRes = await _ntFetch(cfg, path);
+    const body = await ntRes.json().catch(() => ({}));
+    if (!ntRes.ok) {
+      return res.status(502).json({
+        error: body?.error || `NutriTrace returned ${ntRes.status}`,
+        code: body?.code,
+      });
+    }
+    res.json(body);
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Federation request failed' });
   }
 }));
 

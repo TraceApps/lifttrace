@@ -78,6 +78,14 @@ export const LtApi = {
   getBodyStats: (date) => fetch(`/api/body-stats/${date}`, opts).then(_json),
   getBodyStatsRange: (start, end) => fetch(`/api/body-stats/range?start=${start}&end=${end}`, opts).then(_json),
   saveBodyStats: (date, data) => fetch(`/api/body-stats/${date}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
+  getNtBodyMeasurements: (start, end, source) => {
+    const query = new URLSearchParams();
+    if (start) query.set('start', start);
+    if (end) query.set('end', end);
+    if (source) query.set('source', source);
+    const suffix = query.toString() ? `?${query}` : '';
+    return fetch(`/api/nt/body-measurements${suffix}`, opts).then(_json);
+  },
 
   // ── Progress photos ────────────────────────────────────────────────────
   // Two-step by design: upload the file, then attach the URL it returns.
