@@ -11,15 +11,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Foldables use the crease.** Half open like a book, Settings puts its section list on one side and the section on the other, dialogs, sheets, the rest timer and Trace keep off the fold, and a menu opened near it takes the roomier side rather than being cut in half by the hinge. In laptop posture Trace sits on the half lying flat, leaving the session readable on the half standing up. The load type, RPE and rep pickers also flip above their row when there is no room below, which they never did on any phone. The diary, charts and photos still cross the fold freely: an opened foldable is a bigger screen to train from.
 
-
 ### Fixed
 
 - **The body map counts each exercise's own muscles** ([#110](https://github.com/TraceApps/lifttrace/issues/110), reported by @kavemang). wger names its muscles in Latin and nine of those names were not recognized, so nearly half the library lost some or all of its muscles and fell back to a guess from its category: a set of lunges read as a generic leg day, and a curl credited the triceps as much as the biceps. The fatigue view and Muscle Balance recognize the same names now, and hip abduction counts toward the glutes rather than the core.
-
-### Security
-
-- **Only the owner can change an exercise.** Any signed-in member could change a library exercise for everyone, or edit or delete another member's own exercises, through the edit and delete routes and through the phone's sync. Imported catalogs were also listed and deleted by name across every member, so deleting yours removed anyone else's with the same name. Everything the app itself offers is unchanged. Found while looking into [#110](https://github.com/TraceApps/lifttrace/issues/110).
-- **Only an admin can import into or clear the shared exercise library.** Any member could, including clearing all of wger for everyone. Members keep their own on/off switch for each source and can still import a catalog of their own.
 
 ---
 
@@ -93,6 +87,17 @@ First dev pre-release of the 1.4.0 minor. Two headlines: LiftTrace on a watch, a
 ### Security
 
 - No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts. The privacy changes above (fonts, update checks) came out of a review on r/selfhosted.
+
+---
+
+## [1.3.2] - 2026-09-25
+
+Security patch. It matters if more than one account uses your instance; a single-user instance was never exposed.
+
+### Security
+
+- **Only the owner can change an exercise.** Any signed-in member could change a library exercise for everyone, or edit or delete another member's own exercises, through the edit and delete routes and through the phone's sync. Imported catalogs were also listed and deleted by name across every member, so deleting yours removed anyone else's with the same name. Everything the app itself offers is unchanged.
+- **Only an admin can import into or clear the shared exercise library.** Any member could, including clearing all of wger for everyone. Members keep their own on/off switch for each source and can still import a catalog of their own.
 
 ---
 
