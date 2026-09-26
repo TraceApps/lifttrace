@@ -297,13 +297,17 @@
           <ol class="ppp-templates">
             {#each p.templates as t, i}
               <li class="ppp-template">
-                <span class="ppp-template-num">{i + 1}</span>
-                <div class="ppp-template-body">
-                  <span class="ppp-template-name">{t.name || `Day ${i + 1}`}</span>
-                  {#if t.exercises && t.exercises.length}
-                    <span class="ppp-template-meta">{t.exercises.length} {t.exercises.length === 1 ? 'exercise' : 'exercises'}</span>
-                  {/if}
-                </div>
+                <button class="ppp-template-btn" type="button"
+                  on:click={() => push(`/programs/${p.id}/template/${t.id}`)}>
+                  <span class="ppp-template-num">{i + 1}</span>
+                  <div class="ppp-template-body">
+                    <span class="ppp-template-name">{t.name || `Day ${i + 1}`}</span>
+                    {#if t.exercises && t.exercises.length}
+                      <span class="ppp-template-meta">{t.exercises.length} {t.exercises.length === 1 ? 'exercise' : 'exercises'}</span>
+                    {/if}
+                  </div>
+                  <span class="material-symbols-rounded ppp-template-chev">chevron_right</span>
+                </button>
               </li>
             {/each}
           </ol>
@@ -658,4 +662,17 @@
 
   /* 28px was under the touch-target minimum on a device. */
   .ppp-close { min-width: 40px; min-height: 40px; }
+
+  /* The pane lists the workouts, so they open the workout. Without this a
+     wide screen needed four taps to reach the editor where a phone needed
+     two: the pane swallowed the tap and sent you via Full details. */
+  .ppp-template-btn {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: none; border: 0; padding: 0; margin: 0;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+    min-height: 44px; min-width: 0;
+  }
+  .ppp-template-btn .ppp-template-body { min-width: 0; flex: 1; }
+  .ppp-template-chev { margin-left: auto; opacity: 0.5; font-size: 20px; flex: none; }
+  .ppp-template-btn:hover .ppp-template-chev { opacity: 0.9; }
 </style>
