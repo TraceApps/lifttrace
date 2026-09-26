@@ -5,6 +5,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { duplicateProgram as duplicate } from '../lib/program-actions.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { currentUser } from '../stores/auth.js';
@@ -207,39 +208,11 @@
    *  Then picks the lowest unused `(Copy)` / `(Copy N)` given the current
    *  program library, so bulk-duplicating a base program produces
    *  `X (Copy)`, `X (Copy 2)`, `X (Copy 3)`, etc. */
-  function _nextCopyName(sourceName, existingNames) {
-    const base = String(sourceName || '').replace(/\s*\(Copy(?:\s+\d+)?\)\s*$/, '').trim() || 'Program';
-    const taken = new Set(existingNames);
-    if (!taken.has(`${base} (Copy)`)) return `${base} (Copy)`;
-    let n = 2;
-    while (taken.has(`${base} (Copy ${n})`)) n++;
-    return `${base} (Copy ${n})`;
-  }
-
   async function duplicateProgram() {
     try {
-      // Fetch the library so the new name doesn't collide.
-      let existingNames = [];
-      try { existingNames = (await LtApi.getPrograms()).map(p => p.name); } catch {}
-      const p = await LtApi.createProgram({
-        name: _nextCopyName(program.name, existingNames),
-        description: program.description,
-        goal: program.goal,
-        duration_weeks: program.duration_weeks,
-        advance_mode: program.advance_mode,
-        on_complete: program.on_complete,
-      });
-      // Copy all templates
-      for (const t of program.templates || []) {
-        await LtApi.createTemplate({
-          program_id: p.id,
-          name: t.name,
-          day_label: t.day_label,
-          exercises: t.exercises,
-        });
-      }
+      const copy = await duplicate(program);
       showSuccess($_('program_detail.toast.duplicated'));
-      push(`/programs/${p.id}`);
+      push(`/programs/${copy.id}`);
     } catch(e) { showError(e.message); }
   }
 

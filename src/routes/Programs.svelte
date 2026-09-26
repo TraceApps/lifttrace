@@ -11,6 +11,8 @@
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { GOALS } from '../lib/workout.js';
   import Sheet from '../components/ui/Sheet.svelte';
+  import ActionSheet from '../components/ui/ActionSheet.svelte';
+  import { duplicateProgram, setActive, clearActive, renameProgram } from '../lib/program-actions.js';
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
 
@@ -79,6 +81,55 @@
   // on a foldable open flat (about 852px), so this route stayed single-column
   // on the biggest screen it ever gets.
   $: _wideMode = $wideContent;
+  // Preview pane actions. Without these the wide layout was a downgrade: a
+  // tap opened a read-only summary where a tap used to open the editable
+  // page, so the bigger screen could do less than the phone.
+  let _previewMenuOpen = false;
+  let _renameOpen = false;
+  let _renameValue = '';
+  $: _previewActions = _previewSelected ? [
+    { label: $_('programs.rename'), icon: 'edit', value: 'rename' },
+    { label: $_('programs.duplicate'), icon: 'content_copy', value: 'duplicate' },
+    { label: _previewSelected.is_active ? $_('programs.deactivate') : $_('programs.set_active'),
+      icon: _previewSelected.is_active ? 'pause_circle' : 'play_arrow',
+      value: _previewSelected.is_active ? 'deactivate' : 'activate' },
+    { label: $_('programs.delete_confirm'), icon: 'delete', value: 'delete', danger: true },
+  ] : [];
+  async function _onPreviewAction(e) {
+    const v = e.detail?.value;
+    const p = _previewSelected;
+    if (!p) return;
+    try {
+      if (v === 'rename') { _renameValue = p.name || ''; _renameOpen = true; return; }
+      if (v === 'duplicate') {
+        const copy = await duplicateProgram(p);
+        showSuccess($_('programs.toast_duplicated'));
+        push(`/programs/${copy.id}`);
+        return;
+      }
+      if (v === 'activate')   { await setActive(p.id);  showSuccess($_('programs.toast_activated')); }
+      if (v === 'deactivate') { await clearActive();    showSuccess($_('programs.toast_deactivated')); }
+      if (v === 'delete') {
+        if (!await confirmDialog({ title: $_('programs.delete_title'), message: $_('programs.delete_message'),
+                                   confirmText: $_('programs.delete_confirm'), dangerous: true })) return;
+        await LtApi.deleteProgram(p.id);
+        showSuccess($_('programs.toast_deleted'));
+        _previewSelected = null;
+      }
+      await load();
+    } catch (err) { showError(err.message); }
+  }
+  async function _commitRename() {
+    const next = (_renameValue || '').trim();
+    if (!next || !_previewSelected || next === _previewSelected.name) { _renameOpen = false; return; }
+    try {
+      _previewSelected = await renameProgram(_previewSelected.id, next, _previewSelected);
+      showSuccess($_('programs.toast_renamed'));
+      _renameOpen = false;
+      await load();
+    } catch (err) { showError(err.message); }
+  }
+
   // Inline preview pane state — mirrors the Exercises route detail
   // pane so the two library surfaces feel like one system.
   let _previewSelected = null;   // full program object with templates[]
@@ -223,10 +274,16 @@
               {/if}
             </div>
           </div>
-          <button class="ppp-close" on:click={() => { _previewSelected = null; }}
-                  aria-label="Close preview" title="Close preview">
-            <span class="material-symbols-rounded">close</span>
-          </button>
+          <div class="ppp-head-actions">
+            <button class="ppp-close" on:click={() => { _previewMenuOpen = true; }}
+                    aria-label={$_('programs.actions')} title={$_('programs.actions')} aria-haspopup="menu">
+              <span class="material-symbols-rounded">more_vert</span>
+            </button>
+            <button class="ppp-close" on:click={() => { _previewSelected = null; }}
+                    aria-label="Close preview" title="Close preview">
+              <span class="material-symbols-rounded">close</span>
+            </button>
+          </div>
         </div>
         {#if p.description}
           <p class="ppp-desc">{p.description}</p>
@@ -255,6 +312,18 @@
           <span class="material-symbols-rounded">open_in_new</span>
           Full details
         </button>
+        <ActionSheet bind:open={_previewMenuOpen} title={p.name}
+          actions={_previewActions} on:select={_onPreviewAction} />
+        <Sheet bind:open={_renameOpen} title={$_('programs.rename_title')}>
+          <div class="ppp-rename">
+            <input class="input" bind:value={_renameValue} maxlength="120" aria-label="Program name"
+              on:keydown={(e) => { if (e.key === 'Enter') _commitRename(); }} />
+            <div class="ppp-rename-actions">
+              <button class="btn btn-secondary" on:click={() => _renameOpen = false}>{$_('common.cancel')}</button>
+              <button class="btn btn-primary" on:click={_commitRename}>{$_('common.save')}</button>
+            </div>
+          </div>
+        </Sheet>
       {:else}
         <div class="ppp-empty">
           <span class="material-symbols-rounded ppp-empty-icon">calendar_month</span>
@@ -580,4 +649,13 @@
       grid-template-columns: minmax(0, 1fr) 380px;
     }
   }
+
+  .ppp-head-actions { display: flex; align-items: center; gap: 2px; }
+  .ppp-rename { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+  .ppp-rename-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  /* A primary action wants a real touch target, not a 40px pill. */
+  .ppp-full-btn { min-height: 48px; }
+
+  /* 28px was under the touch-target minimum on a device. */
+  .ppp-close { min-width: 40px; min-height: 40px; }
 </style>

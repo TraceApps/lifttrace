@@ -1068,4 +1068,10 @@
       grid-template-columns: minmax(0, 1fr) 380px;
     }
   }
+
+  /* Match the Programs pane: a primary action gets a real touch target. */
+  .edp-full-btn { min-height: 48px; }
+
+  /* 28px was under the touch-target minimum on a device. */
+  .edp-close { min-width: 40px; min-height: 40px; }
 </style>
