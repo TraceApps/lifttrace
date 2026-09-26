@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { wideContent } from '../lib/wide.js';
   import { fold } from '../lib/fold.js';
   import { columnsAcrossFold, gridTemplateAcrossFold, columnForIndex } from '../lib/fold-core.js';
   import { push } from 'svelte-spa-router';
@@ -73,22 +74,11 @@
   // route-pushing to /programs/:id — the "compare programs before
   // committing" flow becomes one glance instead of an in-and-out.
   let _wideMode = false;
-  let _wideMq;
-  function _syncWide() {
-    if (typeof document === 'undefined') return;
-    _wideMode = !!_wideMq?.matches
-      && !document.documentElement.classList.contains('force-mobile-layout');
-  }
-  if (typeof window !== 'undefined') {
-    _wideMq = window.matchMedia('(min-width: 1280px)');
-    _syncWide();
-    _wideMq.addEventListener?.('change', _syncWide);
-  }
-  // Svelte allows multiple onDestroy() registrations — they run in
-  // reverse order — so this second call composes cleanly with the
-  // sync-listener cleanup above.
-  onDestroy(() => { _wideMq?.removeEventListener?.('change', _syncWide); });
-
+  // Room for the preview pane is the content width minus any pinned sidebar,
+  // which html.wide-content already tracks. A 1280px media query never matched
+  // on a foldable open flat (about 852px), so this route stayed single-column
+  // on the biggest screen it ever gets.
+  $: _wideMode = $wideContent;
   // Inline preview pane state — mirrors the Exercises route detail
   // pane so the two library surfaces feel like one system.
   let _previewSelected = null;   // full program object with templates[]
@@ -408,30 +398,32 @@
      Gated by html:not(.force-mobile-layout) so the desktop opt-out
      toggle in Settings still delivers the phone-shaped list at
      any width. */
-  @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .content {
+  @media all {
+    :global(html.wide-content) .content {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
+      /* The pane gives ground when there is less room, so the card column
+         keeps its 320px minimum. At 1280px this still resolves to 380px. */
+      grid-template-columns: minmax(0, 1fr) clamp(300px, 30%, 380px);
       gap: 24px;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .content > .programs-body {
+    :global(html.wide-content) .content > .programs-body {
       min-width: 0;
     }
-    :global(html:not(.force-mobile-layout)) .content > .programs-body > .program-list {
+    :global(html.wide-content) .content > .programs-body > .program-list {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 12px;
     }
     /* Selected card carries an accent border so the user tracks
        which program the preview pane is showing. */
-    :global(html:not(.force-mobile-layout)) .content > .programs-body :global(.program-card.selected-for-preview) {
+    :global(html.wide-content) .content > .programs-body :global(.program-card.selected-for-preview) {
       border-color: var(--accent);
       box-shadow: 0 0 0 1px var(--accent);
     }
     /* Preview pane — sticky in the right column. Same surface
        tokens as the rest of the library preview panes. */
-    :global(html:not(.force-mobile-layout)) .content > .programs-preview-pane {
+    :global(html.wide-content) .content > .programs-preview-pane {
       display: flex;
       flex-direction: column;
       gap: 10px;
