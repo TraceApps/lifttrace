@@ -187,7 +187,13 @@
   // re-fetch on next navigation, so freshly-pulled workouts wouldn't
   // show up in charts until the user left and came back.
   let _onSyncComplete = null;
+  let _onBodyStatsSaved = null;
   onMount(async () => {
+    _onSyncComplete = () => { loadData(); };
+    window.addEventListener('lt:sync-complete', _onSyncComplete);
+    _onBodyStatsSaved = () => { loadData(); };
+    window.addEventListener('lt:body-stats-saved', _onBodyStatsSaved);
+
     try { exercises = await LtApi.getExercises(); } catch {}
     try {
       const res = await fetch('/api/stats/earliest-workout-date', { credentials: 'include' });
@@ -197,12 +203,11 @@
     // pass, because its start date is the earliest workout just fetched.
     if (range === 'All') await loadData();
 
-    _onSyncComplete = () => { loadData(); };
-    window.addEventListener('lt:sync-complete', _onSyncComplete);
   });
 
   onDestroy(() => {
     if (_onSyncComplete) window.removeEventListener('lt:sync-complete', _onSyncComplete);
+    if (_onBodyStatsSaved) window.removeEventListener('lt:body-stats-saved', _onBodyStatsSaved);
   });
 
   $: range, loadData();

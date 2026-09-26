@@ -246,6 +246,17 @@ export function mergeStatsObject(serverStats, clientStats) {
   const server = (serverStats && typeof serverStats === 'object') ? serverStats : {};
   const client = (clientStats && typeof clientStats === 'object') ? clientStats : {};
   const out = { ...server };
+
+  // Older body-stat rows used `body_fat`; the app's canonical key is
+  // `bodyFat`. Only normalize that legacy key when the client supplies the
+  // canonical field, so a partial update with no remote body-fat value still
+  // preserves the existing measurement. The value is then overwritten (or
+  // cleared) by the canonical operation below without leaving two aliases.
+  if (Object.prototype.hasOwnProperty.call(client, 'bodyFat') &&
+      client.bodyFat !== undefined) {
+    delete out.body_fat;
+  }
+
   for (const [k, v] of Object.entries(client)) {
     if (!BODY_STAT_KEYS.has(k)) continue;
     if (v === null) delete out[k];   // explicit clear

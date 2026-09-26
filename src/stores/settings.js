@@ -22,7 +22,8 @@ const SERVER_SETTINGS = new Set([
   'navStyle', 'sidebarPersistent', 'startPage', 'disableAnimations',
   'pageBanners', 'bannerStyle', 'bannerAnimation',
   // NutriTrace federation — workout calorie sync (Phase 2)
-  'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified',
+  'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified', 'ntConnectionIdentity',
+  'ntBodySyncEnabled', 'ntBodySource', 'ntBodySyncedSource', 'ntBodySyncedConnectionIdentity', 'ntBodyLastSyncAt',
   'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises', 'customEquipment',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
   'autoGenerateWarmups', 'trackRpe',
@@ -372,6 +373,24 @@ export const ntFederationEnabled = createSettingStore('ntFederationEnabled', fal
 // Mirrors SettingsTrace's aiKeyVerified pattern. Cleared by any field edit
 // in SettingsFederation; set true by a successful /api/nt/test response.
 export const ntConnectionVerified = createSettingStore('ntConnectionVerified', false);
+// Stable identity of the currently verified NutriTrace connection. This is
+// deliberately limited to the canonical instance URL and NT user id; the
+// bearer token is a credential, not an identity, so token rotation remains
+// valid for the same instance/user.
+export const ntConnectionIdentity = createSettingStore('ntConnectionIdentity', null);
+// Optional NutriTrace body-measurement import. The source is an exact NT
+// source name; an empty value means the sync must resolve a single source.
+export const ntBodySyncEnabled = createSettingStore('ntBodySyncEnabled', false);
+export const ntBodySource = createSettingStore('ntBodySource', '');
+// Safety marker for the NutriTrace source that already owns federation-imported
+// mapped fields. Kept separate from ntBodySource so automatic source resolution
+// never becomes a silent user preference.
+export const ntBodySyncedSource = createSettingStore('ntBodySyncedSource', '');
+// Stable connection identity that already owns imported body fields. Kept
+// separate from the current verified identity and source preference so a
+// connection/user change cannot mix body history.
+export const ntBodySyncedConnectionIdentity = createSettingStore('ntBodySyncedConnectionIdentity', null);
+export const ntBodyLastSyncAt = createSettingStore('ntBodyLastSyncAt', null);
 
 // In-app update check cadence. Hours between GitHub-tag + PWA-SW checks
 // when the app is open. 0 = manual only (turns off every auto-check —

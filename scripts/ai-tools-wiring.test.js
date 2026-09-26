@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { flattenBodyStatRows } from '../src/lib/aiTools.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const aiTools = read('../src/lib/aiTools.js');
@@ -50,6 +51,23 @@ test('Trace is never handed progress photo image content', () => {
   assert.doesNotMatch(body, /\/file/, 'must not fetch the image bytes');
   assert.doesNotMatch(body, /dataUrl|base64|blob/i, 'must not embed image content');
   assert.match(body, /note:/, 'should tell the model it cannot see the images');
+});
+
+test('Trace body_fat reads legacy and canonical aliases without duplicates', () => {
+  const legacy = flattenBodyStatRows([
+    { date: '2026-08-14', stats: { body_fat: 18.1 } },
+  ], 'body_fat');
+  assert.deepEqual(legacy, [{ date: '2026-08-14', stat: 'body_fat', value: 18.1, unit: '%' }]);
+
+  const canonical = flattenBodyStatRows([
+    { date: '2026-08-15', stats: { bodyFat: 17.8 } },
+  ], 'body_fat');
+  assert.deepEqual(canonical, [{ date: '2026-08-15', stat: 'body_fat', value: 17.8, unit: '%' }]);
+
+  const both = flattenBodyStatRows([
+    { date: '2026-08-16', stats: { body_fat: 99, bodyFat: 17.2 } },
+  ], 'body_fat');
+  assert.deepEqual(both, [{ date: '2026-08-16', stat: 'body_fat', value: 17.2, unit: '%' }]);
 });
 
 /**
