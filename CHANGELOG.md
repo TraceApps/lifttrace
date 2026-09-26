@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 
 - **Only the owner can change an exercise.** Any signed-in member could change a library exercise for everyone, or edit or delete another member's own exercises, through the edit and delete routes and through the phone's sync. Imported catalogs were also listed and deleted by name across every member, so deleting yours removed anyone else's with the same name. Everything the app itself offers is unchanged. Found while looking into [#110](https://github.com/TraceApps/lifttrace/issues/110).
+- **Only an admin can import into or clear the shared exercise library.** Any member could, including clearing all of wger for everyone. Members keep their own on/off switch for each source and can still import a catalog of their own.
 
 ---
 

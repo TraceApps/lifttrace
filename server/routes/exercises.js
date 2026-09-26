@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
-import { requireAuth, uid } from '../middleware/auth.js';
+import { requireAuth, uid, userMgmtActive } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
 
@@ -286,6 +286,17 @@ router.get('/sources/list', wrap(async (req, res) => {
 }));
 
 // POST /api/exercises/sources/toggle — enable/disable a source
+// Importing a source into the shared library, or clearing one out of it,
+// changes the catalog for every user at once, so it is the admin's to do.
+// Any signed-in member could, including wiping all of wger for everyone.
+// With user management off there is one person, and they are the admin.
+// Turning a source on or off stays per user, below, and anyone may import
+// a catalog of their own through /exercise-import.
+function requireLibraryAdmin(req, res, next) {
+  if (!userMgmtActive() || req.user?.role === 'admin') return next();
+  return res.status(403).json({ error: 'Only an admin can change the shared exercise library.' });
+}
+
 router.post('/sources/toggle', wrap((req, res) => {
   const { source, enabled } = req.body || {};
   if (!source) return res.status(400).json({ error: 'source required' });
@@ -303,7 +314,7 @@ router.post('/sources/toggle', wrap((req, res) => {
 
 // POST /api/exercises/sources/import — import a single source
 // body: { source: 'wger' | 'free-db' | 'exercisedb', apiKey?: string }
-router.post('/sources/import', wrap(async (req, res) => {
+router.post('/sources/import', requireLibraryAdmin, wrap(async (req, res) => {
   const { importSource } = await import('../exercise-sources/index.js');
   const { source, apiKey } = req.body || {};
   if (!source) return res.status(400).json({ error: 'source required' });
@@ -317,7 +328,7 @@ router.post('/sources/import', wrap(async (req, res) => {
 
 // POST /api/exercises/sources/clear — remove every globally-seeded row from a source
 // body: { source: 'wger' }
-router.post('/sources/clear', wrap(async (req, res) => {
+router.post('/sources/clear', requireLibraryAdmin, wrap(async (req, res) => {
   const { clearSource } = await import('../exercise-sources/index.js');
   const { source } = req.body || {};
   if (!source) return res.status(400).json({ error: 'source required' });
@@ -326,7 +337,7 @@ router.post('/sources/clear', wrap(async (req, res) => {
 }));
 
 // Legacy endpoint kept for back-compat with the existing Settings sync button
-router.post('/sync-wger', wrap(async (req, res) => {
+router.post('/sync-wger', requireLibraryAdmin, wrap(async (req, res) => {
   const { importSource } = await import('../exercise-sources/index.js');
   const count = await importSource('wger');
   res.json({ ok: true, count });

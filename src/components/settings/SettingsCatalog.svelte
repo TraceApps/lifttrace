@@ -7,6 +7,12 @@
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import ExerciseEditor from '../exercises/ExerciseEditor.svelte';
+  import { currentUser, userMgmtActive } from '../../stores/auth.js';
+
+  // Importing into or clearing the shared library is the admin's, the same
+  // rule the server enforces. With user management off the one person is
+  // the admin. Members keep their own on/off switches and their own catalogs.
+  $: canManageLibrary = !$userMgmtActive || $currentUser?.role === 'admin';
 
   export let expanded = false;
   export let visible = true;
@@ -252,6 +258,9 @@
   {#if expanded}
     <div class="section-body" transition:slide={{ duration: 180 }}>
       <div class="card">
+        {#if !canManageLibrary}
+          <p class="src-admin-note">{$_('settings_catalog.library_admin_only')}</p>
+        {/if}
         {#each exerciseSources as src (src.id)}
           <div class="src-row">
             <div class="src-info">
@@ -260,7 +269,7 @@
                 {#if src.count > 0}<span class="src-count">{src.count}</span>{/if}
               </div>
               <div class="src-desc">{src.description}</div>
-              {#if src.requiresKey}
+              {#if src.requiresKey && canManageLibrary}
                 <input class="form-input-sm src-key" type="password" placeholder={$_('settings_catalog.rapidapi_key_ph')} bind:value={sourceKeys[src.id]} />
                 <div class="src-byok-note">
                   Bring your own RapidAPI key. By enabling this source you confirm you have an
@@ -274,10 +283,12 @@
               {#if src.count > 0}
                 <Toggle checked={src.enabled} on:change={() => toggleSource(src)} />
               {/if}
+              {#if canManageLibrary}
               <button class="btn btn-secondary btn-sm" disabled={sourceBusy[src.id] === 'import'} on:click={() => importSource(src)}>
                 {sourceBusy[src.id] === 'import' ? 'Importing\u2026' : (src.count > 0 ? 'Re-import' : 'Import')}
               </button>
-              {#if src.count > 0}
+              {/if}
+              {#if src.count > 0 && canManageLibrary}
                 <button class="btn btn-secondary btn-sm src-clear" disabled={sourceBusy[src.id] === 'clear'} on:click={() => clearSource(src)}
                   title="Clear {src.count} imported exercises (source stays available to re-import)">
                   <span class="material-symbols-rounded" style="font-size:16px">delete_sweep</span>
@@ -478,6 +489,10 @@
 <ExerciseEditor bind:open={editorOpen} exercise={editorTarget} on:saved={loadCustomExercises} />
 
 <style>
+  .src-admin-note {
+    margin: 0; padding: 12px 16px 4px;
+    font-size: 13px; color: var(--text-3); line-height: 1.4;
+  }
   .src-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
   .src-row:last-child { border-bottom: none; }
   .src-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }

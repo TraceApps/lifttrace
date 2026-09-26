@@ -67,3 +67,18 @@ test('catalogs are listed and deleted per user, not by name across everyone', ()
   assert.match(del, /AND is_global = 0 AND created_by IS \?/);
   assert.match(del, /DELETE FROM user_settings WHERE key = \? AND user_id IS \?/);
 });
+
+test('only an admin changes the shared library, and a member still has their own switches', () => {
+  // Importing a source into the library or clearing one out of it changes
+  // the catalog for everyone; any member could, wger included.
+  const src = read('../server/routes/exercises.js');
+  assert.match(src, /function requireLibraryAdmin\(req, res, next\) \{\s*\n\s*if \(!userMgmtActive\(\) \|\| req\.user\?\.role === 'admin'\) return next\(\);/,
+    'admins, and the one person of a single-user instance');
+  for (const route of ["'/sources/import'", "'/sources/clear'", "'/sync-wger'"]) {
+    assert.match(src, new RegExp(`router\\.post\\(${route.replace(/[/-]/g, '\\$&')}, requireLibraryAdmin,`), route);
+  }
+  assert.doesNotMatch(src, /router\.post\('\/sources\/toggle', requireLibraryAdmin/, 'turning a source on or off stays per user');
+  const ui = read('../src/components/settings/SettingsCatalog.svelte');
+  assert.match(ui, /\$: canManageLibrary = !\$userMgmtActive \|\| \$currentUser\?\.role === 'admin';/, 'the screen uses the same rule');
+  assert.match(ui, /\{#if src\.count > 0 && canManageLibrary\}/, 'Clear is hidden rather than left to fail');
+});

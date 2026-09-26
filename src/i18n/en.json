@@ -872,6 +872,7 @@
     "show_trend_hint":       "Smoothed trend overlay on charts"
   },
   "settings_catalog": {
+    "library_admin_only": "Your admin manages the shared exercise library. You can still turn sources on or off for yourself, and import a catalog of your own below.",
     "deleted":               "Deleted",
     "rapidapi_key_ph":       "RapidAPI key",
     "offline_library":       "Offline Exercise Library",
