@@ -36,6 +36,7 @@ import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
+import { canChangeExercise } from '../lib/exercise-owner.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
 // Same shape as workout.js — duplicated here to keep both routes
@@ -246,10 +247,15 @@ router.post('/push', wrap((req, res) => {
     // ── exercises ──────────────────────────────────────────────────────
     for (const e of (body.exercises || [])) {
       const existing = e.server_id
-        ? db.prepare('SELECT updated_at FROM exercises WHERE id = ?').get(e.server_id)
+        ? db.prepare('SELECT updated_at, is_global, created_by FROM exercises WHERE id = ?').get(e.server_id)
         : null;
       if (e.server_id && existing) {
-        if (wins(e.updated_at, existing.updated_at)) {
+        // Only a row this user owns is written. A library exercise, or
+        // someone else's, used to be overwritten or deleted by whichever
+        // phone pushed it; now it is answered as though it lost the
+        // timestamp race, so the phone stops sending it and nothing changes
+        // underneath anyone else (see lib/exercise-owner.js).
+        if (canChangeExercise(existing, u) && wins(e.updated_at, existing.updated_at)) {
           if (e.deleted_at) {
             db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
           } else {
