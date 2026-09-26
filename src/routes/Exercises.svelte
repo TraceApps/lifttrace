@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { wideContent } from '../lib/wide.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -169,7 +170,6 @@
   });
   onDestroy(() => {
     if (_onSyncComplete) window.removeEventListener('lt:sync-complete', _onSyncComplete);
-    _wideMq?.removeEventListener?.('change', _syncWide);
   });
 
   // Wide-mode gate (same pattern the picker uses). At >=1280px on
@@ -177,17 +177,10 @@
   // pane on the right instead of pushing to /exercise/:id — keeps
   // the browse flow intact for library curation.
   let _wideMode = false;
-  let _wideMq;
-  function _syncWide() {
-    if (typeof document === 'undefined') return;
-    _wideMode = !!_wideMq?.matches
-      && !document.documentElement.classList.contains('force-mobile-layout');
-  }
-  if (typeof window !== 'undefined') {
-    _wideMq = window.matchMedia('(min-width: 1280px)');
-    _syncWide();
-    _wideMq.addEventListener?.('change', _syncWide);
-  }
+  // Room for the second pane is the content width minus any pinned sidebar,
+  // which html.wide-content tracks. A 1280px media query never matched on a
+  // foldable open flat (about 852px). The class already excludes Force Mobile.
+  $: _wideMode = $wideContent;
 
   // Detail pane positioning. Was plain position:sticky inside the grid,
   // which looked right in isolation but never actually stuck: the route
@@ -210,7 +203,13 @@
   function _measureDetailPane() {
     if (!_contentEl) return;
     const gridRect = _contentEl.getBoundingClientRect();
-    const colWidth = _detailFixedWidthPx;
+    // Read the real track rather than assuming 380px. The pane column is a
+    // clamp() now, so on a foldable it resolves narrower and a hardcoded
+    // width drew the pane straight over the right edge of the list.
+    const tracks = getComputedStyle(_contentEl).gridTemplateColumns.split(' ').filter(Boolean);
+    const measured = tracks.length > 1 ? parseFloat(tracks[tracks.length - 1]) : NaN;
+    const colWidth = Number.isFinite(measured) && measured > 0 ? measured : _detailFixedWidthPx;
+    if (colWidth !== _detailFixedWidthPx) _detailFixedWidthPx = colWidth;
     const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
     const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
     const pad = parseFloat(getComputedStyle(_contentEl).paddingTop || '0') || 0;
@@ -228,7 +227,7 @@
       _detailResizeObs = new ResizeObserver(_measureDetailPane);
       if (_contentEl) _detailResizeObs.observe(_contentEl);
     } catch { /* ResizeObserver unavailable, one-shot measurement stands */ }
-    const onResize = () => { _syncWide(); _measureDetailPane(); };
+    const onResize = () => { _measureDetailPane(); };
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
@@ -909,45 +908,55 @@
      Everything gated by html:not(.force-mobile-layout) so the
      desktop opt-out toggle delivers the phone-shaped library at
      any width. */
-  @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .category-chips {
+  /* Gated on the room available rather than a 1280px viewport, so a
+     foldable open flat (about 852px) gets the two-pane layout too. */
+  @media all {
+    :global(html.wide-content) .category-chips {
       flex-wrap: wrap;
       overflow-x: visible;
     }
-    :global(html:not(.force-mobile-layout)) .equipment-chips-wrap {
+    :global(html.wide-content) .equipment-chips-wrap {
       overflow-x: visible;
     }
-    :global(html:not(.force-mobile-layout)) .equipment-chips-wrap::before,
-    :global(html:not(.force-mobile-layout)) .equipment-chips-wrap::after {
+    :global(html.wide-content) .equipment-chips-wrap::before,
+    :global(html.wide-content) .equipment-chips-wrap::after {
       display: none;
     }
-    :global(html:not(.force-mobile-layout)) .equipment-chips {
+    :global(html.wide-content) .equipment-chips {
       flex-wrap: wrap;
       overflow-x: visible;
     }
-    :global(html:not(.force-mobile-layout)) .content {
+    :global(html.wide-content) .content {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
+      grid-template-columns: minmax(0, 1fr) clamp(300px, 32%, 380px);
       gap: 24px;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .content > .ex-list-col {
+    :global(html.wide-content) .content > .ex-list-col {
       min-width: 0;
     }
     /* Each category group's list becomes a 2-col card grid so the
        wide screen shows twice as many rows without scrolling. Group
        title still spans full width above its own grid. */
-    :global(html:not(.force-mobile-layout)) .content > .ex-list-col :global(.group-list) {
+    :global(html.wide-content) .content > .ex-list-col :global(.group-list) {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      /* One column until there is genuinely room for two. Beside the detail
+         pane a foldable leaves about 500px, and two columns of 240px wrapped
+         every exercise name onto three lines. */
+      grid-template-columns: 1fr;
       gap: 8px;
     }
-    :global(html:not(.force-mobile-layout)) .content > .ex-list-col :global(.exercise-row) {
+    @media (min-width: 1280px) {
+      :global(html.wide-content) .content > .ex-list-col :global(.group-list) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    :global(html.wide-content) .content > .ex-list-col :global(.exercise-row) {
       margin-bottom: 0;
     }
     /* Selected-for-detail row gets an accent border so the user
        tracks which card the right pane is previewing. */
-    :global(html:not(.force-mobile-layout)) .content > .ex-list-col :global(.exercise-row.selected-for-detail) {
+    :global(html.wide-content) .content > .ex-list-col :global(.exercise-row.selected-for-detail) {
       border-color: var(--accent);
       background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
     }
@@ -962,7 +971,7 @@
        a direct child of body, not a grid item. Grid still reserves the
        380px column because its track size is explicit, so the list
        column doesn't reflow when the aside leaves flow. */
-    :global(html:not(.force-mobile-layout)) .ex-detail-pane {
+    :global(html.wide-content) .ex-detail-pane {
       display: flex;
       flex-direction: column;
       gap: 8px;

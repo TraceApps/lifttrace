@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { wideContent } from '../lib/wide.js';
   import { fmtSetDuration, parseDuration } from '../lib/workout.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -102,18 +103,10 @@
   // of route-pushing to the workout editor. Editing / adding sets
   // still routes through the pane's "Edit" button.
   let _wideMode = false;
-  let _wideMq;
-  function _syncWide() {
-    if (typeof document === 'undefined') return;
-    _wideMode = !!_wideMq?.matches
-      && !document.documentElement.classList.contains('force-mobile-layout');
-  }
-  if (typeof window !== 'undefined') {
-    _wideMq = window.matchMedia('(min-width: 1280px)');
-    _syncWide();
-    _wideMq.addEventListener?.('change', _syncWide);
-  }
-  onDestroy(() => { _wideMq?.removeEventListener?.('change', _syncWide); });
+  // Room for the second pane is the content width minus any pinned sidebar,
+  // which html.wide-content tracks. A 1280px media query never matched on a
+  // foldable open flat (about 852px). The class already excludes Force Mobile.
+  $: _wideMode = $wideContent;
 
   let _previewTemplateId = null;
   $: _previewTemplate = program?.templates?.find(t => t.id === _previewTemplateId) || null;
@@ -736,21 +729,23 @@
      wrapper becomes a 2-col grid at >=1280px on non-forced-mobile
      viewports so a lifter can scan the whole program's day-by-day
      structure without opening WorkoutEditor for each day. */
-  @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .pd-body {
+  /* Gated on the room available rather than a 1280px viewport, so a
+     foldable open flat (about 852px) gets the two-pane layout too. */
+  @media all {
+    :global(html.wide-content) .pd-body {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 400px;
+      grid-template-columns: minmax(0, 1fr) clamp(300px, 34%, 400px);
       gap: 20px;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .pd-body > .template-list {
+    :global(html.wide-content) .pd-body > .template-list {
       min-width: 0;
     }
-    :global(html:not(.force-mobile-layout)) .pd-body :global(.template-card.selected-for-preview) {
+    :global(html.wide-content) .pd-body :global(.template-card.selected-for-preview) {
       border-color: var(--accent);
       box-shadow: 0 0 0 1px var(--accent);
     }
-    :global(html:not(.force-mobile-layout)) .pd-body > .pd-template-pane {
+    :global(html.wide-content) .pd-body > .pd-template-pane {
       display: flex;
       flex-direction: column;
       gap: 10px;

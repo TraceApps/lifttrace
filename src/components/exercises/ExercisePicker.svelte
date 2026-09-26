@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { wideContent } from '../../lib/wide.js';
   import { LtApi } from '../../lib/api.js';
   import { weightUnit } from '../../stores/settings.js';
   import { CATEGORIES } from '../../lib/workout.js';
@@ -55,18 +56,10 @@
   // flag so a mid-session viewport rotation flips both the info-mode
   // choice and the row-cap simultaneously.
   let _wideMode = false;
-  let _wideMq;
-  function _syncWide() {
-    if (typeof document === 'undefined') return;
-    _wideMode = !!_wideMq?.matches
-      && !document.documentElement.classList.contains('force-mobile-layout');
-  }
-  if (typeof window !== 'undefined') {
-    _wideMq = window.matchMedia('(min-width: 1280px)');
-    _syncWide();
-    _wideMq.addEventListener?.('change', _syncWide);
-  }
-  onDestroy(() => { _wideMq?.removeEventListener?.('change', _syncWide); });
+  // Room for the second pane is the content width minus any pinned sidebar,
+  // which html.wide-content tracks. A 1280px media query never matched on a
+  // foldable open flat (about 852px). The class already excludes Force Mobile.
+  $: _wideMode = $wideContent;
 
   function openInfo(ex) {
     if (_wideMode) {
@@ -496,23 +489,25 @@
          column of very-wide rows.
      Gated by html:not(.force-mobile-layout) + width so mobile is
      untouched even at large viewport widths. */
-  @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .picker-header h3 {
+  /* Gated on the room available rather than a 1280px viewport, so a
+     foldable open flat (about 852px) gets the two-pane layout too. */
+  @media all {
+    :global(html.wide-content) .picker-header h3 {
       font-size: 22px;
     }
-    :global(html:not(.force-mobile-layout)) .category-chips,
-    :global(html:not(.force-mobile-layout)) .equipment-chips {
+    :global(html.wide-content) .category-chips,
+    :global(html.wide-content) .equipment-chips {
       flex-wrap: wrap;
       overflow-x: visible;
     }
-    :global(html:not(.force-mobile-layout)) .picker-body {
+    :global(html.wide-content) .picker-body {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
+      grid-template-columns: minmax(0, 1fr) clamp(300px, 32%, 380px);
       gap: 16px;
       padding: 0 16px 16px;
       min-height: 0;
     }
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list {
+    :global(html.wide-content) .picker-body > .exercise-list {
       padding: 0;
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -523,27 +518,27 @@
     }
     /* The "create from search" affordance spans both columns so it
        stays as one visually-distinct row above the results. */
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .create-from-search {
+    :global(html.wide-content) .picker-body > .exercise-list > .create-from-search {
       grid-column: 1 / -1;
       margin-bottom: 0;
     }
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .empty-picker,
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .loading {
+    :global(html.wide-content) .picker-body > .exercise-list > .empty-picker,
+    :global(html.wide-content) .picker-body > .exercise-list > .loading {
       grid-column: 1 / -1;
     }
     /* Selected-for-info row gets an accent border so the user can
        see which card is being previewed in the right pane. */
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row.selected-for-info {
+    :global(html.wide-content) .picker-body > .exercise-list > .exercise-row.selected-for-info {
       border-color: var(--accent);
       background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
     }
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row {
+    :global(html.wide-content) .picker-body > .exercise-list > .exercise-row {
       margin-bottom: 0;
     }
     /* Thumbnail slot at wide widths — 44px square with the same
        gradient background Exercises.svelte uses so pre-loaded gifs
        and the icon fallback both land on a neutral surface. */
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb {
+    :global(html.wide-content) .picker-body > .exercise-list > .exercise-row .picker-thumb {
       display: flex;
       align-items: center;
       justify-content: center;
@@ -554,23 +549,23 @@
       flex-shrink: 0;
       overflow: hidden;
     }
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb img {
+    :global(html.wide-content) .picker-body > .exercise-list > .exercise-row .picker-thumb img {
       width: 100%;
       height: 100%;
       object-fit: cover;
     }
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row .picker-thumb .material-symbols-rounded {
+    :global(html.wide-content) .picker-body > .exercise-list > .exercise-row .picker-thumb .material-symbols-rounded {
       font-size: 22px;
       color: var(--text-3);
     }
     /* Give the tap-button breathing room for the new thumbnail. */
-    :global(html:not(.force-mobile-layout)) .picker-body > .exercise-list > .exercise-row > .exercise-tap {
+    :global(html.wide-content) .picker-body > .exercise-list > .exercise-row > .exercise-tap {
       gap: 12px;
       padding: 10px 12px;
     }
     /* Inline info pane — sticky within the sheet body. Same surface
        + border tokens as any other card. */
-    :global(html:not(.force-mobile-layout)) .picker-body > .picker-info-pane {
+    :global(html.wide-content) .picker-body > .picker-info-pane {
       display: flex;
       flex-direction: column;
       gap: 8px;

@@ -1,5 +1,6 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
+  import { wideContent } from '../lib/wide.js';
   import { onMount, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -480,7 +481,6 @@
   // on every {#key $location} swap) so we always grab the LAST scrollY.
   onDestroy(() => {
     if (typeof window !== 'undefined') _saveRadioState();
-    _wideMq?.removeEventListener?.('change', _syncWide);
     document.documentElement.classList.remove('lt-route-radio');
   });
 
@@ -491,16 +491,11 @@
   // the App-level MiniPlayer can hide itself on this route at wide
   // widths (the hero is a richer replacement).
   let _wideMode = false;
-  let _wideMq;
-  function _syncWide() {
-    if (typeof document === 'undefined') return;
-    _wideMode = !!_wideMq?.matches
-      && !document.documentElement.classList.contains('force-mobile-layout');
-  }
+  // Room for the second pane is the content width minus any pinned sidebar,
+  // which html.wide-content tracks. A 1280px media query never matched on a
+  // foldable open flat (about 852px). The class already excludes Force Mobile.
+  $: _wideMode = $wideContent;
   if (typeof window !== 'undefined') {
-    _wideMq = window.matchMedia('(min-width: 1280px)');
-    _syncWide();
-    _wideMq.addEventListener?.('change', _syncWide);
     document.documentElement.classList.add('lt-route-radio');
   }
 
