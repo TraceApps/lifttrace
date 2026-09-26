@@ -439,7 +439,7 @@
             {/if}
             <button class="btn btn-primary ptp-edit-btn" on:click={() => openTemplate(t.id)}>
               <span class="material-symbols-rounded">edit</span>
-              Edit workout
+              Edit Workout
             </button>
           {:else}
             <div class="ptp-empty">

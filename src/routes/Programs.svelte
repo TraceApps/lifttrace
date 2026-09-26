@@ -314,7 +314,7 @@
         {/if}
         <button class="btn btn-primary ppp-full-btn" on:click={() => push(`/programs/${p.id}`)}>
           <span class="material-symbols-rounded">open_in_new</span>
-          Full details
+          {$_('programs.full_details')}
         </button>
         <ActionSheet bind:open={_previewMenuOpen} title={p.name}
           actions={_previewActions} on:select={_onPreviewAction} />

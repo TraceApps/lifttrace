@@ -609,7 +609,7 @@
           <ExerciseInfo exercise={_detailSelected} pr={_detailPr} history={_detailHistory} />
           <button class="btn btn-primary edp-full-btn" on:click={() => push(`/exercise/${_detailSelected.id}`)}>
             <span class="material-symbols-rounded">open_in_new</span>
-            Full details
+            {$_('programs.full_details')}
           </button>
         {/if}
       {:else}

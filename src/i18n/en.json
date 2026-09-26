@@ -845,6 +845,7 @@
     "new_program":           "New Program",
     "name":                  "Name",
     "rename": "Rename",
+    "full_details": "Full Details",
     "rename_title": "Rename Program",
     "duplicate": "Duplicate",
     "set_active": "Set Active",
