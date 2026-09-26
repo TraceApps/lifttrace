@@ -353,6 +353,16 @@
     document.documentElement.style.setProperty('--nav-bar-h', hasBottomNav ? 'var(--nav-h)' : '0px');
   }
 
+  // Body measurements use the existing app lifecycle only. The helper is
+  // deliberately lazy and internally no-ops unless the opt-in settings are
+  // enabled, so a failed optional import cannot affect app startup.
+  async function _syncNtBodySilently() {
+    try {
+      const { syncNtBodyMeasurements } = await import('./lib/nt-body-sync.js');
+      await syncNtBodyMeasurements();
+    } catch {}
+  }
+
   onMount(async () => {
     initFold();
     // Update checks: a device that was already using the app keeps checking,
@@ -411,6 +421,7 @@
           CapApp.addListener('resume', () => {
             startPolling();
             sync.fullSync().catch(() => {});
+            _syncNtBodySilently();
             // Coming back is a good moment to top up the watch's token, and it
             // catches a watch paired after this app was last opened.
             import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {});
@@ -559,6 +570,11 @@
 
     await loadAuthState();
 
+    // Once server-backed settings have arrived, opportunistically converge
+    // the opt-in NutriTrace body source on startup. The helper applies the
+    // six-hour foreground throttle and returns errors for silent callers.
+    _syncNtBodySilently();
+
     // Env-lock state for AI / SMTP / OIDC. Fetched globally so the Trace
     // FAB knows about env-set AI_ENABLED without waiting for Settings to
     // load. Mirrors NutriTrace #36.
@@ -617,6 +633,7 @@
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'visible') return;
+        _syncNtBodySilently();
         import('./lib/updates.js').then(({ checkForUpdate, getAutoCheck }) => {
           if (!getAutoCheck()) return;
           checkForUpdate({ force: false }).catch(() => {});
