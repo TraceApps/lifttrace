@@ -37,10 +37,19 @@ test("a flat crease does not trigger anything that avoids one", () => {
   assert.equal(menu.above, false, 'a flat crease does not push a menu around');
 });
 
+test('both sources return the same shape', () => {
+  const fromPlugin = foldFromFeatures({ features: [{ state: 'half_opened', orientation: 'vertical', separating: false, left: 400, right: 420, top: 0, bottom: 900 }] });
+  const fromWeb = foldFromSegments([{ x: 0, y: 0, width: 400, height: 900 }, { x: 420, y: 0, width: 400, height: 900 }]);
+  assert.deepEqual(Object.keys(fromPlugin).sort(), Object.keys(fromWeb).sort());
+  assert.deepEqual(fromPlugin, fromWeb);
+});
+
 test('viewport segments', () => {
   assert.equal(foldFromSegments([{ x: 0, y: 0, width: 800, height: 600 }]), null);
-  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 400, height: 900 }, { x: 420, y: 0, width: 400, height: 900 }]), { posture: 'book', start: 400, end: 420 });
-  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 900, height: 400 }, { x: 0, y: 400, width: 900, height: 400 }]), { posture: 'tabletop', start: 400, end: 400 });
+  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 400, height: 900 }, { x: 420, y: 0, width: 400, height: 900 }]),
+    { posture: 'book', start: 400, end: 420, separating: true, vertical: true });
+  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 900, height: 400 }, { x: 0, y: 400, width: 900, height: 400 }]),
+    { posture: 'tabletop', start: 400, end: 400, separating: true, vertical: false });
 });
 
 test('a book fold splits a grid into columns either side of the crease', () => {

@@ -31,12 +31,22 @@ export function foldFromFeatures(payload) {
   return { posture, start, end, separating, vertical };
 }
 
-/** Viewport segments (DOMRect-like) to a fold, or null. Pure. */
+/**
+ * Viewport segments (DOMRect-like) to a fold, or null. Pure.
+ *
+ * Returns the same shape as foldFromFeatures so the two sources are
+ * interchangeable. The browser only reports two segments when the viewport is
+ * genuinely split, so anything this returns is separating; open flat there is
+ * a single segment and the hinge is not exposed at all, which is why the web
+ * path has no equivalent of posture 'flat'.
+ */
 export function foldFromSegments(segments) {
   if (!segments || segments.length !== 2) return null;
   const [a, b] = segments;
-  if (b.x >= a.x + a.width - 1 && Math.abs(a.y - b.y) < 2) return { posture: 'book', start: Math.round(a.x + a.width), end: Math.round(b.x) };
-  if (b.y >= a.y + a.height - 1 && Math.abs(a.x - b.x) < 2) return { posture: 'tabletop', start: Math.round(a.y + a.height), end: Math.round(b.y) };
+  if (b.x >= a.x + a.width - 1 && Math.abs(a.y - b.y) < 2)
+    return { posture: 'book', start: Math.round(a.x + a.width), end: Math.round(b.x), separating: true, vertical: true };
+  if (b.y >= a.y + a.height - 1 && Math.abs(a.x - b.x) < 2)
+    return { posture: 'tabletop', start: Math.round(a.y + a.height), end: Math.round(b.y), separating: true, vertical: false };
   return null;
 }
 
