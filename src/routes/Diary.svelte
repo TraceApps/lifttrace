@@ -387,11 +387,6 @@
   })();
   $: weekWorkoutCount = weekPeekDays.filter(d => d.done).length;
 
-  function calHasWorkout(day) {
-    const key = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    return activeDateSet.has(key);
-  }
-
   function openDatePicker() {
     const d = new Date($currentDate + 'T12:00:00');
     calYear  = d.getFullYear();
@@ -412,8 +407,6 @@
   }
   function calPickYear(y)  { calYear = y; showYearPicker = false; }
   function calPickMonth(m) { calMonth = m; showMonthPicker = false; }
-  function calIsToday(day)  { const t = localDateStr(); return `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}` === t; }
-  function calIsSel(day)    { return `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}` === $currentDate; }
 
   function formatDateSub(dateStr) {
     const d = new Date(dateStr + 'T12:00:00');
@@ -3360,15 +3353,19 @@
               {@const day = i + 1}
               {@const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`}
               {@const hasUnread = unreadFeedbackDates.has(dateStr)}
+              <!-- Each check reads this cell's own dateStr. They used to call
+                   helpers that worked the month out inside, which the calendar
+                   never re-ran when the arrows changed month: the workout dots
+                   stayed on the first month's days (issue #125). -->
               <button class="dp-day"
-                class:dp-today={calIsToday(day)}
-                class:dp-sel={calIsSel(day)}
-                class:dp-has-workout={calHasWorkout(day)}
+                class:dp-today={dateStr === localDateStr()}
+                class:dp-sel={dateStr === $currentDate}
+                class:dp-has-workout={activeDateSet.has(dateStr)}
                 class:dp-has-feedback={hasUnread}
                 on:click={() => calPickDay(day)}
               >
                 {day}
-                {#if calHasWorkout(day)}<span class="dp-dot"></span>{/if}
+                {#if activeDateSet.has(dateStr)}<span class="dp-dot"></span>{/if}
                 {#if hasUnread}<span class="dp-dot dp-dot-feedback"></span>{/if}
               </button>
             {/each}

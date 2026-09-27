@@ -16,6 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The body map counts each exercise's own muscles** ([#110](https://github.com/TraceApps/lifttrace/issues/110), reported by @kavemang). wger names its muscles in Latin and nine of those names were not recognized, so nearly half the library lost some or all of its muscles and fell back to a guess from its category: a set of lunges read as a generic leg day, and a curl credited the triceps as much as the biceps. The fatigue view and Muscle Balance recognize the same names now, and hip abduction counts toward the glutes rather than the core.
 - **The Statistics heatmap no longer marks a day you didn't train** ([#124](https://github.com/TraceApps/lifttrace/issues/124), reported by @Scorch-Light). Removing the last exercise from a day left an empty workout behind, which lit that day on the heatmap and in the streak dots while the Diary showed nothing.
 - **The Diary's Last Workout card and the desktop sidebar's Recent Workouts now show up.** Neither had ever appeared: both failed to read the list they were given. Found while looking into [#124](https://github.com/TraceApps/lifttrace/issues/124).
+- **The date picker's workout dots follow the month** ([#125](https://github.com/TraceApps/lifttrace/issues/125), reported by @Scorch-Light). Paging with the arrows kept the first month's dots on the days of every month after it; only the month dropdown showed the right ones.
 
 ---
 
