@@ -17,6 +17,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The Statistics heatmap no longer marks a day you didn't train** ([#124](https://github.com/TraceApps/lifttrace/issues/124), reported by @Scorch-Light). Removing the last exercise from a day left an empty workout behind, which lit that day on the heatmap and in the streak dots while the Diary showed nothing.
 - **The Diary's Last Workout card and the desktop sidebar's Recent Workouts now show up.** Neither had ever appeared: both failed to read the list they were given. Found while looking into [#124](https://github.com/TraceApps/lifttrace/issues/124).
 - **Clearing a workout clears the day** ([#120](https://github.com/TraceApps/lifttrace/pull/120), by @backmind). A cleared day stayed lit on the Statistics heatmap, the streak dots and the weekly goal ring, and stayed marked as finished. The heatmap now counts a day only once a set is completed, like the Diary, and the Diary's week strip updates right after a clear or a delete.
+- **Offline, the Diary's dots and the heatmap keep up.** A workout logged, cleared or deleted with no connection showed on its own day, but not in the dots, the week strip or the heatmap until it synced.
 - **The date picker's workout dots follow the month** ([#125](https://github.com/TraceApps/lifttrace/issues/125), reported by @Scorch-Light). Paging with the arrows kept the first month's dots on the days of every month after it; only the month dropdown showed the right ones.
 
 ---
