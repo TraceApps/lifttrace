@@ -54,3 +54,23 @@ test('what the two cards say is translatable', () => {
   assert.match(en.diary_extra.exercise_count, /\{count, plural, one \{# exercise\} other \{# exercises\}\}/);
   assert.doesNotMatch(diary, /exs\.length === 1 \? 'exercise' : 'exercises'/);
 });
+
+test('Statistics counts a day the way the Diary does: a completed set (PR #120)', () => {
+  const m = stats.match(/const _hasCompletedSet = w => \{([\s\S]*?)\n  \};/);
+  assert.ok(m, 'one rule for the heatmap, the streak dots and the goal ring');
+  const hasCompletedSet = new Function('w', m[1]);
+  assert.equal(hasCompletedSet({ exercises: [] }), false, 'a cleared day');
+  assert.equal(hasCompletedSet({ exercises: [{ sets: [{ completed: false }] }] }), false, 'planned, not done');
+  assert.equal(hasCompletedSet({ exercises: [{ sets: [{ completed: true }] }] }), true);
+  assert.equal(hasCompletedSet({ exercises: '[{"sets":[{"completed":true}]}]' }), true, 'text still works');
+  assert.match(stats, /workoutDates = new Set\(logs\.filter\(_hasCompletedSet\)\.map\(l => l\.date\)\)/);
+  assert.match(stats, /w\.completed && _hasCompletedSet\(w\) && w\.date >= startStr/, 'the weekly goal ring');
+});
+
+test('Clear Workout unmarks the day as finished and refreshes its dots (PR #120)', () => {
+  const clear = diary.slice(diary.indexOf("} else if (action === 'clear') {"), diary.indexOf("} else if (action === 'copy_yesterday')"));
+  assert.match(clear, /exercises: \[\], notes: '', completed: false \}\)/);
+  assert.match(clear, /loadWorkoutDates\(\);/);
+  const del = diary.slice(diary.indexOf('await deleteSession($currentDate, $currentSessionId);'));
+  assert.match(del.slice(0, 200), /loadWorkoutDates\(\);/);
+});

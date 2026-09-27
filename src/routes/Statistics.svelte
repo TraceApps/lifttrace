@@ -95,6 +95,10 @@
   let cardioSessions = []; // individual sessions in range, newest first, for the session list under the chart
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
+  const _hasCompletedSet = w => {
+    const exs = typeof w.exercises === 'string' ? JSON.parse(w.exercises || '[]') : (w.exercises || []);
+    return exs.some(e => (e.sets || []).some(s => s.completed));
+  };
   let exercises = [];
   let loading = true;
 
@@ -249,14 +253,15 @@
       try {
         const recent = await fetch('/api/workout/recent?limit=365', { credentials: 'include' });
         if (recent.ok) {
-          // A day counts only if its workout has something in it. Removing
-          // the last exercise from a day leaves an empty workout behind, and
-          // it lit that day here, and in the streak dots, while the Diary
-          // showed nothing (issue #124). The phone's standalone mode already
-          // leaves empty workouts out of this list.
+          // A day counts only if it has at least one completed set, the same
+          // rule as the Diary's dots and /api/stats/streaks. Clearing a day,
+          // or removing its last exercise, leaves an empty workout behind,
+          // which lit that day here while the Diary showed nothing (issue
+          // #124, PR #120). Empty workouts are dropped from the cached
+          // records too; the phone's standalone mode already leaves them out.
           const logs = (await recent.json()).filter(l =>
             (typeof l.exercises === 'string' ? JSON.parse(l.exercises || '[]') : (l.exercises || [])).length > 0);
-          workoutDates = new Set(logs.map(l => l.date));
+          workoutDates = new Set(logs.filter(_hasCompletedSet).map(l => l.date));
           recentWorkouts = logs;
         }
       } catch {}
@@ -345,7 +350,7 @@
     const startStr = localDateStr(start);
     const todayStr = localDateStr();
     const count = recentWorkouts.filter(w =>
-      w.completed && w.date >= startStr && w.date <= todayStr
+      w.completed && _hasCompletedSet(w) && w.date >= startStr && w.date <= todayStr
     ).length;
     const pct = Math.min(100, Math.round((count / goal) * 100));
     return { count, goal, pct };
