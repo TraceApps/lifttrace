@@ -7,19 +7,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0-dev03] - 2026-09-27 (pre-release)
+
+Third dev pre-release of 1.4.0. Preliminary foldable support, search that ignores accents, and a round of Diary and Statistics fixes, mostly from issues.
+
 ### Added
 
-- **Foldables use the crease.** Half open like a book, Settings puts its section list on one side and the section on the other, dialogs, sheets, the rest timer and Trace keep off the fold, and a menu opened near it takes the roomier side rather than being cut in half by the hinge. In laptop posture Trace sits on the half lying flat, leaving the session readable on the half standing up. The load type, RPE and rep pickers also flip above their row when there is no room below, which they never did on any phone. The diary, charts and photos still cross the fold freely: an opened foldable is a bigger screen to train from.
+- **Preliminary foldable support.** It covers these areas:
+  - **Settings:** half open like a book, the section list sits on one side of the crease and the section on the other.
+  - **Dialogs, sheets, the rest timer and Trace** stay off the fold. In laptop posture, Trace sits on the half lying flat.
+  - **Menus** opened near the crease open on its roomier side. The load type, RPE and rep pickers also flip above their row when there's no room below, on any phone.
+  - **Programs and Exercises** split into a list and a preview pane on an opened foldable or a tablet, not only on a desktop-sized window.
+  - **Diary, Add Exercise and Progress Photos** use the extra width: the session column sits beside the exercises, the search and preview stay in place while the list scrolls, and photos fit three across.
+  - **Diagnostics** reports the hinge and whether the device is half open or flat.
+
+  The Diary, charts and photos still cross the fold freely.
+
+### Changed
+
+- **A program's preview can open a workout directly**, and it has the same actions as the program's own page.
+- **The health check says what kind of failure it hit** and how long it took.
 
 ### Fixed
 
-- **Search ignores accents.** Typing "elevacion" finds "Elevación lateral", "predicateur" finds "Prédicateur". This holds for the exercise library, the exercise picker, the statistics filter, Settings search, Trace and the MCP tools, and an imported workout matches a library exercise the same way. A library kept in Spanish, French, Portuguese or another language with accents no longer looks like the exercise is missing because nobody types the accent on a phone. Text without accents matches exactly as before.
-- **The body map counts each exercise's own muscles** ([#110](https://github.com/TraceApps/lifttrace/issues/110), reported by @kavemang). wger names its muscles in Latin and nine of those names were not recognized, so nearly half the library lost some or all of its muscles and fell back to a guess from its category: a set of lunges read as a generic leg day, and a curl credited the triceps as much as the biceps. The fatigue view and Muscle Balance recognize the same names now, and hip abduction counts toward the glutes rather than the core.
-- **The Statistics heatmap no longer marks a day you didn't train** ([#124](https://github.com/TraceApps/lifttrace/issues/124), reported by @Scorch-Light). Removing the last exercise from a day left an empty workout behind, which lit that day on the heatmap and in the streak dots while the Diary showed nothing.
-- **The Diary's Last Workout card and the desktop sidebar's Recent Workouts now show up.** Neither had ever appeared: both failed to read the list they were given. Found while looking into [#124](https://github.com/TraceApps/lifttrace/issues/124).
-- **Clearing a workout clears the day** ([#120](https://github.com/TraceApps/lifttrace/pull/120), by @backmind). A cleared day stayed lit on the Statistics heatmap, the streak dots and the weekly goal ring, and stayed marked as finished. The heatmap now counts a day only once a set is completed, like the Diary, and the Diary's week strip updates right after a clear or a delete.
-- **Offline, the Diary's dots and the heatmap keep up.** A workout logged, cleared or deleted with no connection showed on its own day, but not in the dots, the week strip or the heatmap until it synced.
-- **The date picker's workout dots follow the month** ([#125](https://github.com/TraceApps/lifttrace/issues/125), reported by @Scorch-Light). Paging with the arrows kept the first month's dots on the days of every month after it; only the month dropdown showed the right ones.
+- **Search ignores accents.** Typing "elevacion" finds "Elevación lateral", "predicateur" finds "Prédicateur". This holds for the exercise library, the exercise picker, the statistics filter, Settings search, Trace and the MCP tools, and an imported workout matches a library exercise the same way. Text without accents matches exactly as before.
+- **The body map counts each exercise's own muscles** ([#110](https://github.com/TraceApps/lifttrace/issues/110), reported by @kavemang). wger names its muscles in Latin and nine of those names were not recognized, so a set of lunges read as a generic leg day and a curl credited the triceps as much as the biceps. The fatigue view and Muscle Balance recognize the same names now, and hip abduction counts toward the glutes rather than the core.
+- **The Statistics heatmap no longer marks a day you didn't train** ([#124](https://github.com/TraceApps/lifttrace/issues/124), reported by @Scorch-Light).
+- **The Diary's Last Workout card and the desktop sidebar's Recent Workouts now show up.** Neither had ever appeared.
+- **Clearing a workout clears the day** ([#120](https://github.com/TraceApps/lifttrace/pull/120), by @backmind). A cleared day stayed lit on the heatmap, the streak dots and the weekly goal ring, and stayed marked as finished.
+- **Offline, the Diary's dots and the heatmap keep up** with a workout logged, cleared or deleted with no connection.
+- **The date picker's workout dots follow the month** ([#125](https://github.com/TraceApps/lifttrace/issues/125), reported by @Scorch-Light).
+- **A long exercise name no longer pushes list rows past the edge of the pane.**
+
+### Security
+
+- **Includes both fixes from 1.3.2:** only the owner can change an exercise, and only an admin can import into or clear the shared exercise library. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
 
 ---
 
