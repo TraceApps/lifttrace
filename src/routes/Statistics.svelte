@@ -249,7 +249,13 @@
       try {
         const recent = await fetch('/api/workout/recent?limit=365', { credentials: 'include' });
         if (recent.ok) {
-          const logs = await recent.json();
+          // A day counts only if its workout has something in it. Removing
+          // the last exercise from a day leaves an empty workout behind, and
+          // it lit that day here, and in the streak dots, while the Diary
+          // showed nothing (issue #124). The phone's standalone mode already
+          // leaves empty workouts out of this list.
+          const logs = (await recent.json()).filter(l =>
+            (typeof l.exercises === 'string' ? JSON.parse(l.exercises || '[]') : (l.exercises || [])).length > 0);
           workoutDates = new Set(logs.map(l => l.date));
           recentWorkouts = logs;
         }
