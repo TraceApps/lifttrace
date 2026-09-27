@@ -95,10 +95,12 @@
     <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
       <span class="setting-label">Foldable</span>
       <div class="setting-desc">
-        {#if $fold}
+        {#if $fold && $fold.posture === 'flat'}
+          Open flat. Hinge at {$fold.start}-{$fold.end}px, so columns can line up with it.
+        {:else if $fold}
           Half open, {$fold.posture === 'book' ? 'like a book' : 'like a laptop'}. Crease at {$fold.start}-{$fold.end}px.
         {:else}
-          No crease reported: not a foldable, or opened flat.
+          No hinge reported: not a foldable, or the system does not report one here.
         {/if}
       </div>
     </div>
