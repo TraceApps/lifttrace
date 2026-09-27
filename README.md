@@ -62,8 +62,8 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 - **Workout history import.** Bring your old log in from Strong, Hevy, FitNotes, Jefit (CSV) or Garmin FIT files. → [full guide](https://traceapps.github.io/docs/lifttrace/import/)
 - **Multi-user and OIDC SSO.** Role-based access (admin/trainer/member), invites, session policy, plus OIDC 1.0 SSO via Authentik, Keycloak, Pocket ID, Authelia, Google, Auth0, or any compliant provider. → [full guide](https://traceapps.github.io/docs/auth/oidc/)
 - **Native Android app.** Local-only mode with on-device SQLite, or connect to your self-hosted server for sync. Media3 ExoPlayer, WorkManager reminders, biometric sign-in. → [full guide](https://traceapps.github.io/docs/mobile/install/)
-- **Wear OS.** A watch app for Wear OS 3 and up: the session you are in, logging sets between them, the rest timer on your wrist with the countdown on the watch face, and finishing the workout without touching the phone. It talks to your server itself, so it works in a basement gym, and it pairs itself when you sign in on the phone. → [full guide](https://traceapps.github.io/docs/lifttrace/wear/)
-- **Wear OS.** A watch app for Wear OS 3 and up: the set you are on with weight and reps already filled in, what you lifted last time, the session timer, started, paused and stopped from either device, any set in the session open to change, sets added or put back to not done, supersets alternating properly, holds counted down and logged, and the rest timer buzzing on your wrist even with the watch face back, plus a tile and a watch face complication. It talks to your server itself, so it keeps logging in a basement gym with the phone in a locker, and it pairs itself when you sign in on the phone.
+- **Wear OS.** A watch app for Wear OS 3 and up: the set you are on with weight and reps already filled in, what you lifted last time, the session timer, started, paused and stopped from either device, any set in the session open to change, sets added or put back to not done, supersets alternating properly, holds counted down and logged, and the rest timer buzzing on your wrist even with the watch face back, plus a tile and a watch face complication. Finish the workout without touching the phone. It talks to your server itself, so it keeps logging in a basement gym with the phone in a locker, and it pairs itself when you sign in on the phone. → [full guide](https://traceapps.github.io/docs/lifttrace/wear/)
+- **Foldables (preliminary).** Half open like a book, Settings puts its section list on one side of the crease and the section on the other, and dialogs, sheets, the rest timer and Trace keep off the fold. Opened flat or on a tablet, Programs and Exercises split into a list and a preview pane, and the Diary keeps its session column beside the exercises.
 
 ---
 
@@ -152,7 +152,7 @@ All data lives in two bind-mounted directories: `/data/db/lifttrace.db` (SQLite)
 
 ## Trace family
 
-Part of the **TraceApps** family. Sister apps: [CookTrace](https://github.com/traceapps/cooktrace) for recipes and pantry, [NutriTrace](https://github.com/traceapps/nutritrace) for nutrition tracking. Full docs for all three at [traceapps.github.io/docs](https://traceapps.github.io/docs/).
+Part of the **TraceApps** family. Sister apps: [CookTrace](https://github.com/traceapps/cooktrace) for recipes and pantry, [NutriTrace](https://github.com/traceapps/nutritrace) for nutrition tracking, [NoteTrace](https://github.com/traceapps/notetrace) for notes, tasks and reminders. Docs for the family at [traceapps.github.io/docs](https://traceapps.github.io/docs/).
 
 ---
 
