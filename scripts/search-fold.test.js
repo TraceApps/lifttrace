@@ -10,7 +10,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+// better-sqlite3 from server/node_modules, the driver production runs; CI's
+// Node has no node:sqlite.
+import { createRequire } from 'node:module';
+const Database = createRequire(new URL('../server/', import.meta.url))('better-sqlite3');
 import { foldText, stripAccents, includesFolded, coversFolded } from '../src/lib/search-text.js';
 import { foldText as serverFoldText } from '../server/lib/search-text.js';
 import { matchExercise } from '../src/lib/workout-import/common.js';
@@ -69,7 +72,7 @@ test('an imported workout matches a library exercise without the accent', () => 
 });
 
 test('the SQL fold() function makes LIKE accent-insensitive', () => {
-  const db = new DatabaseSync(':memory:');
+  const db = new Database(':memory:');
   db.function('fold', { deterministic: true }, (s) => serverFoldText(s));
   db.exec('CREATE TABLE exercises (name TEXT)');
   const ins = db.prepare('INSERT INTO exercises VALUES (?)');
