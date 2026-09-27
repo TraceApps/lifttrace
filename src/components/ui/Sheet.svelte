@@ -142,9 +142,20 @@
      multi-pane internals at desktop widths. Only escapes the 720px
      cap at >=1280px on non-forced-mobile viewports so mobile keeps
      the standard modal behavior. */
-  @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .sheet-panel.sheet-wide {
-      max-width: min(1200px, 92vw);
-    }
+  /* Gated on the room available rather than a 1280px viewport, so a foldable
+     open flat gets the wider panel too. html.wide-content already excludes
+     Force Mobile Layout. */
+  :global(html.wide-content) .sheet-panel.sheet-wide {
+    max-width: min(1200px, 92vw);
+  }
+  /* A wide sheet holds its own columns, so the body must not be the thing
+     that scrolls: otherwise the whole panel slides and takes the title, the
+     search and the preview with it. Its content manages its own scrolling
+     regions instead. */
+  :global(html.wide-content) .sheet-panel.sheet-wide > .sheet-body {
+    overflow: hidden;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 </style>

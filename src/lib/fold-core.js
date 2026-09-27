@@ -8,23 +8,45 @@ export function sizeClassFor(width) {
   return width < MEDIUM_MIN ? 'compact' : width < EXPANDED_MIN ? 'medium' : 'expanded';
 }
 
-/** A plugin payload ({ features: [...] }) to a fold, or null. Pure. */
+/**
+ * A plugin payload ({ features: [...] }) to a fold, or null. Pure.
+ *
+ * `posture` keeps its old meaning: 'book' or 'tabletop' is a crease that
+ * content must respect, and only a separating fold gets one. A fold reported
+ * while the device is open flat comes back as posture 'flat', because the
+ * hinge is physically there either way: content may cross it, but a column
+ * gutter reads far better when it lands on it. Callers that check for 'book'
+ * are unaffected.
+ */
 export function foldFromFeatures(payload) {
-  const f = (payload?.features || []).find(x => x.state === 'half_opened' || x.separating);
+  const feats = payload?.features || [];
+  const f = feats.find(x => x.state === 'half_opened' || x.separating) || feats[0];
   if (!f) return null;
   const vertical = f.orientation === 'vertical';
   const start = Math.round(vertical ? f.left : f.top);
   const end = Math.round(vertical ? f.right : f.bottom);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
-  return { posture: vertical ? 'book' : 'tabletop', start, end };
+  const separating = f.state === 'half_opened' || !!f.separating;
+  const posture = separating ? (vertical ? 'book' : 'tabletop') : 'flat';
+  return { posture, start, end, separating, vertical };
 }
 
-/** Viewport segments (DOMRect-like) to a fold, or null. Pure. */
+/**
+ * Viewport segments (DOMRect-like) to a fold, or null. Pure.
+ *
+ * Returns the same shape as foldFromFeatures so the two sources are
+ * interchangeable. The browser only reports two segments when the viewport is
+ * genuinely split, so anything this returns is separating; open flat there is
+ * a single segment and the hinge is not exposed at all, which is why the web
+ * path has no equivalent of posture 'flat'.
+ */
 export function foldFromSegments(segments) {
   if (!segments || segments.length !== 2) return null;
   const [a, b] = segments;
-  if (b.x >= a.x + a.width - 1 && Math.abs(a.y - b.y) < 2) return { posture: 'book', start: Math.round(a.x + a.width), end: Math.round(b.x) };
-  if (b.y >= a.y + a.height - 1 && Math.abs(a.x - b.x) < 2) return { posture: 'tabletop', start: Math.round(a.y + a.height), end: Math.round(b.y) };
+  if (b.x >= a.x + a.width - 1 && Math.abs(a.y - b.y) < 2)
+    return { posture: 'book', start: Math.round(a.x + a.width), end: Math.round(b.x), separating: true, vertical: true };
+  if (b.y >= a.y + a.height - 1 && Math.abs(a.x - b.x) < 2)
+    return { posture: 'tabletop', start: Math.round(a.y + a.height), end: Math.round(b.y), separating: true, vertical: false };
   return null;
 }
 
@@ -123,4 +145,26 @@ export function placeAnchoredMenu({
   const height = Math.min(maxHeight, openAbove ? above : below);
   const top = openAbove ? aboveEnd - height : belowStart;
   return { top: Math.round(top), maxHeight: Math.round(height), above: openAbove };
+}
+
+/**
+ * A grid template with an empty track where the crease is, or the fallback.
+ *
+ * `columnsAcrossFold` says how many card columns fit either side; this turns
+ * that into the template, and `columnForIndex` puts each card in a column that
+ * is not the hinge. Cards keep their reading order across the two pages, and
+ * without a fold nothing changes.
+ */
+export function gridTemplateAcrossFold(split, fallback) {
+  if (!split) return fallback;
+  return `repeat(${split.left}, minmax(0, 1fr)) ${split.hinge}px repeat(${split.right}, minmax(0, 1fr))`;
+}
+
+/** Which column a card takes, counting past the hinge track. */
+export function columnForIndex(index, split) {
+  if (!split) return 'auto';
+  const perRow = split.left + split.right;
+  const place = index % perRow;
+  // Tracks are 1-based and the hinge is the one after the left-hand page.
+  return String(place < split.left ? place + 1 : place + 2);
 }

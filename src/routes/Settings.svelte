@@ -40,6 +40,8 @@
   import Profile from './Profile.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
   import { portal } from '../lib/portal.js';
+  import { foldText } from '../lib/search-text.js';
+
   import {
     isNative, getNativeMode, setNativeMode, getServerUrl, setServerUrl,
     getAuthToken, setAuthToken, resolveAssetUrl, explainConnectError,
@@ -371,7 +373,7 @@
 
   // ── Search ───────────────────────────────────────────────────────────────
   let settingsSearch = '';
-  $: settingsQuery = settingsSearch.toLowerCase().trim();
+  $: settingsQuery = foldText(settingsSearch).trim();
 
   const SECTION_KEYWORDS = {
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
@@ -528,14 +530,14 @@
   async function _scheduleDeepLinkScroll(q) {
     await tick();
     await new Promise(r => setTimeout(r, 60));
-    const q_norm = q.toLowerCase().trim();
+    const q_norm = foldText(q).trim();
     if (!q_norm) return;
     const scope = document.querySelector('.subpage-view');
     if (!scope) return;
     const candidates = scope.querySelectorAll('.setting-label, .setting-desc, .sub-label, .setting-row');
     let hit = null;
     for (const el of candidates) {
-      if ((el.textContent || '').toLowerCase().includes(q_norm)) { hit = el; break; }
+      if (foldText(el.textContent).includes(q_norm)) { hit = el; break; }
     }
     if (!hit) return;
     const row = hit.closest('.setting-row') || hit;
@@ -2319,25 +2321,19 @@
     .settings-search-bar.mobile-hide-on-subpage { display: none; }
   }
 
-  @media (min-width: 1024px) {
-    :global(html:not(.force-mobile-layout)) .settings-two-pane {
+  @media all {
+    :global(html.wide-content) .settings-two-pane {
       display: grid;
       grid-template-columns: 280px minmax(0, 1fr);
       gap: 24px;
       align-items: start;
     }
 
-    /* Snapped to the fold: the crease is the divider, so the rail reaches it
-       and the section starts on the other side of it. */
-    :global(html:not(.force-mobile-layout)) .settings-two-pane.fold-snap {
-      grid-template-columns: var(--rail-w) minmax(0, 1fr);
-      gap: var(--hinge);
-    }
 
     /* Left rail — sticky below the header + search bar, own scroll if
        the section list overflows the viewport. Same offset math NT uses
        (--page-top + header/search combined height). */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail {
+    :global(html.wide-content) .settings-nav-rail {
       display: flex;
       flex-direction: column;
       gap: 2px;
@@ -2363,7 +2359,7 @@
     /* Rail buttons — compact, no big icons, no chevron (that's the
        accordion affordance from the mobile stack). Focus-visible ring
        for keyboard nav. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn {
+    :global(html.wide-content) .settings-nav-rail .rail-btn {
       background: transparent;
       border: none;
       min-height: 36px;
@@ -2383,10 +2379,10 @@
       z-index: 1;
       transition: color 160ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:hover {
+    :global(html.wide-content) .settings-nav-rail .rail-btn:hover {
       background: var(--surface-2);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn.active {
+    :global(html.wide-content) .settings-nav-rail .rail-btn.active {
       /* Background comes from .rail-active-pill (slides in from prior
          active item). Only the text/icon color flips here. */
       background: transparent;
@@ -2394,7 +2390,7 @@
     }
     /* Sliding highlight pill — the shared background element that
        animates its transform + height to the active rail button. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill {
       position: absolute;
       left: 8px;
       right: 8px;
@@ -2406,21 +2402,21 @@
       z-index: 0;
       will-change: transform, height;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.visible {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill.visible {
       opacity: 1;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.ready {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill.ready {
       transition:
         transform 320ms cubic-bezier(0.32, 0.72, 0, 1),
         height 260ms cubic-bezier(0.32, 0.72, 0, 1),
         opacity 180ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:focus-visible {
+    :global(html.wide-content) .settings-nav-rail .rail-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
       background: var(--surface-2);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .si {
+    :global(html.wide-content) .settings-nav-rail .rail-btn .si {
       width: 24px;
       height: 24px;
       font-size: 18px;
@@ -2431,11 +2427,11 @@
     }
     /* Rail buttons use a subtle "current page" indicator, not a chevron
        (the chevron is the accordion-drill affordance from mobile). */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .chevron {
+    :global(html.wide-content) .settings-nav-rail .rail-btn .chevron {
       display: none;
     }
     /* Group labels inside the rail — smaller, tighter, all-caps. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label) {
+    :global(html.wide-content) .settings-nav-rail :global(.settings-group-label) {
       margin: 12px 4px 4px;
       font-size: 10px;
       letter-spacing: 0.1em;
@@ -2443,13 +2439,13 @@
       color: var(--text-3);
       font-weight: 700;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label:first-child) {
+    :global(html.wide-content) .settings-nav-rail :global(.settings-group-label:first-child) {
       margin-top: 2px;
     }
     /* Empty-search placeholder inside the rail — replaces the section
        list when every button matches nothing. Clear affordance so the
        user can escape without reaching for the search input. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -2458,16 +2454,16 @@
       text-align: center;
       color: var(--text-3);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
       font-size: 28px;
       opacity: 0.7;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty p {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty p {
       margin: 0;
       font-size: 12px;
       line-height: 1.4;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-clear {
       margin-top: 4px;
       background: var(--surface-2);
       color: var(--accent);
@@ -2478,7 +2474,7 @@
       font-weight: 600;
       cursor: pointer;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear:hover {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-clear:hover {
       background: var(--surface-3);
     }
 
@@ -2490,25 +2486,25 @@
        sub-pages; here we handle the desktop-index (no currentSection)
        case where nothing has been drilled into yet. Unit 2 replaces
        the resulting blank pane with a proper welcome hero. */
-    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.section-toggle),
-    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.group-label) {
+    :global(html.wide-content) .settings-content:not(.subpage-view) .settings-pane :global(.section-toggle),
+    :global(html.wide-content) .settings-content:not(.subpage-view) .settings-pane :global(.group-label) {
       display: none;
     }
     /* Mobile profile-hero is hidden on desktop — the welcome hero above
      * owns that surface (with the inline expandable Profile editor). */
-    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-hero {
+    :global(html.wide-content) .settings-pane .mobile-profile-hero {
       display: none;
     }
     /* Mobile-only inline Profile fallback (for direct /settings/profile
        URL land). Desktop already shows Profile inside the welcome hero
        up above, so hide the mobile fallback here to avoid rendering it
        twice. */
-    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-inline {
+    :global(html.wide-content) .settings-pane .mobile-profile-inline {
       display: none;
     }
     /* On sub-pages, the desktop hero is hidden EXCEPT for /settings/profile
        where it IS the section body. */
-    :global(html:not(.force-mobile-layout)) .settings-content.subpage-view .settings-pane .settings-desktop-hero {
+    :global(html.wide-content) .settings-content.subpage-view .settings-pane .settings-desktop-hero {
       display: block;
     }
   }
@@ -2528,27 +2524,27 @@
      "Pick a section" prompt. Hidden below 1024px and when force-mobile
      is on; the mobile profile-hero above takes over there. */
   .settings-desktop-hero { display: none; }
-  @media (min-width: 1024px) {
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero {
+  @media all {
+    :global(html.wide-content) .settings-desktop-hero {
       display: block;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-expander {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-expander {
       cursor: pointer;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-toggle {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-chev-toggle {
       transition: transform 0.22s ease;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-open {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-chev-open {
       transform: rotate(180deg);
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-body {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-body {
       margin-top: 12px;
       background: var(--surface-1);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       overflow: hidden;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-prompt {
+    :global(html.wide-content) .settings-desktop-prompt {
       margin: 20px 0 0;
       color: var(--text-3);
       font-size: 14px;
@@ -2565,10 +2561,10 @@
        label + one-line description. Dismiss button lives in the top-
        right corner, revealed on hover to keep the resting state
        clean. */
-    :global(html:not(.force-mobile-layout)) .settings-onboarding {
+    :global(html.wide-content) .settings-onboarding {
       margin-top: 24px;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-heading {
+    :global(html.wide-content) .settings-onboarding-heading {
       margin: 0 0 10px;
       font-size: 11px;
       letter-spacing: 0.1em;
@@ -2576,15 +2572,15 @@
       color: var(--text-3);
       font-weight: 700;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-grid {
+    :global(html.wide-content) .settings-onboarding-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
       gap: 10px;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap {
+    :global(html.wide-content) .settings-onboarding-card-wrap {
       position: relative;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card {
+    :global(html.wide-content) .settings-onboarding-card {
       display: flex;
       align-items: center;
       gap: 12px;
@@ -2598,37 +2594,37 @@
       text-align: left;
       transition: background var(--dur-fast, 120ms), border-color var(--dur-fast, 120ms);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:hover {
+    :global(html.wide-content) .settings-onboarding-card:hover {
       background: var(--surface-2);
       border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:focus-visible {
+    :global(html.wide-content) .settings-onboarding-card:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card :global(.material-symbols-rounded) {
+    :global(html.wide-content) .settings-onboarding-card :global(.material-symbols-rounded) {
       font-size: 22px;
       color: var(--accent);
       flex-shrink: 0;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-copy {
+    :global(html.wide-content) .settings-onboarding-copy {
       display: flex;
       flex-direction: column;
       gap: 2px;
       min-width: 0;
       flex: 1;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-label {
+    :global(html.wide-content) .settings-onboarding-label {
       font-size: 14px;
       font-weight: 600;
       color: var(--text-1);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-desc {
+    :global(html.wide-content) .settings-onboarding-desc {
       font-size: 12px;
       color: var(--text-3);
       line-height: 1.35;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss {
+    :global(html.wide-content) .settings-onboarding-dismiss {
       position: absolute;
       top: 4px;
       right: 4px;
@@ -2641,16 +2637,44 @@
       opacity: 0;
       transition: opacity var(--dur-fast, 120ms), color var(--dur-fast, 120ms);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap:hover .settings-onboarding-dismiss,
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:focus-visible {
+    :global(html.wide-content) .settings-onboarding-card-wrap:hover .settings-onboarding-dismiss,
+    :global(html.wide-content) .settings-onboarding-dismiss:focus-visible {
       opacity: 1;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:hover {
+    :global(html.wide-content) .settings-onboarding-dismiss:hover {
       color: var(--text-1);
       background: var(--surface-3);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss :global(.material-symbols-rounded) {
+    :global(html.wide-content) .settings-onboarding-dismiss :global(.material-symbols-rounded) {
       font-size: 14px;
     }
+  }
+
+  /* Half open like a book, at any width. The two-pane layout above waits for
+     a desktop-sized viewport, which a foldable's inner display never reaches,
+     so this turns it on from the crease instead and brings the rail with it.
+     Same reasoning as the notes grid and the recipe layout. */
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap {
+    display: grid;
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    gap: var(--hinge);
+    align-items: start;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-nav-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: calc(var(--page-top, var(--safe-top)) + 12px);
+    max-height: calc(100dvh - var(--page-top, var(--safe-top)) - var(--nav-h, 0px) - var(--safe-bottom, 0px) - 24px);
+    overflow-y: auto;
+    padding: 10px 8px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-sizing: border-box;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-mobile-index {
+    display: none;
   }
 </style>

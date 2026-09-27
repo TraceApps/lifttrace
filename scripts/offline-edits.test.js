@@ -179,6 +179,35 @@ test('a day deleted offline reads as empty', () => {
   assert.deepEqual(answerWithOps('/api/workout/2026-09-20', mirrored, ops), { workout: null });
 });
 
+test('the recent list shows a day cleared, deleted or logged offline (PR #120)', () => {
+  const done = [{ uuid: 'a', sets: [{ completed: true }] }];
+  const mirrored = [
+    { id: 9, date: '2026-09-27', session_seq: 0, exercises: done, completed: 1 },
+    { id: 7, date: '2026-09-22', session_seq: 0, exercises: done, completed: 1 },
+    { id: 8, date: '2026-09-22', session_seq: 1, exercises: done, completed: 1 },
+  ];
+  // Clear Workout: the day's own row, emptied, the rest untouched.
+  let shown = answerWithOps('/api/workout/recent?limit=365', mirrored,
+    [op(1, 'PUT', '/api/workout/2026-09-27', { id: 9, exercises: [], completed: false })]);
+  assert.deepEqual(shown.map(r => r.id), [9, 7, 8]);
+  assert.deepEqual(shown[0].exercises, []);
+  assert.equal(shown[0].completed, false);
+  assert.equal(shown[1], mirrored[1]);
+  // Delete Workout on one of two sessions takes only that one.
+  shown = answerWithOps('/api/workout/recent', mirrored, [op(1, 'DELETE', '/api/workout/2026-09-22?id=8')]);
+  assert.deepEqual(shown.map(r => r.id), [9, 7]);
+  // A save with no session named goes to the day's first session.
+  shown = answerWithOps('/api/workout/recent', mirrored, [op(1, 'PUT', '/api/workout/2026-09-22', { exercises: [] })]);
+  assert.deepEqual(shown.find(r => r.id === 7).exercises, []);
+  assert.equal(shown.find(r => r.id === 8).exercises, done);
+  // A day first logged offline joins the list, newest first.
+  shown = answerWithOps('/api/workout/recent', mirrored, [op(4, 'PUT', '/api/workout/2026-09-28', { exercises: done })]);
+  assert.deepEqual(shown.map(r => r.date), ['2026-09-28', '2026-09-27', '2026-09-22', '2026-09-22']);
+  assert.equal(shown[0]._pending, true);
+  // Nothing queued for workouts: the mirrored copy, as it was.
+  assert.equal(answerWithOps('/api/workout/recent', mirrored, [op(1, 'PUT', '/api/settings', { key: 'theme', value: 'x' })]), mirrored);
+});
+
 test('a day with nothing queued is served exactly as it was mirrored', () => {
   const mirrored = { workout: { id: 4 } };
   assert.equal(answerWithOps('/api/workout/2026-09-20', mirrored, []), mirrored);

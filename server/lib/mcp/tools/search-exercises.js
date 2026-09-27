@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { toolResult } from '../_util.js';
+import { foldText } from '../../search-text.js';
 
 const MAX_LIMIT = 25;
 
@@ -21,9 +22,9 @@ export function searchExercisesCore(userId, { query, limit } = {}) {
   const n = Math.min(Math.max(1, limit || 10), MAX_LIMIT);
   const rows = db.prepare(
     `SELECT id, name, category, equipment, load_type, set_type FROM exercises
-      WHERE deleted_at IS NULL AND name LIKE ? AND (is_global = 1 OR created_by = ?)
+      WHERE deleted_at IS NULL AND fold(name) LIKE ? AND (is_global = 1 OR created_by = ?)
       ORDER BY name ASC LIMIT ?`
-  ).all(`%${query}%`, userId, n);
+  ).all(`%${foldText(query)}%`, userId, n);
   const exercises = rows.map(r => ({
     exercise_id: r.id,
     name: r.name,

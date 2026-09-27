@@ -1,5 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { wideContent } from '../lib/wide.js';
+  import { fold } from '../lib/fold.js';
+  import { columnsAcrossFold, gridTemplateAcrossFold, columnForIndex } from '../lib/fold-core.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -8,6 +11,8 @@
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { GOALS } from '../lib/workout.js';
   import Sheet from '../components/ui/Sheet.svelte';
+  import ActionSheet from '../components/ui/ActionSheet.svelte';
+  import { duplicateProgram, setActive, clearActive, renameProgram } from '../lib/program-actions.js';
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
 
@@ -71,21 +76,59 @@
   // route-pushing to /programs/:id — the "compare programs before
   // committing" flow becomes one glance instead of an in-and-out.
   let _wideMode = false;
-  let _wideMq;
-  function _syncWide() {
-    if (typeof document === 'undefined') return;
-    _wideMode = !!_wideMq?.matches
-      && !document.documentElement.classList.contains('force-mobile-layout');
+  // Room for the preview pane is the content width minus any pinned sidebar,
+  // which html.wide-content already tracks. A 1280px media query never matched
+  // on a foldable open flat (about 852px), so this route stayed single-column
+  // on the biggest screen it ever gets.
+  $: _wideMode = $wideContent;
+  // Preview pane actions. Without these the wide layout was a downgrade: a
+  // tap opened a read-only summary where a tap used to open the editable
+  // page, so the bigger screen could do less than the phone.
+  let _previewMenuOpen = false;
+  let _renameOpen = false;
+  let _renameValue = '';
+  $: _previewActions = _previewSelected ? [
+    { label: $_('programs.rename'), icon: 'edit', value: 'rename' },
+    { label: $_('programs.duplicate'), icon: 'content_copy', value: 'duplicate' },
+    { label: _previewSelected.is_active ? $_('programs.deactivate') : $_('programs.set_active'),
+      icon: _previewSelected.is_active ? 'pause_circle' : 'play_arrow',
+      value: _previewSelected.is_active ? 'deactivate' : 'activate' },
+    { label: $_('programs.delete_confirm'), icon: 'delete', value: 'delete', danger: true },
+  ] : [];
+  async function _onPreviewAction(e) {
+    const v = e.detail?.value;
+    const p = _previewSelected;
+    if (!p) return;
+    try {
+      if (v === 'rename') { _renameValue = p.name || ''; _renameOpen = true; return; }
+      if (v === 'duplicate') {
+        const copy = await duplicateProgram(p);
+        showSuccess($_('programs.toast_duplicated'));
+        push(`/programs/${copy.id}`);
+        return;
+      }
+      if (v === 'activate')   { await setActive(p.id);  showSuccess($_('programs.toast_activated')); }
+      if (v === 'deactivate') { await clearActive();    showSuccess($_('programs.toast_deactivated')); }
+      if (v === 'delete') {
+        if (!await confirmDialog({ title: $_('programs.delete_title'), message: $_('programs.delete_message'),
+                                   confirmText: $_('programs.delete_confirm'), dangerous: true })) return;
+        await LtApi.deleteProgram(p.id);
+        showSuccess($_('programs.toast_deleted'));
+        _previewSelected = null;
+      }
+      await load();
+    } catch (err) { showError(err.message); }
   }
-  if (typeof window !== 'undefined') {
-    _wideMq = window.matchMedia('(min-width: 1280px)');
-    _syncWide();
-    _wideMq.addEventListener?.('change', _syncWide);
+  async function _commitRename() {
+    const next = (_renameValue || '').trim();
+    if (!next || !_previewSelected || next === _previewSelected.name) { _renameOpen = false; return; }
+    try {
+      _previewSelected = await renameProgram(_previewSelected.id, next, _previewSelected);
+      showSuccess($_('programs.toast_renamed'));
+      _renameOpen = false;
+      await load();
+    } catch (err) { showError(err.message); }
   }
-  // Svelte allows multiple onDestroy() registrations — they run in
-  // reverse order — so this second call composes cleanly with the
-  // sync-listener cleanup above.
-  onDestroy(() => { _wideMq?.removeEventListener?.('change', _syncWide); });
 
   // Inline preview pane state — mirrors the Exercises route detail
   // pane so the two library surfaces feel like one system.
@@ -107,6 +150,28 @@
     if (_wideMode) _loadPreview(p);
     else push(`/programs/${p.id}`);
   }
+
+  // Half open like a book, the programs are dealt onto the two pages rather
+  // than run in one long column. The grid above only exists on a desktop-sized
+  // viewport, which a foldable's inner display never reaches, so this turns it
+  // on from the crease instead, with an empty track where the hinge is.
+  const CARD_MIN = 320;
+  const GRID_GAP = 12;
+  let listEl, listLeft = 0, listW = 0;
+  function measureList() {
+    const box = listEl?.getBoundingClientRect();
+    listLeft = box?.left ?? 0;
+    listW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measureList();
+    const ro = new ResizeObserver(measureList);
+    if (listEl) ro.observe(listEl);
+    return () => ro.disconnect();
+  });
+  $: if ($fold !== undefined && listEl) measureList();
+  $: listSplit = columnsAcrossFold({ width: listW, left: listLeft, gap: GRID_GAP, minCard: CARD_MIN, fold: $fold });
+  $: listTemplate = gridTemplateAcrossFold(listSplit, null);
 </script>
 
 <div class="page">
@@ -137,9 +202,10 @@
         <button class="btn btn-primary" on:click={() => showCreate = true}>{$_('programs.create_program')}</button>
       </div>
     {:else}
-      <div class="program-list">
-        {#each programs as p}
-          <button class="program-card"
+      <div class="program-list" class:fold-split={!!listSplit} bind:this={listEl}
+        style={listTemplate ? `grid-template-columns:${listTemplate}` : ''}>
+        {#each programs as p, _i}
+          <button class="program-card" style={listSplit ? `grid-column:${columnForIndex(_i, listSplit)}` : ''}
                   class:is-active={p.is_active}
                   class:selected-for-preview={_wideMode && _previewSelected?.id === p.id}
                   on:click={() => _openProgram(p)}>
@@ -208,10 +274,16 @@
               {/if}
             </div>
           </div>
-          <button class="ppp-close" on:click={() => { _previewSelected = null; }}
-                  aria-label="Close preview" title="Close preview">
-            <span class="material-symbols-rounded">close</span>
-          </button>
+          <div class="ppp-head-actions">
+            <button class="ppp-close" on:click={() => { _previewMenuOpen = true; }}
+                    aria-label={$_('programs.actions')} title={$_('programs.actions')} aria-haspopup="menu">
+              <span class="material-symbols-rounded">more_vert</span>
+            </button>
+            <button class="ppp-close" on:click={() => { _previewSelected = null; }}
+                    aria-label="Close preview" title="Close preview">
+              <span class="material-symbols-rounded">close</span>
+            </button>
+          </div>
         </div>
         {#if p.description}
           <p class="ppp-desc">{p.description}</p>
@@ -225,21 +297,37 @@
           <ol class="ppp-templates">
             {#each p.templates as t, i}
               <li class="ppp-template">
-                <span class="ppp-template-num">{i + 1}</span>
-                <div class="ppp-template-body">
-                  <span class="ppp-template-name">{t.name || `Day ${i + 1}`}</span>
-                  {#if t.exercises && t.exercises.length}
-                    <span class="ppp-template-meta">{t.exercises.length} {t.exercises.length === 1 ? 'exercise' : 'exercises'}</span>
-                  {/if}
-                </div>
+                <button class="ppp-template-btn" type="button"
+                  on:click={() => push(`/programs/${p.id}/template/${t.id}`)}>
+                  <span class="ppp-template-num">{i + 1}</span>
+                  <div class="ppp-template-body">
+                    <span class="ppp-template-name">{t.name || `Day ${i + 1}`}</span>
+                    {#if t.exercises && t.exercises.length}
+                      <span class="ppp-template-meta">{t.exercises.length} {t.exercises.length === 1 ? 'exercise' : 'exercises'}</span>
+                    {/if}
+                  </div>
+                  <span class="material-symbols-rounded ppp-template-chev">chevron_right</span>
+                </button>
               </li>
             {/each}
           </ol>
         {/if}
         <button class="btn btn-primary ppp-full-btn" on:click={() => push(`/programs/${p.id}`)}>
           <span class="material-symbols-rounded">open_in_new</span>
-          Full details
+          {$_('programs.full_details')}
         </button>
+        <ActionSheet bind:open={_previewMenuOpen} title={p.name}
+          actions={_previewActions} on:select={_onPreviewAction} />
+        <Sheet bind:open={_renameOpen} title={$_('programs.rename_title')}>
+          <div class="ppp-rename">
+            <input class="input" bind:value={_renameValue} maxlength="120" aria-label="Program name"
+              on:keydown={(e) => { if (e.key === 'Enter') _commitRename(); }} />
+            <div class="ppp-rename-actions">
+              <button class="btn btn-secondary" on:click={() => _renameOpen = false}>{$_('common.cancel')}</button>
+              <button class="btn btn-primary" on:click={_commitRename}>{$_('common.save')}</button>
+            </div>
+          </div>
+        </Sheet>
       {:else}
         <div class="ppp-empty">
           <span class="material-symbols-rounded ppp-empty-icon">calendar_month</span>
@@ -383,30 +471,32 @@
      Gated by html:not(.force-mobile-layout) so the desktop opt-out
      toggle in Settings still delivers the phone-shaped list at
      any width. */
-  @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .content {
+  @media all {
+    :global(html.wide-content) .content {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
+      /* The pane gives ground when there is less room, so the card column
+         keeps its 320px minimum. At 1280px this still resolves to 380px. */
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 24px;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .content > .programs-body {
+    :global(html.wide-content) .content > .programs-body {
       min-width: 0;
     }
-    :global(html:not(.force-mobile-layout)) .content > .programs-body > .program-list {
+    :global(html.wide-content) .content > .programs-body > .program-list {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 12px;
     }
     /* Selected card carries an accent border so the user tracks
        which program the preview pane is showing. */
-    :global(html:not(.force-mobile-layout)) .content > .programs-body :global(.program-card.selected-for-preview) {
+    :global(html.wide-content) .content > .programs-body :global(.program-card.selected-for-preview) {
       border-color: var(--accent);
       box-shadow: 0 0 0 1px var(--accent);
     }
     /* Preview pane — sticky in the right column. Same surface
        tokens as the rest of the library preview panes. */
-    :global(html:not(.force-mobile-layout)) .content > .programs-preview-pane {
+    :global(html.wide-content) .content > .programs-preview-pane {
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -545,5 +635,60 @@
     .ppp-empty-icon { font-size: 32px; opacity: 0.6; }
     .ppp-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
     .ppp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
+
+  /* Dealt onto the two pages of a half-open foldable. The rule above waits for
+     a desktop-sized viewport, which a foldable never reaches, so this turns
+     the same grid on from the crease. */
+  :global(html.fold-book) .program-list.fold-split {
+    display: grid;
+    gap: 12px;
+    align-items: start;
+  }
+
+  /* Desktop keeps its fixed-width pane. The half-and-half split above is for
+     the in-between widths a foldable lands in. */
+  @media (min-width: 1280px) {
+    :global(html.wide-content) .content {
+      grid-template-columns: minmax(0, 1fr) 380px;
+    }
+  }
+
+  .ppp-head-actions { display: flex; align-items: center; gap: 2px; }
+  .ppp-rename { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+  .ppp-rename-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  /* A primary action wants a real touch target, not a 40px pill. */
+  .ppp-full-btn { min-height: 48px; }
+
+  /* 28px was under the touch-target minimum on a device. */
+  .ppp-close { min-width: 40px; min-height: 40px; }
+
+  /* The pane lists the workouts, so they open the workout. Without this a
+     wide screen needed four taps to reach the editor where a phone needed
+     two: the pane swallowed the tap and sent you via Full details. */
+  .ppp-template-btn {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: none; border: 0; padding: 0; margin: 0;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+    min-height: 44px; min-width: 0;
+  }
+  .ppp-template-btn .ppp-template-body { min-width: 0; flex: 1; }
+  .ppp-template-chev { margin-left: auto; opacity: 0.5; font-size: 20px; flex: none; }
+  .ppp-template-btn:hover .ppp-template-chev { opacity: 0.9; }
+
+  /* Same rule as the program page: the card's heading and its primary action
+     stay put, and only the list between them scrolls. Putting overflow on the
+     whole card scrolled the title out of view. */
+  :global(html.wide-content) .programs-preview-pane { overflow: hidden; min-height: 0; }
+  :global(html.wide-content) .programs-preview-pane .ppp-head,
+  :global(html.wide-content) .programs-preview-pane .ppp-desc,
+  :global(html.wide-content) .programs-preview-pane .ppp-templates-head,
+  :global(html.wide-content) .programs-preview-pane .ppp-full-btn { flex: none; }
+  :global(html.wide-content) .programs-preview-pane .ppp-templates {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
 </style>

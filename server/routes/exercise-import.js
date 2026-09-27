@@ -85,12 +85,16 @@ router.post('/import-json', wrap((req, res) => {
 
 // ── List imported catalogs ───────────────────────────────────────────────────
 router.get('/catalogs', wrap((req, res) => {
+  // Your own catalogs only. This listed every user's, names and counts,
+  // although the library itself only ever shows you your own.
   const rows = db.prepare(
     // Live rows only — cleared catalogs are soft-deleted (#49) and shouldn't
     // show up on the catalogs page with a stale row count.
     `SELECT source, COUNT(*) as count FROM exercises
-     WHERE source LIKE 'import:%' AND deleted_at IS NULL GROUP BY source`
-  ).all();
+     WHERE source LIKE 'import:%' AND deleted_at IS NULL
+       AND is_global = 0 AND created_by IS ?
+     GROUP BY source`
+  ).all(uid(req));
   const catalogs = rows.map(r => {
     const name = r.source.replace('import:', '');
     const disabled = db.prepare(
@@ -122,13 +126,17 @@ router.post('/catalogs/toggle', wrap((req, res) => {
 router.post('/catalogs/delete', wrap((req, res) => {
   const { name } = req.body;
   const source = `import:${name}`;
+  const userId = uid(req);
+  // Your own catalog only. This matched by name across every user, so two
+  // people who each imported "MyGym" lost both when either deleted theirs,
+  // and everyone's disabled flag for that name went with it.
   const result = db.prepare(
     `UPDATE exercises
        SET deleted_at = datetime('now'), updated_at = datetime('now')
-     WHERE source = ? AND deleted_at IS NULL`
-  ).run(source);
+     WHERE source = ? AND deleted_at IS NULL AND is_global = 0 AND created_by IS ?`
+  ).run(source, userId);
   // Clean up disabled flag
-  db.prepare('DELETE FROM user_settings WHERE key = ?').run(`catalog_disabled_${name}`);
+  db.prepare('DELETE FROM user_settings WHERE key = ? AND user_id IS ?').run(`catalog_disabled_${name}`, userId);
   res.json({ ok: true, removed: result.changes });
 }));
 

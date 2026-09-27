@@ -321,6 +321,14 @@
   // exactly so shared debug tooling recognizes the same class.
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('force-mobile-layout', !!$forceMobileLayout);
+    // Room for two panes beside whatever sidebar is pinned, rather than a
+    // desktop-sized viewport. A foldable's inner display is around 840px
+    // open flat, so a 1024px gate left it on the phone layout on the one
+    // screen with the most room. Matches NoteTrace.
+    document.documentElement.classList.toggle(
+      'wide-content',
+      !$forceMobileLayout && _viewportW - (sidebarPinned ? 280 : 0) >= 720,
+    );
   }
   // Mirror NutriTrace's banner-gradient global class so portaled top-bar
   // action buttons (.diary-topbar-actions) outside the .page-header still

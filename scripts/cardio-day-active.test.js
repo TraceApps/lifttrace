@@ -36,8 +36,9 @@ test('the streak, week strip and calendar all read the union, not the lifting se
   const streak = code(diary).slice(code(diary).indexOf('$: streakCount'), code(diary).indexOf('$: streakCount') + 900);
   assert.doesNotMatch(streak, /workoutDateSet/, 'the streak counts any activity, not only lifting');
   assert.match(code(diary), /done: activeDateSet\.has\(key\)/, 'the week-strip dots');
-  const cal = code(diary).slice(code(diary).indexOf('function calHasWorkout'));
-  assert.match(cal.slice(0, 200), /return activeDateSet\.has\(key\)/, 'the calendar month view');
+  // The month view reads it per cell, from the cell's own date (#125).
+  assert.match(diary, /class:dp-has-workout=\{activeDateSet\.has\(dateStr\)\}/, 'the calendar month view');
+  assert.match(diary, /\{#if activeDateSet\.has\(dateStr\)\}<span class="dp-dot"><\/span>\{\/if\}/, 'and its dots');
 });
 
 test('cardio is neither fetched nor counted while the setting is off', () => {

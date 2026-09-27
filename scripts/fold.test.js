@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { foldFromFeatures, foldFromSegments, sizeClassFor, columnsAcrossFold, keepOffCrease, placeAnchoredMenu } from '../src/lib/fold-core.js';
+import { foldFromFeatures, foldFromSegments, sizeClassFor, columnsAcrossFold, keepOffCrease, placeAnchoredMenu, gridTemplateAcrossFold, columnForIndex } from '../src/lib/fold-core.js';
 
 test('size classes', () => {
   assert.equal(sizeClassFor(344), 'compact');
@@ -10,20 +10,46 @@ test('size classes', () => {
   assert.equal(sizeClassFor(1024), 'expanded');
 });
 
-test('a flat fold is ignored; half open gives book or tabletop', () => {
+test('half open gives book or tabletop; open flat still reports where the hinge is', () => {
   const f = (state, orientation, extra = {}) => ({ features: [{ state, orientation, separating: false, left: 440, right: 442, top: 0, bottom: 1104, ...extra }] });
-  assert.equal(foldFromFeatures(f('flat', 'vertical')), null);
-  assert.deepEqual(foldFromFeatures(f('half_opened', 'vertical')), { posture: 'book', start: 440, end: 442 });
-  assert.deepEqual(foldFromFeatures(f('half_opened', 'horizontal', { left: 0, right: 1104, top: 441, bottom: 441 })), { posture: 'tabletop', start: 441, end: 441 });
-  assert.deepEqual(foldFromFeatures(f('flat', 'vertical', { separating: true })), { posture: 'book', start: 440, end: 442 });
+  assert.deepEqual(foldFromFeatures(f('half_opened', 'vertical')),
+    { posture: 'book', start: 440, end: 442, separating: true, vertical: true });
+  assert.deepEqual(foldFromFeatures(f('half_opened', 'horizontal', { left: 0, right: 1104, top: 441, bottom: 441 })),
+    { posture: 'tabletop', start: 441, end: 441, separating: true, vertical: false });
+  assert.deepEqual(foldFromFeatures(f('flat', 'vertical', { separating: true })),
+    { posture: 'book', start: 440, end: 442, separating: true, vertical: true });
+  // Open flat the crease is still physically there. Posture is 'flat', so
+  // nothing that avoids a crease reacts, but a layout can line a gutter up.
+  assert.deepEqual(foldFromFeatures(f('flat', 'vertical')),
+    { posture: 'flat', start: 440, end: 442, separating: false, vertical: true });
   assert.equal(foldFromFeatures({ features: [] }), null);
   assert.equal(foldFromFeatures(null), null);
 });
 
+test("a flat crease does not trigger anything that avoids one", () => {
+  // The helpers that take a fold check its posture, so a flat crease is inert
+  // for them. keepOffCrease takes raw coordinates instead, so its guard lives
+  // at the call site, which is why it is not asserted here.
+  const flat = foldFromFeatures({ features: [{ state: 'flat', orientation: 'vertical', separating: false, left: 440, right: 442, top: 0, bottom: 1104 }] });
+  assert.equal(flat.posture, 'flat');
+  assert.equal(columnsAcrossFold({ width: 900, gap: 12, minCard: 200, fold: flat }), null);
+  const menu = placeAnchoredMenu({ anchorTop: 100, anchorBottom: 140, viewportHeight: 900, fold: flat });
+  assert.equal(menu.above, false, 'a flat crease does not push a menu around');
+});
+
+test('both sources return the same shape', () => {
+  const fromPlugin = foldFromFeatures({ features: [{ state: 'half_opened', orientation: 'vertical', separating: false, left: 400, right: 420, top: 0, bottom: 900 }] });
+  const fromWeb = foldFromSegments([{ x: 0, y: 0, width: 400, height: 900 }, { x: 420, y: 0, width: 400, height: 900 }]);
+  assert.deepEqual(Object.keys(fromPlugin).sort(), Object.keys(fromWeb).sort());
+  assert.deepEqual(fromPlugin, fromWeb);
+});
+
 test('viewport segments', () => {
   assert.equal(foldFromSegments([{ x: 0, y: 0, width: 800, height: 600 }]), null);
-  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 400, height: 900 }, { x: 420, y: 0, width: 400, height: 900 }]), { posture: 'book', start: 400, end: 420 });
-  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 900, height: 400 }, { x: 0, y: 400, width: 900, height: 400 }]), { posture: 'tabletop', start: 400, end: 400 });
+  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 400, height: 900 }, { x: 420, y: 0, width: 400, height: 900 }]),
+    { posture: 'book', start: 400, end: 420, separating: true, vertical: true });
+  assert.deepEqual(foldFromSegments([{ x: 0, y: 0, width: 900, height: 400 }, { x: 0, y: 400, width: 900, height: 400 }]),
+    { posture: 'tabletop', start: 400, end: 400, separating: true, vertical: false });
 });
 
 test('a book fold splits a grid into columns either side of the crease', () => {
@@ -121,4 +147,29 @@ test('a field below the crease opens downwards as usual', () => {
   const place = placeAnchoredMenu({ anchorTop: 600, anchorBottom: 640, viewportHeight: 1000, fold });
   assert.equal(place.above, false);
   assert.equal(place.maxHeight, 320);
+});
+
+test('cards skip the hinge track and keep their reading order', () => {
+  const split = { left: 2, right: 2, hinge: 24 };
+  assert.equal(gridTemplateAcrossFold(split, 'x'),
+    'repeat(2, minmax(0, 1fr)) 24px repeat(2, minmax(0, 1fr))');
+  // Four per row: two on the left page, then two on the right, and the third
+  // track is the crease, which nothing is placed in.
+  const row = [0, 1, 2, 3].map(i => columnForIndex(i, split));
+  assert.deepEqual(row, ['1', '2', '4', '5']);
+  // The next row starts over on the left page.
+  assert.deepEqual([4, 5, 6, 7].map(i => columnForIndex(i, split)), ['1', '2', '4', '5']);
+});
+
+test('without a fold the grid is left exactly as it was', () => {
+  assert.equal(gridTemplateAcrossFold(null, 'repeat(auto-fill, minmax(260px, 1fr))'),
+    'repeat(auto-fill, minmax(260px, 1fr))');
+  assert.equal(columnForIndex(3, null), 'auto');
+});
+
+test('uneven pages still place every card on a page', () => {
+  const split = { left: 1, right: 3, hinge: 30 };
+  const row = [0, 1, 2, 3, 4].map(i => columnForIndex(i, split));
+  assert.deepEqual(row, ['1', '3', '4', '5', '1']);
+  assert.ok(!row.includes('2'), 'the hinge track is never used');
 });

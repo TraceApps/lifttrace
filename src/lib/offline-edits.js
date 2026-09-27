@@ -283,6 +283,34 @@ export function answerWithOps(url, mirrored, ops) {
     const last = queued[queued.length - 1];
     return { workout: { ...(mirrored?.workout || {}), ...last.body, _pending: true } };
   }
+  // The recent list feeds the Diary's dots, week strip and streak and the
+  // Statistics heatmap, so a day logged, cleared or deleted offline has to
+  // read that way there too, not only on the day itself.
+  if (path === '/api/workout/recent') {
+    const work = (ops || []).filter(op => op.kind === 'workout' || op.kind === 'workout-delete')
+      .sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    if (!work.length) return mirrored;
+    const held = Array.isArray(mirrored) ? mirrored : mirrored === undefined ? [] : null;
+    if (held === null) return mirrored;
+    let rows = [...held];
+    for (const op of work) {
+      const [, date, session] = String(op.key).match(/^workout:(\d{4}-\d{2}-\d{2})#(.+)$/) || [];
+      if (!date) continue;
+      // With no session named, a save goes to the day's first session and a
+      // delete takes the day, as on the day itself.
+      const onDay = rows.filter(r => r.date === date);
+      const mine = session === 'default'
+        ? (op.kind === 'workout-delete' ? onDay : onDay.sort((a, b) => (a.session_seq || 0) - (b.session_seq || 0)).slice(0, 1))
+        : onDay.filter(r => String(r.id) === session);
+      if (op.kind === 'workout-delete') { rows = rows.filter(r => !mine.includes(r)); continue; }
+      if (mine.length && !op.body?.new_session) {
+        rows = rows.map(r => (r === mine[0] ? { ...r, ...op.body, date, _pending: true } : r));
+      } else {
+        rows.push({ ...op.body, date, id: op.body?.id ?? op.tempId ?? -(op.seq || 1), _pending: true });
+      }
+    }
+    return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  }
   if (path === '/api/settings') {
     const queued = (ops || []).filter(op => op.kind === 'setting');
     if (!queued.length) return mirrored;

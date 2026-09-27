@@ -398,11 +398,6 @@
   })();
   $: weekWorkoutCount = weekPeekDays.filter(d => d.done).length;
 
-  function calHasWorkout(day) {
-    const key = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    return activeDateSet.has(key);
-  }
-
   function openDatePicker() {
     const d = new Date($currentDate + 'T12:00:00');
     calYear  = d.getFullYear();
@@ -423,8 +418,6 @@
   }
   function calPickYear(y)  { calYear = y; showYearPicker = false; }
   function calPickMonth(m) { calMonth = m; showMonthPicker = false; }
-  function calIsToday(day)  { const t = localDateStr(); return `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}` === t; }
-  function calIsSel(day)    { return `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}` === $currentDate; }
 
   function formatDateSub(dateStr) {
     const d = new Date(dateStr + 'T12:00:00');
@@ -999,8 +992,11 @@
       // of only covering this one entry path.
       openLoadWorkout();
     } else if (action === 'clear') {
-      await saveWorkout($currentDate, { ...($todayLog || {}), name: '', template_id: null, program_id: null, exercises: [], notes: '' });
+      // `completed` goes too: the row outlives the clear, and a finished
+      // flag left on an empty row keeps counting as a trained day.
+      await saveWorkout($currentDate, { ...($todayLog || {}), name: '', template_id: null, program_id: null, exercises: [], notes: '', completed: false });
       notes = '';
+      loadWorkoutDates();
       showSuccess($_('diary.toast.workout_cleared'));
     } else if (action === 'copy_yesterday') {
       await copyFromYesterday();
@@ -1025,6 +1021,7 @@
       })) return;
       await deleteSession($currentDate, $currentSessionId);
       notes = '';
+      loadWorkoutDates();
       showSuccess($_('diary.toast.workout_deleted'));
     }
   }
@@ -1343,10 +1340,16 @@
 
   // ── Recent workouts for quick-load ──────────────────────────────────
   let recentWorkouts = [];
+  // A workout's exercises, whether the row carries them as a list (the server
+  // and the phone both do) or as JSON text. These reads all assumed text, so
+  // JSON.parse threw on every real row and the catch below left this list
+  // empty: the Last Workout card and the rail's Recent Workouts never showed
+  // for anyone (found while looking into #124).
+  const exercisesOf = (w) => (typeof w?.exercises === 'string' ? JSON.parse(w.exercises || '[]') : (w?.exercises || []));
   async function loadRecentWorkouts() {
     try {
       const res = await fetch('/api/workout/recent?limit=3', { credentials: 'include' });
-      if (res.ok) recentWorkouts = (await res.json()).filter(w => w.exercises && JSON.parse(w.exercises || '[]').length > 0);
+      if (res.ok) recentWorkouts = (await res.json()).filter(w => exercisesOf(w).length > 0);
     } catch {}
   }
   $: if (!loading && exercises.length === 0) loadRecentWorkouts();
@@ -1373,7 +1376,7 @@
   });
 
   async function quickLoad(recent) {
-    const exs = JSON.parse(recent.exercises || '[]');
+    const exs = exercisesOf(recent);
     // Auto-fill from last session if enabled
     const filled = await Promise.all(exs.map(async ex => {
       const lastSets = await getLastSets(ex.exercise_id);
@@ -2674,11 +2677,11 @@
             </button>
           {/each}
           {#each recentWorkouts.slice(0, 1) as rw (rw.id)}
-            {@const exs = JSON.parse(rw.exercises || '[]')}
+            {@const exs = exercisesOf(rw)}
             <button class="quick-card" on:click={() => quickLoad(rw)}>
               <span class="qc-tag">{$_('diary_extra.last_workout')}</span>
-              <span class="qc-title">{rw.name || 'Workout'}</span>
-              <span class="qc-meta">{exs.length} {exs.length === 1 ? 'exercise' : 'exercises'}</span>
+              <span class="qc-title">{rw.name || $_('diary_extra.untitled_workout')}</span>
+              <span class="qc-meta">{$_('diary_extra.exercise_count', { values: { count: exs.length } })}</span>
             </button>
           {/each}
         </div>
@@ -2994,10 +2997,13 @@
           <span class="rail-card-title">Recent</span>
         </div>
         <div class="rail-recent-list">
-          {#each recentWorkouts as w (w.date)}
+          <!-- Keyed by id: two sessions on one day (#76) share a date, and a
+               duplicate key throws. The name field is `name`; there is no
+               `workout_name`, so every row read as untitled. -->
+          {#each recentWorkouts as w (w.id)}
             <button type="button" class="rail-recent-row" on:click={() => goToDiaryDate(w.date)}>
               <span class="rail-recent-date">{new Date(w.date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-              <span class="rail-recent-name">{w.workout_name || 'Untitled workout'}</span>
+              <span class="rail-recent-name">{w.name || $_('diary_extra.untitled_workout')}</span>
             </button>
           {/each}
         </div>
@@ -3384,15 +3390,19 @@
               {@const day = i + 1}
               {@const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`}
               {@const hasUnread = unreadFeedbackDates.has(dateStr)}
+              <!-- Each check reads this cell's own dateStr. They used to call
+                   helpers that worked the month out inside, which the calendar
+                   never re-ran when the arrows changed month: the workout dots
+                   stayed on the first month's days (issue #125). -->
               <button class="dp-day"
-                class:dp-today={calIsToday(day)}
-                class:dp-sel={calIsSel(day)}
-                class:dp-has-workout={calHasWorkout(day)}
+                class:dp-today={dateStr === localDateStr()}
+                class:dp-sel={dateStr === $currentDate}
+                class:dp-has-workout={activeDateSet.has(dateStr)}
                 class:dp-has-feedback={hasUnread}
                 on:click={() => calPickDay(day)}
               >
                 {day}
-                {#if calHasWorkout(day)}<span class="dp-dot"></span>{/if}
+                {#if activeDateSet.has(dateStr)}<span class="dp-dot"></span>{/if}
                 {#if hasUnread}<span class="dp-dot dp-dot-feedback"></span>{/if}
               </button>
             {/each}
@@ -4632,12 +4642,14 @@
   .rail-action:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
   .rail-action .material-symbols-rounded { font-size: 18px; }
 
-  @media (min-width: 1280px) {
+  /* Gated on the room available, not a 1280px viewport. The override below
+     drops the third column where there is not room for it. */
+  @media all {
     /* Three-column shell. Two wrapper divs (.diary-hud-col and
        .diary-main-col) plus the .diary-right-rail sibling are the
        three grid children — each is a single cell so heights don't
        bleed between columns. */
-    :global(html:not(.force-mobile-layout)) .diary-body {
+    :global(html.wide-content) .diary-body {
       display: grid;
       /* Center takes all remaining width — the earlier max-width:1440px
          cap centred the grid and left dead margins on wide monitors.
@@ -4652,7 +4664,7 @@
     }
     /* Left column — session HUD wrapper. Sticks with the user as the
        center column scrolls so the timer + now-doing stay visible. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col {
+    :global(html.wide-content) .diary-body > .diary-hud-col {
       grid-column: 1;
       display: flex;
       flex-direction: column;
@@ -4661,21 +4673,21 @@
       top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
       align-self: start;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar,
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .now-strip {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar,
+    :global(html.wide-content) .diary-body > .diary-hud-col > .now-strip {
       margin: 0;
       width: 100%;
     }
     /* HUD title — mirrors the right rail's .rail-title look so the
        two columns read as one system. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-title {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-title {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
       padding: 0 4px 4px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-title > .hud-title-text {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-title > .hud-title-text {
       font-size: 11px;
       font-weight: 600;
       letter-spacing: 0.08em;
@@ -4686,7 +4698,7 @@
        column — stat grid on top, timer + wake-lock as a footer row.
        Uses the same surface + border tokens the rail cards use so
        the left column visually matches the right. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar {
       display: grid;
       grid-template-columns: 1fr 1fr;
       grid-auto-rows: min-content;
@@ -4697,28 +4709,28 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .sb-fill {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar > .sb-fill {
       /* Hide the horizontal fill sliver in the vertical HUD layout —
          the sets stat below already communicates progress. */
       display: none;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar > .stat {
       display: flex;
       flex-direction: column;
       align-items: flex-start;
       gap: 2px;
       min-width: 0;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-icon {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-icon {
       display: none;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-val {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-val {
       font-size: 20px;
       font-weight: 700;
       line-height: 1.1;
       color: var(--text-1);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-label {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar > .stat > .stat-label {
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -4726,17 +4738,17 @@
       display: inline;
     }
     /* Timer + wake-lock as a footer row spanning both columns. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > :global(.workout-timer) {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar > :global(.workout-timer) {
       grid-column: 1 / -1;
       justify-self: start;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .summary-bar > .wake-toggle {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .summary-bar > .wake-toggle {
       grid-column: 1 / -1;
       justify-self: end;
       margin-top: -32px;
     }
     /* Center column — the actual training content. Plain flex stack. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col {
+    :global(html.wide-content) .diary-body > .diary-main-col {
       grid-column: 2;
       min-width: 0;
       display: flex;
@@ -4746,24 +4758,24 @@
     /* Kill the page-px horizontal padding on center-col children —
        the grid gap already handles spacing. Otherwise every card
        is double-padded and drifts right. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .exercise-list,
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .cardio-slot {
+    :global(html.wide-content) .diary-body > .diary-main-col > .exercise-list,
+    :global(html.wide-content) .diary-body > .diary-main-col > .cardio-slot {
       padding-left: 0;
       padding-right: 0;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .workout-title-row,
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .coach-banner,
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .coach-feedback-banner,
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .suggested-section,
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .cardio-slot,
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-main-col > .planning-badge {
+    :global(html.wide-content) .diary-body > .diary-main-col > .workout-title-row,
+    :global(html.wide-content) .diary-body > .diary-main-col > .coach-banner,
+    :global(html.wide-content) .diary-body > .diary-main-col > .coach-feedback-banner,
+    :global(html.wide-content) .diary-body > .diary-main-col > .suggested-section,
+    :global(html.wide-content) .diary-body > .diary-main-col > .cardio-slot,
+    :global(html.wide-content) .diary-body > .diary-main-col > .planning-badge {
       margin-left: 0;
       margin-right: 0;
     }
     /* When the rail is hidden via _railMode, drop the third column
        so the center column reclaims that width. The rail aside itself
        is not rendered in hidden mode. */
-    :global(html:not(.force-mobile-layout)) .diary-body.rail-hidden {
+    :global(html.wide-content) .diary-body.rail-hidden {
       grid-template-columns: 280px minmax(0, 1fr);
     }
     /* Right column — program context rail. Pinned mode is portaled
@@ -4775,7 +4787,7 @@
        (custom properties don't inherit across a portal). Grid still
        reserves the 340px column because its track size is explicit,
        so the center column doesn't reflow when the aside leaves flow. */
-    :global(html:not(.force-mobile-layout)) .diary-right-rail {
+    :global(html.wide-content) .diary-right-rail {
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -4797,23 +4809,23 @@
       scrollbar-color: var(--border) transparent;
       padding-right: 4px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar { width: 8px; }
-    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar-track { background: transparent; }
-    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar-thumb {
+    :global(html.wide-content) .diary-right-rail::-webkit-scrollbar { width: 8px; }
+    :global(html.wide-content) .diary-right-rail::-webkit-scrollbar-track { background: transparent; }
+    :global(html.wide-content) .diary-right-rail::-webkit-scrollbar-thumb {
       background: var(--border);
       border-radius: var(--radius-full);
     }
-    :global(html:not(.force-mobile-layout)) .diary-right-rail::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+    :global(html.wide-content) .diary-right-rail::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
     /* Widgets keep natural size; rail scrolls internally when the
        stack exceeds max-height. :global(*) because widget component
        roots (BodyStatsWidget, GymTools) don't carry Diary's scoping
        hash, so an un-globalized `> *` would miss. */
-    :global(html:not(.force-mobile-layout)) .diary-right-rail > :global(*) { flex-shrink: 0; }
+    :global(html.wide-content) .diary-right-rail > :global(*) { flex-shrink: 0; }
     /* Overlay variant: same widget stack, positioned as a fixed
        slide-in on the viewport's right edge instead of tracking the
        grid column. Sits above page content, doesn't dim the
        background (widgets are additive, not a modal task). */
-    :global(html:not(.force-mobile-layout)) .diary-right-rail-overlay {
+    :global(html.wide-content) .diary-right-rail-overlay {
       top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
       right: 12px;
       bottom: 12px;
@@ -4836,7 +4848,7 @@
       to   { transform: translateX(0);    opacity: 1; }
     }
     @media (prefers-reduced-motion: reduce) {
-      :global(html:not(.force-mobile-layout)) .diary-right-rail-overlay { animation: none; }
+      :global(html.wide-content) .diary-right-rail-overlay { animation: none; }
     }
     /* Rail title bar — tiny "Overview" label + collapse button that
        drops the rail into the fixed edge tab. Sits above the first
@@ -4844,24 +4856,24 @@
     /* Rail title bar — matches NT verbatim so both apps read as one
        system. Tiny "Overview" label on the left; pin/hide/close
        controls on the right. */
-    :global(html:not(.force-mobile-layout)) .rail-title {
+    :global(html.wide-content) .rail-title {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 2px 4px 4px;
     }
-    :global(html:not(.force-mobile-layout)) .rail-title-text {
+    :global(html.wide-content) .rail-title-text {
       font-size: 12px;
       font-weight: 600;
       color: var(--text-3);
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
-    :global(html:not(.force-mobile-layout)) .rail-title-actions {
+    :global(html.wide-content) .rail-title-actions {
       display: flex;
       gap: 2px;
     }
-    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn {
+    :global(html.wide-content) .rail-ctrl-btn {
       background: transparent;
       border: 1px solid transparent;
       border-radius: var(--radius-full);
@@ -4875,14 +4887,14 @@
       padding: 0;
       transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn:hover {
+    :global(html.wide-content) .rail-ctrl-btn:hover {
       background: var(--surface-2);
       color: var(--text-1);
       border-color: var(--border);
     }
-    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn .material-symbols-rounded { font-size: 16px; }
+    :global(html.wide-content) .rail-ctrl-btn .material-symbols-rounded { font-size: 16px; }
     /* Desktop empty-state card in the left HUD column. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-empty-card {
       display: flex;
       flex-direction: column;
       align-items: flex-start;
@@ -4892,31 +4904,31 @@
       border: 1px dashed var(--border);
       border-radius: var(--radius-md);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-icon {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-icon {
       font-size: 22px;
       color: var(--accent);
       opacity: 0.85;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-title {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-title {
       margin: 0;
       font-size: 13px;
       font-weight: 700;
       color: var(--text-1);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-desc {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-empty-card > .hud-empty-desc {
       margin: 0;
       font-size: 12px;
       color: var(--text-3);
       line-height: 1.4;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-empty-card > .rail-action {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-empty-card > .rail-action {
       align-self: stretch;
       margin-top: 4px;
     }
 
     /* Desktop session-notes card in the left HUD column. Mirrors
        rail-card visual tokens for consistency with the right rail. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-notes-card {
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -4925,7 +4937,7 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-head {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-head {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -4933,11 +4945,11 @@
       font-weight: 600;
       color: var(--text-1);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-head > .material-symbols-rounded {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-head > .material-symbols-rounded {
       font-size: 18px;
       color: var(--accent);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-input {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-input {
       width: 100%;
       background: var(--surface-2);
       border: 1px solid var(--border);
@@ -4950,7 +4962,7 @@
       resize: vertical;
       min-height: 72px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-input::placeholder {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-notes-card > .hud-notes-input::placeholder {
       color: var(--text-3);
     }
     /* Suppress the in-list day-notes affordances at wide widths so
@@ -4958,15 +4970,15 @@
        for the in-list finish button — the HUD copy above is now
        the desktop entry point so it stays reachable without
        scrolling past the last exercise. */
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.notes-card),
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.notes-trigger),
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.finish-btn) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.notes-card),
+    :global(html.wide-content) .diary-body .exercise-list :global(.notes-trigger),
+    :global(html.wide-content) .diary-body .exercise-list :global(.finish-btn) {
       display: none;
     }
     /* HUD finish button — accent-tinted CTA that mirrors the mobile
        .finish-btn's role. Same reopen (task_alt) affordance for
        already-completed sessions. */
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-finish-btn {
       display: flex;
       align-items: center;
       justify-content: center;
@@ -4982,20 +4994,20 @@
       cursor: pointer;
       transition: filter var(--dur-fast), transform var(--dur-fast);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn:hover {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-finish-btn:hover {
       filter: brightness(1.08);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn:active {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-finish-btn:active {
       transform: scale(0.99);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn.reopen {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-finish-btn.reopen {
       background: transparent;
       color: var(--accent);
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn .material-symbols-rounded {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-finish-btn .material-symbols-rounded {
       font-size: 20px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body > .diary-hud-col > .hud-finish-btn > .hud-finish-sub {
+    :global(html.wide-content) .diary-body > .diary-hud-col > .hud-finish-btn > .hud-finish-sub {
       flex-basis: 100%;
       text-align: center;
       font-size: 11px;
@@ -5008,14 +5020,14 @@
        right rail's Tools group now carries these three actions
        (Gym Tools / Body Stats / More). Mirrors NT's diary pattern
        of dropping mobile top surfaces when the rail owns them. */
-    :global(html:not(.force-mobile-layout)) :global(.diary-topbar-actions) {
+    :global(html.wide-content) :global(.diary-topbar-actions) {
       display: none;
     }
     /* Hide the bottom-right FAB stack on wide viewports — the Add
        button now lives inline in the page header (.diary-header-add),
        and the FAB overlaps the pinned rail column (and gets covered
        outright by the overlay, which sits at z-index 40). */
-    :global(html:not(.force-mobile-layout)) .fab-group {
+    :global(html.wide-content) .fab-group {
       display: none;
     }
     /* Workout Actions rail card — inline action rows instead of the
@@ -5023,13 +5035,13 @@
        matches .rail-action's visual weight but slimmer, so the card
        reads as a cluster of secondary actions and doesn't compete
        with Load Workout above it. */
-    :global(html:not(.force-mobile-layout)) .rail-actions-card { gap: 6px; }
-    :global(html:not(.force-mobile-layout)) .rail-actions-list {
+    :global(html.wide-content) .rail-actions-card { gap: 6px; }
+    :global(html.wide-content) .rail-actions-list {
       display: flex;
       flex-direction: column;
       gap: 4px;
     }
-    :global(html:not(.force-mobile-layout)) .rail-action-row {
+    :global(html.wide-content) .rail-action-row {
       display: flex;
       align-items: center;
       gap: 10px;
@@ -5045,22 +5057,22 @@
       cursor: pointer;
       transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
     }
-    :global(html:not(.force-mobile-layout)) .rail-action-row:hover {
+    :global(html.wide-content) .rail-action-row:hover {
       background: var(--surface-2);
       color: var(--text-1);
       border-color: var(--border);
     }
-    :global(html:not(.force-mobile-layout)) .rail-action-row .material-symbols-rounded {
+    :global(html.wide-content) .rail-action-row .material-symbols-rounded {
       font-size: 18px;
       color: var(--accent);
       flex-shrink: 0;
     }
-    :global(html:not(.force-mobile-layout)) .rail-action-row-label { flex: 1; min-width: 0; }
+    :global(html.wide-content) .rail-action-row-label { flex: 1; min-width: 0; }
     /* Danger variant for Clear Workout so destruction reads distinctly
        from the reversible actions above it. */
-    :global(html:not(.force-mobile-layout)) .rail-action-row.danger { color: var(--danger); }
-    :global(html:not(.force-mobile-layout)) .rail-action-row.danger .material-symbols-rounded { color: var(--danger); }
-    :global(html:not(.force-mobile-layout)) .rail-action-row.danger:hover {
+    :global(html.wide-content) .rail-action-row.danger { color: var(--danger); }
+    :global(html.wide-content) .rail-action-row.danger .material-symbols-rounded { color: var(--danger); }
+    :global(html.wide-content) .rail-action-row.danger:hover {
       background: color-mix(in srgb, var(--danger) 12%, transparent);
       border-color: color-mix(in srgb, var(--danger) 40%, transparent);
       color: var(--danger);
@@ -5079,16 +5091,16 @@
        SupersetCard keep their linear layout — the .ss-connector
        + narrower nested container makes a 2-col grid there squish
        badly. */
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone) {
       display: grid;
       grid-template-columns: minmax(200px, 260px) 1fr;
       column-gap: 20px;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .ex-header) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .ex-header) {
       grid-column: 1 / -1;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .last-row) {
       grid-column: 1;
       /* When the row is a standalone card cell, drop the linear-
          gradient background — it was designed to run edge-to-edge
@@ -5104,7 +5116,7 @@
       align-items: stretch;
       gap: 6px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-label) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-label) {
       font-size: 10px;
       color: var(--text-3);
     }
@@ -5112,14 +5124,14 @@
        CSS counter labels each row "Set N" so users can match rows
        one-for-one with the sets grid on the right without any
        markup changes to ExerciseCard. */
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets) {
       display: flex;
       flex-direction: column;
       gap: 3px;
       counter-reset: last-set-counter;
       width: 100%;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-set) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-set) {
       counter-increment: last-set-counter;
       display: flex;
       justify-content: space-between;
@@ -5127,34 +5139,34 @@
       padding: 2px 0;
       font-variant-numeric: tabular-nums;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-set::before) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-set::before) {
       content: "Set " counter(last-set-counter);
       color: var(--text-3);
       font-weight: 500;
       font-size: 11px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-sep) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .last-sets > .last-sep) {
       display: none;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .vol-delta) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .last-row > .vol-delta) {
       margin-left: 0;
       align-self: flex-start;
       margin-top: 4px;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .sets-wrap) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .sets-wrap) {
       grid-column: 2;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone > .target-info) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone > .target-info) {
       grid-column: 1 / -1;
     }
     /* Empty-card fallback: when the card has NO .last-row (fresh
        exercise, no prior history), the grid still reserves col 1 —
        leaving dead space next to a lonely .sets-wrap. Cap the sets
        column so the layout doesn't look weirdly offset. */
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone:not(:has(.last-row))) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone:not(:has(.last-row))) {
       grid-template-columns: 1fr;
     }
-    :global(html:not(.force-mobile-layout)) .diary-body .exercise-list :global(.ex-card.standalone:not(:has(.last-row)) > .sets-wrap) {
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone:not(:has(.last-row)) > .sets-wrap) {
       grid-column: 1;
     }
 
@@ -5164,7 +5176,7 @@
     /* Right-edge tab — small vertical chevron button pinned to the
        viewport's right side, visible only in hidden mode. Matches NT
        verbatim so the two apps read as one system. */
-    :global(html:not(.force-mobile-layout)) .rail-edge-tab {
+    :global(html.wide-content) .rail-edge-tab {
       position: fixed;
       right: 0;
       top: 50%;
@@ -5185,11 +5197,35 @@
       z-index: 41;
       transition: background 120ms ease, color 120ms ease, width 120ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .rail-edge-tab:hover {
+    :global(html.wide-content) .rail-edge-tab:hover {
       background: var(--surface-3);
       color: var(--text-1);
       width: 28px;
     }
-    :global(html:not(.force-mobile-layout)) .rail-edge-tab .material-symbols-rounded { font-size: 18px; }
+    :global(html.wide-content) .rail-edge-tab .material-symbols-rounded { font-size: 18px; }
+  }
+
+
+  /* Two of the three columns below the desktop tier: desktop wants
+     280 + 720 + 340 = 1388px and a foldable open flat has 820. The session
+     column is what is in use while training, so it keeps its place beside the
+     exercise list, and the Overview rail stays a phone-style overlay. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) .diary-body {
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 20px;
+    }
+    /* The pinned rail is portaled to document.body, so a child selector on
+       .diary-body never reaches it. The overlay variant stays, since that is
+       the one the edge tab opens on purpose. */
+    :global(html.wide-content .diary-right-rail:not(.diary-right-rail-overlay)) { display: none; }
+
+    /* The exercise card's own two-column split (history beside the sets) needs
+       the desktop centre column. Here the centre is about 520px, so the sets
+       were left roughly 210px and the weight and reps boxes clipped their own
+       numbers. The card stays linear and the inputs get the full width. */
+    :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone) {
+      display: block;
+    }
   }
 </style>

@@ -13,6 +13,7 @@
  * chat loop catches and relays a `{ error: ... }` payload to the model.
  */
 import { isTimedSet } from './workout.js';
+import { foldText } from './search-text.js';
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -603,8 +604,8 @@ async function _getWorkouts({ date_from, date_to, exercise_name } = {}) {
   // lifters.
   const rows = await _get('/api/workout/recent?limit=200');
   const filtered = rows.filter(r => r.date >= from && r.date <= to);
-  const needle = (exercise_name || '').toLowerCase().trim();
-  const hasLift = (r) => (r.exercises || []).some(ex => (ex.exercise_name || '').toLowerCase().includes(needle));
+  const needle = foldText(exercise_name).trim();
+  const hasLift = (r) => (r.exercises || []).some(ex => foldText(ex.exercise_name).includes(needle));
   const matched = needle ? filtered.filter(hasLift) : filtered;
   // Issue #92: a lift last trained six weeks ago is not missing from the log
   // just because the default window is 30 days. With no explicit range,
@@ -775,14 +776,14 @@ async function _getActiveProgram() {
 async function _getPrs({ exercise_name, date_from, date_to, limit } = {}) {
   const cap = Number(limit) || 20;
   const records = await _get('/api/stats/records');
-  const needle = (exercise_name || '').toLowerCase().trim();
+  const needle = foldText(exercise_name).trim();
   // A timed exercise (issue #89) has no max weight; its record is the
   // longest hold. Filtering on maxWeight alone hid every plank PR.
   const isHold = (r) => !((r.maxWeight || 0) > 0) && (r.maxDuration || 0) > 0;
   const recDate = (r) => (isHold(r) ? r.durationDate : r.date);
   const filtered = records
     .filter(r => (r.maxWeight || 0) > 0 || (r.maxDuration || 0) > 0)
-    .filter(r => (!needle || (r.name || '').toLowerCase().includes(needle)))
+    .filter(r => (!needle || foldText(r.name).includes(needle)))
     .filter(r => (!date_from || (recDate(r) && recDate(r) >= date_from)))
     .filter(r => (!date_to   || (recDate(r) && recDate(r) <= date_to)))
     .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0))
@@ -900,8 +901,8 @@ async function _getCardio({ date_from, date_to, activity } = {}) {
   const from = date_from || _daysAgo(30);
   const to   = date_to   || _today();
   const rows = await _get(`/api/cardio?start=${from}&end=${to}`);
-  const needle = (activity || '').toLowerCase().trim();
-  const matched = (rows || []).filter(r => !needle || (r.activity || '').toLowerCase().includes(needle));
+  const needle = foldText(activity).trim();
+  const matched = (rows || []).filter(r => !needle || foldText(r.activity).includes(needle));
   const sessions = matched.map(r => ({
     date: r.date,
     activity: r.activity,
@@ -1029,9 +1030,9 @@ async function _getCoachPrescription({ date } = {}) {
 /** Find an exercise in the library by case-insensitive name. */
 async function _resolveExerciseByName(name) {
   const hits = await _get(`/api/exercises?search=${encodeURIComponent(name)}&limit=5`);
-  const lower = name.toLowerCase().trim();
+  const lower = foldText(name).trim();
   // Prefer exact match, else first substring hit.
-  return hits.find(h => (h.name || '').toLowerCase() === lower) || hits[0] || null;
+  return hits.find(h => foldText(h.name) === lower) || hits[0] || null;
 }
 
 async function _logWorkout({ date, name, duration_min, exercises }) {
@@ -1125,8 +1126,8 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
   if (exercise_id != null && exs[exercise_id]) {
     idx = Number(exercise_id);
   } else if (exercise_name) {
-    const lower = String(exercise_name).toLowerCase();
-    idx = exs.findIndex(e => (e.exercise_name || '').toLowerCase().includes(lower));
+    const lower = foldText(exercise_name);
+    idx = exs.findIndex(e => foldText(e.exercise_name).includes(lower));
     if (idx < 0) idx = null;
   }
   if (idx == null) throw new Error('exercise_id (position) or exercise_name is required and must match a slot in the workout');
@@ -1188,14 +1189,14 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
   } else {
     // Scan the user's programs to find a template by name.
     const programs = await _get('/api/programs');
-    const lower = String(template_name).toLowerCase();
+    const lower = foldText(template_name);
     outer: for (const p of programs) {
       const full = await _get(`/api/programs/${p.id}`);
       for (const t of (full.templates || [])) {
         if ((t.name || '').toLowerCase() === lower) { tpl = t; break outer; }
       }
       for (const t of (full.templates || [])) {
-        if ((t.name || '').toLowerCase().includes(lower)) { tpl = t; break outer; }
+        if (foldText(t.name).includes(lower)) { tpl = t; break outer; }
       }
     }
     if (!tpl) throw new Error(`No template matching "${template_name}"`);
@@ -1237,9 +1238,9 @@ async function _setActiveProgram({ program_id, program_name }) {
   if (program_id != null) {
     target = programs.find(p => p.id === Number(program_id)) || null;
   } else {
-    const lower = String(program_name).toLowerCase();
+    const lower = foldText(program_name);
     target = programs.find(p => (p.name || '').toLowerCase() === lower)
-          || programs.find(p => (p.name || '').toLowerCase().includes(lower))
+          || programs.find(p => foldText(p.name).includes(lower))
           || null;
   }
   if (!target) throw new Error(`No program matching ${program_id ?? program_name}`);
