@@ -8,6 +8,8 @@
   import ExerciseInfoSheet from './ExerciseInfoSheet.svelte';
   import ExerciseInfo from './ExerciseInfo.svelte';
   import ExerciseEditor from './ExerciseEditor.svelte';
+  import { foldText } from '../../lib/search-text.js';
+
 
   // Create-custom flow: if the user searches for something that doesn't
   // exist, we show a "Create 'X'" row. Tapping it opens the editor with
@@ -127,7 +129,7 @@
   // makes 300 rows one plausible screen of scrolling.
   $: _rowLimit = _wideMode ? 300 : 100;
   $: filtered = exercises.filter(ex => {
-    const matchSearch = !search || ex.name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search || foldText(ex.name).includes(foldText(search));
     const matchCat = !selectedCategory || ex.category === selectedCategory;
     const matchEq = !selectedEquipment
       || (ex.equipment || []).some(e => normalizeEquipment(e) === selectedEquipment);
@@ -137,7 +139,7 @@
   // Equipment sub-filter options for the current category + search
   $: availableEquipment = (() => {
     const catFiltered = exercises.filter(ex => {
-      const matchSearch = !search || ex.name.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !search || foldText(ex.name).includes(foldText(search));
       const matchCat = !selectedCategory || ex.category === selectedCategory;
       return matchSearch && matchCat;
     });

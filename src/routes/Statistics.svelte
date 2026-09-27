@@ -19,6 +19,8 @@
   import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
   import { showError } from '../stores/toast.js';
+  import { foldText } from '../lib/search-text.js';
+
 
   // ── Metric + range state ─────────────────────────────────────────────
   // Base metric pills — cardio conditionally appended when the user
@@ -492,7 +494,7 @@
   let showExPicker = false;
   let exSearch = '';
   $: filteredExs = exSearch
-    ? exercises.filter(e => e.name.toLowerCase().includes(exSearch.toLowerCase())).slice(0, 50)
+    ? exercises.filter(e => foldText(e.name).includes(foldText(exSearch))).slice(0, 50)
     : exercises.slice(0, 50);
 
   // ── Chart helpers (Svelte @const has template-scope restrictions) ────

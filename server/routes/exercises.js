@@ -5,6 +5,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid, userMgmtActive } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
+import { foldText } from '../lib/search-text.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -20,8 +21,8 @@ router.get('/', wrap((req, res) => {
   const params = [];
 
   if (category) { sql += ' AND category = ?'; params.push(category); }
-  if (equipment) { sql += " AND equipment LIKE ?"; params.push(`%${equipment}%`); }
-  if (search) { sql += ' AND name LIKE ?'; params.push(`%${search}%`); }
+  if (equipment) { sql += " AND fold(equipment) LIKE ?"; params.push(`%${foldText(equipment)}%`); }
+  if (search) { sql += ' AND fold(name) LIKE ?'; params.push(`%${foldText(search)}%`); }
 
   // Show global + user's own exercises, excluding disabled catalogs
   const userId = uid(req);

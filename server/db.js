@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { foldText } from './lib/search-text.js';
 
 const dbPath = process.env.DB_PATH || './lifttrace.db';
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -9,6 +10,12 @@ fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+// Accent-insensitive text search: `fold(name) LIKE '%predicateur%'` finds
+// "Prédicateur". SQLite's own LIKE folds ASCII case and nothing else, so a
+// custom exercise named in French, Spanish or Portuguese could not be found
+// without typing the accent. Same definition the client searches with.
+db.function('fold', { deterministic: true }, (s) => foldText(s));
 
 // ── Core tables ────────────────────────────────────────────────────────────
 db.exec(`

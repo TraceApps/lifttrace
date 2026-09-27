@@ -15,6 +15,8 @@
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
   import { readSharedExerciseFile, fetchSharedExerciseUrl, importSharedExercise } from '../lib/exerciseShare.js';
   import { portal } from '../lib/portal.js';
+  import { foldText } from '../lib/search-text.js';
+
 
   let showEditor = false;
   let addMenuOpen = false;
@@ -274,7 +276,7 @@
   $: categoryCounts = (() => {
     const counts = {};
     for (const ex of exercises) {
-      if (search && !ex.name.toLowerCase().includes(search.toLowerCase())) continue;
+      if (search && !foldText(ex.name).includes(foldText(search))) continue;
       if (!_eqMatch(ex, selectedEquipment)) continue;
       const cat = ex.category || 'other';
       counts[cat] = (counts[cat] || 0) + 1;
@@ -294,7 +296,7 @@
   $: isFav = (id) => ($favoriteExercises || []).includes(id);
 
   $: filtered = exercises.filter(ex => {
-    const matchSearch = !search || ex.name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search || foldText(ex.name).includes(foldText(search));
     const matchCat = !selectedCategory || ex.category === selectedCategory;
     return matchSearch && matchCat && _eqMatch(ex, selectedEquipment);
   });
@@ -309,7 +311,7 @@
   // up alongside the built-in buckets when at least one exercise uses it.
   $: availableEquipment = (() => {
     const catFiltered = exercises.filter(ex => {
-      const matchSearch = !search || ex.name.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !search || foldText(ex.name).includes(foldText(search));
       const matchCat = !selectedCategory || ex.category === selectedCategory;
       return matchSearch && matchCat;
     });

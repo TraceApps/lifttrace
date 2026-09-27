@@ -12,6 +12,7 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { setVolume, isTimedSet } from '../../volume.js';
 import { DATE_RE, resolveDateRange, toolResult, toolError, validateDateRange } from '../_util.js';
+import { foldText } from '../../search-text.js';
 
 /**
  * Core lookup, shared by the MCP tool below and the public REST API
@@ -26,8 +27,8 @@ export function getExerciseProgressCore(userId, { exercise_name, start, end } = 
   if (rangeError) throw new Error(rangeError);
 
   const matches = db.prepare(
-    `SELECT id, name, load_type FROM exercises WHERE deleted_at IS NULL AND name LIKE ? AND (is_global = 1 OR created_by = ?) ORDER BY name ASC LIMIT 10`
-  ).all(`%${exercise_name}%`, userId);
+    `SELECT id, name, load_type FROM exercises WHERE deleted_at IS NULL AND fold(name) LIKE ? AND (is_global = 1 OR created_by = ?) ORDER BY name ASC LIMIT 10`
+  ).all(`%${foldText(exercise_name)}%`, userId);
   if (matches.length === 0) {
     throw new Error(`No exercise matching '${exercise_name}' found in the catalog.`);
   }

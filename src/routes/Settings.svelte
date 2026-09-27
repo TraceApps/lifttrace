@@ -40,6 +40,8 @@
   import Profile from './Profile.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
   import { portal } from '../lib/portal.js';
+  import { foldText } from '../lib/search-text.js';
+
   import {
     isNative, getNativeMode, setNativeMode, getServerUrl, setServerUrl,
     getAuthToken, setAuthToken, resolveAssetUrl, explainConnectError,
@@ -371,7 +373,7 @@
 
   // ── Search ───────────────────────────────────────────────────────────────
   let settingsSearch = '';
-  $: settingsQuery = settingsSearch.toLowerCase().trim();
+  $: settingsQuery = foldText(settingsSearch).trim();
 
   const SECTION_KEYWORDS = {
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
@@ -528,14 +530,14 @@
   async function _scheduleDeepLinkScroll(q) {
     await tick();
     await new Promise(r => setTimeout(r, 60));
-    const q_norm = q.toLowerCase().trim();
+    const q_norm = foldText(q).trim();
     if (!q_norm) return;
     const scope = document.querySelector('.subpage-view');
     if (!scope) return;
     const candidates = scope.querySelectorAll('.setting-label, .setting-desc, .sub-label, .setting-row');
     let hit = null;
     for (const el of candidates) {
-      if ((el.textContent || '').toLowerCase().includes(q_norm)) { hit = el; break; }
+      if (foldText(el.textContent).includes(q_norm)) { hit = el; break; }
     }
     if (!hit) return;
     const row = hit.closest('.setting-row') || hit;
