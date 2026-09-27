@@ -10,15 +10,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-// better-sqlite3 from server/node_modules, the driver production runs; CI's
-// Node has no node:sqlite.
 import { createRequire } from 'node:module';
-const Database = createRequire(new URL('../server/', import.meta.url))('better-sqlite3');
 import { foldText, stripAccents, includesFolded, coversFolded } from '../src/lib/search-text.js';
 import { foldText as serverFoldText } from '../server/lib/search-text.js';
 import { matchExercise } from '../src/lib/workout-import/common.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+
+// The engine the server runs, better-sqlite3, built for the Node in CI and
+// the image; Node's own SQLite where that binary doesn't match the local Node
+// (node:sqlite is missing from Node 20).
+async function openDb() {
+  try {
+    const Database = createRequire(new URL('../server/package.json', import.meta.url))('better-sqlite3');
+    return new Database(':memory:');
+  } catch {}
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    return new DatabaseSync(':memory:');
+  } catch {}
+  return null;
+}
 
 const SAMPLES = [
   'Prédicateur', 'Elevación lateral', 'Curl bíceps', 'Dominadas', 'Rückenzug',
@@ -71,8 +83,9 @@ test('an imported workout matches a library exercise without the accent', () => 
   assert.equal(matchExercise('Nothing like it', library), null);
 });
 
-test('the SQL fold() function makes LIKE accent-insensitive', () => {
-  const db = new Database(':memory:');
+test('the SQL fold() function makes LIKE accent-insensitive', async (t) => {
+  const db = await openDb();
+  if (!db) return t.skip('no SQLite engine loads under this Node');
   db.function('fold', { deterministic: true }, (s) => serverFoldText(s));
   db.exec('CREATE TABLE exercises (name TEXT)');
   const ins = db.prepare('INSERT INTO exercises VALUES (?)');
