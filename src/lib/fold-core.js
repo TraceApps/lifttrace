@@ -8,15 +8,27 @@ export function sizeClassFor(width) {
   return width < MEDIUM_MIN ? 'compact' : width < EXPANDED_MIN ? 'medium' : 'expanded';
 }
 
-/** A plugin payload ({ features: [...] }) to a fold, or null. Pure. */
+/**
+ * A plugin payload ({ features: [...] }) to a fold, or null. Pure.
+ *
+ * `posture` keeps its old meaning: 'book' or 'tabletop' is a crease that
+ * content must respect, and only a separating fold gets one. A fold reported
+ * while the device is open flat comes back as posture 'flat', because the
+ * hinge is physically there either way: content may cross it, but a column
+ * gutter reads far better when it lands on it. Callers that check for 'book'
+ * are unaffected.
+ */
 export function foldFromFeatures(payload) {
-  const f = (payload?.features || []).find(x => x.state === 'half_opened' || x.separating);
+  const feats = payload?.features || [];
+  const f = feats.find(x => x.state === 'half_opened' || x.separating) || feats[0];
   if (!f) return null;
   const vertical = f.orientation === 'vertical';
   const start = Math.round(vertical ? f.left : f.top);
   const end = Math.round(vertical ? f.right : f.bottom);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
-  return { posture: vertical ? 'book' : 'tabletop', start, end };
+  const separating = f.state === 'half_opened' || !!f.separating;
+  const posture = separating ? (vertical ? 'book' : 'tabletop') : 'flat';
+  return { posture, start, end, separating, vertical };
 }
 
 /** Viewport segments (DOMRect-like) to a fold, or null. Pure. */

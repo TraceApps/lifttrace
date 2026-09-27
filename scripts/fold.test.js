@@ -10,14 +10,31 @@ test('size classes', () => {
   assert.equal(sizeClassFor(1024), 'expanded');
 });
 
-test('a flat fold is ignored; half open gives book or tabletop', () => {
+test('half open gives book or tabletop; open flat still reports where the hinge is', () => {
   const f = (state, orientation, extra = {}) => ({ features: [{ state, orientation, separating: false, left: 440, right: 442, top: 0, bottom: 1104, ...extra }] });
-  assert.equal(foldFromFeatures(f('flat', 'vertical')), null);
-  assert.deepEqual(foldFromFeatures(f('half_opened', 'vertical')), { posture: 'book', start: 440, end: 442 });
-  assert.deepEqual(foldFromFeatures(f('half_opened', 'horizontal', { left: 0, right: 1104, top: 441, bottom: 441 })), { posture: 'tabletop', start: 441, end: 441 });
-  assert.deepEqual(foldFromFeatures(f('flat', 'vertical', { separating: true })), { posture: 'book', start: 440, end: 442 });
+  assert.deepEqual(foldFromFeatures(f('half_opened', 'vertical')),
+    { posture: 'book', start: 440, end: 442, separating: true, vertical: true });
+  assert.deepEqual(foldFromFeatures(f('half_opened', 'horizontal', { left: 0, right: 1104, top: 441, bottom: 441 })),
+    { posture: 'tabletop', start: 441, end: 441, separating: true, vertical: false });
+  assert.deepEqual(foldFromFeatures(f('flat', 'vertical', { separating: true })),
+    { posture: 'book', start: 440, end: 442, separating: true, vertical: true });
+  // Open flat the crease is still physically there. Posture is 'flat', so
+  // nothing that avoids a crease reacts, but a layout can line a gutter up.
+  assert.deepEqual(foldFromFeatures(f('flat', 'vertical')),
+    { posture: 'flat', start: 440, end: 442, separating: false, vertical: true });
   assert.equal(foldFromFeatures({ features: [] }), null);
   assert.equal(foldFromFeatures(null), null);
+});
+
+test("a flat crease does not trigger anything that avoids one", () => {
+  // The helpers that take a fold check its posture, so a flat crease is inert
+  // for them. keepOffCrease takes raw coordinates instead, so its guard lives
+  // at the call site, which is why it is not asserted here.
+  const flat = foldFromFeatures({ features: [{ state: 'flat', orientation: 'vertical', separating: false, left: 440, right: 442, top: 0, bottom: 1104 }] });
+  assert.equal(flat.posture, 'flat');
+  assert.equal(columnsAcrossFold({ width: 900, gap: 12, minCard: 200, fold: flat }), null);
+  const menu = placeAnchoredMenu({ anchorTop: 100, anchorBottom: 140, viewportHeight: 900, fold: flat });
+  assert.equal(menu.above, false, 'a flat crease does not push a menu around');
 });
 
 test('viewport segments', () => {
