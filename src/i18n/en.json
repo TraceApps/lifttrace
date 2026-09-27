@@ -1011,6 +1011,8 @@
     "tap_pick_workout":        "Tap to pick a workout",
     "coach_pick":              "Coach Pick",
     "last_workout":            "Last Workout",
+    "untitled_workout":        "Untitled Workout",
+    "exercise_count":          "{count, plural, one {# exercise} other {# exercises}}",
     "notes_ph":                "Workout notes...",
     "load_workout":            "Load Workout",
     "auto":                    "Auto",

@@ -1313,10 +1313,16 @@
 
   // ── Recent workouts for quick-load ──────────────────────────────────
   let recentWorkouts = [];
+  // A workout's exercises, whether the row carries them as a list (the server
+  // and the phone both do) or as JSON text. These reads all assumed text, so
+  // JSON.parse threw on every real row and the catch below left this list
+  // empty: the Last Workout card and the rail's Recent Workouts never showed
+  // for anyone (found while looking into #124).
+  const exercisesOf = (w) => (typeof w?.exercises === 'string' ? JSON.parse(w.exercises || '[]') : (w?.exercises || []));
   async function loadRecentWorkouts() {
     try {
       const res = await fetch('/api/workout/recent?limit=3', { credentials: 'include' });
-      if (res.ok) recentWorkouts = (await res.json()).filter(w => w.exercises && JSON.parse(w.exercises || '[]').length > 0);
+      if (res.ok) recentWorkouts = (await res.json()).filter(w => exercisesOf(w).length > 0);
     } catch {}
   }
   $: if (!loading && exercises.length === 0) loadRecentWorkouts();
@@ -1343,7 +1349,7 @@
   });
 
   async function quickLoad(recent) {
-    const exs = JSON.parse(recent.exercises || '[]');
+    const exs = exercisesOf(recent);
     // Auto-fill from last session if enabled
     const filled = await Promise.all(exs.map(async ex => {
       const lastSets = await getLastSets(ex.exercise_id);
@@ -2641,11 +2647,11 @@
             </button>
           {/each}
           {#each recentWorkouts.slice(0, 1) as rw (rw.id)}
-            {@const exs = JSON.parse(rw.exercises || '[]')}
+            {@const exs = exercisesOf(rw)}
             <button class="quick-card" on:click={() => quickLoad(rw)}>
               <span class="qc-tag">{$_('diary_extra.last_workout')}</span>
-              <span class="qc-title">{rw.name || 'Workout'}</span>
-              <span class="qc-meta">{exs.length} {exs.length === 1 ? 'exercise' : 'exercises'}</span>
+              <span class="qc-title">{rw.name || $_('diary_extra.untitled_workout')}</span>
+              <span class="qc-meta">{$_('diary_extra.exercise_count', { values: { count: exs.length } })}</span>
             </button>
           {/each}
         </div>
@@ -2961,10 +2967,13 @@
           <span class="rail-card-title">Recent</span>
         </div>
         <div class="rail-recent-list">
-          {#each recentWorkouts as w (w.date)}
+          <!-- Keyed by id: two sessions on one day (#76) share a date, and a
+               duplicate key throws. The name field is `name`; there is no
+               `workout_name`, so every row read as untitled. -->
+          {#each recentWorkouts as w (w.id)}
             <button type="button" class="rail-recent-row" on:click={() => goToDiaryDate(w.date)}>
               <span class="rail-recent-date">{new Date(w.date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-              <span class="rail-recent-name">{w.workout_name || 'Untitled workout'}</span>
+              <span class="rail-recent-name">{w.name || $_('diary_extra.untitled_workout')}</span>
             </button>
           {/each}
         </div>
