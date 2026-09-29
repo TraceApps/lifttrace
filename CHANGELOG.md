@@ -7,16 +7,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0-dev04] - 2026-09-29 (pre-release)
+
+A dev pre-release of the 1.4.0 minor. A Support page in Settings, uploads that say what went wrong, and security updates.
+
 ### Added
 
 - **Settings has a Support page**, next to About: Ko-fi and GitHub Sponsors, plus free ways to help (star the repo, report a bug, translate). It replaces the support row that used to sit in About.
+
+### Changed
+
+- **The in-app updater reuses an update it already downloaded.** Coming back to Updates goes straight to installing instead of downloading the whole APK again, and the button says Install. Older downloads are cleared so they stop piling up on the phone.
 
 ### Fixed
 
 - **A file of the wrong type, or over the size limit, is turned away with a clear message.** Uploading one answered with a server error instead of saying what was wrong. A file that is too large now says what the limit is.
 - **Settings pages line up with the section list** on desktop and foldables. Every page started 12px below the list beside it.
 - **The Settings section list keeps its place** on desktop and foldables. Opening a section from the Settings page scrolled the list beside it back to Profile.
-
 
 ### Security
 
@@ -25,6 +34,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **nodemailer** bumped 9.1.1 to 10.0.12, closes [GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v) (moderate: separate mail transports could share one TLS server name).
 - **markdown-it** bumped 15.0.0 to 15.0.1, closes [GHSA-253c-mchw-3w2r](https://github.com/advisories/GHSA-253c-mchw-3w2r) (moderate: slow parsing of large input with links turned on). Trace renders with links off.
 - `npm audit` reports 0 vulnerabilities for the app and the server.
+
 ---
 
 ## [1.4.0-dev03] - 2026-09-27 (pre-release)
