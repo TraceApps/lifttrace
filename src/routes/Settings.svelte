@@ -396,7 +396,7 @@
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
-    about:          ['about','version','lifttrace','license','sister','nutritrace'],
+    about:          ['about','version','lifttrace','license','sister','nutritrace','donate','support','ko-fi','sponsor','github sponsors'],
   };
 
   // Search match: a settings sub-component declares its keyword bucket either
