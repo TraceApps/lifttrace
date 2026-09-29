@@ -14,6 +14,7 @@
   import { accentColor, applyAccentColor, pageBanners, bannerStyle, aiEnabled, appearance as appearanceStore, disableAnimations } from '../stores/settings.js';
   import { activeProgram, loadActiveProgram } from '../stores/workout.js';
   import { showSuccess, showError } from '../stores/toast.js';
+  import SettingsSupport from '../components/settings/SettingsSupport.svelte';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
   import SettingsUpdates from '../components/settings/SettingsUpdates.svelte';
   import SettingsAppearance from '../components/settings/SettingsAppearance.svelte';
@@ -396,7 +397,8 @@
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
-    about:          ['about','version','lifttrace','license','sister','nutritrace','donate','support','ko-fi','sponsor','github sponsors'],
+    support:        ['support','donate','donation','sponsor','github sponsors','ko-fi','kofi','tip','star','report a bug','bug','translate','weblate','help'],
+    about:          ['about','version','lifttrace','license','sister','nutritrace'],
   };
 
   // Search match: a settings sub-component declares its keyword bucket either
@@ -489,6 +491,7 @@
     apiTokens:        { titleKey: 'settings.api_tokens.section',        icon: 'key' },
     webhooks:         { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
     email:            { titleKey: 'settings.email.section',             icon: 'mail' },
+    support:          { titleKey: 'settings.support.section',           icon: 'volunteer_activism' },
     about:            { titleKey: 'settings.about.section',             icon: 'info' },
   };
 
@@ -568,6 +571,7 @@
     webhooks: false,
     updates: false,
     helpImprove: false,
+    support: false,
     about: false,
   };
   // Drill-in navigation replaces the old accordion toggle. On the index
@@ -880,6 +884,14 @@
     </button>
   {/if}
 
+  <!-- Support + About: the app's own group, so they don't read as
+       members of the Admin group above them. -->
+  <p class="settings-group-label">LiftTrace</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'support')} class:active={currentSection === 'support'} aria-current={currentSection === 'support' ? 'page' : undefined} on:click={() => toggleSection('support')}>
+    <span class="material-symbols-rounded si">volunteer_activism</span>
+    <span>{$_('settings.support.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'about')} class:active={currentSection === 'about'} aria-current={currentSection === 'about' ? 'page' : undefined} on:click={() => toggleSection('about')}>
     <span class="material-symbols-rounded si">info</span>
     <span>{$_('settings.about.section')}</span>
@@ -1168,6 +1180,8 @@
             </div>
           {:else if currentSection === 'email'}
             <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'support'}
+            <SettingsSupport visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'about'}
             <SettingsAbout visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'updates'}
@@ -1476,7 +1490,15 @@
       />
     {/if}
 
-    <!-- ═══ ABOUT (standalone footer — always last) ════════════════════════ -->
+    <!-- ═══ LIFTTRACE (Support + About, always last) ══════════════════════ -->
+    <p class="group-label">LiftTrace</p>
+
+    <SettingsSupport
+      visible={sectionVisible(settingsQuery, 'support')}
+      expanded={expanded.support}
+      onToggle={() => toggleSection('support')}
+    />
+
     <SettingsAbout
       visible={sectionVisible(settingsQuery, 'about')}
       expanded={expanded.about}
@@ -2328,6 +2350,10 @@
       gap: 24px;
       align-items: start;
     }
+    /* The pane's first card starts level with the rail's top edge.
+       .section-body's 12px top padding (right for the phone's stacked
+       view) pushed every section 12px below the rail here. */
+    :global(html.wide-content) .settings-pane :global(.section-body) { padding-top: 0; }
 
 
     /* Left rail — sticky below the header + search bar, own scroll if

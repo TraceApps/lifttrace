@@ -567,16 +567,13 @@
     "open_source": "Código abierto",
     "sister_app_prefix": "Aplicación hermana: ",
     "sister_app_suffix": ", registro de nutrición",
-    "support_development": "Apoyar el desarrollo",
     "disclaimer_medical": "LiftTrace no es software médico, sanitario ni de profesionales del fitness. No ofrece consejo médico, diagnóstico, tratamiento ni prescripciones de entrenamiento personalizadas. El contenido de la biblioteca de ejercicios, el coaching de Trace AI, las plantillas de programas, las indicaciones del temporizador de descanso y cualquier salida analítica (volumen, PRs, frecuencia, tendencias de peso corporal) tienen únicamente fines informativos y de autorregistro.",
-    "donations_note": "LiftTrace es gratuito de autoalojar. Las donaciones se agradecen, pero nunca son obligatorias.",
     "disclaimer_risk": "El entrenamiento de fuerza conlleva un riesgo inherente de lesión. La selección de ejercicios, la carga, la técnica y la progresión pueden interactuar con condiciones médicas (afecciones cardíacas y cardiovasculares, hipertensión, cirugías previas, hernias, problemas articulares o de columna, osteoporosis, embarazo, trastornos del tejido conectivo, lesiones recientes o procesos de rehabilitación) de formas que esta app no puede evaluar. Consulta a un profesional sanitario cualificado, a un entrenador de fuerza certificado o a un fisioterapeuta titulado antes de empezar un programa de entrenamiento nuevo, volver de una lesión o hacer cambios significativos en tu rutina.",
     "disclaimer_heading": "Descargo de responsabilidad.",
     "feature_privacy": "Sin rastreo, sin anuncios, sin analíticas de terceros",
     "feature_pwa": "PWA: instalable en cualquier dispositivo",
     "disclaimer_ai": "Las respuestas de Trace AI pueden ser incorrectas o incompletas; trátalas como un punto de partida, no como sustituto del juicio humano o del consejo profesional. Los datos de la biblioteca de ejercicios proceden de bases de datos públicas (wger, Free Exercise DB y, opcionalmente, ExerciseDB vía RapidAPI) y pueden contener imprecisiones. Úsala bajo tu propia responsabilidad.",
     "description": "Registra cada repetición: tu registro personal de entrenamiento con pesas. LiftTrace es una aplicación de registro de entrenamientos autoalojada y pensada para la privacidad. Tus datos viven en tu servidor, no en la nube. Incluye diario de entrenamiento, creador de programas, biblioteca de ejercicios multifuente, coaching con IA, estadísticas y más.",
-    "kofi": "Ko-fi",
     "feature_self_hosted": "Autoalojado: tus datos, tu servidor"
   },
   "template_spec": {

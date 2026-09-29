@@ -513,6 +513,7 @@
     "workout_import":  { "section": "Import Workouts" },
     "diagnostics":     { "section": "Diagnostics" },
     "updates":         { "section": "Updates" },
+    "support":         { "section": "Support" },
     "about":           { "section": "About" }
   },
   "workout_editor_ss": {
@@ -535,19 +536,26 @@
     "open_source":           "Open source",
     "sister_app_prefix":     "Sister app: ",
     "sister_app_suffix":     ", nutrition tracker",
-    "support_development":   "Support Development",
     "description":           "Track Every Rep — Personal Weightlifting Tracker. LiftTrace is a self-hosted workout tracker built for privacy. Your data lives on your server, not in the cloud. Features workout diary, program builder, multi-source exercise library, AI coaching, statistics, and more.",
     "feature_self_hosted":   "Self-hosted — your data, your server",
     "feature_pwa":           "PWA — installable on any device",
     "feature_privacy":       "No tracking, no ads, no third-party analytics",
-    "kofi":                  "Ko-fi",
-    "github_sponsors":       "GitHub Sponsors",
-    "donations_note":        "LiftTrace is free to self-host, always. The current goal is a Mac and an iPhone so the Trace apps can run properly on iOS.",
-    "donations_monthly":     "GitHub Sponsors helps with the monthly costs.",
     "disclaimer_heading":    "Disclaimer.",
     "disclaimer_medical":    "LiftTrace is not medical, health, or fitness-professional software. It does not provide medical advice, diagnosis, treatment, or personalized training prescriptions. Exercise library content, Trace AI coaching, program templates, rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight trends) are for informational and self-tracking purposes only.",
     "disclaimer_risk":       "Resistance training carries inherent risk of injury. Exercise selection, load, technique, and progression can interact with medical conditions (heart and cardiovascular conditions, high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis, pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways this app cannot assess. Consult a qualified healthcare professional, certified strength coach, or licensed physical therapist before starting a new training program, returning from injury, or making significant changes to your routine.",
     "disclaimer_ai":         "Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a substitute for human judgment or professional advice. Exercise library data is sourced from public databases (wger, Free Exercise DB, optionally ExerciseDB via RapidAPI) and may contain inaccuracies. Use at your own risk."
+  },
+  "settings_support": {
+    "lead":                  "LiftTrace is free and always will be. Support is optional and never unlocks anything.",
+    "kofi":                  "Ko-fi",
+    "github_sponsors":       "GitHub Sponsors",
+    "other_ways":            "Other Ways to Help",
+    "star":                  "Star on GitHub",
+    "star_desc":             "Stars are how self-hosted projects get found.",
+    "report_bug":            "Report a Bug",
+    "report_bug_desc":       "A clear report fixes it for everyone who hits the same thing.",
+    "translate":             "Help Translate",
+    "translate_desc":        "Make LiftTrace usable in your language, on Weblate."
   },
   "template_spec": {
     "auto":                  "Auto",

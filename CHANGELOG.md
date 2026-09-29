@@ -9,7 +9,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- **Settings → About has a GitHub Sponsors button** next to Ko-fi, for anyone who'd rather support monthly.
+- **Settings has a Support page**, next to About: Ko-fi and GitHub Sponsors, plus free ways to help (star the repo, report a bug, translate). It replaces the support row that used to sit in About.
+
+### Fixed
+
+- **Settings pages line up with the section list** on desktop and foldables. Every page started 12px below the list beside it.
 
 ---
 

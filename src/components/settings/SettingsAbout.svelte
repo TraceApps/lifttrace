@@ -63,22 +63,6 @@
           <span>{$_('settings_about.sister_app_prefix')}<a href="https://github.com/TraceApps/nutritrace" target="_blank" rel="noopener" class="about-link">NutriTrace</a>{$_('settings_about.sister_app_suffix')}</span>
         </div>
         <div class="setting-divider"></div>
-        <div class="about-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="material-symbols-rounded about-feat-icon">volunteer_activism</span>
-            <span>{$_('settings_about.support_development')}</span>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;padding-left:30px">
-            <a href="https://ko-fi.com/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
-              <span class="material-symbols-rounded" style="font-size:14px">coffee</span> {$_('settings_about.kofi')}
-            </a>
-            <a href="https://github.com/sponsors/TraceApps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
-              <span class="material-symbols-rounded" style="font-size:14px">favorite</span> {$_('settings_about.github_sponsors')}
-            </a>
-          </div>
-          <div class="setting-desc" style="padding-left:30px;font-size:11px">{$_('settings_about.donations_note')} {$_('settings_about.donations_monthly')}</div>
-        </div>
-        <div class="setting-divider"></div>
         <div class="about-desc" style="font-size:11px;color:var(--text-3);line-height:1.5">
           <strong>{$_('settings_about.disclaimer_heading')}</strong> {$_('settings_about.disclaimer_medical')}
           <br /><br />
