@@ -44,7 +44,7 @@
     "@zxcvbn-ts/language-en": "^3.0.2",
     "heic2any": "^0.0.4",
     "hls.js": "^1.6.16",
-    "markdown-it": "^15.0.0",
+    "markdown-it": "^15.0.2",
     "svelte-i18n": "^4.0.1",
     "svelte-spa-router": "^4.0.2"
   },
