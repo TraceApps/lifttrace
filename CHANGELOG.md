@@ -25,6 +25,7 @@ A dev pre-release of the 1.4.0 minor. A Support page in Settings, uploads that s
 ### Fixed
 
 - **A file of the wrong type, or over the size limit, is turned away with a clear message.** Uploading one answered with a server error instead of saying what was wrong. A file that is too large now says what the limit is.
+- **The installed app keeps the right API path after a service-worker reload** when LiftTrace is mounted below the site root; its offline app shell remains available.
 - **Settings pages line up with the section list** on desktop and foldables. Every page started 12px below the list beside it.
 - **The Settings section list keeps its place** on desktop and foldables. Opening a section from the Settings page scrolled the list beside it back to Profile.
 
