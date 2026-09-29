@@ -70,6 +70,14 @@ export function scheduleSave(key, value) {
   }, 600);
 }
 
+// Critical federation transitions use a direct, awaited PUT. Cancel the
+// matching generic debounce so it cannot race that explicit write. Ordinary
+// settings continue to use scheduleSave() unchanged.
+export function cancelScheduledSave(key) {
+  clearTimeout(_saveQueue[key]);
+  delete _saveQueue[key];
+}
+
 /**
  * Write multiple settings at once. Each value is persisted to localStorage
  * (which fires wl:setting events so all subscribed Svelte stores update),

@@ -691,6 +691,7 @@
   },
   "settings_federation": {
     "url_token_required":    "Enter a URL and access token first",
+    "persist_failed":        "NutriTrace settings could not be saved. Please try again before closing this page.",
     "enable_federation":     "Enable Federation",
     "enable_federation_hint": "Auto-log each completed workout's estimated calories burned to your NutriTrace diary. Workouts appear in NutriTrace under Settings → Wellness → Workout History.",
     "instance_url":          "Instance URL",
