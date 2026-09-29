@@ -534,8 +534,8 @@
   "settings_about": {
     "app_name":              "LiftTrace",
     "open_source":           "Open source",
-    "sister_app_prefix":     "Sister app: ",
-    "sister_app_suffix":     ", nutrition tracker",
+    "family_line_prefix":    "Part of the ",
+    "family_line_suffix":    " family",
     "description":           "Track Every Rep — Personal Weightlifting Tracker. LiftTrace is a self-hosted workout tracker built for privacy. Your data lives on your server, not in the cloud. Features workout diary, program builder, multi-source exercise library, AI coaching, statistics, and more.",
     "feature_self_hosted":   "Self-hosted — your data, your server",
     "feature_pwa":           "PWA — installable on any device",

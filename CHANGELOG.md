@@ -20,6 +20,7 @@ A dev pre-release of the 1.4.0 minor. A Support page in Settings, uploads that s
 ### Changed
 
 - **The in-app updater reuses an update it already downloaded.** Coming back to Updates goes straight to installing instead of downloading the whole APK again, and the button says Install. Older downloads are cleared so they stop piling up on the phone.
+- **About links to the TraceApps family** instead of naming one sister app.
 
 ### Fixed
 

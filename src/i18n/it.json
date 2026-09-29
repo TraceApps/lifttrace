@@ -1544,8 +1544,6 @@
   "settings_about": {
     "app_name": "LiftTrace",
     "open_source": "Sorgente aperta",
-    "sister_app_prefix": "App sorella:",
-    "sister_app_suffix": ", monitoraggio nutrizionale",
     "disclaimer_medical": "",
     "disclaimer_risk": "",
     "disclaimer_heading": "",

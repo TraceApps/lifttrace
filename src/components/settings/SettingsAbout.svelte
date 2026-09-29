@@ -59,8 +59,8 @@
         </div>
         <div class="setting-divider"></div>
         <div class="about-row">
-          <span class="material-symbols-rounded about-feat-icon">link</span>
-          <span>{$_('settings_about.sister_app_prefix')}<a href="https://github.com/TraceApps/nutritrace" target="_blank" rel="noopener" class="about-link">NutriTrace</a>{$_('settings_about.sister_app_suffix')}</span>
+          <span class="material-symbols-rounded about-feat-icon">apps</span>
+          <span>{$_('settings_about.family_line_prefix')}<a href="https://traceapps.github.io/docs/" target="_blank" rel="noopener" class="about-link">TraceApps</a>{$_('settings_about.family_line_suffix')}</span>
         </div>
         <div class="setting-divider"></div>
         <div class="about-desc" style="font-size:11px;color:var(--text-3);line-height:1.5">

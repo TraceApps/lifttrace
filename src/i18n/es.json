@@ -565,8 +565,6 @@
   "settings_about": {
     "app_name": "LiftTrace",
     "open_source": "Código abierto",
-    "sister_app_prefix": "Aplicación hermana: ",
-    "sister_app_suffix": ", registro de nutrición",
     "disclaimer_medical": "LiftTrace no es software médico, sanitario ni de profesionales del fitness. No ofrece consejo médico, diagnóstico, tratamiento ni prescripciones de entrenamiento personalizadas. El contenido de la biblioteca de ejercicios, el coaching de Trace AI, las plantillas de programas, las indicaciones del temporizador de descanso y cualquier salida analítica (volumen, PRs, frecuencia, tendencias de peso corporal) tienen únicamente fines informativos y de autorregistro.",
     "disclaimer_risk": "El entrenamiento de fuerza conlleva un riesgo inherente de lesión. La selección de ejercicios, la carga, la técnica y la progresión pueden interactuar con condiciones médicas (afecciones cardíacas y cardiovasculares, hipertensión, cirugías previas, hernias, problemas articulares o de columna, osteoporosis, embarazo, trastornos del tejido conectivo, lesiones recientes o procesos de rehabilitación) de formas que esta app no puede evaluar. Consulta a un profesional sanitario cualificado, a un entrenador de fuerza certificado o a un fisioterapeuta titulado antes de empezar un programa de entrenamiento nuevo, volver de una lesión o hacer cambios significativos en tu rutina.",
     "disclaimer_heading": "Descargo de responsabilidad.",
