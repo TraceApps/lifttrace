@@ -1,6 +1,8 @@
 <script context="module">
   // Survives the remount between /settings and /settings/<slug> (NutriTrace #227).
-  const _scrollMemo = { page: null, indexTop: 0 };
+  // railTop: the desktop rail is rebuilt by that remount too, so opening a
+  // section from the index would otherwise snap the rail back to Profile.
+  const _scrollMemo = { page: null, indexTop: 0, railTop: 0 };
 </script>
 
 <script>
@@ -453,8 +455,13 @@
   onMount(() => {
     const page = _pageEl();
     // A different page element: Settings was opened fresh from elsewhere.
-    if (page && page === _scrollMemo.page) _placeScroll(currentSection);
-    else _scrollMemo.indexTop = 0;
+    if (page && page === _scrollMemo.page) {
+      _placeScroll(currentSection);
+      if (_railEl) _railEl.scrollTop = _scrollMemo.railTop;
+    } else {
+      _scrollMemo.indexTop = 0;
+      _scrollMemo.railTop = 0;
+    }
     _scrollMemo.page = page;
     window.addEventListener('scroll', _recordIndexScroll, { passive: true });
     _shownSection = currentSection;
@@ -955,7 +962,8 @@
     <div class="settings-two-pane" bind:this={paneEl} class:fold-snap={railSnap}
       style={railSnap ? `--rail-w:${foldRailW}px; --hinge:${hingeW}px` : ''}>
       <aside class="settings-nav-rail" aria-label="Settings sections"
-             bind:this={_railEl}>
+             bind:this={_railEl}
+             on:scroll={() => { _scrollMemo.railTop = _railEl.scrollTop; }}>
         <!-- Sliding highlight pill. Absolutely positioned; its
              translateY + height animate to the active rail button on
              every section change. Behind the button text (z-index:0). -->
