@@ -456,6 +456,23 @@ export async function cleanUpdateCache({ alsoOlderThanDays = 7 } = {}) {
 }
 
 /**
+ * Whether the APK for `latest` is already downloaded and complete (its size
+ * matches the release file's), so it can go straight to the installer.
+ * The Settings screen uses it to label the button Install instead of
+ * Download & Install. Native-only; false anywhere else or on any doubt.
+ */
+export async function isApkStaged(latest) {
+  if (!isNative || !latest?.apkAsset?.name || !(latest.apkAsset.size > 0)) return false;
+  try {
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    const st = await Filesystem.stat({ path: `updates/${latest.apkAsset.name}`, directory: Directory.Data });
+    return Number(st?.size) === latest.apkAsset.size;
+  } catch {
+    return false; // not downloaded yet
+  }
+}
+
+/**
  * Download the APK to app storage and hand off to the Android system
  * installer. Android/Capacitor-only. Progress callback receives 0-100.
  * Throws on non-native platforms or download failure.
@@ -489,22 +506,28 @@ export async function downloadAndInstallApk(latest, onProgress) {
     if (!/exist/i.test(e?.message || '')) throw e;
   }
 
-  // Delete any existing APK files in updates/ before writing the new
-  // one. Prior downloads (successful or cancelled) leave ~57 MB files
-  // sitting around; without this, /data/user/0/.../files/updates/
-  // grows unbounded over time. Version-based cleanup at app boot
-  // (cleanUpdateCache) catches whatever we don't delete here.
-  try {
-    const existing = await Filesystem.readdir({ path: 'updates', directory: Directory.Data });
-    for (const f of (existing?.files || [])) {
-      const name = typeof f === 'string' ? f : f?.name;
-      if (name && name.toLowerCase().endsWith('.apk')) {
-        try {
-          await Filesystem.deleteFile({ path: `updates/${name}`, directory: Directory.Data });
-        } catch { /* ignore */ }
+  // Already downloaded and complete (the install screen was left and
+  // reopened, say): go straight to the installer instead of fetching the
+  // whole APK again.
+  const reuse = await isApkStaged(latest);
+
+  // Otherwise clear the way: older downloads and a partial copy of this one.
+  // Prior downloads (installed or cancelled) leave ~57 MB files sitting
+  // around; without this, /data/user/0/.../files/updates/ grows unbounded.
+  // Version-based cleanup at app boot (cleanUpdateCache) catches the rest.
+  if (!reuse) {
+    try {
+      const existing = await Filesystem.readdir({ path: 'updates', directory: Directory.Data });
+      for (const f of (existing?.files || [])) {
+        const name = typeof f === 'string' ? f : f?.name;
+        if (name && name.toLowerCase().endsWith('.apk')) {
+          try {
+            await Filesystem.deleteFile({ path: `updates/${name}`, directory: Directory.Data });
+          } catch { /* ignore */ }
+        }
       }
-    }
-  } catch { /* updates/ might not exist yet */ }
+    } catch { /* updates/ might not exist yet */ }
+  }
 
   // Wire native progress events (Capacitor Filesystem 5.0+). Silently
   // no-ops on older builds — fall back to a fake 0 → 100 flip on
@@ -518,7 +541,7 @@ export async function downloadAndInstallApk(latest, onProgress) {
   } catch { /* older Filesystem — no progress events */ }
 
   try {
-    await Filesystem.downloadFile({
+    if (!reuse) await Filesystem.downloadFile({
       url: latest.apkAsset.url,
       path,
       directory: Directory.Data,

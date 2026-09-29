@@ -1939,6 +1939,7 @@
     "no_release_notes":      "No release notes were published for this build.",
     "view_on_github":        "View on GitHub",
     "download_install":      "Download & Install",
+    "install_downloaded":    "Install",
     "downloading":           "Downloading… {percent}%",
     "install_starting":      "Opening installer…",
     "install_failed":        "Install failed. Try again.",
