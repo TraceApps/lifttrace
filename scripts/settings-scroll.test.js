@@ -20,7 +20,7 @@ test('the index and its sections share one scroller (why the fix is needed)', ()
 
 test('what survives the remount between the two routes lives in module scope', () => {
   const mod = settings.slice(settings.indexOf('<script context="module">'), settings.indexOf('</script>'));
-  assert.match(mod, /const _scrollMemo = \{ page: null, indexTop: 0 \};/);
+  assert.match(mod, /const _scrollMemo = \{ page: null, indexTop: 0, railTop: 0 \};/);
 });
 
 test('a section opens at its top; the index returns to where it was', () => {
@@ -39,7 +39,13 @@ test('the index position is recorded while scrolling, not on the way out', () =>
 });
 
 test('opening Settings fresh from another page starts at the top', () => {
-  assert.match(settings, /if \(page && page === _scrollMemo\.page\) _placeScroll\(currentSection\);\s*else _scrollMemo\.indexTop = 0;/);
+  assert.match(settings, /if \(page && page === _scrollMemo\.page\) \{\s*_placeScroll\(currentSection\);[\s\S]*?\} else \{\s*_scrollMemo\.indexTop = 0;\s*_scrollMemo\.railTop = 0;\s*\}/);
+});
+
+test('the section rail keeps its place across the remount', () => {
+  // Opening a section from the index remounts Settings, rail included.
+  assert.match(settings, /on:scroll=\{\(\) => \{ _scrollMemo\.railTop = _railEl\.scrollTop; \}\}/);
+  assert.match(settings, /if \(_railEl\) _railEl\.scrollTop = _scrollMemo\.railTop;/);
 });
 
 test('the search deep link still scrolls to its match afterwards', () => {
