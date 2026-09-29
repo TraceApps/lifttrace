@@ -17,8 +17,13 @@
   import ConnectionStatus from './ConnectionStatus.svelte';
   import {
     ntInstanceUrl, ntInstanceToken, ntFederationEnabled, ntConnectionVerified, ntConnectionIdentity,
-    ntBodySyncEnabled, ntBodySource, ntBodyLastSyncAt, caloriesBurnedEnabled,
+    ntBodySyncEnabled, ntBodySource, ntBodyLastSyncAt, caloriesBurnedEnabled, cancelScheduledSave,
   } from '../../stores/settings.js';
+  import { LtApi } from '../../lib/api.js';
+  import {
+    persistFederationConnectionTransition,
+    persistSettingImmediately,
+  } from '../../lib/nt-federation-persistence.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { syncNtBodyMeasurements } from '../../lib/nt-body-sync.js';
 
@@ -39,49 +44,109 @@
   let bodyError = '';
   let bodySources = [];
   let bodySyncing = false;
+  let federationSaving = false;
+  let bodyStateSaving = false;
 
   // Derive the visible Connected/Failed pill state from a combination of the
   // local in-flight test and the persisted verified flag, so the pill
   // survives navigating away from Settings and coming back.
+  $: draftMatchesSaved = urlDraft.trim().replace(/\/+$/, '') === ($ntInstanceUrl || '').replace(/\/+$/, '')
+    && tokenDraft === ($ntInstanceToken || '');
   $: visibleStatus = testing
     ? 'testing'
     : (testStatus === 'fail' ? 'fail'
-      : (($ntConnectionVerified && $ntFederationEnabled) || testStatus === 'ok') ? 'ok'
+      : (($ntConnectionVerified && $ntFederationEnabled && draftMatchesSaved) || testStatus === 'ok') ? 'ok'
       : '');
 
   $: canTest = !!urlDraft.trim() && !!tokenDraft.trim();
   $: bodyReadAvailable = !!capabilities?.bodyMeasurementsRead;
   $: bodySourceOptions = [...new Set([...bodySources, $ntBodySource].filter(Boolean))];
 
+  const federationStores = {
+    ntInstanceUrl,
+    ntInstanceToken,
+    ntFederationEnabled,
+    ntConnectionVerified,
+    ntConnectionIdentity,
+    ntBodySyncEnabled,
+    ntBodySource,
+  };
+
+  function federationSnapshot() {
+    return {
+      ntInstanceUrl: $ntInstanceUrl,
+      ntInstanceToken: $ntInstanceToken,
+      ntFederationEnabled: $ntFederationEnabled,
+      ntConnectionVerified: $ntConnectionVerified,
+      ntConnectionIdentity: $ntConnectionIdentity,
+      ntBodySyncEnabled: $ntBodySyncEnabled,
+      ntBodySource: $ntBodySource,
+    };
+  }
+
+  function setFederationLocally(values) {
+    for (const [key, value] of Object.entries(values)) {
+      federationStores[key].set(value);
+      // The awaited federation PUT below owns persistence for these values.
+      cancelScheduledSave(key);
+    }
+  }
+
+  function saveSettingNow(key, value) {
+    return persistSettingImmediately(key, value, {
+      saveSetting: LtApi.saveSetting,
+      cancelScheduledSave,
+    });
+  }
+
   function _invalidate() {
     testStatus = '';
     lastError = '';
+    saved = false;
     capabilities = null;
     bodyStatus = '';
     bodyError = '';
-    // Any field edit invalidates the previous verification — the URL or
-    // token might now be different from what was tested.
-    if ($ntConnectionVerified) ntConnectionVerified.set(false);
-    if ($ntConnectionIdentity) ntConnectionIdentity.set(null);
-    if ($ntFederationEnabled) ntFederationEnabled.set(false);
+    // Keep the last verified server connection intact while the user edits a
+    // candidate. Save/Test temporarily marks only local state unverified.
   }
 
   async function save() {
-    ntInstanceUrl.set(urlDraft.replace(/\/$/, ''));
-    ntInstanceToken.set(tokenDraft);
-    saved = true;
-    setTimeout(() => saved = false, 2000);
-    await test({ silentOk: false });
+    if (testing || federationSaving || bodyStateSaving) return;
+    saved = false;
+    if (await test()) {
+      saved = true;
+      setTimeout(() => saved = false, 2000);
+    }
   }
 
-  async function test({ silentOk = false, silentFail = false, preserveExistingOnFail = false } = {}) {
+  async function test({
+    silentOk = false,
+    silentFail = false,
+    preserveExistingOnFail = false,
+    persistFederation = true,
+  } = {}) {
     if (!canTest) {
       showError($_('settings_federation.url_token_required'));
-      return;
+      return false;
     }
+    const previous = federationSnapshot();
+    const candidate = {
+      ...previous,
+      ntInstanceUrl: urlDraft.trim().replace(/\/+$/, ''),
+      ntInstanceToken: tokenDraft,
+    };
     testing = true;
     testStatus = '';
     lastError = '';
+    if (persistFederation) {
+      setFederationLocally({
+        ntInstanceUrl: candidate.ntInstanceUrl,
+        ntInstanceToken: candidate.ntInstanceToken,
+        ntFederationEnabled: false,
+        ntConnectionVerified: false,
+        ntConnectionIdentity: null,
+      });
+    }
     try {
       const csrf = typeof localStorage !== 'undefined' ? localStorage.getItem('lt:csrf') : null;
       const res = await fetch('/api/nt/test', {
@@ -91,12 +156,14 @@
           'Content-Type': 'application/json',
           ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
         },
-        body: JSON.stringify({ url: urlDraft, token: tokenDraft }),
+        body: JSON.stringify({ url: candidate.ntInstanceUrl, token: candidate.ntInstanceToken }),
       });
       const body = await res.json();
       if (body.ok) {
-        testStatus = 'ok';
-        lastConnectedUser = body.user?.username || body.user?.full_name || 'NutriTrace';
+        if (!body.connectionIdentity?.instanceUrl || body.connectionIdentity.userId == null) {
+          throw new Error('NutriTrace did not return a stable connection identity.');
+        }
+        const connectedUser = body.user?.username || body.user?.full_name || 'NutriTrace';
         capabilities = body.capabilities || {
           workoutWrite: (body.scopes || []).includes('write:workouts'),
           bodyMeasurementsRead: (body.scopes || []).includes('read:body-measurements'),
@@ -107,23 +174,53 @@
         const bodyRead = !!capabilities.bodyMeasurementsRead;
         bodyStatus = bodyRead ? '' : 'scope-missing';
         bodyError = bodyRead ? '' : $_('settings_federation.body_sync_scope_missing');
-        if (!bodyRead) ntBodySyncEnabled.set(false);
-        ntFederationEnabled.set(true);
-        ntConnectionVerified.set(true);
-        ntConnectionIdentity.set(body.connectionIdentity);
+
+        const next = {
+          ...candidate,
+          ntFederationEnabled: true,
+          ntConnectionVerified: true,
+          ntConnectionIdentity: body.connectionIdentity,
+          ntBodySyncEnabled: bodyRead ? previous.ntBodySyncEnabled : false,
+        };
+        if (persistFederation) {
+          setFederationLocally(next);
+          try {
+            await persistFederationConnectionTransition({
+              previous,
+              next,
+              saveSetting: LtApi.saveSetting,
+              cancelScheduledSave,
+            });
+          } catch {
+            setFederationLocally(previous);
+            testStatus = 'fail';
+            lastError = $_('settings_federation.persist_failed');
+            capabilities = null;
+            bodyStatus = '';
+            bodyError = '';
+            if (!silentFail) showError(lastError);
+            return false;
+          }
+        } else {
+          if (!bodyRead) ntBodySyncEnabled.set(false);
+          ntFederationEnabled.set(true);
+          ntConnectionVerified.set(true);
+          ntConnectionIdentity.set(body.connectionIdentity);
+        }
+
+        lastConnectedUser = connectedUser;
+        testStatus = 'ok';
         if (!silentOk) showSuccess(`Connected to NutriTrace as ${lastConnectedUser}`);
+        return true;
       } else {
         testStatus = preserveExistingOnFail ? '' : 'fail';
         lastError = preserveExistingOnFail ? '' : (body.error || 'Connection failed');
         capabilities = null;
         bodyStatus = '';
         bodyError = '';
-        if (!preserveExistingOnFail) {
-          ntFederationEnabled.set(false);
-          ntConnectionVerified.set(false);
-        }
-        if (!preserveExistingOnFail) ntConnectionIdentity.set(null);
+        if (persistFederation) setFederationLocally(previous);
         if (!silentFail) showError(lastError);
+        return false;
       }
     } catch (e) {
       testStatus = preserveExistingOnFail ? '' : 'fail';
@@ -131,13 +228,63 @@
       capabilities = null;
       bodyStatus = '';
       bodyError = '';
-      if (!preserveExistingOnFail) {
-        ntFederationEnabled.set(false);
-        ntConnectionVerified.set(false);
-      }
-      if (!preserveExistingOnFail) ntConnectionIdentity.set(null);
+      if (persistFederation) setFederationLocally(previous);
       if (!silentFail) showError(lastError);
+      return false;
     } finally { testing = false; }
+  }
+
+  async function onFederationToggle(event) {
+    if (testing || federationSaving || bodyStateSaving) return;
+    const previous = $ntFederationEnabled;
+    const next = !!event.detail;
+    if (next === previous) return;
+    federationSaving = true;
+    setFederationLocally({ ntFederationEnabled: next });
+    try {
+      await saveSettingNow('ntFederationEnabled', next);
+    } catch {
+      setFederationLocally({ ntFederationEnabled: previous });
+      showError($_('settings_federation.persist_failed'));
+    } finally {
+      federationSaving = false;
+    }
+  }
+
+  async function onBodySyncToggle(event) {
+    if (testing || federationSaving || bodyStateSaving) return;
+    const previous = $ntBodySyncEnabled;
+    const next = !!event.detail;
+    if (next === previous) return;
+    bodyStateSaving = true;
+    setFederationLocally({ ntBodySyncEnabled: next });
+    try {
+      await saveSettingNow('ntBodySyncEnabled', next);
+    } catch {
+      setFederationLocally({ ntBodySyncEnabled: previous });
+      showError($_('settings_federation.persist_failed'));
+      return;
+    } finally {
+      bodyStateSaving = false;
+    }
+    if (next) syncBodyNow();
+  }
+
+  async function onBodySourceChange(event) {
+    if (testing || federationSaving || bodyStateSaving) return;
+    const previous = $ntBodySource;
+    const next = event.currentTarget.value;
+    if (next === previous) return;
+    bodyStateSaving = true;
+    setFederationLocally({ ntBodySource: next });
+    try {
+      await saveSettingNow('ntBodySource', next);
+    } catch {
+      setFederationLocally({ ntBodySource: previous });
+      showError($_('settings_federation.persist_failed'));
+    } finally {
+      bodyStateSaving = false;
+    }
   }
 
   async function syncBodyNow() {
@@ -162,10 +309,6 @@
     } finally { bodySyncing = false; }
   }
 
-  function onBodySyncToggle(event) {
-    if (event.detail) syncBodyNow();
-  }
-
   function formatLastSync(value) {
     if (!value) return '';
     try { return new Date(Number(value)).toLocaleString(); } catch { return ''; }
@@ -177,7 +320,7 @@
   // body-sync scope state after navigating away and back.
   onMount(() => {
     if ($ntConnectionVerified && $ntFederationEnabled && canTest) {
-      test({ silentOk: true, silentFail: true, preserveExistingOnFail: true });
+      test({ silentOk: true, silentFail: true, preserveExistingOnFail: true, persistFederation: false });
     }
   });
 </script>
@@ -196,7 +339,7 @@
           connectedAs={lastConnectedUser || $ntInstanceUrl.replace(/^https?:\/\//, '')}
           error={lastError}
           onRetest={() => test()}
-          retestDisabled={testing || !canTest}
+          retestDisabled={testing || federationSaving || bodyStateSaving || !canTest}
         />
 
         <div class="setting-row">
@@ -206,7 +349,7 @@
               {$_('settings_federation.enable_federation_hint')}
             </span>
           </div>
-          <Toggle bind:checked={$ntFederationEnabled} />
+          <Toggle checked={$ntFederationEnabled} on:change={onFederationToggle} disabled={testing || federationSaving} />
         </div>
 
         <div class="body-sync-block">
@@ -218,7 +361,7 @@
                 {$_('settings_federation.body_sync_enable_hint')} {$_('settings_federation.body_sync_current_weight_hint')}
               </span>
             </div>
-            <Toggle bind:checked={$ntBodySyncEnabled} on:change={onBodySyncToggle} disabled={!bodyReadAvailable || !$ntFederationEnabled} />
+            <Toggle checked={$ntBodySyncEnabled} on:change={onBodySyncToggle} disabled={!bodyReadAvailable || !$ntFederationEnabled || testing || bodyStateSaving} />
           </div>
 
           {#if $ntConnectionVerified && capabilities && !bodyReadAvailable}
@@ -231,7 +374,7 @@
                 <span class="setting-label">{$_('settings_federation.body_sync_source')}</span>
                 <span class="setting-hint">{$_('settings_federation.body_sync_source_hint')}</span>
               </div>
-              <select class="form-input-sm" style="width:100%" bind:value={$ntBodySource} disabled={bodySyncing}>
+              <select class="form-input-sm" style="width:100%" value={$ntBodySource} on:change={onBodySourceChange} disabled={bodySyncing || testing || bodyStateSaving}>
                 <option value="">{$_('settings_federation.body_sync_source_auto')}</option>
                 {#each bodySourceOptions as source}
                   <option value={source}>{source}</option>
@@ -272,7 +415,7 @@
           </div>
           <input class="form-input-sm" style="flex:1;min-width:0;width:100%" type="url"
             bind:value={urlDraft} placeholder="https://nutritrace.example.com"
-            on:input={_invalidate} />
+            on:input={_invalidate} disabled={testing || federationSaving} />
         </div>
 
         <div class="setting-row" style="flex-wrap:wrap;gap:8px">
@@ -285,16 +428,16 @@
           <div class="key-row">
             {#if showToken}
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="text"
-                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
+                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} disabled={testing || federationSaving} />
             {:else}
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="password"
-                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
+                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} disabled={testing || federationSaving} />
             {/if}
             <button class="btn-icon-toggle" on:click={() => showToken = !showToken} title={showToken ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
               <span class="material-symbols-rounded">{showToken ? 'visibility_off' : 'visibility'}</span>
             </button>
             <button class="btn btn-primary save-btn" on:click={save}
-              disabled={testing || !urlDraft.trim() || !tokenDraft.trim()}>
+              disabled={testing || federationSaving || bodyStateSaving || !urlDraft.trim() || !tokenDraft.trim()}>
               {saved ? 'Saved' : (testing ? 'Testing…' : $_('common.save'))}
             </button>
           </div>
