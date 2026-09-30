@@ -551,28 +551,34 @@
   // into an oval. A dot is drawn as a round-capped stroke that keeps its
   // screen size instead, so it stays round at any width (issue #131).
   const _dotPath = (pts) => pts.map(p => `M${p.x} ${p.y}h0.01`).join('');
+  const _validDay = (p) => Number.isFinite(_dayNum(p.date));
   function _bwDomain(...series) {
     const days = series.flat().map(p => _dayNum(p.date)).filter(Number.isFinite);
     if (!days.length) return null;
     return { from: Math.min(...days), to: Math.max(...days) };
   }
-  function _bwX(date, domain, width) {
-    if (!domain || domain.to === domain.from) return width / 2;
-    return 10 + (_dayNum(date) - domain.from) / (domain.to - domain.from) * (width - 20);
+  // plot: { width, left, right } in viewBox units; left and right keep the
+  // points clear of the value labels at each edge.
+  function _bwX(date, domain, plot) {
+    const { width, left = 10, right = 10 } = plot;
+    if (!domain || domain.to === domain.from) return (left + width - right) / 2;
+    return left + (_dayNum(date) - domain.from) / (domain.to - domain.from) * (width - left - right);
   }
-  function _bwPointObjs(data, domain, width) {
+  function _bwPointObjs(data, domain, plot) {
+    data = data.filter(_validDay);
     if (!data.length) return [];
     const weights = data.map(b => b.weight);
     const min = Math.min(...weights);
     const max = Math.max(...weights);
     const rng = Math.max(1, max - min + 4);
-    return data.map(b => ({ x: _bwX(b.date, domain, width), y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
+    return data.map(b => ({ x: _bwX(b.date, domain, plot), y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
   }
 
   // Overlay series: proportional 5% padding so any metric fills the band
   // the same way, while the weight line keeps its own absolute padding. x
   // comes from the date, on the axis the weight line uses.
-  function _overlayPointObjs(data, domain, width) {
+  function _overlayPointObjs(data, domain, plot) {
+    data = data.filter(_validDay);
     if (!data.length) return [];
     const vals = data.map(p => p.v);
     const min = Math.min(...vals);
@@ -581,7 +587,7 @@
     const pad = d > 0 ? d * 0.05 : 2;
     const rng = d + 2 * pad;
     return data.map(p => ({
-      x: _bwX(p.date, domain, width),
+      x: _bwX(p.date, domain, plot),
       y: 110 - ((p.v - min + pad) / rng * 90 + 10),
     }));
   }
@@ -593,9 +599,21 @@
     return { min, max };
   }
   $: bwDomain = _bwDomain(bodyWeights, overlayData);
-  $: bwDates = [...bodyWeights, ...overlayData].map(p => p.date).sort();
-  $: bwPts = _bwPointObjs(bodyWeights, bwDomain, bwChartW);
-  $: overlayPts = _overlayPointObjs(overlayData, bwDomain, bwChartW);
+  $: bwDates = [...bodyWeights, ...overlayData].filter(_validDay).map(p => p.date).sort();
+  // The value labels sit at the chart's edges; measure them, and keep the
+  // first and last points out from under them.
+  let bwWrapW = 0, wMaxLabelW = 0, wMinLabelW = 0, oMaxLabelW = 0, oMinLabelW = 0, oSoloLabelW = 0;
+  $: showWeightMin = !!weightMarks && weightMarks.yMin - weightMarks.yMax >= 12;
+  $: leftLabelPx = weightMarks ? Math.max(wMaxLabelW, showWeightMin ? wMinLabelW : 0) : 0;
+  $: rightLabelPx = !overlayBounds ? 0
+    : overlayBounds.max !== overlayBounds.min ? Math.max(oMaxLabelW, oMinLabelW) : oSoloLabelW;
+  $: bwPlot = {
+    width: bwChartW,
+    left: bwWrapW && leftLabelPx ? Math.max(10, (leftLabelPx + 8) * bwChartW / bwWrapW) : 10,
+    right: bwWrapW && rightLabelPx ? Math.max(10, (rightLabelPx + 8) * bwChartW / bwWrapW) : 10,
+  };
+  $: bwPts = _bwPointObjs(bodyWeights, bwDomain, bwPlot);
+  $: overlayPts = _overlayPointObjs(overlayData, bwDomain, bwPlot);
   $: overlayBounds = _overlayBounds(overlayData);
   $: weightMarks = (() => {
     if (!bodyWeights.length) return null;
@@ -1129,7 +1147,7 @@
                 {/each}
               </div>
             {/if}
-            <div class="chart-wrap">
+            <div class="chart-wrap" bind:clientWidth={bwWrapW}>
               <svg class="line-chart" viewBox="0 0 {bwChartW} 120" preserveAspectRatio="none">
                 <polyline fill="none" stroke="var(--accent)" stroke-width="2"
                   stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"
@@ -1144,15 +1162,15 @@
               </svg>
               {#if weightMarks}
                 <div class="overlay-axis" aria-hidden="true">
-                  <span class="w" style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
-                  {#if weightMarks.yMin - weightMarks.yMax >= 12}
-                    <span class="w" style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
+                  <span class="w" bind:clientWidth={wMaxLabelW} style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
+                  {#if showWeightMin}
+                    <span class="w" bind:clientWidth={wMinLabelW} style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
                   {/if}
                   {#if overlayBounds && overlayBounds.max !== overlayBounds.min}
-                    <span class="mark-max">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
-                    <span class="mark-min">{parseFloat(overlayBounds.min.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                    <span class="mark-max" bind:clientWidth={oMaxLabelW}>{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                    <span class="mark-min" bind:clientWidth={oMinLabelW}>{parseFloat(overlayBounds.min.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
                   {:else if overlayBounds}
-                    <span class="mark-solo">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                    <span class="mark-solo" bind:clientWidth={oSoloLabelW}>{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
                   {/if}
                 </div>
               {/if}

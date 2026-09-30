@@ -23,6 +23,7 @@ const grab = (start) => {
 };
 const helpers = new Function(`
   ${stats.match(/const _dayNum = [^\n]+/)[0]}
+  ${stats.match(/const _validDay = [^\n]+/)[0]}
   ${grab('function _bwDomain(')}
   ${grab('function _bwX(')}
   ${grab('function _bwPointObjs(')}
@@ -41,8 +42,8 @@ const fat = [
 
 test('a body-fat reading sits over the weigh-in taken the same day', () => {
   const domain = helpers._bwDomain(weights, fat);
-  const w = helpers._bwPointObjs(weights, domain, 200);
-  const f = helpers._overlayPointObjs(fat, domain, 200);
+  const w = helpers._bwPointObjs(weights, domain, { width: 200 });
+  const f = helpers._overlayPointObjs(fat, domain, { width: 200 });
   for (const d of ['2025-06-11', '2025-08-13', '2026-07-20', '2026-09-21']) {
     assert.equal(f[fat.findIndex(p => p.date === d)].x, w[weights.findIndex(p => p.date === d)].x, d);
   }
@@ -50,7 +51,7 @@ test('a body-fat reading sits over the weigh-in taken the same day', () => {
 
 test('the axis runs by date, edge to edge, across both series', () => {
   const domain = helpers._bwDomain(weights, [{ date: '2026-10-01', v: 29 }]);
-  const w = helpers._bwPointObjs(weights, domain, 200);
+  const w = helpers._bwPointObjs(weights, domain, { width: 200 });
   assert.equal(w[0].x, 10, 'the earliest day starts the chart');
   assert.ok(w.at(-1).x < 190, 'a later overlay reading ends it');
   const gap = (a, b) => w[b].x - w[a].x;
@@ -59,8 +60,27 @@ test('the axis runs by date, edge to edge, across both series', () => {
 
 test('one day, or one reading, sits in the middle', () => {
   const one = [{ date: '2026-09-21', weight: 120 }];
-  assert.equal(helpers._bwPointObjs(one, helpers._bwDomain(one, []), 200)[0].x, 100);
-  assert.deepEqual(helpers._bwPointObjs([], null, 200), []);
+  assert.equal(helpers._bwPointObjs(one, helpers._bwDomain(one, []), { width: 200 })[0].x, 100);
+  assert.deepEqual(helpers._bwPointObjs([], null, { width: 200 }), []);
+});
+
+test('the first and last points stay clear of the value labels at the edges', () => {
+  // A weight-loss history starts at its heaviest, right where the max label sits.
+  const domain = helpers._bwDomain(weights, fat);
+  const w = helpers._bwPointObjs(weights, domain, { width: 200, left: 40, right: 30 });
+  assert.equal(w[0].x, 40);
+  assert.equal(w.at(-1).x, 170);
+  assert.match(stats, /<div class="chart-wrap" bind:clientWidth=\{bwWrapW\}>/);
+  assert.match(stats, /left: bwWrapW && leftLabelPx \? Math\.max\(10, \(leftLabelPx \+ 8\) \* bwChartW \/ bwWrapW\) : 10,/);
+});
+
+test('a row with a date that is not a real day is left off the chart, not drawn at NaN', () => {
+  const odd = [...weights, { date: '2025-13-45', weight: 118 }];
+  const domain = helpers._bwDomain(odd, []);
+  const w = helpers._bwPointObjs(odd, domain, { width: 200 });
+  assert.equal(w.length, weights.length);
+  assert.ok(w.every(p => Number.isFinite(p.x) && Number.isFinite(p.y)));
+  assert.equal(domain.from, Date.parse('2025-06-11T00:00:00Z') / 86400000);
 });
 
 test('the weight key and its numbers show with no overlay picked', () => {
