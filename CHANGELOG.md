@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **The installed app works when LiftTrace is served from a subpath** ([#129](https://github.com/TraceApps/lifttrace/pull/129), by @kgenerozov). With `BASE_URL` set (say `/lifttrace`), every visit after the first sent the app's requests to the site root instead, online and offline.
 - **The Body Measurements chart puts each reading on its own day** ([#131](https://github.com/TraceApps/lifttrace/issues/131), reported by @Scorch-Light). Body fat and the other overlays drifted off their dates, and with none picked the chart had no key and no numbers. The chart now runs by date, so a long break between weigh-ins shows as one. Dots on every line chart are round again.
 
 ---
