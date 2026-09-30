@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Body Measurements chart puts each reading on its own day** ([#131](https://github.com/TraceApps/lifttrace/issues/131), reported by @Scorch-Light). Body fat and the other overlays drifted off their dates, and with none picked the chart had no key and no numbers. The chart now runs by date, so a long break between weigh-ins shows as one. Dots on every line chart are round again.
+
 ---
 
 ## [1.4.0-dev04] - 2026-09-29 (pre-release)

@@ -541,29 +541,38 @@
     };
   })();
 
-  function _bwPoints(data) {
-    if (!data.length) return [];
-    const weights = data.map(b => b.weight);
-    const min = Math.min(...weights);
-    const max = Math.max(...weights);
-    const rng = Math.max(1, max - min + 4);
-    return data.map((b, i) => `${i * 20 + 10},${110 - ((b.weight - min + 2) / rng * 90 + 10)}`);
+  // Weight and the overlay share one time axis, so a body-fat reading sits
+  // over the day it was taken (issue #131). Each used to be spread evenly
+  // by its own count, and the two rarely have the same days, so the overlay
+  // drifted off its dates; a long break between weigh-ins also read as one
+  // step. Days are counted in UTC so a DST change can't shift a point.
+  const _dayNum = (d) => Date.parse(d + 'T00:00:00Z') / 86400000;
+  // The line charts stretch to fill their box, which squashed every <circle>
+  // into an oval. A dot is drawn as a round-capped stroke that keeps its
+  // screen size instead, so it stays round at any width (issue #131).
+  const _dotPath = (pts) => pts.map(p => `M${p.x} ${p.y}h0.01`).join('');
+  function _bwDomain(...series) {
+    const days = series.flat().map(p => _dayNum(p.date)).filter(Number.isFinite);
+    if (!days.length) return null;
+    return { from: Math.min(...days), to: Math.max(...days) };
   }
-  function _bwPointObjs(data) {
+  function _bwX(date, domain, width) {
+    if (!domain || domain.to === domain.from) return width / 2;
+    return 10 + (_dayNum(date) - domain.from) / (domain.to - domain.from) * (width - 20);
+  }
+  function _bwPointObjs(data, domain, width) {
     if (!data.length) return [];
     const weights = data.map(b => b.weight);
     const min = Math.min(...weights);
     const max = Math.max(...weights);
     const rng = Math.max(1, max - min + 4);
-    return data.map((b, i) => ({ x: i * 20 + 10, y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
+    return data.map(b => ({ x: _bwX(b.date, domain, width), y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
   }
 
   // Overlay series: proportional 5% padding so any metric fills the band
-  // the same way, while the weight line keeps its own absolute padding; the
-  // x positions spread by index fraction over the weight chart's width — the
-  // two series can have different row counts and the chart is index-spaced,
-  // not time-scaled.
-  function _overlayPointObjs(data, width) {
+  // the same way, while the weight line keeps its own absolute padding. x
+  // comes from the date, on the axis the weight line uses.
+  function _overlayPointObjs(data, domain, width) {
     if (!data.length) return [];
     const vals = data.map(p => p.v);
     const min = Math.min(...vals);
@@ -571,9 +580,8 @@
     const d = max - min;
     const pad = d > 0 ? d * 0.05 : 2;
     const rng = d + 2 * pad;
-    const n = data.length;
-    return data.map((p, i) => ({
-      x: n === 1 ? width / 2 : 10 + i * (width - 20) / (n - 1),
+    return data.map(p => ({
+      x: _bwX(p.date, domain, width),
       y: 110 - ((p.v - min + pad) / rng * 90 + 10),
     }));
   }
@@ -584,10 +592,13 @@
     const max = Math.max(...vals);
     return { min, max };
   }
-  $: overlayPts = _overlayPointObjs(overlayData, bwChartW);
+  $: bwDomain = _bwDomain(bodyWeights, overlayData);
+  $: bwDates = [...bodyWeights, ...overlayData].map(p => p.date).sort();
+  $: bwPts = _bwPointObjs(bodyWeights, bwDomain, bwChartW);
+  $: overlayPts = _overlayPointObjs(overlayData, bwDomain, bwChartW);
   $: overlayBounds = _overlayBounds(overlayData);
   $: weightMarks = (() => {
-    if (!overlayMetric || !bodyWeights.length) return null;
+    if (!bodyWeights.length) return null;
     const ws = bodyWeights.map(b => b.weight);
     const min = Math.min(...ws);
     const max = Math.max(...ws);
@@ -829,18 +840,14 @@
             </div>
             <svg class="line-chart" viewBox="0 0 {Math.max(chartData.length * 20, 200)} 120" preserveAspectRatio="none">
               <polyline fill="none" stroke="var(--accent)" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"
+                stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"
                 points={_progressPoints(chartData).join(' ')} />
-              {#each _progressPointObjs(chartData) as pt}
-                <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
-              {/each}
+              <path class="chart-dots" d={_dotPath(_progressPointObjs(chartData))} stroke="var(--accent)" stroke-width="7" />
               {#if hasRpe}
                 <polyline fill="none" stroke="var(--warning, #FFB020)" stroke-width="1.5"
-                  stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3"
+                  stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"
                   points={rpePointObjs.map(p => `${p.x},${p.y}`).join(' ')} />
-                {#each rpePointObjs as pt}
-                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="var(--warning, #FFB020)" />
-                {/each}
+                <path class="chart-dots" d={_dotPath(rpePointObjs)} stroke="var(--warning, #FFB020)" stroke-width="6" />
               {/if}
             </svg>
             <div class="chart-footer">
@@ -1107,12 +1114,12 @@
           <div class="chart-card">
             <div class="chart-title-row">
               <h3 class="chart-title">{$_('statistics.body_weight_trend')}</h3>
-              {#if overlayMetric}
-                <div class="chart-legend">
-                  <span class="legend-item"><span class="legend-swatch accent"></span>{$_('settings_workout.body_stats.weight')} ({$weightUnit})</span>
+              <div class="chart-legend">
+                <span class="legend-item"><span class="legend-swatch accent"></span>{$_('settings_workout.body_stats.weight')} ({$weightUnit})</span>
+                {#if overlayMetric}
                   <span class="legend-item"><span class="legend-swatch overlay"></span>{$_(overlayMetric.labelKey)}{overlayMetric.kind === 'length' ? ` (${overlayLengthUnit})` : ''}</span>
-                </div>
-              {/if}
+                {/if}
+              </div>
             </div>
             {#if overlayChoices.length}
               <div class="overlay-chips">
@@ -1125,40 +1132,34 @@
             <div class="chart-wrap">
               <svg class="line-chart" viewBox="0 0 {bwChartW} 120" preserveAspectRatio="none">
                 <polyline fill="none" stroke="var(--accent)" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round"
-                  points={_bwPoints(bodyWeights).join(' ')} />
-                {#each _bwPointObjs(bodyWeights) as pt}
-                  <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
-                {/each}
+                  stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"
+                  points={bwPts.map(p => `${p.x},${p.y}`).join(' ')} />
+                <path class="chart-dots" d={_dotPath(bwPts)} stroke="var(--accent)" stroke-width="7" />
                 {#if overlayPts.length >= 2}
                   <polyline fill="none" stroke="var(--warning, #FFB020)" stroke-width="1.5"
-                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3"
+                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"
                     points={overlayPts.map(p => `${p.x},${p.y}`).join(' ')} />
                 {/if}
-                {#each overlayPts as pt}
-                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="var(--warning, #FFB020)" />
-                {/each}
+                <path class="chart-dots" d={_dotPath(overlayPts)} stroke="var(--warning, #FFB020)" stroke-width="6" />
               </svg>
-              {#if overlayBounds}
+              {#if weightMarks}
                 <div class="overlay-axis" aria-hidden="true">
-                  {#if weightMarks}
-                    <span class="w" style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
-                    {#if weightMarks.yMin - weightMarks.yMax >= 12}
-                      <span class="w" style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
-                    {/if}
+                  <span class="w" style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
+                  {#if weightMarks.yMin - weightMarks.yMax >= 12}
+                    <span class="w" style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
                   {/if}
-                  {#if overlayBounds.max !== overlayBounds.min}
+                  {#if overlayBounds && overlayBounds.max !== overlayBounds.min}
                     <span class="mark-max">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
                     <span class="mark-min">{parseFloat(overlayBounds.min.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
-                  {:else}
+                  {:else if overlayBounds}
                     <span class="mark-solo">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
                   {/if}
                 </div>
               {/if}
             </div>
             <div class="chart-footer">
-              <span>{bodyWeights[0]?.date}</span>
-              <span>{bodyWeights[bodyWeights.length - 1]?.date}</span>
+              <span>{bwDates[0]}</span>
+              <span>{bwDates[bwDates.length - 1]}</span>
             </div>
           </div>
 
@@ -1531,6 +1532,7 @@
 
   /* Line chart */
   .line-chart { width: 100%; height: 140px; display: block; }
+  .chart-dots { fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
   /* Heatmap */
   .heatmap { display: grid; grid-template-columns: repeat(13, 1fr); gap: 3px; margin: 8px 0; }
