@@ -18,14 +18,20 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { musclesOf } from '../src/lib/muscle-load.js';
+import { computeMuscleRecovery } from '../src/lib/muscle-recovery.js';
 import { musclesOf as serverMusclesOf } from '../server/lib/muscle-load.js';
 import { normalizeMuscle } from '../server/lib/muscle-groups.js';
 
-// The fatigue view's matcher is private to its module, so it is read out
-// of the source rather than exported for a test.
-const recoverySrc = readFileSync(new URL('../src/lib/muscle-recovery.js', import.meta.url), 'utf8');
-const at = recoverySrc.indexOf('function _normalizeMuscle');
-const recoveryOf = new Function(recoverySrc.slice(at, recoverySrc.indexOf('\n}\n', at) + 2) + '; return _normalizeMuscle;')();
+function recoveryOf(name) {
+  const date = new Date().toISOString().slice(0, 10);
+  const workouts = [{ date, exercises: [{ exercise_id: 1, sets: [{ completed: true, weight: 1, reps: 1 }] }] }];
+  const library = [{ id: 1, primary_muscles: [name] }];
+  const recovery = computeMuscleRecovery(workouts, library);
+  const trained = Object.entries(recovery).filter(([, value]) => value.sets > 0);
+  assert.equal(trained.length, 1, `fatigue: ${name}`);
+  assert.equal(trained[0][1].sets, 1, `fatigue: ${name}`);
+  return trained[0][0];
+}
 
 const WGER = ['Biceps brachii', 'Anterior deltoid', 'Serratus anterior', 'Pectoralis major', 'Triceps brachii',
   'Rectus abdominis', 'Gastrocnemius', 'Gluteus maximus', 'Trapezius', 'Quadriceps femoris', 'Hamstrings',

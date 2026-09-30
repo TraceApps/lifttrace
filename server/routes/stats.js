@@ -5,6 +5,12 @@ import { requireAuth, uid } from '../middleware/auth.js';
 import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } from '../lib/volume.js';
 import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
 import { musclesOf } from '../lib/muscle-load.js';
+import { muscleOverrideMap } from '../lib/exercise-muscle-overrides.js';
+import {
+  deleteRecoveryAdjustment,
+  listRecoveryAdjustments,
+  saveRecoveryAdjustment,
+} from '../lib/muscle-recovery-adjustments.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,6 +34,36 @@ function getAllWorkouts(userId) {
   for (const r of rows) r.exercises = JSON.parse(r.exercises || '[]');
   return rows.filter(r => hasCompletedSet(r.exercises));
 }
+
+// A subjective correction is intentionally separate from the workout log:
+// it changes the recovery display, never the recorded training session.
+router.get('/muscle-recovery-adjustments', wrap((req, res) => {
+  res.json(listRecoveryAdjustments(uid(req)));
+}));
+
+router.put('/muscle-recovery-adjustments/:muscle', wrap((req, res) => {
+  try {
+    const adjustment = saveRecoveryAdjustment(
+      uid(req),
+      req.params.muscle,
+      req.body?.state,
+      req.body?.basis_workout_timestamp ?? null,
+      req.body?.adjusted_at || new Date().toISOString(),
+    );
+    res.json({ adjustment });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
+
+router.delete('/muscle-recovery-adjustments/:muscle', wrap((req, res) => {
+  try {
+    deleteRecoveryAdjustment(uid(req), req.params.muscle);
+    res.json({ ok: true, muscle: req.params.muscle, adjustment: null });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
 
 // Library-level load_type lookup for volume calculators. Kept as a
 // {exercise_id → load_type} map so stat handlers can resolve per exercise
@@ -190,7 +226,9 @@ router.get('/muscle-group-volume', wrap((req, res) => {
 //   Returns { [slug]: effectiveSets } for the 18 drawable muscles.
 router.get('/muscle-effective-sets', wrap((req, res) => {
   const { start, end } = req.query;
-  const rows = getWorkouts(uid(req), start, end);
+  const userId = uid(req);
+  const rows = getWorkouts(userId, start, end);
+  const overrides = muscleOverrideMap(userId);
   const exRows = db.prepare('SELECT id, primary_muscles, secondary_muscles, category FROM exercises').all();
   const exMap = {};
   for (const ex of exRows) {
@@ -206,7 +244,8 @@ router.get('/muscle-effective-sets', wrap((req, res) => {
       const info = exMap[ex.exercise_id] || { primary: [], secondary: [], category: '' };
       const setCount = (ex.sets || []).filter(s => s.completed && !s.warmup).length;
       if (!setCount) continue;
-      const perMuscle = musclesOf(info);
+      const loads = ex.muscle_load ?? overrides.get(Number(ex.exercise_id)) ?? null;
+      const perMuscle = musclesOf({ ...info, loads });
       for (const slug in perMuscle) {
         load[slug] = (load[slug] || 0) + perMuscle[slug] * setCount;
       }

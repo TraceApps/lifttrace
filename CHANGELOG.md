@@ -44,6 +44,7 @@ Third dev pre-release of 1.4.0. Preliminary foldable support, search that ignore
 
 ### Added
 
+- **Personal muscle-load profiles and recovery corrections** ([#110](https://github.com/TraceApps/lifttrace/issues/110)). Set independent 0–100% loads for the 18 muscles on an exercise, and LiftTrace uses that profile in effective-set statistics and muscle recovery. Each workout keeps a snapshot, so later edits do not rewrite training history. When the estimate does not match how a muscle feels, select it on the recovery diagram and mark it Fatigued, Recovering, Ready, or Fresh; the correction keeps aging normally and new training replaces it. Both controls work on the web and Android, including offline sync and backups.
 - **Preliminary foldable support.** It covers these areas:
   - **Settings:** half open like a book, the section list sits on one side of the crease and the section on the other.
   - **Dialogs, sheets, the rest timer and Trace** stay off the fold. In laptop posture, Trace sits on the half lying flat.

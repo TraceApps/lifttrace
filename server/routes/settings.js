@@ -45,6 +45,7 @@ router.delete('/clear-data', wrap((req, res) => {
   deleteMediaForUser(userId);
   deleteSetMediaForUser(userId);
   db.prepare('DELETE FROM ai_chat_history WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM muscle_recovery_adjustments WHERE user_id IS ?').run(userId);
   // Delete user-created programs and their templates
   const userPrograms = db.prepare('SELECT id FROM programs WHERE created_by = ?').all(userId);
   for (const p of userPrograms) {
