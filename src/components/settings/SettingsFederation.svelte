@@ -9,16 +9,23 @@
    * in the browser), and on success the federation toggle auto-flips.
    * From then on Diary.finishWorkout() pushes the completed workout's
    * estimated calories burned to NT.
-   */
+  */
+  import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
   import {
-    ntInstanceUrl, ntInstanceToken, ntFederationEnabled, ntConnectionVerified,
-    caloriesBurnedEnabled,
+    ntInstanceUrl, ntInstanceToken, ntFederationEnabled, ntConnectionVerified, ntConnectionIdentity,
+    ntBodySyncEnabled, ntBodySource, ntBodyLastSyncAt, caloriesBurnedEnabled, cancelScheduledSave,
   } from '../../stores/settings.js';
+  import { LtApi } from '../../lib/api.js';
+  import {
+    persistFederationConnectionTransition,
+    persistSettingImmediately,
+  } from '../../lib/nt-federation-persistence.js';
   import { showSuccess, showError } from '../../stores/toast.js';
+  import { syncNtBodyMeasurements } from '../../lib/nt-body-sync.js';
 
   export let expanded = false;
   export let visible = true;
@@ -32,43 +39,114 @@
   let testStatus = '';   // '' | 'ok' | 'fail' | 'testing'
   let lastConnectedUser = '';
   let lastError = '';
+  let capabilities = null;
+  let bodyStatus = '';
+  let bodyError = '';
+  let bodySources = [];
+  let bodySyncing = false;
+  let federationSaving = false;
+  let bodyStateSaving = false;
 
   // Derive the visible Connected/Failed pill state from a combination of the
   // local in-flight test and the persisted verified flag, so the pill
   // survives navigating away from Settings and coming back.
+  $: draftMatchesSaved = urlDraft.trim().replace(/\/+$/, '') === ($ntInstanceUrl || '').replace(/\/+$/, '')
+    && tokenDraft === ($ntInstanceToken || '');
   $: visibleStatus = testing
     ? 'testing'
     : (testStatus === 'fail' ? 'fail'
-      : (($ntConnectionVerified && $ntFederationEnabled) || testStatus === 'ok') ? 'ok'
+      : (($ntConnectionVerified && $ntFederationEnabled && draftMatchesSaved) || testStatus === 'ok') ? 'ok'
       : '');
 
   $: canTest = !!urlDraft.trim() && !!tokenDraft.trim();
+  $: bodyReadAvailable = !!capabilities?.bodyMeasurementsRead;
+  $: bodySourceOptions = [...new Set([...bodySources, $ntBodySource].filter(Boolean))];
+
+  const federationStores = {
+    ntInstanceUrl,
+    ntInstanceToken,
+    ntFederationEnabled,
+    ntConnectionVerified,
+    ntConnectionIdentity,
+    ntBodySyncEnabled,
+    ntBodySource,
+  };
+
+  function federationSnapshot() {
+    return {
+      ntInstanceUrl: $ntInstanceUrl,
+      ntInstanceToken: $ntInstanceToken,
+      ntFederationEnabled: $ntFederationEnabled,
+      ntConnectionVerified: $ntConnectionVerified,
+      ntConnectionIdentity: $ntConnectionIdentity,
+      ntBodySyncEnabled: $ntBodySyncEnabled,
+      ntBodySource: $ntBodySource,
+    };
+  }
+
+  function setFederationLocally(values) {
+    for (const [key, value] of Object.entries(values)) {
+      federationStores[key].set(value);
+      // The awaited federation PUT below owns persistence for these values.
+      cancelScheduledSave(key);
+    }
+  }
+
+  function saveSettingNow(key, value) {
+    return persistSettingImmediately(key, value, {
+      saveSetting: LtApi.saveSetting,
+      cancelScheduledSave,
+    });
+  }
 
   function _invalidate() {
     testStatus = '';
     lastError = '';
-    // Any field edit invalidates the previous verification — the URL or
-    // token might now be different from what was tested.
-    if ($ntConnectionVerified) ntConnectionVerified.set(false);
-    if ($ntFederationEnabled) ntFederationEnabled.set(false);
+    saved = false;
+    capabilities = null;
+    bodyStatus = '';
+    bodyError = '';
+    // Keep the last verified server connection intact while the user edits a
+    // candidate. Save/Test temporarily marks only local state unverified.
   }
 
   async function save() {
-    ntInstanceUrl.set(urlDraft.replace(/\/$/, ''));
-    ntInstanceToken.set(tokenDraft);
-    saved = true;
-    setTimeout(() => saved = false, 2000);
-    await test({ silentOk: false });
+    if (testing || federationSaving || bodyStateSaving) return;
+    saved = false;
+    if (await test()) {
+      saved = true;
+      setTimeout(() => saved = false, 2000);
+    }
   }
 
-  async function test({ silentOk = false } = {}) {
+  async function test({
+    silentOk = false,
+    silentFail = false,
+    preserveExistingOnFail = false,
+    persistFederation = true,
+  } = {}) {
     if (!canTest) {
       showError($_('settings_federation.url_token_required'));
-      return;
+      return false;
     }
+    const previous = federationSnapshot();
+    const candidate = {
+      ...previous,
+      ntInstanceUrl: urlDraft.trim().replace(/\/+$/, ''),
+      ntInstanceToken: tokenDraft,
+    };
     testing = true;
     testStatus = '';
     lastError = '';
+    if (persistFederation) {
+      setFederationLocally({
+        ntInstanceUrl: candidate.ntInstanceUrl,
+        ntInstanceToken: candidate.ntInstanceToken,
+        ntFederationEnabled: false,
+        ntConnectionVerified: false,
+        ntConnectionIdentity: null,
+      });
+    }
     try {
       const csrf = typeof localStorage !== 'undefined' ? localStorage.getItem('lt:csrf') : null;
       const res = await fetch('/api/nt/test', {
@@ -78,30 +156,173 @@
           'Content-Type': 'application/json',
           ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
         },
-        body: JSON.stringify({ url: urlDraft, token: tokenDraft }),
+        body: JSON.stringify({ url: candidate.ntInstanceUrl, token: candidate.ntInstanceToken }),
       });
       const body = await res.json();
       if (body.ok) {
+        if (!body.connectionIdentity?.instanceUrl || body.connectionIdentity.userId == null) {
+          throw new Error('NutriTrace did not return a stable connection identity.');
+        }
+        const connectedUser = body.user?.username || body.user?.full_name || 'NutriTrace';
+        capabilities = body.capabilities || {
+          workoutWrite: (body.scopes || []).includes('write:workouts'),
+          bodyMeasurementsRead: (body.scopes || []).includes('read:body-measurements'),
+        };
+        // Svelte reactive declarations run after this function yields. Use
+        // the response-derived value here so a missing optional scope is
+        // handled during this test, not only after the next render.
+        const bodyRead = !!capabilities.bodyMeasurementsRead;
+        bodyStatus = bodyRead ? '' : 'scope-missing';
+        bodyError = bodyRead ? '' : $_('settings_federation.body_sync_scope_missing');
+
+        const next = {
+          ...candidate,
+          ntFederationEnabled: true,
+          ntConnectionVerified: true,
+          ntConnectionIdentity: body.connectionIdentity,
+          ntBodySyncEnabled: bodyRead ? previous.ntBodySyncEnabled : false,
+        };
+        if (persistFederation) {
+          setFederationLocally(next);
+          try {
+            await persistFederationConnectionTransition({
+              previous,
+              next,
+              saveSetting: LtApi.saveSetting,
+              cancelScheduledSave,
+            });
+          } catch {
+            setFederationLocally(previous);
+            testStatus = 'fail';
+            lastError = $_('settings_federation.persist_failed');
+            capabilities = null;
+            bodyStatus = '';
+            bodyError = '';
+            if (!silentFail) showError(lastError);
+            return false;
+          }
+        } else {
+          if (!bodyRead) ntBodySyncEnabled.set(false);
+          ntFederationEnabled.set(true);
+          ntConnectionVerified.set(true);
+          ntConnectionIdentity.set(body.connectionIdentity);
+        }
+
+        lastConnectedUser = connectedUser;
         testStatus = 'ok';
-        lastConnectedUser = body.user?.username || body.user?.full_name || 'NutriTrace';
-        ntFederationEnabled.set(true);
-        ntConnectionVerified.set(true);
         if (!silentOk) showSuccess(`Connected to NutriTrace as ${lastConnectedUser}`);
+        return true;
       } else {
-        testStatus = 'fail';
-        lastError = body.error || 'Connection failed';
-        ntFederationEnabled.set(false);
-        ntConnectionVerified.set(false);
-        showError(lastError);
+        testStatus = preserveExistingOnFail ? '' : 'fail';
+        lastError = preserveExistingOnFail ? '' : (body.error || 'Connection failed');
+        capabilities = null;
+        bodyStatus = '';
+        bodyError = '';
+        if (persistFederation) setFederationLocally(previous);
+        if (!silentFail) showError(lastError);
+        return false;
       }
     } catch (e) {
-      testStatus = 'fail';
-      lastError = e.message || 'Connection failed';
-      ntFederationEnabled.set(false);
-      ntConnectionVerified.set(false);
-      showError(lastError);
+      testStatus = preserveExistingOnFail ? '' : 'fail';
+      lastError = preserveExistingOnFail ? '' : (e.message || 'Connection failed');
+      capabilities = null;
+      bodyStatus = '';
+      bodyError = '';
+      if (persistFederation) setFederationLocally(previous);
+      if (!silentFail) showError(lastError);
+      return false;
     } finally { testing = false; }
   }
+
+  async function onFederationToggle(event) {
+    if (testing || federationSaving || bodyStateSaving) return;
+    const previous = $ntFederationEnabled;
+    const next = !!event.detail;
+    if (next === previous) return;
+    federationSaving = true;
+    setFederationLocally({ ntFederationEnabled: next });
+    try {
+      await saveSettingNow('ntFederationEnabled', next);
+    } catch {
+      setFederationLocally({ ntFederationEnabled: previous });
+      showError($_('settings_federation.persist_failed'));
+    } finally {
+      federationSaving = false;
+    }
+  }
+
+  async function onBodySyncToggle(event) {
+    if (testing || federationSaving || bodyStateSaving) return;
+    const previous = $ntBodySyncEnabled;
+    const next = !!event.detail;
+    if (next === previous) return;
+    bodyStateSaving = true;
+    setFederationLocally({ ntBodySyncEnabled: next });
+    try {
+      await saveSettingNow('ntBodySyncEnabled', next);
+    } catch {
+      setFederationLocally({ ntBodySyncEnabled: previous });
+      showError($_('settings_federation.persist_failed'));
+      return;
+    } finally {
+      bodyStateSaving = false;
+    }
+    if (next) syncBodyNow();
+  }
+
+  async function onBodySourceChange(event) {
+    if (testing || federationSaving || bodyStateSaving) return;
+    const previous = $ntBodySource;
+    const next = event.currentTarget.value;
+    if (next === previous) return;
+    bodyStateSaving = true;
+    setFederationLocally({ ntBodySource: next });
+    try {
+      await saveSettingNow('ntBodySource', next);
+    } catch {
+      setFederationLocally({ ntBodySource: previous });
+      showError($_('settings_federation.persist_failed'));
+    } finally {
+      bodyStateSaving = false;
+    }
+  }
+
+  async function syncBodyNow() {
+    if (!bodyReadAvailable || bodySyncing) return;
+    bodySyncing = true;
+    bodyError = '';
+    try {
+      const result = await syncNtBodyMeasurements({ manual: true });
+      bodyStatus = result.status;
+      bodySources = result.sources || [];
+      if (result.status === 'error') bodyError = result.error;
+      else if (result.status === 'connection-verification-required') bodyError = $_('settings_federation.body_sync_connection_verification_required');
+      else if (result.status === 'connection-change-blocked') bodyError = $_('settings_federation.body_sync_connection_change_blocked');
+      else if (result.status === 'source-selection-required') bodyError = $_('settings_federation.body_sync_source_required');
+      else if (result.status === 'source-change-blocked') bodyError = $_('settings_federation.body_sync_source_change_blocked', { values: { source: result.syncedSource || '' } });
+      else if (result.status === 'selected-empty') bodyError = $_('settings_federation.body_sync_selected_empty');
+      else if (result.status === 'no-data') bodyError = $_('settings_federation.body_sync_no_data');
+      else if (result.status === 'ok') showSuccess($_('settings_federation.body_sync_complete'));
+    } catch (e) {
+      bodyStatus = 'error';
+      bodyError = e.message || $_('settings_federation.body_sync_failed');
+    } finally { bodySyncing = false; }
+  }
+
+  function formatLastSync(value) {
+    if (!value) return '';
+    try { return new Date(Number(value)).toLocaleString(); } catch { return ''; }
+  }
+
+  // Capabilities are returned by the connection check rather than persisted
+  // as a second source of truth. Refresh them when this settings section is
+  // remounted so a previously verified workout connection still exposes the
+  // body-sync scope state after navigating away and back.
+  onMount(() => {
+    if ($ntConnectionVerified && $ntFederationEnabled && canTest) {
+      test({ silentOk: true, silentFail: true, preserveExistingOnFail: true, persistFederation: false });
+    }
+  });
 </script>
 
 {#if visible}
@@ -118,7 +339,7 @@
           connectedAs={lastConnectedUser || $ntInstanceUrl.replace(/^https?:\/\//, '')}
           error={lastError}
           onRetest={() => test()}
-          retestDisabled={testing || !canTest}
+          retestDisabled={testing || federationSaving || bodyStateSaving || !canTest}
         />
 
         <div class="setting-row">
@@ -128,7 +349,53 @@
               {$_('settings_federation.enable_federation_hint')}
             </span>
           </div>
-          <Toggle bind:checked={$ntFederationEnabled} />
+          <Toggle checked={$ntFederationEnabled} on:change={onFederationToggle} disabled={testing || federationSaving} />
+        </div>
+
+        <div class="body-sync-block">
+          <div class="body-sync-heading">{$_('settings_federation.body_sync_title')}</div>
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <span class="setting-label">{$_('settings_federation.body_sync_enable')}</span>
+              <span class="setting-hint">
+                {$_('settings_federation.body_sync_enable_hint')} {$_('settings_federation.body_sync_current_weight_hint')}
+              </span>
+            </div>
+            <Toggle checked={$ntBodySyncEnabled} on:change={onBodySyncToggle} disabled={!bodyReadAvailable || !$ntFederationEnabled || testing || bodyStateSaving} />
+          </div>
+
+          {#if $ntConnectionVerified && capabilities && !bodyReadAvailable}
+            <p class="body-sync-warning">{$_('settings_federation.body_sync_scope_missing')}</p>
+          {/if}
+
+          {#if bodySourceOptions.length > 0 || $ntBodySource}
+            <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+              <div class="setting-label-group" style="width:100%">
+                <span class="setting-label">{$_('settings_federation.body_sync_source')}</span>
+                <span class="setting-hint">{$_('settings_federation.body_sync_source_hint')}</span>
+              </div>
+              <select class="form-input-sm" style="width:100%" value={$ntBodySource} on:change={onBodySourceChange} disabled={bodySyncing || testing || bodyStateSaving}>
+                <option value="">{$_('settings_federation.body_sync_source_auto')}</option>
+                {#each bodySourceOptions as source}
+                  <option value={source}>{source}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
+
+          <div class="body-sync-actions">
+            <button class="btn btn-secondary" on:click={syncBodyNow} disabled={bodySyncing || !bodyReadAvailable || !$ntFederationEnabled}>
+              {bodySyncing ? $_('settings_federation.body_sync_syncing') : $_('settings_federation.body_sync_now')}
+            </button>
+            {#if $ntBodyLastSyncAt}
+              <span class="setting-hint">{$_('settings_federation.body_sync_last_sync', { values: { when: formatLastSync($ntBodyLastSyncAt) } })}</span>
+            {/if}
+          </div>
+          {#if bodyError}
+            <p class="body-sync-warning">{bodyError}</p>
+          {:else if bodyStatus === 'ok'}
+            <p class="body-sync-ok">{$_('settings_federation.body_sync_ready')}</p>
+          {/if}
         </div>
 
         {#if !$caloriesBurnedEnabled}
@@ -148,7 +415,7 @@
           </div>
           <input class="form-input-sm" style="flex:1;min-width:0;width:100%" type="url"
             bind:value={urlDraft} placeholder="https://nutritrace.example.com"
-            on:input={_invalidate} />
+            on:input={_invalidate} disabled={testing || federationSaving} />
         </div>
 
         <div class="setting-row" style="flex-wrap:wrap;gap:8px">
@@ -161,16 +428,16 @@
           <div class="key-row">
             {#if showToken}
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="text"
-                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
+                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} disabled={testing || federationSaving} />
             {:else}
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="password"
-                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
+                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} disabled={testing || federationSaving} />
             {/if}
             <button class="btn-icon-toggle" on:click={() => showToken = !showToken} title={showToken ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
               <span class="material-symbols-rounded">{showToken ? 'visibility_off' : 'visibility'}</span>
             </button>
             <button class="btn btn-primary save-btn" on:click={save}
-              disabled={testing || !urlDraft.trim() || !tokenDraft.trim()}>
+              disabled={testing || federationSaving || bodyStateSaving || !urlDraft.trim() || !tokenDraft.trim()}>
               {saved ? 'Saved' : (testing ? 'Testing…' : $_('common.save'))}
             </button>
           </div>
@@ -202,6 +469,15 @@
   }
   .btn-icon-toggle:hover { color: var(--text-1); }
   .save-btn { height: 36px; font-size: 13px; white-space: nowrap; padding: 0 14px; flex-shrink: 0; }
+  .body-sync-block { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+  .body-sync-heading { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .body-sync-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0 0; }
+  .body-sync-warning { color: var(--warning, #f59e0b); font-size: 12px; line-height: 1.45; margin: 6px 0; }
+  .body-sync-ok { color: var(--success, #22c55e); font-size: 12px; line-height: 1.45; margin: 6px 0; }
+  .body-sync-heading,
+  .body-sync-actions,
+  .body-sync-warning,
+  .body-sync-ok { padding-inline: 16px; }
   code {
     font-family: 'SFMono-Regular', 'Menlo', monospace;
     font-size: 11px;

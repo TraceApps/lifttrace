@@ -659,6 +659,7 @@
   },
   "settings_federation": {
     "url_token_required": "Introduce primero una URL y un token de acceso",
+    "persist_failed": "No se pudo guardar la configuración de NutriTrace. Inténtalo de nuevo antes de cerrar esta página.",
     "enable_federation": "Activar la federación",
     "instance_url": "URL de la instancia",
     "access_token": "Token de acceso",
