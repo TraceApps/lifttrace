@@ -247,6 +247,20 @@ const Exercises = {
     const args = [];
     if (params.category) { where.push(`LOWER(category) = LOWER(?)`); args.push(params.category); }
     if (params.search)   { where.push(`LOWER(name) LIKE LOWER(?)`); args.push(`%${params.search}%`); }
+    // A source or catalog switched off in Settings stays out of the library
+    // and the picker, as it does on a server (server/routes/exercises.js).
+    // The switch was saved here but never read, so it did nothing (#133).
+    const off = await dbQuery(
+      `SELECT key FROM user_settings WHERE user_id = ? AND key LIKE 'catalog_disabled_%' AND value = 'true'`,
+      [ME]
+    );
+    if (off.length) {
+      const builtIn = new Set(SOURCES_META.map(s => s.id));
+      const sources = off.map(r => r.key.slice('catalog_disabled_'.length))
+        .map(name => (builtIn.has(name) ? name : `import:${name}`));
+      where.push(`(source IS NULL OR source NOT IN (${sources.map(() => '?').join(',')}))`);
+      args.push(...sources);
+    }
     const rows = await dbQuery(
       `SELECT * FROM exercises WHERE ${where.join(' AND ')} ORDER BY name COLLATE NOCASE LIMIT 5000`,
       args
@@ -320,8 +334,9 @@ const Exercises = {
     return { ok: true };
   },
   async deleteAllCustom() {
-    await dbRun(`UPDATE exercises SET deleted_at = ?, sync_state = 'pending' WHERE created_by = ? AND is_global = 0`, [_now(), ME]);
-    return { ok: true };
+    const r = await dbRun(`UPDATE exercises SET deleted_at = ?, sync_state = 'pending' WHERE created_by = ? AND is_global = 0 AND deleted_at IS NULL`, [_now(), ME]);
+    // `removed`, as the server answers: Settings reports the count.
+    return { ok: true, removed: r?.changes || 0 };
   },
   async sourcesList() {
     // Same 4 sources the server exposes, with per-source counts from the
@@ -447,7 +462,8 @@ const Exercises = {
        WHERE source = ? AND created_by IS NULL AND deleted_at IS NULL`,
       [_now(), _now(), sourceId]
     );
-    return { ok: true, cleared: r.changes || 0 };
+    // `removed`, as the server answers: Settings reports the count.
+    return { ok: true, removed: r.changes || 0 };
   },
   unsupported() { throw new _Unsupported('That catalog action requires a server connection.'); },
 };

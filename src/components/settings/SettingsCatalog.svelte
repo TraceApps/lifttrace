@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import { LtApi } from '../../lib/api.js';
-  import { resolveAssetUrl } from '../../lib/platform.js';
+  import { resolveAssetUrl, isNative } from '../../lib/platform.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import ExerciseEditor from '../exercises/ExerciseEditor.svelte';
@@ -17,6 +17,35 @@
   export let expanded = false;
   export let visible = true;
   export let onToggle = () => {};
+  // The phone app with no server. Everything here works on the device except
+  // pre-caching media, which asks the server for the list of media URLs, and
+  // a source that needs an API key, which only a server can import (the
+  // setup wizard says so too). Both are left out rather than offered to fail.
+  export let localOnly = false;
+
+  // The phone's web view ignores a download link: tapping "Download
+  // template" did nothing. Save it the way exports are saved on Android,
+  // to the app's cache and out through the share sheet.
+  async function downloadTemplate(e) {
+    if (!isNative) return; // a browser downloads it through the link itself
+    e.preventDefault();
+    try {
+      const json = await (await fetch(location.origin + '/lifttrace-catalog-template.json')).text();
+      const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem');
+      const { Share } = await import('@capacitor/share');
+      const dir = 'lifttrace-exports';
+      try { await Filesystem.mkdir({ path: dir, directory: Directory.Cache, recursive: true }); } catch {}
+      const written = await Filesystem.writeFile({
+        path: `${dir}/lifttrace-catalog-template.json`,
+        data: json,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      try {
+        await Share.share({ title: 'LiftTrace catalog template', url: written?.uri, dialogTitle: 'Save template' });
+      } catch { /* dismissed; the file is still saved */ }
+    } catch (err) { showError(err?.message || String(err)); }
+  }
 
   let exerciseSources = [];
   let sourceBusy = {};
@@ -269,7 +298,7 @@
                 {#if src.count > 0}<span class="src-count">{src.count}</span>{/if}
               </div>
               <div class="src-desc">{src.description}</div>
-              {#if src.requiresKey && canManageLibrary}
+              {#if src.requiresKey && canManageLibrary && !localOnly}
                 <input class="form-input-sm src-key" type="password" placeholder={$_('settings_catalog.rapidapi_key_ph')} bind:value={sourceKeys[src.id]} />
                 <div class="src-byok-note">
                   Bring your own RapidAPI key. By enabling this source you confirm you have an
@@ -283,7 +312,7 @@
               {#if src.count > 0}
                 <Toggle checked={src.enabled} on:change={() => toggleSource(src)} />
               {/if}
-              {#if canManageLibrary}
+              {#if canManageLibrary && !(localOnly && src.requiresKey)}
               <button class="btn btn-secondary btn-sm" disabled={sourceBusy[src.id] === 'import'} on:click={() => importSource(src)}>
                 {sourceBusy[src.id] === 'import' ? 'Importing\u2026' : (src.count > 0 ? 'Re-import' : 'Import')}
               </button>
@@ -301,6 +330,7 @@
       </div>
 
       <!-- Offline media pre-cache -->
+      {#if !localOnly}
       <div class="card" style="margin-top:12px">
         <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
           <div class="setting-label-group">
@@ -322,6 +352,7 @@
         </div>
       </div>
 
+      {/if}
       <p class="sub-label">{$_('settings_catalog.my_exercises')}</p>
       <div class="card">
         <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -379,7 +410,8 @@
         <div class="cc-template-row">
           <a class="btn btn-secondary cc-template-btn"
             href={resolveAssetUrl('/lifttrace-catalog-template.json')}
-            download="lifttrace-catalog-template.json">
+            download="lifttrace-catalog-template.json"
+            on:click={downloadTemplate}>
             <span class="material-symbols-rounded" style="font-size:16px">download</span>
             Download template
           </a>

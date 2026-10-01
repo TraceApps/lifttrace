@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **The Android app's local mode can import the exercise library from Settings** ([#133](https://github.com/TraceApps/lifttrace/issues/133), reported by @daniel-bernardino747). Settings, Exercise Catalog was hidden there, so a library skipped or failed in the setup wizard could only come back by wiping the app. Switching a source off now hides it on the phone too, Clear and Delete all say how many, the JSON template downloads on Android, and an empty library's Go to Settings button opens the catalog.
 - **The installed app works when LiftTrace is served from a subpath** ([#129](https://github.com/TraceApps/lifttrace/pull/129), by @kgenerozov). With `BASE_URL` set (say `/lifttrace`), every visit after the first sent the app's requests to the site root instead, online and offline.
 - **The Body Measurements chart puts each reading on its own day** ([#131](https://github.com/TraceApps/lifttrace/issues/131), reported by @Scorch-Light). Body fat and the other overlays drifted off their dates, and with none picked the chart had no key and no numbers. The chart now runs by date, so a long break between weigh-ins shows as one. Dots on every line chart are round again.
 

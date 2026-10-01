@@ -1143,7 +1143,7 @@
           {:else if currentSection === 'statistics'}
             <SettingsStatistics visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'catalog'}
-            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} />
+            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} {localOnly} />
           {:else if currentSection === 'trace'}
             <SettingsTrace visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'radio'}
@@ -1267,13 +1267,15 @@
     <!-- ═══ INTEGRATIONS ══════════════════════════════════════════════════ -->
     <p class="group-label">{$_('settings_main.group_integrations')}</p>
 
-    {#if !localOnly}
-      <SettingsCatalog
-        visible={sectionVisible(settingsQuery, 'catalog')}
-        expanded={expanded.catalog}
-        onToggle={() => toggleSection('catalog')}
-      />
-    {/if}
+    <!-- Shown in local mode too (issue #133): every call it makes is answered
+         on the phone, and the setup wizard promises the library can be
+         changed "any time from Settings". -->
+    <SettingsCatalog
+      visible={sectionVisible(settingsQuery, 'catalog')}
+      expanded={expanded.catalog}
+      onToggle={() => toggleSection('catalog')}
+      {localOnly}
+    />
 
     <SettingsTrace
       visible={sectionVisible(settingsQuery, 'trace')}

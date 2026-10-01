@@ -535,7 +535,8 @@
         <span class="material-symbols-rounded">search_off</span>
         {#if exercises.length === 0}
           <p>Your library is empty. Import a source from Settings to get started.</p>
-          <button class="btn btn-primary" on:click={() => push('/settings')}>{$_('exercises_page.go_to_settings')}</button>
+          <!-- Straight to the catalog, not the top of Settings (#133). -->
+          <button class="btn btn-primary" on:click={() => push('/settings/catalog')}>{$_('exercises_page.go_to_settings')}</button>
         {:else}
           <p>No exercises match the current filters.</p>
           <button class="btn btn-secondary" on:click={() => { search = ''; selectedCategory = ''; clearEq(); }}>
