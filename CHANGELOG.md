@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Cardio through the public API and MCP** ([#134](https://github.com/TraceApps/lifttrace/issues/134), by @benniemosher). `GET /api/v1/cardio` and the `get_cardio` tool read sessions in a date range. `POST /api/v1/cardio` and the `log_cardio` tool log one, refused while cardio is off in Settings. An optional `external_id` makes a write safe to repeat: the same id returns the session already logged instead of a second copy. The cardio setting now syncs across your devices, so the server knows whether it's on.
+
 ### Fixed
 
 - **The workout timer shows the right time with a watch paired.** Started or paused on the phone, it reached the watch as having started in 1970, so both showed hundreds of thousands of hours. A timer already stuck like that clears itself.
