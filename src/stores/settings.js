@@ -12,6 +12,9 @@ const SERVER_SETTINGS = new Set([
   'weightUnit', 'heightUnit',
   'dateFormat', 'timeFormat',
   'weeklyWorkoutGoal', 'goals',
+  // On the server so the public API and MCP can refuse cardio writes while
+  // it's off (issue #134), the same opt-in the Diary and streaks honor.
+  'cardioEnabled',
   'heightCm', 'currentWeightKg', 'dob', 'gender', 'caloriesBurnedEnabled',
   'statsChartType', 'statsYZero', 'statsAvgLine', 'statsTrendLine',
   'aiEnabled', 'aiProvider', 'aiApiKey', 'aiModel', 'aiBaseUrl', 'aiAssistantName', 'aiKeyVerified',
@@ -108,6 +111,12 @@ export async function loadServerSettings() {
       // loaded from the server only took effect after a full app reload
       // (when stores re-read from localStorage on init).
       window.dispatchEvent(new CustomEvent('wl:setting', { detail: { key } }));
+    }
+    // cardioEnabled used to be stored only on the device. Someone who turned
+    // cardio on before it synced has it on locally and absent on the server,
+    // which would leave the API refusing their cardio. Upload it once.
+    if (!('cardioEnabled' in serverSettings) && DB.getSetting('cardioEnabled', false) === true) {
+      scheduleSave('cardioEnabled', true);
     }
   } catch {}
 }
