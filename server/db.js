@@ -325,10 +325,21 @@ db.exec(`
     -- session for today when the chip is tapped, without erasing the
     -- original entry from history.
     is_template   INTEGER DEFAULT 0,
+    -- Optional id a script gives a session it logs through the API (issue
+    -- #134), so re-sending the same write returns the session instead of
+    -- logging it twice. Unique per user; NULL for everything else.
+    external_id   TEXT,
     created_at    TEXT DEFAULT (datetime('now')),
     updated_at    TEXT DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_cardio_log_user_date ON cardio_log(user_id, date);
+`);
+addColumnIfMissing('cardio_log', 'external_id', 'external_id TEXT');
+// Partial: NULLs never collide in SQLite anyway, and most rows have none.
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_cardio_log_user_external
+    ON cardio_log(user_id, external_id)
+    WHERE external_id IS NOT NULL;
 `);
 
 // ── OAuth/OIDC state + provider tables ───────────────────────────────────
