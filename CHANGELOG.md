@@ -12,12 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The Android app's local mode can import the exercise library from Settings** ([#133](https://github.com/TraceApps/lifttrace/issues/133), reported by @daniel-bernardino747). Settings, Exercise Catalog was hidden there, so a library skipped or failed in the setup wizard could only come back by wiping the app. Switching a source off now hides it on the phone too, Clear and Delete all say how many, the JSON template downloads on Android, and an empty library's Go to Settings button opens the catalog.
 - **The installed app works when LiftTrace is served from a subpath** ([#129](https://github.com/TraceApps/lifttrace/pull/129), by @kgenerozov). With `BASE_URL` set (say `/lifttrace`), every visit after the first sent the app's requests to the site root instead, online and offline.
 - **The Body Measurements chart puts each reading on its own day** ([#131](https://github.com/TraceApps/lifttrace/issues/131), reported by @Scorch-Light). Body fat and the other overlays drifted off their dates, and with none picked the chart had no key and no numbers. The chart now runs by date, so a long break between weigh-ins shows as one. Dots on every line chart are round again.
+- **Signing in through SSO with an email that already has an account no longer creates a second account.** When the identity provider doesn't mark the email verified (Authentik's default since 2025.10), the sign-in is refused with a pointer to link the provider from your profile, instead of landing you in a new, empty account.
+- **SSO works with Authelia 4.39 and later out of the box.** Email, username and groups are read from the provider's userinfo when the ID token leaves them out.
+- **The SSO callback also works without the provider number, and at `/api/oidc/callback`**, the address older docs gave. Both used to end on a blank page.
+- **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.** It was ignored unless a provider was also defined through env vars.
 
 ### Security
 
 - **fast-uri** bumped 3.1.7 to 3.1.8, closes [GHSA-hrr3-gc8f-f4qj](https://github.com/advisories/GHSA-hrr3-gc8f-f4qj) (moderate: inconsistent host normalization). It comes in through the MCP library's schema checks.
 - **ip-address** bumped 10.7.0 to 10.7.2, closes [GHSA-j6r3-76f7-8jcv](https://github.com/advisories/GHSA-j6r3-76f7-8jcv) and [GHSA-h3mg-xc3c-68pw](https://github.com/advisories/GHSA-h3mg-xc3c-68pw) (moderate: a subnet check across address families, and a slow parse of a long address). It comes in through the MCP library, which LiftTrace doesn't use it for.
 - **brace-expansion** bumped 5.0.9 to 5.0.12, closes [GHSA-q2hr-2g5m-vwhr](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr), [GHSA-qhr7-859c-m2p7](https://github.com/advisories/GHSA-qhr7-859c-m2p7) and [GHSA-6j4f-fj2g-mc7p](https://github.com/advisories/GHSA-6j4f-fj2g-mc7p) (high: slow or crashing expansion of crafted patterns). Build tooling only; nothing in the app uses it.
+- **The Android app's SSO sign-in no longer passes the session token through the `lifttrace://` link**, which another app could intercept. The link carries a single-use code that only the app that started the sign-in can redeem.
 - `npm audit` reports 0 vulnerabilities for the app and the server.
 
 ---

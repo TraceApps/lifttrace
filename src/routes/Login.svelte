@@ -100,8 +100,9 @@
     const ret = encodeURIComponent(window.location.hash || '#/');
     if (isNative) {
       const { Browser } = await import('@capacitor/browser');
+      const { appChallengeParam } = await import('../lib/oidc-app-handoff.js');
       await Browser.open({
-        url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`),
+        url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}${await appChallengeParam()}`),
         presentationStyle: 'popover',
       });
       return;
