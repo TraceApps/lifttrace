@@ -92,6 +92,24 @@ const COOKIE_OPTS = {
   secure: !_insecureCookies,
 };
 
+// A browser drops a Secure cookie on a plain-HTTP page (localhost aside), so
+// signing in from one succeeds and then lands back on the login page with
+// nothing in the log to say why. The browser's Origin header shows the page
+// it was on, whatever proxy sits in between. Said once an hour at most. The
+// login page shows the same thing on screen.
+let _plainHttpWarnedAt = 0;
+function warnIfPlainHttp(req) {
+  if (_insecureCookies) return;
+  const origin = String(req.get('origin') || req.get('referer') || '');
+  if (!/^http:\/\//i.test(origin)) return;
+  if (/^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(origin)) return;
+  if (Date.now() - _plainHttpWarnedAt < 60 * 60 * 1000) return;
+  _plainHttpWarnedAt = Date.now();
+  let page = origin;
+  try { page = new URL(origin).origin; } catch {}
+  console.warn(`[WARN] Sign-in from a plain-HTTP page (${page}). The sign-in cookie only works over HTTPS, so the browser drops it and the user lands back on the login page. Serve LiftTrace over HTTPS, or set INSECURE_COOKIES=1 on a trusted LAN. See https://traceapps.github.io/docs/getting-started/lan-http/`);
+}
+
 function safeUser(u) { const { password_hash, ...rest } = u; return rest; }
 
 router.get('/status', wrap((req, res) => {
@@ -122,6 +140,9 @@ router.get('/status', wrap((req, res) => {
     password_policy: policy,                  // 'standard' | 'strong'
     password_min_score: policy === 'strong' ? STRONG_MIN_SCORE : 0,
     oidc: { providers, enable_email_password_login },
+    // Whether the sign-in cookie is HTTPS-only, so the login page can say up
+    // front that signing in from a plain-HTTP page will not stick.
+    secure_cookies: !_insecureCookies,
   });
 }));
 
@@ -147,6 +168,7 @@ router.post('/login', rateLimitLogin, wrap((req, res) => {
   // body (native Capacitor path stores the bearer in localStorage and sends
   // it as Authorization: Bearer on every request).
   const token = signToken(user);
+  warnIfPlainHttp(req);
   res.cookie('lt_token', token, cookieOpts);
   res.json({ user: safeUser(user), token });
 }));
@@ -175,6 +197,7 @@ router.post('/register', wrap((req, res) => {
   if (isFirst) {
     claimAnonymousData(user.id);
     token = signToken(user);
+    warnIfPlainHttp(req);
     res.cookie('lt_token', token, COOKIE_OPTS);
   }
   res.json({ user: safeUser(user), token });

@@ -6,6 +6,11 @@ import { clearPhotoBlobs } from '../lib/photo-blobs.js';
 export const currentUser = writable(null);
 export const userMgmtActive = writable(false);
 export const setupRequired = writable(false);
+// Why the last sign-in didn't stick, if it didn't ('http' | 'dropped'), so
+// the login page can say so. A store, not page state, because the login page
+// is torn down and rebuilt when the user flips on and back off. See
+// lib/cookie-check.js.
+export const signInProblem = writable(null);
 
 // Synthetic local user for native standalone mode (no server configured).
 // full_name + nickname + dob + gender + avatar are overridden at load time

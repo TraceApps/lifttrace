@@ -1,7 +1,9 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { currentUser, userMgmtActive, loadAuthState } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
+  import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { loadServerSettings } from '../stores/settings.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { push } from 'svelte-spa-router';
@@ -30,7 +32,20 @@
   // enabled (so a saved JWT exists ready to be unlocked).
   let _biometricReady = false;
 
+  // Why signing in won't stick, if it won't: plain HTTP with an HTTPS-only
+  // cookie is known before anyone signs in. See lib/cookie-check.js.
+  let authStatus = null;
+
   onMount(async () => {
+    if (!isNative) {
+      try {
+        const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' });
+        if (r.ok) {
+          authStatus = await r.json();
+          if (cookieBlockedByHttp(authStatus)) signInProblem.set('http');
+        }
+      } catch {}
+    }
     if (!showSso) return;
     try {
       const res = await fetch(apiUrl('/api/auth/oidc/providers'), { credentials: 'include' });
@@ -138,8 +153,21 @@
         } catch {}
       }
       localStorage.setItem('wl:userId', String(data.user.id));
-      currentUser.set(data.user);
-      await loadServerSettings();
+      if (isNative) {
+        currentUser.set(data.user);
+        await loadServerSettings();
+      } else {
+        // Web: read the user back from the server rather than setting it
+        // from this reply, so the app only appears once the session cookie
+        // has actually stuck. If it didn't, say why instead of looping.
+        // get(), not $currentUser: this page can be torn down meanwhile.
+        await loadAuthState();
+        if (!get(currentUser)) {
+          signInProblem.set(droppedCookieReason(authStatus));
+          return;
+        }
+        signInProblem.set(null);
+      }
       // Native server mode: kick a full sync now so workouts / programs /
       // body stats land in the local cache before the user reaches the
       // home screen. Without this, the first 30 seconds after login show
@@ -192,6 +220,10 @@
       <h1 class="login-title">{$_('login.app_name')}</h1>
       <p class="text-3 text-sm">{$_('login.subtitle')}</p>
     </div>
+
+    {#if $signInProblem}
+      <CookieWarning reason={$signInProblem} />
+    {/if}
 
     {#if !recoveryDone}
       {#if passwordLoginEnabled}

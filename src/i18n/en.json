@@ -89,6 +89,13 @@
     },
     "continue_with":     "Continue with {provider}",
     "or":                "or",
+    "cookie_warning": {
+      "http_title": "Signing in won't work on this address",
+      "http_body": "This page uses plain HTTP, but the server only sends its sign-in cookie over HTTPS, so your browser throws it away and signing in sends you back to the sign-in page. Open LiftTrace over HTTPS, or, on a trusted home network, set INSECURE_COOKIES=1 on the server and restart it.",
+      "dropped_title": "Your browser didn't keep you signed in",
+      "dropped_body": "Your password was right, but the browser didn't keep the sign-in cookie. Check that cookies are allowed for this site, and if LiftTrace is behind a reverse proxy, that the proxy passes cookies through.",
+      "fix_link": "How to fix it"
+    },
     "recovery": {
       "token_missing":     "Enter your recovery token",
       "explainer":         "If you never set up user accounts intentionally, you can disable user management. <strong>This will delete all user accounts.</strong> Your workout data will be kept.",
