@@ -54,6 +54,7 @@ import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { autoSeed }        from './exercise-sources/index.js';
 import { seedPrograms }    from './seed-templates.js';
 import { startScheduler }  from './lib/scheduler.js';
+import { createMetrics, metricsMiddleware, startMetricsServer } from './lib/metrics.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -145,6 +146,11 @@ router.use((req, res, next) => {
   next();
 });
 
+// Optional Prometheus metrics (METRICS_ENABLED=true), served on their own
+// port so they never go through the public app port. See lib/metrics.js.
+const METRICS_ENABLED = process.env.METRICS_ENABLED === 'true';
+const appMetrics = METRICS_ENABLED ? createMetrics() : null;
+if (appMetrics) router.use(metricsMiddleware(appMetrics));
 
 // Request logging
 router.use((req, res, next) => {
@@ -298,6 +304,11 @@ process.on('uncaughtException', (err) => {
 
 app.listen(PORT, async () => {
   logger.info(`LiftTrace running on port ${PORT}`);
+  if (appMetrics) {
+    const metricsPort = Number(process.env.METRICS_PORT || 9464);
+    startMetricsServer(appMetrics, { port: metricsPort });
+    logger.info(`Metrics on port ${metricsPort} at /metrics`);
+  }
 
   // Pictures stored inline as data URLs become files (lib/img-url-migration.js).
   // Not awaited: it runs alongside requests, and retries what fails next startup.

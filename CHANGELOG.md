@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Optional Prometheus metrics for HTTP requests** ([#136](https://github.com/TraceApps/lifttrace/issues/136), by @benniemosher). Set `METRICS_ENABLED=true` to serve `/metrics` on its own port (`METRICS_PORT`, default 9464): request count, duration and status per route, named after the OpenTelemetry HTTP conventions so standard Grafana dashboards and alerts work unchanged. Off by default, and never on the app's port.
+
 ### Fixed
 
 - **The workout timer shows the right time with a watch paired.** Started or paused on the phone, it reached the watch as having started in 1970, so both showed hundreds of thousands of hours. A timer already stuck like that clears itself.
