@@ -205,7 +205,7 @@ services:
 | `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-4-5-20251001`, `llama3.1:8b`). Required when `AI_PROVIDER=oai-compat`. |
 | `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`. Reached from the server container, not the browser — Docker Compose sidecars on internal networks work. |
 | `AI_ENABLED` | No | — | If `true`, auto-enables Trace for all users. |
-| `OIDC_*` | No | — | Single-provider OIDC shorthand. See `.env.example` and Settings → User Management → OIDC providers for the full multi-provider syntax. |
+| `OIDC_*` | No | — | Single-provider OIDC shorthand. See `.env.example` for the full multi-provider syntax; providers can also be added in Settings → Authentication. |
 | `MCP_ENABLED` | No | `0` | Set to `1` to expose the Model Context Protocol endpoint at `/api/mcp`. Off by default. See [the MCP setup guide](https://traceapps.github.io/docs/lifttrace/mcp/) for Claude Desktop / Cursor / Codex config. |
 | `MCP_WRITE_ENABLED` | No | `0` | Set to `1` to allow MCP write tools (`log_set`, `log_body_stat`) to be registered. Also requires the calling token to hold `mcp:write`. |
 | `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow the MCP destructive tool (`delete_workout`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
@@ -282,7 +282,7 @@ labels:
 
 ### OIDC callback URLs at a subpath
 
-When you configure an OIDC provider, register the callback URL with the IdP **including the prefix**, for example `https://example.com/lifttrace/api/auth/oidc/callback/1`. Enter the same URL in Settings → User Management → OIDC providers. The provider redirects back through your reverse proxy to the prefixed path, the app handles it, and the OIDC flow completes.
+When you configure an OIDC provider, register the callback URL with the IdP **including the prefix**, for example `https://example.com/lifttrace/api/auth/oidc/callback/1`. Enter the same URL in `OIDC_REDIRECT_URIS`, or in the provider's Redirect URIs under Settings → Authentication. The provider redirects back through your reverse proxy to the prefixed path, the app handles it, and the OIDC flow completes.
 
 ### Service worker and PWA install
 
