@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Optional Prometheus metrics for HTTP requests** ([#136](https://github.com/TraceApps/lifttrace/issues/136), by @benniemosher). Set `METRICS_ENABLED=true` to serve `/metrics` on its own port (`METRICS_PORT`, default 9464): request count, duration and status per route, named after the OpenTelemetry HTTP conventions so standard Grafana dashboards and alerts work unchanged. Off by default, and never on the app's port.
+
 ### Fixed
 
 - **The Android app's local mode can import the exercise library from Settings** ([#133](https://github.com/TraceApps/lifttrace/issues/133), reported by @daniel-bernardino747). Settings, Exercise Catalog was hidden there, so a library skipped or failed in the setup wizard could only come back by wiping the app. Switching a source off now hides it on the phone too, Clear and Delete all say how many, the JSON template downloads on Android, and an empty library's Go to Settings button opens the catalog.
