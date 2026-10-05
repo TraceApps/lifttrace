@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Trace's attach button offers Camera or Gallery on phones and in the Android app**, the same as the other Trace apps. Each choice goes straight to the camera or the photo picker; on a computer the button opens the file picker. You can still pick several photos at once.
+
 ### Fixed
 
 - **The Android app's local mode can import the exercise library from Settings** ([#133](https://github.com/TraceApps/lifttrace/issues/133), reported by @daniel-bernardino747). Settings, Exercise Catalog was hidden there, so a library skipped or failed in the setup wizard could only come back by wiping the app. Switching a source off now hides it on the phone too, Clear and Delete all say how many, the JSON template downloads on Android, and an empty library's Go to Settings button opens the catalog.

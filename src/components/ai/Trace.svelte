@@ -1,4 +1,5 @@
 <script>
+  import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable } from 'svelte/store';
@@ -42,9 +43,6 @@
   let sending = false;
   let messagesEl;
   let pendingImages = [];
-  let fileInput;
-  let cameraInput;
-  let showAttachMenu = false;
   let hasUnread = false;
 
   $: botName = $aiAssistantName || 'Trace';
@@ -442,14 +440,14 @@
   }
 
   // ── Image attachment ───────────────────────────────────────────────────────
-  async function handleFiles(e) {
-    const files = Array.from(e.target.files || []);
+  // From the shared attach button: an array of image Files (several from
+  // the gallery, so progress shots can be compared).
+  async function handleFiles(files) {
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
       const dataUrl = await fileToDataUrl(f);
       pendingImages = [...pendingImages, { dataUrl, mediaType: f.type }];
     }
-    e.target.value = '';
   }
   function fileToDataUrl(file) {
     return new Promise((res, rej) => {
@@ -910,23 +908,8 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
         {/if}
 
         <div class="lb-input-bar">
-          <div class="lb-attach-wrap">
-            <button class="lb-attach-btn" on:click={() => showAttachMenu = !showAttachMenu} title={$_('trace.attach_image')}>
-              <span class="material-symbols-rounded" style="font-size:20px">add_photo_alternate</span>
-            </button>
-            {#if showAttachMenu}
-              <div class="lb-attach-menu" transition:fade={{ duration: 120 }}>
-                <button class="lb-attach-option" on:click={() => { showAttachMenu = false; cameraInput.click(); }}>
-                  <span class="material-symbols-rounded">photo_camera</span> Camera
-                </button>
-                <button class="lb-attach-option" on:click={() => { showAttachMenu = false; fileInput.click(); }}>
-                  <span class="material-symbols-rounded">image</span> Gallery
-                </button>
-              </div>
-            {/if}
-          </div>
-          <input bind:this={fileInput}   type="file" accept="image/*" multiple style="display:none" on:change={handleFiles} />
-          <input bind:this={cameraInput} type="file" accept="image/*" capture="environment" style="display:none" on:change={handleFiles} />
+          <AttachImageButton multiple title={$_('trace.attach_image')}
+            on:files={e => handleFiles(e.detail)} />
           <textarea
             class="lb-textarea"
             rows="1"
@@ -1355,31 +1338,4 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   .lb-send-btn:not(:disabled):hover  { transform: scale(1.08); }
   .lb-send-btn:not(:disabled):active { transform: scale(0.94); }
 
-  .lb-attach-wrap { position: relative; }
-  .lb-attach-btn {
-    width: 40px; height: 40px; border-radius: 50%;
-    background: none; border: 1px solid var(--border);
-    color: var(--text-3); cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: all var(--dur-fast);
-  }
-  .lb-attach-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-  .lb-attach-menu {
-    position: absolute; bottom: 48px; left: 0;
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    z-index: 10; min-width: 140px;
-    overflow: hidden;
-  }
-  .lb-attach-option {
-    display: flex; align-items: center; gap: 8px;
-    width: 100%; padding: 10px 14px;
-    background: none; border: none;
-    color: var(--text-1); font-size: 14px;
-    cursor: pointer; text-align: left;
-  }
-  .lb-attach-option:hover { background: var(--surface-2); }
-  .lb-attach-option + .lb-attach-option { border-top: 1px solid var(--border); }
 </style>

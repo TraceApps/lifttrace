@@ -74,6 +74,11 @@
       "cant_start_mic":         "Couldn't start microphone"
     }
   },
+  "attach_image": {
+    "button": "Attach Image",
+    "camera": "Camera",
+    "gallery": "Gallery"
+  },
   "login": {
     "subtitle":             "Sign in to your account",
     "username":             "Username",
