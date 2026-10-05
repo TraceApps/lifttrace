@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Cardio through the public API and MCP** ([#134](https://github.com/TraceApps/lifttrace/issues/134), by @benniemosher). `GET /api/v1/cardio` and the `get_cardio` tool read sessions in a date range. `POST /api/v1/cardio` and the `log_cardio` tool log one, refused while cardio is off in Settings. An optional `external_id` makes a write safe to repeat: the same id returns the session already logged instead of a second copy. The cardio setting now syncs across your devices, so the server knows whether it's on.
 ### Changed
 
 - **Trace's attach button offers Camera or Gallery on phones and in the Android app**, the same as the other Trace apps. Each choice goes straight to the camera or the photo picker; on a computer the button opens the file picker. You can still pick several photos at once.

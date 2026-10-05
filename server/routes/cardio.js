@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
+import { insertCardio } from '../lib/cardio-log.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -60,29 +61,13 @@ router.get('/:date', wrap((req, res) => {
 
 // POST /api/cardio  { date, activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, is_template? }
 router.post('/', wrap((req, res) => {
-  const userId = uid(req);
-  const { date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template } = req.body || {};
-  if (!date) return res.status(400).json({ error: 'date required' });
-  if (!activity || !String(activity).trim()) return res.status(400).json({ error: 'activity required' });
-  const dm = Math.floor(Number(duration_min));
-  if (!Number.isFinite(dm) || dm <= 0) return res.status(400).json({ error: 'duration_min must be a positive integer' });
-  const dist = distance == null || distance === '' ? null : Number(distance);
-  const hr = avg_hr == null || avg_hr === '' ? null : Math.floor(Number(avg_hr));
-  const isTpl = is_template ? 1 : 0;
-  const stmt = db.prepare(
-    `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-  const info = stmt.run(
-    userId, date, String(activity).trim(), dm,
-    Number.isFinite(dist) ? dist : null,
-    (distance_unit === 'mi' || distance_unit === 'km') ? distance_unit : 'km',
-    Number.isFinite(hr) ? hr : null,
-    notes ? String(notes).trim() : null,
-    isTpl,
-  );
-  const row = db.prepare('SELECT * FROM cardio_log WHERE id = ?').get(info.lastInsertRowid);
-  res.json(row);
+  let result;
+  try {
+    result = insertCardio(db, uid(req), req.body || {});
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  res.json(result.session);
 }));
 
 // PUT /api/cardio/:id  same body shape as POST (all fields optional).
