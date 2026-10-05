@@ -1682,7 +1682,7 @@
       "copied": "Copiado al portapapeles.",
       "copy_failed": "No se pudo copiar. Copia el comando a mano.",
       "view_notes": "Ver las notas de la versión",
-      "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de imagen en tu docker-compose.yml (:latest, :1.0, :1, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
+      "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de imagen en tu docker-compose.yml (:latest, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
     },
     "banner_reload": "Recargar",
     "available_generic": "Hay una versión nueva disponible",

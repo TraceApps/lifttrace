@@ -22,7 +22,7 @@
   // Drive svelte-i18n's active locale from the user's saved language setting.
   $: if ($language) locale.set($language);
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
-  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
+  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
   import { syncState } from './lib/sync.js';
   import { offlineState } from './lib/offline-api.js';
   import NativeSetup from './routes/NativeSetup.svelte';
@@ -510,9 +510,22 @@
             if (host === 'oidc-callback') {
               const errMsg = params.get('error');
               const linked = params.get('linked');
-              const token = params.get('token');
-              const idTokenHint = params.get('id_token_hint');
-              const providerId  = params.get('provider_id');
+              let token = params.get('token');
+              let idTokenHint = params.get('id_token_hint');
+              let providerId  = params.get('provider_id');
+              const code = params.get('code');
+              if (code && !errMsg) {
+                try {
+                  const { redeemHandoff } = await import('./lib/oidc-app-handoff.js');
+                  const data = await redeemHandoff(code);
+                  token = data.token;
+                  idTokenHint = data.id_token_hint || null;
+                  providerId = data.provider_id != null ? String(data.provider_id) : null;
+                } catch (e) {
+                  import('./stores/toast.js').then(({ showError }) => showError(e?.message || 'Sign-in failed'));
+                  return;
+                }
+              }
               if (errMsg) {
                 const { showError } = await import('./stores/toast.js');
                 showError(decodeURIComponent(errMsg));
@@ -557,21 +570,13 @@
       }
     } catch {}
 
-    await loadAuthState();
+    try { await loadAuthState(); } finally { authLoaded = true; }
 
     // Env-lock state for AI / SMTP / OIDC. Fetched globally so the Trace
     // FAB knows about env-set AI_ENABLED without waiting for Settings to
-    // load. Mirrors NutriTrace #36.
-    if (!isNative || getServerUrl()) {
-      fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .then(async d => {
-          if (!d) return;
-          const { envLocks } = await import('./stores/settings.js');
-          envLocks.set(d);
-        })
-        .catch(() => {});
-    }
+    // load. Mirrors NutriTrace #36. Signed out it would only be refused;
+    // signing in loads it (see _wasNeedsLogin below).
+    if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
 
     const _isNativeServer = isNative && getNativeMode() === 'server';
     const _isNativeLocal  = isNative && getNativeMode() === 'local';
@@ -649,8 +654,43 @@
     }
   });
 
+  /**
+   * Which sections the server holds by environment variable, Trace included.
+   * Sends the Android app's token: cookies alone were refused there, which
+   * left Trace looking unconfigured even with AI_* set on the server.
+   */
+  async function loadEnvLocks() {
+    if (isNative && !getServerUrl()) return;
+    try {
+      const headers = {};
+      const token = isNative ? getAuthToken() : null;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers });
+      if (!res.ok) return;
+      const { envLocks } = await import('./stores/settings.js');
+      envLocks.set(await res.json());
+    } catch { /* defaults stay: Trace waits for a key in Settings */ }
+  }
+
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
+  // The web app learns who is signed in from the server. Until it knows,
+  // nothing renders: the app used to load first and fire its requests
+  // signed out, before the sign-in screen replaced it. Android starts from
+  // the account it cached, so it never waits.
+  let authLoaded = isNative;
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
+
+  // Signing in loads what the sign-in screen left out. (Login.svelte loads
+  // the server settings itself.)
+  let _wasNeedsLogin = needsLogin;
+  $: {
+    if (_wasNeedsLogin && !needsLogin && $currentUser) {
+      _wasNeedsLogin = false;
+      loadEnvLocks();
+    } else if (needsLogin) {
+      _wasNeedsLogin = true;
+    }
+  }
 </script>
 
 <svelte:window
@@ -663,6 +703,8 @@
 {#if showNativeSetup}
   <NativeSetup />
   <Toast />
+{:else if !authLoaded}
+  <!-- Asking the server who is signed in: a blank page, never the app. -->
 {:else if needsLogin}
   <Login />
 {:else}

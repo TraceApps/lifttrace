@@ -188,6 +188,15 @@ router.use('/uploads', express.static(uploadsPath, {
 // No-cache API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
+// Older docs gave the OIDC callback as /api/oidc/callback. An IdP set up from
+// them sends people here; forward to the real callback (which finds the
+// provider from the sign-in state) instead of letting the SPA fallback show
+// a blank page. Before the setup gate so OIDC-first installs work too.
+router.get('/api/oidc/callback', (req, res) => {
+  const q = req.originalUrl.indexOf('?');
+  res.redirect(307, `${BASE_URL}/api/auth/oidc/callback${q >= 0 ? req.originalUrl.slice(q) : ''}`);
+});
+
 // API routes
 router.use('/api/auth/oidc',    oidcRoutes);
 router.use('/api/admin/oidc',   oidcAdminRoutes);

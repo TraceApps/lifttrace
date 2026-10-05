@@ -1361,7 +1361,7 @@
       "copied": "Copiato negli appunti.",
       "copy_failed": "Copia non riuscita. Copia il comando manualmente.",
       "view_notes": "Visualizza le note sulla versione",
-      "channel_note": "Per cambiare canale server, modifica il tag dell'immagine in docker-compose.yml (:latest, :1.0, :1, :dev) ed esegui di nuovo docker-compose pull && docker-compose up -d."
+      "channel_note": "Per cambiare canale server, modifica il tag dell'immagine in docker-compose.yml (:latest, :dev) ed esegui di nuovo docker-compose pull && docker-compose up -d."
     },
     "banner_reload": "",
     "available_generic": "",
