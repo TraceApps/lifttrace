@@ -259,7 +259,7 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
 
   const r = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify(body),
   });
   const data = await r.json();

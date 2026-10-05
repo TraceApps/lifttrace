@@ -295,7 +295,7 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     // Some self-hosted endpoints (Ollama in particular) reject the
     // Authorization header when it carries a placeholder key. Only send
     // it when we have a real one.
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
 
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
