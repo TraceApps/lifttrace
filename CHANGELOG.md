@@ -24,6 +24,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The app no longer loads behind the sign-in screen.** Opened signed out, it asked the server for your data and was refused before the sign-in screen replaced it. It now waits to learn who is signed in.
 - **Trace set up through the server's environment variables shows as set up in the Android app.** The app asked without its sign-in, so the server refused and Trace looked unconfigured.
 - **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([nutritrace#258](https://github.com/TraceApps/nutritrace/issues/258), reported by @jsapede). Chat answers failed with "Unexpected non-whitespace character after JSON"; every request now asks for a single answer.
+- **Trace's tools work with OpenAI-compatible endpoints that check every field** ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259), reported by @jsapede). With AI set up on the server, a chat that used a tool could fail with `"name" is not supported by this endpoint`.
 
 ### Security
 

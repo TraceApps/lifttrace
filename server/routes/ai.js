@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { getAiConfig, isAiEnvLocked } from '../ai.js';
 import { getOpenAIChatParams } from '../lib/openai-chat-params.js';
+import { toolMessagesForOpenAI, toolNameFor, rememberToolCalls } from '../lib/tool-messages.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -248,7 +249,7 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
   const selectedModel = model || AI_DEFAULT_MODELS.openai;
   const body = {
     model: selectedModel,
-    messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    messages: [{ role: 'system', content: systemPrompt }, ...toolMessagesForOpenAI(messages)],
     ...getOpenAIChatParams({
       baseUrl,
       model: selectedModel,
@@ -313,17 +314,19 @@ async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
   }
   // Gemini's functionCall has no ID. Mint stable synthetic IDs so the
   // OpenAI-shape tool_call_id round-trips correctly through the client.
+  // One timestamp, so the ids sent back and the ids the client answers match.
+  const minted = Date.now();
   const assistantMessage = {
     role: 'assistant',
     content: textParts.join('\n') || null,
     tool_calls: fnCalls.map((p, i) => ({
-      id: `gem_${Date.now()}_${i}`,
+      id: `gem_${minted}_${i}`,
       type: 'function',
       function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) },
     })),
   };
   const toolCalls = fnCalls.map((p, i) => ({
-    id:   `gem_${Date.now()}_${i}`,
+    id:   `gem_${minted}_${i}`,
     name: p.functionCall.name,
     args: p.functionCall.args || {},
   }));
@@ -410,15 +413,16 @@ function _openaiToClaudeMessages(messages) {
  */
 function _openaiToGeminiContents(messages) {
   const out = [];
+  const toolCallNames = new Map();
   for (const m of messages) {
     if (m.role === 'system') continue;
+    if (m.role === 'assistant') rememberToolCalls(m, toolCallNames);
     if (m.role === 'tool') {
       const responsePart = {
         functionResponse: {
-          // Gemini ignores the id but wants a name. The client echoes
-          // the original tool name on `role:'tool'` messages for this
-          // reason (aiChat.js callAIProxy loop).
-          name: m.name || '',
+          // Gemini answers a tool call by name: the one the app echoes
+          // on the message, else the one on the tool call it answers.
+          name: toolNameFor(m, toolCallNames),
           response: typeof m.content === 'string' ? _safeJsonParse(m.content, { result: m.content }) : (m.content || {}),
         },
       };
