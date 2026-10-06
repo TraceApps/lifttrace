@@ -4,6 +4,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { currentUser, userMgmtActive } from '../stores/auth.js';
   import { diffTombstones } from '../lib/workout-uuid.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { exerciseLoadTypes, exerciseSetTypes, trackRpe, weightUnit } from '../stores/settings.js';
@@ -91,6 +92,12 @@
   // arrays immutably rather than editing them in place.
   let _originalExercises = [];
 
+  // A workout in someone else's program (a coach's, assigned to you) opens
+  // read-only, as the server only lets the program's maker change it. Only
+  // when the maker is known to be another account.
+  let programMaker = null;
+  $: othersProgram = !!($userMgmtActive && $currentUser && programMaker != null && programMaker !== $currentUser.id);
+
   onMount(async () => {
     try {
       template = await LtApi.getTemplate(params.templateId);
@@ -98,6 +105,7 @@
     }
     catch(e) { showError(e.message); }
     loading = false;
+    try { programMaker = (await LtApi.getProgram(params.programId))?.created_by ?? null; } catch {}
   });
 
   // ── Helpers ────────────────────────────────────────────────────────
@@ -755,10 +763,12 @@
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
     {#if template}
-      <input class="title-input" type="text" bind:value={template.name} placeholder={$_('workout_editor.name_ph')} />
+      <input class="title-input" type="text" bind:value={template.name} placeholder={$_('workout_editor.name_ph')} readonly={othersProgram} />
+      {#if !othersProgram}
       <button class="btn btn-primary save-btn" on:click={save} disabled={saving}>
         {saving ? 'Saving...' : 'Save'}
       </button>
+      {/if}
     {:else}
       <span class="title-input" style="flex:1"></span>
     {/if}

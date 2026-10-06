@@ -8,7 +8,7 @@
   import { duplicateProgram as duplicate } from '../lib/program-actions.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
-  import { currentUser } from '../stores/auth.js';
+  import { currentUser, userMgmtActive } from '../stores/auth.js';
   import Sheet from '../components/ui/Sheet.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
@@ -56,6 +56,11 @@
   let assigning = false;
   $: isCoach = $currentUser?.role === 'trainer' || $currentUser?.role === 'admin';
   $: isOwner = $currentUser && program && program.created_by === $currentUser.id;
+  // Someone else's program (a coach's, assigned to you): its workouts open
+  // but don't change, as on the server (lib/program-access.js). Only when
+  // the maker is known to be another account, so nothing of your own
+  // ever loses its controls.
+  $: othersProgram = !!($userMgmtActive && $currentUser && program?.created_by != null && program.created_by !== $currentUser.id);
 
   async function openAssign() {
     try { assignMembers = await LtApi.getMyMembers(); }
@@ -185,6 +190,7 @@
   }
   function onTplDragEnd() { draggedTplIdx = -1; dragOverTplIdx = -1; }
   async function onTplDrop(e, i) {
+    if (othersProgram) return;
     e.preventDefault();
     const from = draggedTplIdx;
     draggedTplIdx = -1; dragOverTplIdx = -1;
@@ -348,10 +354,12 @@
       <div class="section">
         <div class="section-header">
           <h3 class="section-title">{$_('program_detail.workouts')}</h3>
+          {#if !othersProgram}
           <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>
             <span class="material-symbols-rounded">add</span>
             Add
           </button>
+          {/if}
         </div>
 
         <!-- .pd-body — plain block on mobile; at >=1280px becomes a
@@ -366,7 +374,7 @@
               <div class="tpl-drag"
                 class:dragging={draggedTplIdx === idx}
                 class:drag-over={dragOverTplIdx === idx && draggedTplIdx !== idx}
-                draggable="true"
+                draggable={!othersProgram}
                 on:dragstart={e => onTplDragStart(e, idx)}
                 on:dragover={e => onTplDragOver(e, idx)}
                 on:drop={e => onTplDrop(e, idx)}
@@ -379,7 +387,7 @@
                      role="button"
                      tabindex="0">
                   <div class="tpl-left">
-                    <span class="material-symbols-rounded tpl-drag-handle" title="Drag to reorder">drag_indicator</span>
+                    {#if !othersProgram}<span class="material-symbols-rounded tpl-drag-handle" title="Drag to reorder">drag_indicator</span>{/if}
                     <span class="tpl-num">{idx + 1}</span>
                     <div class="tpl-info">
                       <span class="tpl-name">{t.name}</span>
@@ -387,9 +395,11 @@
                     </div>
                   </div>
                   <div class="tpl-right">
+                    {#if !othersProgram}
                     <button class="btn-icon-sm" on:click={e => deleteTemplate(e, t.id)} title="Delete">
                       <span class="material-symbols-rounded">close</span>
                     </button>
+                    {/if}
                     <span class="material-symbols-rounded tpl-arrow">chevron_right</span>
                   </div>
                 </div>
@@ -400,7 +410,7 @@
           <div class="empty-templates">
             <span class="material-symbols-rounded">playlist_add</span>
             <p>No workouts in this program yet.</p>
-            <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>{$_('program_detail.add_workout')}</button>
+            {#if !othersProgram}<button class="btn-primary-sm" on:click={() => showAddTemplate = true}>{$_('program_detail.add_workout')}</button>{/if}
           </div>
         {/if}
 

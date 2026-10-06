@@ -3,6 +3,16 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid, userMgmtActive } from '../middleware/auth.js';
 import { currentPlanWeek } from '../lib/programWeek.js';
+import { programFor } from '../lib/program-access.js';
+
+// 404 for a program this account can't see (no hint that it exists), 403
+// for one it can see but not change (program-access.js). Returns true when
+// the response was sent.
+function refuse(res, access, needChange) {
+  if (!access.canSee) { res.status(404).json({ error: 'Program not found' }); return true; }
+  if (needChange && !access.canChange) { res.status(403).json({ error: 'Forbidden' }); return true; }
+  return false;
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -100,7 +110,10 @@ router.get('/', wrap((req, res) => {
 router.get('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
   const program = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
-  if (!program) return res.status(404).json({ error: 'Program not found' });
+  if (!program || refuse(res, programFor(id, uid(req)), false)) {
+    if (!res.headersSent) res.status(404).json({ error: 'Program not found' });
+    return;
+  }
   const templates = db.prepare('SELECT * FROM workout_templates WHERE program_id = ? ORDER BY order_index ASC').all(id);
   for (const t of templates) t.exercises = JSON.parse(t.exercises || '[]');
   program.templates = templates;
@@ -180,6 +193,7 @@ router.post('/', wrap((req, res) => {
 // PUT /api/programs/:id
 router.put('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
+  if (refuse(res, programFor(id, uid(req)), true)) return;
   const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = req.body;
   db.prepare(
     `UPDATE programs SET name=COALESCE(?,name), description=COALESCE(?,description),
@@ -206,7 +220,9 @@ function onComplete(v) { return v === 'repeat' ? 'repeat' : 'hold'; }
 
 // DELETE /api/programs/:id
 router.delete('/:id', wrap((req, res) => {
-  db.prepare('DELETE FROM programs WHERE id = ?').run(parseInt(req.params.id));
+  const id = parseInt(req.params.id);
+  if (refuse(res, programFor(id, uid(req)), true)) return;
+  db.prepare('DELETE FROM programs WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
 
@@ -226,6 +242,9 @@ router.post('/deactivate', wrap((req, res) => {
 router.post('/:id/activate', wrap((req, res) => {
   const id = parseInt(req.params.id);
   const userId = uid(req);
+  // Following a program means seeing it; activating someone else's
+  // private one would also have handed this account a copy.
+  if (refuse(res, programFor(id, userId), false)) return;
   if (userId != null) {
     // Deactivate all, then activate this one
     db.prepare('UPDATE program_assignments SET active = 0 WHERE assigned_to = ?').run(userId);
@@ -253,7 +272,10 @@ router.post('/:id/week-cursor', wrap((req, res) => {
   const id = parseInt(req.params.id);
   const userId = uid(req);
   const program = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
-  if (!program) return res.status(404).json({ error: 'Program not found' });
+  if (!program || refuse(res, programFor(id, userId), false)) {
+    if (!res.headersSent) res.status(404).json({ error: 'Program not found' });
+    return;
+  }
 
   let week = req.body?.week;
   if (week != null) {
@@ -296,6 +318,12 @@ router.post('/:id/assign', requireTrainerOrAdmin, wrap((req, res) => {
   const programId = parseInt(req.params.id);
   const { user_id, start_date, make_active } = req.body;
   if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  // A coach hands out a program they can see (their own, or a starter),
+  // not another account's private one. One the athlete already has (one
+  // they started themselves, say) can be switched on for them too: the
+  // coach's member overview offers Make Active for every one of them.
+  const alreadyTheirs = db.prepare('SELECT 1 FROM program_assignments WHERE program_id = ? AND assigned_to = ?').get(programId, parseInt(user_id));
+  if (!alreadyTheirs && refuse(res, programFor(programId, uid(req)), false)) return;
   // make_active defaults to true (assignment usually means "follow this");
   // pass make_active: false to add the program to the member's library
   // without disrupting whatever they're currently following.
@@ -346,6 +374,7 @@ router.delete('/:id/assign/:userId', requireTrainerOrAdmin, wrap((req, res) => {
 router.put('/:id/reorder', wrap((req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
+  if (refuse(res, programFor(parseInt(req.params.id), uid(req)), true)) return;
   const stmt = db.prepare('UPDATE workout_templates SET order_index = ? WHERE id = ? AND program_id = ?');
   const programId = parseInt(req.params.id);
   db.transaction(() => {

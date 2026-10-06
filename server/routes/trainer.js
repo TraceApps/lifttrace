@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
-import { requireAuth, requireTrainerOrAdmin, userMgmtActive } from '../middleware/auth.js';
+import { requireAuth, requireTrainerOrAdmin, uid, userMgmtActive } from '../middleware/auth.js';
+import { templateFor, toId } from '../lib/program-access.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { setVolume } from '../lib/volume.js';
 import { sendCoachFeedback, isEmailConfigured } from '../email.js';
@@ -331,9 +332,17 @@ router.get('/members/:id/prescriptions', wrap((req, res) => {
 router.post('/members/:id/prescriptions', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
   if (!ownsMember(req.user, memberId)) return res.status(403).json({ error: 'Not your member' });
-  const { date, template_id, name, exercises, notes } = req.body || {};
+  const { date, name, exercises, notes } = req.body || {};
+  const template_id = req.body?.template_id == null || req.body.template_id === '' ? null : toId(req.body.template_id);
+  if (req.body?.template_id != null && req.body.template_id !== '' && !template_id) {
+    return res.status(400).json({ error: 'Invalid template_id' });
+  }
   if (!template_id && (!name || !Array.isArray(exercises))) {
     return res.status(400).json({ error: 'Provide either template_id or name + exercises[]' });
+  }
+  // A day the coach can see; prescribing hands it to the athlete.
+  if (template_id && !templateFor(template_id, uid(req)).canSee) {
+    return res.status(404).json({ error: 'Template not found' });
   }
   const result = db.prepare(
     `INSERT INTO coach_prescriptions (trainer_id, member_id, date, template_id, name, exercises, notes)
@@ -391,10 +400,17 @@ router.put('/prescriptions/:id', wrap((req, res) => {
   // clears it (e.g. promote/demote the date).
   const next = {
     date:        body.date         === undefined ? row.date         : body.date,
-    template_id: body.template_id  === undefined ? row.template_id  : body.template_id,
+    template_id: body.template_id  === undefined ? row.template_id
+               : (body.template_id == null || body.template_id === '') ? null : toId(body.template_id),
     name:        body.name         === undefined ? row.name         : body.name,
     notes:       body.notes        === undefined ? row.notes        : body.notes,
   };
+  if (body.template_id != null && body.template_id !== '' && !next.template_id) {
+    return res.status(400).json({ error: 'Invalid template_id' });
+  }
+  if (next.template_id && next.template_id !== row.template_id && !templateFor(next.template_id, uid(req)).canSee) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
   // Re-set or clear the prescription_completed activity flag if the date
   // changed — a missed-day flag that fires for the old date shouldn't
   // linger when the trainer reschedules. Cheap to just clear; the

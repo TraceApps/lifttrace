@@ -37,6 +37,7 @@ import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
+import { canChangeProgram, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
 // Same shape as workout.js — duplicated here to keep both routes
@@ -127,23 +128,25 @@ router.get('/pull', wrap((req, res) => {
         `SELECT * FROM exercises WHERE updated_at >= ? ORDER BY updated_at`
       ).all(sinceSql).map(parseRow);
 
-  // programs has created_by, not user_id. Include programs the user
-  // created OR has been assigned (server-side join with program_assignments
-  // is overkill here — assignments are pulled separately).
-  const programs = u != null
-    ? db.prepare(
-        `SELECT DISTINCT p.* FROM programs p
-         LEFT JOIN program_assignments a ON a.program_id = p.id AND a.assigned_to = ?
-         WHERE p.updated_at >= ? AND (p.created_by = ? OR p.created_by IS NULL OR a.id IS NOT NULL)
-         ORDER BY p.updated_at`
-      ).all(u, sinceSql, u).map(parseRow)
-    : db.prepare(
-        `SELECT * FROM programs WHERE updated_at >= ? ORDER BY updated_at`
-      ).all(sinceSql).map(parseRow);
+  // programs has created_by, not user_id. The programs this account may
+  // see (program-access.js): its own, ones assigned to it, and the
+  // starters. A deleted account's programs have no maker either, but stay
+  // private. Their workout days follow the same rule; every account's
+  // days used to go to every device.
+  const visible = visibleProgramsSql(u);
+  const programs = db.prepare(
+    `SELECT p.* FROM programs p
+      WHERE p.updated_at >= ? AND ${visible.sql}
+      ORDER BY p.updated_at`
+  ).all(sinceSql, ...visible.args).map(parseRow);
 
+  // Days also go to the athlete a coach prescribed one to.
+  const visibleDays = visibleTemplatesSql(u);
   const workout_templates = db.prepare(
-    `SELECT * FROM workout_templates WHERE updated_at >= ? ORDER BY updated_at`
-  ).all(sinceSql).map(parseRow);
+    `SELECT t.* FROM workout_templates t JOIN programs p ON p.id = t.program_id
+      WHERE t.updated_at >= ? AND ${visibleDays.sql}
+      ORDER BY t.updated_at`
+  ).all(sinceSql, ...visibleDays.args).map(parseRow);
 
   const program_assignments = u != null
     ? db.prepare(
@@ -301,10 +304,12 @@ router.post('/push', wrap((req, res) => {
     // ── programs ──────────────────────────────────────────────────────
     for (const p of (body.programs || [])) {
       const existing = p.server_id
-        ? db.prepare('SELECT updated_at FROM programs WHERE id = ?').get(p.server_id)
+        ? db.prepare('SELECT id, updated_at, created_by FROM programs WHERE id = ?').get(p.server_id)
         : null;
       if (p.server_id && existing) {
-        if (wins(p.updated_at, existing.updated_at)) {
+        // Only the program's maker changes it (program-access.js); anyone
+        // else is answered as if they lost the timestamp race.
+        if (canChangeProgram(existing, u) && wins(p.updated_at, existing.updated_at)) {
           if (p.deleted_at) {
             db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
           } else {
@@ -334,8 +339,9 @@ router.post('/push', wrap((req, res) => {
       const delExUuids = Array.isArray(dr?.exercises) ? dr.exercises : (Array.isArray(dr) ? dr : []);
       const delSetsByEx = (dr && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
 
+      const canChangeDay = id => toId(id) != null && programFor(toId(id), u).canChange;
       if (t.server_id && existing) {
-        if (wins(t.updated_at, existing.updated_at)) {
+        if (canChangeDay(existing.program_id) && wins(t.updated_at, existing.updated_at)) {
           if (t.deleted_at) {
             db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
           } else {
@@ -371,13 +377,13 @@ router.post('/push', wrap((req, res) => {
           }
         }
         result.workout_templates.push({ client_id: t.client_id, server_id: t.server_id });
-      } else if (!t.deleted_at && t.program_id) {
+      } else if (!t.deleted_at && t.program_id && canChangeDay(t.program_id)) {
         // Fresh insert: uuids ensured up-front so subsequent merges have identity.
         const exs = ensureExerciseUuids(t.exercises || []);
         const r = db.prepare(
           `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, updated_at)
            VALUES (?, ?, ?, ?, ?, datetime('now'))`
-        ).run(t.program_id, t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs));
+        ).run(toId(t.program_id), t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs));
         result.workout_templates.push({ client_id: t.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -400,8 +406,11 @@ router.post('/push', wrap((req, res) => {
     // session_seq/id — reproducing exactly what that client already
     // believes is "the" workout for that date.
     for (const w of (body.workout_log || [])) {
+      // This account's own workout only: someone else's id falls through
+      // to the date lookup below, as an id that doesn't resolve does.
       let existing = w.server_id
-        ? db.prepare('SELECT * FROM workout_log WHERE id = ?').get(w.server_id)
+        ? db.prepare(`SELECT * FROM workout_log WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+            .get(w.server_id, ...(u != null ? [u] : []))
         : null;
       // Issue #87: a server_id that does NOT resolve (stale device-
       // cached id, a row that no longer exists) falls back to the same
@@ -567,7 +576,8 @@ router.post('/push', wrap((req, res) => {
     // ── ai_chat_history — append-only on push ──────────────────────────
     for (const c of (body.ai_chat_history || [])) {
       if (c.deleted_at && c.server_id) {
-        db.prepare(`UPDATE ai_chat_history SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(c.server_id);
+        db.prepare(`UPDATE ai_chat_history SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+          .run(c.server_id, ...(u != null ? [u] : []));
         result.ai_chat_history.push({ client_id: c.client_id, server_id: c.server_id });
       } else if (!c.server_id && !c.deleted_at && c.role && c.content) {
         const r = db.prepare(

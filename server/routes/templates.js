@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, uid } from '../middleware/auth.js';
 import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
+import { programFor, templateFor, toId } from '../lib/program-access.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -18,15 +19,20 @@ router.get('/:id', wrap((req, res) => {
        JOIN programs p ON p.id = wt.program_id
       WHERE wt.id = ?`
   ).get(parseInt(req.params.id));
-  if (!t) return res.status(404).json({ error: 'Template not found' });
+  if (!t || !templateFor(t.id, uid(req)).canSee) return res.status(404).json({ error: 'Template not found' });
   t.exercises = JSON.parse(t.exercises || '[]');
   res.json(t);
 }));
 
 // POST /api/templates
 router.post('/', wrap((req, res) => {
-  const { program_id, name, day_label, exercises } = req.body;
+  const { name, day_label, exercises } = req.body;
+  const program_id = toId(req.body.program_id);
   if (!program_id || !name) return res.status(400).json({ error: 'program_id and name required' });
+  // Days go only into a program this account made (program-access.js).
+  const access = programFor(program_id, uid(req));
+  if (!access.canSee) return res.status(404).json({ error: 'Program not found' });
+  if (!access.canChange) return res.status(403).json({ error: 'Forbidden' });
   const maxIdx = db.prepare('SELECT MAX(order_index) as m FROM workout_templates WHERE program_id = ?').get(program_id);
   const orderIndex = (maxIdx?.m ?? -1) + 1;
   const result = db.prepare(
@@ -58,6 +64,9 @@ router.put('/:id', wrap((req, res) => {
 
   const existing = db.prepare('SELECT * FROM workout_templates WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: `Template ${id} not found` });
+  const access = programFor(existing.program_id, uid(req));
+  if (!access.canSee) return res.status(404).json({ error: `Template ${id} not found` });
+  if (!access.canChange) return res.status(403).json({ error: 'Forbidden' });
 
   const tsKey = `template:${id}`;
   const priorExTs = db.prepare(
@@ -110,7 +119,14 @@ router.put('/:id', wrap((req, res) => {
 
 // DELETE /api/templates/:id
 router.delete('/:id', wrap((req, res) => {
-  db.prepare('DELETE FROM workout_templates WHERE id = ?').run(parseInt(req.params.id));
+  const id = parseInt(req.params.id);
+  const existing = db.prepare('SELECT program_id FROM workout_templates WHERE id = ?').get(id);
+  if (existing) {
+    const access = programFor(existing.program_id, uid(req));
+    if (!access.canSee) return res.status(404).json({ error: `Template ${id} not found` });
+    if (!access.canChange) return res.status(403).json({ error: 'Forbidden' });
+    db.prepare('DELETE FROM workout_templates WHERE id = ?').run(id);
+  }
   res.json({ ok: true });
 }));
 
