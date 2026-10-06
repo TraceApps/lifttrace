@@ -5,6 +5,27 @@ import { requireAuth, userMgmtActive, uid } from '../middleware/auth.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
+import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+
+// Push services usually live on the home network, so that's allowed for
+// every account; the address is still checked on every redirect hop.
+async function _sendPush(url, init) {
+  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3 });
+  if (res.ok) { try { await res.body?.cancel(); } catch {} }
+  return res;
+}
+
+// The service's own short error ("unauthorized"), never its raw reply.
+async function _pushErrorMessage(resp) {
+  const raw = await resp.text().catch(() => '');
+  try {
+    const j = JSON.parse(raw);
+    for (const v of [j?.errorDescription, j?.error?.message, j?.error, j?.message]) {
+      if (typeof v === 'string' && v) return `: ${v.slice(0, 100)}`;
+    }
+  } catch {}
+  return '';
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -78,11 +99,11 @@ router.post('/push-test', wrap(async (req, res) => {
       const url = getSetting('gotifyUrl');
       const token = getSetting('gotifyToken');
       if (!url || !token) throw new Error('Gotify URL and token required');
-      const r = await fetch(`${url}/message?token=${token}`, {
+      const r = await _sendPush(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: t, message: m, priority: p }),
       });
-      if (!r.ok) throw new Error(`Gotify returned ${r.status}: ${await r.text()}`);
+      if (!r.ok) throw new Error(`Gotify returned ${r.status}${await _pushErrorMessage(r)}`);
     } else if (svc === 'ntfy') {
       const url = getSetting('ntfyUrl') || 'https://ntfy.sh';
       const topic = getSetting('ntfyTopic');
@@ -90,19 +111,19 @@ router.post('/push-test', wrap(async (req, res) => {
       if (!topic) throw new Error('ntfy topic required');
       const headers = { Title: t, Priority: String(Math.min(5, Math.ceil(p / 2))) };
       if (token) headers.Authorization = `Bearer ${token}`;
-      const r = await fetch(`${url}/${topic}`, { method: 'POST', headers, body: m });
-      if (!r.ok) throw new Error(`ntfy returned ${r.status}`);
+      const r = await _sendPush(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, { method: 'POST', headers, body: m });
+      if (!r.ok) throw new Error(`ntfy returned ${r.status}${await _pushErrorMessage(r)}`);
     } else if (svc === 'apprise') {
       const url = getSetting('appriseUrl');
       const tag = getSetting('appriseTag');
       if (!url) throw new Error('Apprise URL required');
       const payload = { title: t, body: m, type: 'info' };
       if (tag) payload.tag = tag;
-      const r = await fetch(`${url}/notify`, {
+      const r = await _sendPush(`${serviceBase(url) ?? url}/notify`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error(`Apprise returned ${r.status}`);
+      if (!r.ok) throw new Error(`Apprise returned ${r.status}${await _pushErrorMessage(r)}`);
     } else {
       throw new Error('No push service configured');
     }

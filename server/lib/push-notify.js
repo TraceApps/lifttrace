@@ -7,6 +7,16 @@
 
 import db from '../db.js';
 import { logger } from '../logger.js';
+import { fetchChecked, serviceBase } from './ssrf-guard.js';
+
+// Push services (Gotify, ntfy, Apprise) usually live on the home network,
+// so that's allowed for every account; the address is still checked on
+// every redirect hop (never cloud metadata) and the connection pinned.
+async function _send(url, init) {
+  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3 });
+  try { await res.body?.cancel(); } catch {}
+  return res;
+}
 
 function _getSetting(userId, key) {
   if (userId) {
@@ -45,7 +55,7 @@ async function _pushToService(userId, title, message, priority = 5) {
       const url = _getSetting(userId, 'gotifyUrl');
       const token = _getSetting(userId, 'gotifyToken');
       if (!url || !token) return;
-      const res = await fetch(`${url}/message?token=${token}`, {
+      const res = await _send(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: fullTitle, message, priority }),
@@ -60,7 +70,7 @@ async function _pushToService(userId, title, message, priority = 5) {
       if (!topic) return;
       const headers = { 'Title': _encodeHeaderValue(fullTitle), 'Priority': String(Math.min(5, priority)) };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      const res = await fetch(`${url.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
+      const res = await _send(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
         method: 'POST', headers, body: message,
       });
       if (!res.ok) throw new Error(`ntfy ${res.status}`);
@@ -72,7 +82,7 @@ async function _pushToService(userId, title, message, priority = 5) {
       if (!url) return;
       const body = { title: fullTitle, body: message, type: priority >= 7 ? 'warning' : 'info' };
       if (tag) body.tag = tag;
-      const res = await fetch(`${url.replace(/\/+$/, '')}/notify`, {
+      const res = await _send(`${serviceBase(url) ?? url}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

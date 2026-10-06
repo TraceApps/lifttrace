@@ -1,35 +1,49 @@
 import { Router } from 'express';
 import { logger } from '../logger.js';
-import { assertSafeUrl as _sharedAssertSafeUrl } from '../lib/ssrf-guard.js';
+import { assertSafeUrl as _sharedAssertSafeUrl, fetchChecked } from '../lib/ssrf-guard.js';
+import { requireAuth } from '../middleware/auth.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 const router = Router();
 
-// SSRF guard. The radio proxy fetches user-supplied URLs server-side.
-// Without a guard a member could submit a station URL pointing at the
-// cloud-metadata endpoint (169.254.169.254) and exfiltrate IAM
-// credentials, or probe internal LAN services. Logic lives in
-// server/lib/ssrf-guard.js (shared with outgoing webhooks, issue #79);
-// this is a thin same-signature wrapper so the 8 call sites below
-// needed zero changes when the guard was extracted.
+// Signed-in accounts only: the proxy fetches whatever address it is given,
+// so open to anyone it was a way into the server's network. The web player
+// is same-origin (the sign-in cookie rides along on <audio>), and the
+// Android app plays streams directly and asks for station info through
+// its signed-in requests.
+router.use(requireAuth);
+
+// The radio proxy fetches station addresses server-side, through the
+// guard in server/lib/ssrf-guard.js: never cloud metadata, every redirect
+// hop checked, the connection pinned to the checked address. Stations are
+// on the public web, so the server's own network is for an admin;
+// ALLOW_PRIVATE_RADIO_URLS=1 opens it to every account and to a single-user
+// install, which has no sign-in (an Icecast box on the LAN, say).
 const ALLOW_PRIVATE_RADIO_URLS =
   process.env.ALLOW_PRIVATE_RADIO_URLS === '1' ||
   process.env.ALLOW_PRIVATE_RADIO_URLS === 'true';
 if (ALLOW_PRIVATE_RADIO_URLS) {
-  logger.warn('[radio-proxy] ALLOW_PRIVATE_RADIO_URLS=1: proxy will fetch private/loopback addresses. Disable in cloud deployments.');
+  logger.warn('[radio-proxy] ALLOW_PRIVATE_RADIO_URLS=1: every account may stream from private/loopback addresses. Disable in cloud deployments.');
 }
 
-/**
- * Note on DNS rebinding (residual risk, unchanged from before this was
- * extracted): this resolves once, a determined attacker could DNS-rebind
- * between this lookup and the fetch. For audio streams the exfiltration
- * surface is tiny (bytes are returned to a single user who already
- * controls the URL), so that risk is accepted here.
- */
-async function assertSafeUrl(url) {
-  return _sharedAssertSafeUrl(url, {
-    allowPrivate: ALLOW_PRIVATE_RADIO_URLS,
-    allowPrivateEnvHint: 'ALLOW_PRIVATE_RADIO_URLS',
-  });
+const _mayReachPrivate = req => ownerOrOptIn(req, 'ALLOW_PRIVATE_RADIO_URLS');
+
+// The owner sees why an address was refused. Anyone else gets the same
+// words as for a station that doesn't answer, so a refusal can't be used
+// to learn which names exist on the server's network.
+function _refusal(e, allowPrivate) {
+  if (!allowPrivate && /addresses are blocked|resolve host/.test(e?.message || '')) return new Error('Could not reach that station');
+  return e;
+}
+
+async function assertSafeUrl(url, allowPrivate) {
+  try { return await _sharedAssertSafeUrl(url, { allowPrivate, allowPrivateEnvHint: 'ALLOW_PRIVATE_RADIO_URLS' }); }
+  catch (e) { throw _refusal(e, allowPrivate); }
+}
+
+async function _fetch(url, init, allowPrivate) {
+  try { return await fetchChecked(url, init, { allowPrivate, allowPrivateEnvHint: 'ALLOW_PRIVATE_RADIO_URLS', maxRedirects: 5 }); }
+  catch (e) { throw _refusal(e, allowPrivate); }
 }
 
 // ── Now-playing cache (keyed by upstream URL) ───────────────────────────────
@@ -141,10 +155,9 @@ function _extractArtwork(raw) {
 //   * Shoutcast: <origin>/stats?json=1
 // Both are server-to-server from our Node proxy so CORS doesn't matter. Runs
 // at most once per 30s per URL. Silently no-ops on failure.
-async function _tryFallbackFetchers(url) {
+async function _tryFallbackFetchers(url, allowPrivate) {
   const last = fallbackTries.get(url) || 0;
   if (Date.now() - last < FALLBACK_DEBOUNCE_MS) return;
-  fallbackTries.set(url, Date.now());
 
   let parsed;
   try { parsed = new URL(url); } catch { return; }
@@ -153,14 +166,16 @@ async function _tryFallbackFetchers(url) {
 
   // SSRF guard — silent skip on disallowed hosts (this is a fire-and-
   // forget background fetch; no error to surface to the client).
-  try { await assertSafeUrl(origin); } catch { return; }
+  try { await assertSafeUrl(origin, allowPrivate); } catch { return; }
+  // Only a caller allowed to reach the station takes its fallback slot.
+  fallbackTries.set(url, Date.now());
 
   // ── Icecast status-json.xsl ─────────────────────────────────────────────
   try {
-    const r = await fetch(`${origin}/status-json.xsl`, {
+    const r = await _fetch(`${origin}/status-json.xsl`, {
       headers: { 'User-Agent': 'LiftTrace-RadioProxy/1.0' },
       signal: AbortSignal.timeout(4500),
-    });
+    }, allowPrivate);
     if (r.ok) {
       const data = await r.json();
       const sources = data?.icestats?.source;
@@ -181,10 +196,10 @@ async function _tryFallbackFetchers(url) {
 
   // ── Shoutcast v2 /stats?json=1 ──────────────────────────────────────────
   try {
-    const r = await fetch(`${origin}/stats?json=1`, {
+    const r = await _fetch(`${origin}/stats?json=1`, {
       headers: { 'User-Agent': 'LiftTrace-RadioProxy/1.0' },
       signal: AbortSignal.timeout(4500),
-    });
+    }, allowPrivate);
     if (r.ok) {
       const data = await r.json();
       const rawTitle = data?.songtitle || data?.songTitle || '';
@@ -198,13 +213,13 @@ async function _tryFallbackFetchers(url) {
 }
 
 // ── Playlist file resolution (.pls / .m3u → first stream URL) ───────────────
-async function resolvePlaylist(url) {
+async function resolvePlaylist(url, allowPrivate) {
   if (!/\.(pls|m3u)(\?|$)/i.test(url)) return url;
   try {
-    const res = await fetch(url, {
+    const res = await _fetch(url, {
       headers: { 'User-Agent': 'LiftTrace-RadioProxy/1.0' },
       signal: AbortSignal.timeout(8000),
-    });
+    }, allowPrivate);
     if (!res.ok) return url;
     const text = await res.text();
     // .pls: File1=http://…
@@ -223,22 +238,23 @@ async function resolvePlaylist(url) {
 router.get('/', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
+  const allowPrivate = _mayReachPrivate(req);
   // SSRF guard — verify hostname before any fetch.
-  try { await assertSafeUrl(url); }
+  try { await assertSafeUrl(url, allowPrivate); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   try {
-    const resolvedUrl = await resolvePlaylist(url);
+    const resolvedUrl = await resolvePlaylist(url, allowPrivate);
     // After playlist resolution the URL may have changed — re-check.
-    try { await assertSafeUrl(resolvedUrl); }
+    try { await assertSafeUrl(resolvedUrl, allowPrivate); }
     catch (e) { return res.status(400).json({ error: e.message }); }
-    const upstream = await fetch(resolvedUrl, {
+    const upstream = await _fetch(resolvedUrl, {
       headers: {
         'User-Agent': 'LiftTrace-RadioProxy/1.0',
         ...(req.headers.range ? { Range: req.headers.range } : {}),
         'Icy-MetaData': '1',
       },
-    });
+    }, allowPrivate);
 
     res.status(upstream.status);
     const ct = upstream.headers.get('content-type');
@@ -328,9 +344,14 @@ router.get('/', async (req, res) => {
 });
 
 // ── Now-playing poll endpoint ───────────────────────────────────────────────
-router.get('/now-playing', (req, res) => {
+router.get('/now-playing', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
+  const allowPrivate = _mayReachPrivate(req);
+  // The cache is shared, so its titles only go to a caller who may reach
+  // the station themselves.
+  try { await assertSafeUrl(url, allowPrivate); }
+  catch { return res.json({ title: '', artwork: '', updatedAt: 0 }); }
   const entry = icyTitles.get(url);
 
   // Fire-and-forget fallback fetch if we don't have a fresh entry. Debounced
@@ -338,7 +359,7 @@ router.get('/now-playing', (req, res) => {
   // response returns whatever's currently cached; the next poll picks up
   // the fallback result if it succeeded.
   const fresh = entry && (Date.now() - entry.updatedAt < 60_000);
-  if (!fresh) _tryFallbackFetchers(url).catch(() => {});
+  if (!fresh) _tryFallbackFetchers(url, allowPrivate).catch(() => {});
 
   if (!entry) return res.json({ title: '', artwork: '', updatedAt: 0 });
   // Stale entries expire after 15 minutes
@@ -358,21 +379,22 @@ router.get('/now-playing', (req, res) => {
 router.get('/info', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
-  try { await assertSafeUrl(url); }
+  const allowPrivate = _mayReachPrivate(req);
+  try { await assertSafeUrl(url, allowPrivate); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   try {
-    const resolvedUrl = await resolvePlaylist(url);
-    try { await assertSafeUrl(resolvedUrl); }
+    const resolvedUrl = await resolvePlaylist(url, allowPrivate);
+    try { await assertSafeUrl(resolvedUrl, allowPrivate); }
     catch (e) { return res.status(400).json({ error: e.message }); }
     const controller = new AbortController();
-    const upstream = await fetch(resolvedUrl, {
+    const upstream = await _fetch(resolvedUrl, {
       headers: {
         'User-Agent': 'LiftTrace-RadioProxy/1.0',
         'Icy-MetaData': '0',
       },
       signal: controller.signal,
-    });
+    }, allowPrivate);
     const info = {
       name:    upstream.headers.get('icy-name') || '',
       genre:   upstream.headers.get('icy-genre') || '',
@@ -396,15 +418,14 @@ router.get('/info', async (req, res) => {
 //      always 180x180+ PNGs — what the site uses on iOS home screens.
 //   2. /apple-touch-icon.png, /apple-touch-icon-precomposed.png
 //   3. Google favicon sz=256 (last resort — often blurry)
-async function _parseHtmlForIcon(pageUrl) {
+async function _parseHtmlForIcon(pageUrl, allowPrivate) {
   try {
     // SSRF guard — caller may pass arbitrary user-supplied URLs.
-    try { await assertSafeUrl(pageUrl); } catch { return null; }
-    const res = await fetch(pageUrl, {
+    try { await assertSafeUrl(pageUrl, allowPrivate); } catch { return null; }
+    const res = await _fetch(pageUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LiftTrace/1.0)' },
       signal: AbortSignal.timeout(6000),
-      redirect: 'follow',
-    });
+    }, allowPrivate);
     if (!res.ok) return null;
     const html = await res.text();
     const candidates = [];
@@ -434,6 +455,7 @@ async function _parseHtmlForIcon(pageUrl) {
 router.get('/icon-suggest', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.json({ iconUrl: '' });
+  const allowPrivate = _mayReachPrivate(req);
   let parsed;
   try { parsed = new URL(url); } catch { return res.json({ iconUrl: '' }); }
   const domain = parsed.hostname;
@@ -442,17 +464,17 @@ router.get('/icon-suggest', async (req, res) => {
   // SSRF guard — never probe private/loopback/link-local even if the user
   // supplied them. Returns empty (no icon) silently rather than 400 since
   // the caller treats this as best-effort.
-  try { await assertSafeUrl(origin); }
+  try { await assertSafeUrl(origin, allowPrivate); }
   catch { return res.json({ iconUrl: '' }); }
 
   // 1. Parse the homepage HTML (best quality — uses sizes metadata)
-  const htmlIcon = await _parseHtmlForIcon(origin);
+  const htmlIcon = await _parseHtmlForIcon(origin, allowPrivate);
   if (htmlIcon) return res.json({ iconUrl: htmlIcon });
 
   // 2. Standard apple-touch-icon paths
   for (const path of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
     try {
-      const r = await fetch(`${origin}${path}`, { method: 'HEAD', signal: AbortSignal.timeout(3500) });
+      const r = await _fetch(`${origin}${path}`, { method: 'HEAD', signal: AbortSignal.timeout(3500) }, allowPrivate);
       if (r.ok) return res.json({ iconUrl: `${origin}${path}` });
     } catch {}
   }

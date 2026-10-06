@@ -2,9 +2,26 @@ import { Router } from 'express';
 import db from '../db.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { logger } from '../logger.js';
+import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+import { musicApiPath as _apiPath, isMusicReply } from '../lib/music-paths.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// A music server usually lives on the home network, so that's allowed for
+// every account. The address is still checked (never cloud metadata), the
+// connection pinned to it, and a redirect is only followed on the same
+// server, since every request carries the account's music-server token.
+// The request's query minus this app's own sign-in token (`_lt_t`, which
+// native image URLs carry): it is for this server, not the music server.
+function _upstreamParams(query) {
+  const { _lt_t: _ownToken, ...rest } = query || {};
+  return rest;
+}
+const _upstreamQuery = query => new URLSearchParams(_upstreamParams(query)).toString();
+
+const _musicFetch = (url, init) => fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+
 
 /**
  * Multi-provider music proxy.
@@ -29,7 +46,9 @@ function getRadioConfig(req) {
   const userId = uid(req);
   return {
     provider: _getSetting(userId, 'radioProvider', 'subsonic'),
-    url:      _getSetting(userId, 'radioUrl', '') || _getSetting(null, 'radio_url', ''),
+    // Origin and path only: a query or fragment in the saved address would
+    // turn the API path appended to it into part of the query.
+    url:      serviceBase(_getSetting(userId, 'radioUrl', '') || _getSetting(null, 'radio_url', '')) || '',
     user:     _getSetting(userId, 'radioUser', ''),
     password: _getSetting(userId, 'radioPassword', ''),
     token:    _getSetting(userId, 'radioToken', ''),   // for Plex/Emby API keys
@@ -40,7 +59,7 @@ async function proxyRequest(targetUrl, headers, req, res) {
   try {
     // Forward Range header for audio seeking
     if (req.headers.range) headers.Range = req.headers.range;
-    const upstream = await fetch(targetUrl, { headers, redirect: 'follow' });
+    const upstream = await _musicFetch(targetUrl, { headers });
     await pipeUpstream(upstream, res);
   } catch(e) {
     logger.warn(`[radio-proxy] ${e.message}`);
@@ -50,7 +69,14 @@ async function proxyRequest(targetUrl, headers, req, res) {
 
 /** Send an upstream response straight through, streaming audio without buffering it. */
 async function pipeUpstream(upstream, res) {
-  const ct = upstream.headers.get('content-type') || 'application/octet-stream';
+  const raw = upstream.headers.get('content-type');
+  // A redirect the proxy didn't follow, or a reply that isn't music-server
+  // data (a web page at whatever path the saved address leads to), stops here.
+  if ((upstream.status >= 300 && upstream.status < 400) || (raw && !isMusicReply(raw))) {
+    try { await upstream.body?.cancel(); } catch {}
+    return res.status(502).json({ error: 'The music server sent something other than music data' });
+  }
+  const ct = raw || 'application/octet-stream';
   res.status(upstream.status);
   res.set('Content-Type', ct);
 
@@ -77,8 +103,9 @@ async function pipeUpstream(upstream, res) {
 router.all('/rest/*splat', async (req, res) => {
   const cfg = getRadioConfig(req);
   if (!cfg.url) return res.status(503).json({ error: 'Radio server not configured' });
-  const subPath = Array.isArray(req.params.splat) ? req.params.splat.join('/') : req.params.splat;
-  const qs = new URLSearchParams(req.query).toString();
+  const subPath = _apiPath('subsonic', req.params.splat);
+  if (subPath == null) return res.status(404).json({ error: 'Not found' });
+  const qs = _upstreamQuery(req.query);
   const url = `${cfg.url.replace(/\/+$/, '')}/rest/${subPath}${qs ? '?' + qs : ''}`;
   await proxyRequest(url, {}, req, res);
 });
@@ -98,7 +125,7 @@ const _jfLegacy = (token) => (token ? { 'X-Emby-Token': token } : { 'X-Emby-Auth
 async function _jfLogin(base, cfg) {
   for (const auth of [_jfModern(null), { 'X-Emby-Authorization': JF_CLIENT }]) {
     try {
-      const r = await fetch(`${base}/Users/AuthenticateByName`, {
+      const r = await _musicFetch(`${base}/Users/AuthenticateByName`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...auth },
         body: JSON.stringify({ Username: cfg.user, Pw: cfg.password }),
@@ -135,8 +162,9 @@ router.all('/provider/jf/*splat', async (req, res) => {
   const cfg = getRadioConfig(req);
   if (!cfg.url) return res.status(503).json({ error: 'Radio server not configured' });
   const base = cfg.url.replace(/\/+$/, '');
-  const subPath = Array.isArray(req.params.splat) ? req.params.splat.join('/') : req.params.splat;
-  const qs = new URLSearchParams(req.query).toString();
+  const subPath = _apiPath('jf', req.params.splat);
+  if (subPath == null) return res.status(404).json({ error: 'Not found' });
+  const qs = _upstreamQuery(req.query);
   const url = `${base}/${subPath}${qs ? '?' + qs : ''}`;
   const hasLogin = !!(cfg.user && cfg.password);
 
@@ -152,7 +180,7 @@ router.all('/provider/jf/*splat', async (req, res) => {
     const send = async (auth) => {
       const headers = { ...auth };
       if (req.headers.range) headers.Range = req.headers.range;
-      return fetch(url, { headers, redirect: 'follow' });
+      return _musicFetch(url, { headers });
     };
     const attempt = async (t) => {
       let r = await send(_jfModern(t));
@@ -191,10 +219,11 @@ router.all('/provider/jf/*splat', async (req, res) => {
 router.all('/provider/plex/*splat', async (req, res) => {
   const cfg = getRadioConfig(req);
   if (!cfg.url) return res.status(503).json({ error: 'Radio server not configured' });
-  const subPath = Array.isArray(req.params.splat) ? req.params.splat.join('/') : req.params.splat;
+  const subPath = _apiPath('plex', req.params.splat);
+  if (subPath == null) return res.status(404).json({ error: 'Not found' });
   // Plex uses token in query or header
   const token = cfg.password || cfg.token; // Plex token goes in password field
-  const params = { ...req.query };
+  const params = _upstreamParams(req.query);
   if (token) params['X-Plex-Token'] = token;
   const qs = new URLSearchParams(params).toString();
   const url = `${cfg.url.replace(/\/+$/, '')}/${subPath}${qs ? '?' + qs : ''}`;
@@ -207,12 +236,14 @@ router.all('/provider/plex/*splat', async (req, res) => {
 router.all('/provider/emby/*splat', async (req, res) => {
   const cfg = getRadioConfig(req);
   if (!cfg.url) return res.status(503).json({ error: 'Radio server not configured' });
+  const subPath = _apiPath('emby', req.params.splat);
+  if (subPath == null) return res.status(404).json({ error: 'Not found' });
 
   // Same auth flow as Jellyfin (Emby forked from it)
   let token = cfg.token;
   if (!token && cfg.user && cfg.password) {
     try {
-      const authRes = await fetch(`${cfg.url.replace(/\/+$/, '')}/Users/AuthenticateByName`, {
+      const authRes = await _musicFetch(`${cfg.url.replace(/\/+$/, '')}/Users/AuthenticateByName`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Emby-Authorization': `MediaBrowser Client="LiftTrace", Device="Web", DeviceId="lt-web", Version="1.0"` },
         body: JSON.stringify({ Username: cfg.user, Pw: cfg.password }),
@@ -230,8 +261,7 @@ router.all('/provider/emby/*splat', async (req, res) => {
     }
   }
 
-  const subPath = Array.isArray(req.params.splat) ? req.params.splat.join('/') : req.params.splat;
-  const qs = new URLSearchParams(req.query).toString();
+  const qs = _upstreamQuery(req.query);
   const url = `${cfg.url.replace(/\/+$/, '')}/${subPath}${qs ? '?' + qs : ''}`;
   const headers = {};
   if (token) headers['X-Emby-Token'] = token;
