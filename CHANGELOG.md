@@ -28,6 +28,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **A radio link can't run script as LiftTrace.** The radio proxy passed a station's content through as-is, so a link to a web page instead of a stream ran that page as the app for whoever opened it. It now passes audio only, and the music server proxy can't serve a page either.
 - **A password reset link can no longer be pointed at someone else's site.** The link took its address from the request, so anyone could ask for another person's reset with a forged host and have the real email, token included, send them to it. Reset, invite and coach feedback emails now link to `PUBLIC_URL` when it's set, or to an address an admin uses. Links also keep the `BASE_URL` subpath now.
 - **Names in emails can no longer carry markup.** A name, or a title someone shared, went into the email as-is, so HTML or a link typed into it became real markup in the recipient's inbox. Affected the SMTP test, invite and password reset emails, and the reps of a PR in the weekly summary. Everything an email shows is escaped now.
 - **The radio proxy requires signing in.** Anyone who could reach the server could use it, with a station address that redirected inside your network, to read pages there.

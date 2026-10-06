@@ -260,9 +260,20 @@ router.get('/', async (req, res) => {
       },
     }, allowPrivate);
 
-    res.status(upstream.status);
+    // A station is audio. Anything a browser would open as a page (HTML,
+    // XML, SVG, script) is refused: this answers from LiftTrace's own
+    // origin, so a "station" link to such a page ran its script as the app
+    // for whoever opened it. The headers below stop sniffing and scripts in
+    // whatever else comes through.
     const ct = upstream.headers.get('content-type');
+    if (ct && /html|xml|svg|javascript|ecmascript/i.test(ct)) {
+      try { await upstream.body?.cancel(); } catch {}
+      return res.status(502).json({ error: "That address isn't a radio stream" });
+    }
+    res.status(upstream.status);
     if (ct) res.setHeader('Content-Type', ct);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     const cl = upstream.headers.get('content-length');
     if (cl) res.setHeader('Content-Length', cl);
     const ar = upstream.headers.get('accept-ranges');

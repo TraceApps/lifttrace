@@ -79,6 +79,11 @@ async function pipeUpstream(upstream, res) {
   const ct = raw || 'application/octet-stream';
   res.status(upstream.status);
   res.set('Content-Type', ct);
+  // Answered from LiftTrace's own origin: a picture or reply that a browser
+  // could open as a page (an SVG uploaded to a shared music server, say)
+  // can't be sniffed or run script as the app.
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
 
   // Forward audio/streaming headers
   for (const h of ['content-length', 'content-range', 'accept-ranges', 'content-disposition']) {
