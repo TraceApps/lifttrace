@@ -74,6 +74,7 @@ const EXEMPT = {
   user_settings:         'surfaced through buildUserProfile in the system prompt',
   webhooks:              'integration config, not training data',
   workout_tombstones:    'sync bookkeeping',
+  sync_deletions:        'sync bookkeeping: deleted program, day and assignment ids (#139)',
   coach_activity:        'trainer audit trail, not the athlete view',
   program_assignments:   'reached through get_active_program',
   coach_feedback:        'returned inside get_workout detail',

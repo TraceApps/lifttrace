@@ -212,6 +212,14 @@ router.get('/pull', wrap((req, res) => {
   // were deleted on another device. See lib/workout-merge.js.
   const workout_tombstones = _loadTombstonesSince(u, sinceSql);
 
+  // Programs, workout days and assignments deleted since the cursor, as
+  // { id, deleted_at } rows the app removes locally (#139). Ids only: a
+  // device that never had the row just deletes nothing.
+  const deletedSince = db.prepare('SELECT row_id AS id, deleted_at FROM sync_deletions WHERE tbl = ? AND deleted_at >= ?');
+  programs.push(...deletedSince.all('programs', sinceSql));
+  workout_templates.push(...deletedSince.all('workout_templates', sinceSql));
+  program_assignments.push(...deletedSince.all('program_assignments', sinceSql));
+
   logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
 
   res.json({

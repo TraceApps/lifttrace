@@ -1080,4 +1080,52 @@ try {
   console.warn('[db] workout uuid backfill failed:', e?.message || e);
 }
 
+// Deletions the sync pull has to carry (#139). Programs, their workout days
+// and assignments are deleted outright on the server, so a phone's
+// differential pull never heard of them and kept showing them. A trigger
+// records each deletion, cascades included, and the pull sends it as a
+// { id, deleted_at } row, which the app already applies. Putting a row back
+// under the same id (a backup restore) clears its record. Created on every
+// start, after the migrations above that rebuild tables and their triggers.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sync_deletions (
+    tbl        TEXT NOT NULL,
+    row_id     INTEGER NOT NULL,
+    deleted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (tbl, row_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_sync_deletions_at ON sync_deletions(tbl, deleted_at);
+`);
+for (const t of ['programs', 'workout_templates', 'program_assignments']) {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS ${t}_sync_deleted AFTER DELETE ON ${t}
+    BEGIN INSERT OR REPLACE INTO sync_deletions (tbl, row_id, deleted_at) VALUES ('${t}', OLD.id, datetime('now')); END;
+    CREATE TRIGGER IF NOT EXISTS ${t}_sync_restored AFTER INSERT ON ${t}
+    BEGIN DELETE FROM sync_deletions WHERE tbl = '${t}' AND row_id = NEW.id; END;
+  `);
+}
+// Deletions from before the triggers existed, once: ids are never reused
+// (AUTOINCREMENT), so any id up to the highest one handed out that is no
+// longer in the table was deleted. A phone still showing it drops it on its
+// next pull, without an app update.
+try {
+  if (!db.prepare("SELECT 1 FROM app_config WHERE key = 'sync_deletions_backfill_v1'").get()) {
+    db.transaction(() => {
+      for (const t of ['programs', 'workout_templates', 'program_assignments']) {
+        const seq = db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(t)?.seq || 0;
+        if (!seq) continue;
+        db.prepare(
+          `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+           INSERT OR IGNORE INTO sync_deletions (tbl, row_id, deleted_at)
+           SELECT ?, i, datetime('now') FROM n WHERE i NOT IN (SELECT id FROM ${t})`
+        ).run(seq, t);
+      }
+      db.prepare("INSERT OR REPLACE INTO app_config (key, value) VALUES ('sync_deletions_backfill_v1', ?)")
+        .run(new Date().toISOString());
+    })();
+  }
+} catch (e) {
+  console.warn('[db] sync deletions backfill failed:', e?.message || e);
+}
+
 export default db;
