@@ -1080,10 +1080,13 @@ try {
   console.warn('[db] workout uuid backfill failed:', e?.message || e);
 }
 
-// Deletions the sync pull has to carry (#139). Programs, their workout days
-// and assignments are deleted outright on the server, so a phone's
-// differential pull never heard of them and kept showing them. A trigger
-// records each deletion, cascades included, and the pull sends it as a
+// Deletions the sync pull has to carry (#139). Rows deleted outright on the
+// server never reached a phone's differential pull, so it kept showing
+// them: programs with their days and assignments, and also custom
+// exercises, workouts and body stats wiped by Clear Data or a replacing
+// import, and a cleared Trace chat. A trigger records each deletion,
+// cascades included, with the user it belonged to (NULL for shared rows:
+// programs and library exercises), and the pull sends it as a
 // { id, deleted_at } row, which the app already applies. Putting a row back
 // under the same id (a backup restore) clears its record. Created on every
 // start, after the migrations above that rebuild tables and their triggers.
@@ -1092,14 +1095,32 @@ db.exec(`
     tbl        TEXT NOT NULL,
     row_id     INTEGER NOT NULL,
     deleted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_id    INTEGER,
     PRIMARY KEY (tbl, row_id)
   );
   CREATE INDEX IF NOT EXISTS idx_sync_deletions_at ON sync_deletions(tbl, deleted_at);
 `);
-for (const t of ['programs', 'workout_templates', 'program_assignments']) {
+if (!db.prepare('PRAGMA table_info(sync_deletions)').all().some(c => c.name === 'user_id')) {
+  db.exec('ALTER TABLE sync_deletions ADD COLUMN user_id INTEGER');
+}
+// table -> whose row it was (an SQL expression on OLD)
+const SYNC_DELETION_OWNER = {
+  programs:            'NULL',
+  workout_templates:   'NULL',
+  program_assignments: 'NULL',
+  exercises:           'CASE WHEN OLD.is_global = 1 THEN NULL ELSE OLD.created_by END',
+  workout_log:         'OLD.user_id',
+  body_stats_log:      'OLD.user_id',
+  ai_chat_history:     'OLD.user_id',
+};
+for (const [t, owner] of Object.entries(SYNC_DELETION_OWNER)) {
+  // The first three predate the owner column; recreate those so the
+  // definition matches (an older trigger left the owner empty, which is
+  // also what they record).
   db.exec(`
-    CREATE TRIGGER IF NOT EXISTS ${t}_sync_deleted AFTER DELETE ON ${t}
-    BEGIN INSERT OR REPLACE INTO sync_deletions (tbl, row_id, deleted_at) VALUES ('${t}', OLD.id, datetime('now')); END;
+    DROP TRIGGER IF EXISTS ${t}_sync_deleted;
+    CREATE TRIGGER ${t}_sync_deleted AFTER DELETE ON ${t}
+    BEGIN INSERT OR REPLACE INTO sync_deletions (tbl, row_id, deleted_at, user_id) VALUES ('${t}', OLD.id, datetime('now'), ${owner}); END;
     CREATE TRIGGER IF NOT EXISTS ${t}_sync_restored AFTER INSERT ON ${t}
     BEGIN DELETE FROM sync_deletions WHERE tbl = '${t}' AND row_id = NEW.id; END;
   `);
@@ -1109,9 +1130,13 @@ for (const t of ['programs', 'workout_templates', 'program_assignments']) {
 // longer in the table was deleted. A phone still showing it drops it on its
 // next pull, without an app update.
 try {
-  if (!db.prepare("SELECT 1 FROM app_config WHERE key = 'sync_deletions_backfill_v1'").get()) {
+  // v1 covered the program tables; v2 the rest. The owner of a row deleted
+  // before now isn't known, so these go to every device: a device holds
+  // ids only from this server, so all it can drop is the deleted row.
+  const backfill = (marker, tables) => {
+    if (db.prepare('SELECT 1 FROM app_config WHERE key = ?').get(marker)) return;
     db.transaction(() => {
-      for (const t of ['programs', 'workout_templates', 'program_assignments']) {
+      for (const t of tables) {
         const seq = db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(t)?.seq || 0;
         if (!seq) continue;
         db.prepare(
@@ -1120,10 +1145,11 @@ try {
            SELECT ?, i, datetime('now') FROM n WHERE i NOT IN (SELECT id FROM ${t})`
         ).run(seq, t);
       }
-      db.prepare("INSERT OR REPLACE INTO app_config (key, value) VALUES ('sync_deletions_backfill_v1', ?)")
-        .run(new Date().toISOString());
+      db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run(marker, new Date().toISOString());
     })();
-  }
+  };
+  backfill('sync_deletions_backfill_v1', ['programs', 'workout_templates', 'program_assignments']);
+  backfill('sync_deletions_backfill_v2', ['exercises', 'workout_log', 'body_stats_log', 'ai_chat_history']);
 } catch (e) {
   console.warn('[db] sync deletions backfill failed:', e?.message || e);
 }

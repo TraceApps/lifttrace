@@ -212,13 +212,23 @@ router.get('/pull', wrap((req, res) => {
   // were deleted on another device. See lib/workout-merge.js.
   const workout_tombstones = _loadTombstonesSince(u, sinceSql);
 
-  // Programs, workout days and assignments deleted since the cursor, as
-  // { id, deleted_at } rows the app removes locally (#139). Ids only: a
-  // device that never had the row just deletes nothing.
-  const deletedSince = db.prepare('SELECT row_id AS id, deleted_at FROM sync_deletions WHERE tbl = ? AND deleted_at >= ?');
-  programs.push(...deletedSince.all('programs', sinceSql));
-  workout_templates.push(...deletedSince.all('workout_templates', sinceSql));
-  program_assignments.push(...deletedSince.all('program_assignments', sinceSql));
+  // Rows deleted on the server since the cursor, as { id, deleted_at } rows
+  // the app removes locally (#139): this user's own, and shared ones (whose
+  // owner is NULL). Ids only: a device that never had the row deletes
+  // nothing. A first, full pull skips them, as the device holds nothing yet.
+  const fullPull = sinceSql <= '1970-01-01 00:00:00';
+  const deletedSince = db.prepare(
+    `SELECT row_id AS id, deleted_at FROM sync_deletions
+      WHERE tbl = ? AND deleted_at >= ? ${u != null ? 'AND (user_id IS NULL OR user_id = ?)' : ''}`
+  );
+  const gone = (tbl) => (fullPull ? [] : deletedSince.all(tbl, sinceSql, ...userParams));
+  programs.push(...gone('programs'));
+  workout_templates.push(...gone('workout_templates'));
+  program_assignments.push(...gone('program_assignments'));
+  exercises.push(...gone('exercises'));
+  workout_log.push(...gone('workout_log'));
+  body_stats_log.push(...gone('body_stats_log'));
+  ai_chat_history.push(...gone('ai_chat_history'));
 
   logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
 

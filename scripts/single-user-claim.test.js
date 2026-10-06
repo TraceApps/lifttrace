@@ -38,6 +38,7 @@ function claimList(name) {
 
 const EXCLUDED = {
   oauth_state: 'short-lived OIDC CSRF state, not user data',
+  sync_deletions: 'sync bookkeeping: an empty owner means shared (programs, library exercises), so claiming it would hide those deletions from every other user\'s phone',
 };
 
 test('every table that can hold anonymous rows is claimed on first registration', () => {

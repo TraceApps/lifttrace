@@ -142,7 +142,7 @@ const purgeAllUserData = db.transaction((userId) => {
 // no-op. It matters if a future path ever reaches purgeUserRows without
 // the helper: rows would still go, rather than surviving a deleted
 // account entirely.
-const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state', 'body_stat_media', 'set_media'];
+const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state', 'body_stat_media', 'set_media', 'sync_deletions'];
 
 export const purgeUserRows = db.transaction((userId) => {
   for (const t of NO_CASCADE_TABLES) {
