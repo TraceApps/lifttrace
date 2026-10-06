@@ -126,6 +126,7 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `EXERCISEDB_OSS_URL` | (upstream) | Point the OSS exercise source at your own mirror |
 | `INSECURE_COOKIES` | `0` | Set `1` only for non-HTTPS deployments |
 | `BASE_URL` | (none) | Mount at a subpath (e.g. `/lifttrace`) instead of root |
+| `PUBLIC_URL` | (none) | The full address people open the app at, subpath included (e.g. `https://lift.example.com`). Links in emails (password reset, invites, sharing) use it. Unset, they use an address an admin has opened the app at. |
 | `RECOVERY_TOKEN` | (none) | Token for the "Disable user management" recovery endpoint |
 | `SMTP_*` | (none) | SMTP for password reset emails and user invites |
 | `AI_*` | (none) | Server-side AI proxy; `AI_PROVIDER` accepts `claude` \| `openai` \| `gemini` \| `oai-compat` |

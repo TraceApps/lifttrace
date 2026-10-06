@@ -28,6 +28,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **A password reset link can no longer be pointed at someone else's site.** The link took its address from the request, so anyone could ask for another person's reset with a forged host and have the real email, token included, send them to it. Reset, invite and coach feedback emails now link to `PUBLIC_URL` when it's set, or to an address an admin uses. Links also keep the `BASE_URL` subpath now.
 - **Names in emails can no longer carry markup.** A name, or a title someone shared, went into the email as-is, so HTML or a link typed into it became real markup in the recipient's inbox. Affected the SMTP test, invite and password reset emails, and the reps of a PR in the weekly summary. Everything an email shows is escaped now.
 - **The radio proxy requires signing in.** Anyone who could reach the server could use it, with a station address that redirected inside your network, to read pages there.
 - **Station addresses are checked on every redirect.** An admin can now play stations on your own network without `ALLOW_PRIVATE_RADIO_URLS`; other accounts, and a single-user install (which has no sign-in), still need it set.

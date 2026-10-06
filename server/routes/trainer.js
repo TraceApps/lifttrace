@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, userMgmtActive } from '../middleware/auth.js';
@@ -279,11 +280,11 @@ router.post('/feedback', wrap((req, res) => {
           const workoutLabel = workout.name
             ? `${workout.name} (${workout.date})`
             : `your workout on ${workout.date}`;
-          const proto = req.headers['x-forwarded-proto'] || req.protocol;
-          const host  = req.headers['x-forwarded-host']  || req.get('host');
-          const viewUrl = `${proto}://${host}/#/`;
-          sendCoachFeedback(trainee.email, workoutLabel, trainerName, noteText, viewUrl)
-            .catch(() => {});
+          const base = linkBase(req);
+          if (base) {
+            sendCoachFeedback(trainee.email, workoutLabel, trainerName, noteText, `${base}/#/`)
+              .catch(() => {});
+          }
         }
       }
     }

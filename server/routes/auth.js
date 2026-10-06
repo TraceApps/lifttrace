@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -385,9 +386,8 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
-    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-    const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
-    await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
+    const baseUrl = linkBase(req);
+    if (baseUrl) await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
   } catch (e) {
     // Don't surface email-send errors to the client — it would leak existence.
     console.warn('[forgot-password] send failed:', e?.message);
@@ -416,8 +416,8 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
     .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires);
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  const baseUrl = linkBase(req);
+  if (!baseUrl) return res.status(500).json({ error: 'The app\'s address is unknown. Set PUBLIC_URL, then try again.' });
   const inviteUrl = `${baseUrl}/#/accept-invite?token=${token}`;
   if (email && isEmailConfigured()) {
     const inviter = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);

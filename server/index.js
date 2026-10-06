@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { rememberAdminOrigin } from './lib/public-url.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
 // HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
@@ -134,19 +135,13 @@ router.use((req, res, next) => {
 });
 
 router.use(authenticate);
-
-// Auto-capture public URL from first request (for email logos, invite links)
+// Remember the address an admin uses, so emailed links (password reset,
+// invite, sharing) go there instead of to whatever Host a request claims.
 router.use((req, res, next) => {
-  if (!db.prepare("SELECT 1 FROM app_config WHERE key='app_url'").get()) {
-    const proto = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.headers['x-forwarded-host'] || req.get('host');
-    if (host && !host.includes('localhost')) {
-      db.prepare("INSERT OR REPLACE INTO app_config (key, value) VALUES ('app_url', ?)").run(`${proto}://${host}`);
-      logger.info(`[app] Auto-detected public URL: ${proto}://${host}`);
-    }
-  }
+  if (req.user?.role === 'admin') rememberAdminOrigin(req);
   next();
 });
+
 
 // Request logging
 router.use((req, res, next) => {
