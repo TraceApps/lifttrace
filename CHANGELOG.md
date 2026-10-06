@@ -28,6 +28,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **Names in emails can no longer carry markup.** A name, or a title someone shared, went into the email as-is, so HTML or a link typed into it became real markup in the recipient's inbox. Affected the SMTP test, invite and password reset emails, and the reps of a PR in the weekly summary. Everything an email shows is escaped now.
 - **The radio proxy requires signing in.** Anyone who could reach the server could use it, with a station address that redirected inside your network, to read pages there.
 - **Station addresses are checked on every redirect.** An admin can now play stations on your own network without `ALLOW_PRIVATE_RADIO_URLS`; other accounts, and a single-user install (which has no sign-in), still need it set.
 - **The music server proxy forwards only the Subsonic, Jellyfin, Plex and Emby requests the app makes, and passes back only music data** (JSON, XML, audio, images), never a web page. It follows no redirect to another server and no longer sends this app's sign-in token on to the music server. It used to pass any path through to the address an account saved.

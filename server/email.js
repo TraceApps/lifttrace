@@ -104,9 +104,17 @@ function _testEmailBody(name) {
 }
 export function isEmailConfigured() { return !!getSmtpConfig().smtp_host; }
 
+// Every name, title and link that goes into an email's HTML is escaped
+// here, so a name like "<b>Eve</b>" reads as typed instead of as markup.
+function _escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function emailWrapper(origin, bodyHtml, footerNote) {
   const year = new Date().getFullYear();
-  const logoUrl = origin ? `${origin}/icons/icon-192.png` : '';
+  const logoUrl = origin ? `${_escapeHtml(origin)}/icons/icon-192.png` : '';
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
 <body style="margin:0;padding:0;background-color:#0A0B0F;">
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#0A0B0F;">
@@ -129,16 +137,16 @@ function emailWrapper(origin, bodyHtml, footerNote) {
 }
 
 function ctaButton(href, label) {
-  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;"><tr><td align="center" style="border-radius:10px;background-color:#FF7433;"><a href="${href}" style="display:inline-block;padding:14px 36px;font-family:-apple-system,sans-serif;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:10px;">${label}</a></td></tr></table>`;
+  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;"><tr><td align="center" style="border-radius:10px;background-color:#FF7433;"><a href="${_escapeHtml(href)}" style="display:inline-block;padding:14px 36px;font-family:-apple-system,sans-serif;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:10px;">${_escapeHtml(label)}</a></td></tr></table>`;
 }
 
 function greeting(name) {
   if (!name) return '';
-  return `<p style="margin:0 0 14px;font-size:15px;color:#8A93A8;">Hey <strong style="color:#FFFFFF">${name}</strong>,</p>`;
+  return `<p style="margin:0 0 14px;font-size:15px;color:#8A93A8;">Hey <strong style="color:#FFFFFF">${_escapeHtml(name)}</strong>,</p>`;
 }
 
 function fallbackUrl(url) {
-  return `<p style="margin:20px 0 0;font-size:12px;color:#4A5268;text-align:center;word-break:break-all;">If the button above doesn't work, copy and paste this URL:<br/><a href="${url}" style="color:#FF7433;text-decoration:none;">${url}</a></p>`;
+  return `<p style="margin:20px 0 0;font-size:12px;color:#4A5268;text-align:center;word-break:break-all;">If the button above doesn't work, copy and paste this URL:<br/><a href="${_escapeHtml(url)}" style="color:#FF7433;text-decoration:none;">${_escapeHtml(url)}</a></p>`;
 }
 
 export async function sendPasswordReset(email, resetUrl) {
@@ -162,7 +170,7 @@ export async function sendPasswordReset(email, resetUrl) {
 export async function sendInvite(email, inviteUrl, inviterName) {
   const origin = new URL(inviteUrl).origin;
   const body = `<p style="margin:0 0 6px;font-size:22px;font-weight:700;color:#FFFFFF;">You're invited!</p>
-    <p style="margin:0 0 12px;font-size:15px;color:#8A93A8;line-height:1.7;">${inviterName ? `<strong style="color:#FFFFFF;">${inviterName}</strong> has invited you to join` : "You've been invited to join"} <strong style="color:#FFFFFF;">LiftTrace</strong> — a self-hosted weightlifting tracker built for privacy.</p>
+    <p style="margin:0 0 12px;font-size:15px;color:#8A93A8;line-height:1.7;">${inviterName ? `<strong style="color:#FFFFFF;">${_escapeHtml(inviterName)}</strong> has invited you to join` : "You've been invited to join"} <strong style="color:#FFFFFF;">LiftTrace</strong> — a self-hosted weightlifting tracker built for privacy.</p>
     <p style="margin:0 0 28px;font-size:14px;color:#6B7590;line-height:1.6;">Track every rep, set, and PR. Build programs. Get AI coaching. Your data stays on your server.</p>
     ${ctaButton(inviteUrl, 'Accept Invitation')}
     <p style="margin:24px 0 0;font-size:13px;color:#5A6278;text-align:center;">This invitation expires in <strong style="color:#8A93A8;">7 days</strong>.</p>
@@ -189,11 +197,6 @@ function _statRow(icon, label, value) {
 // POST /api/trainer/feedback. Best-effort and non-blocking; sending failure
 // never breaks the feedback insert. Skip conditions live at the call site
 // (no email address, self-feedback, opt-out, SMTP unconfigured).
-function _escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
 export async function sendCoachFeedback(email, workoutName, coachName, feedbackText, viewUrl) {
   if (!email) return;
   const origin      = new URL(viewUrl).origin;
@@ -266,7 +269,7 @@ export function renderWeeklySummary(name, summary, origin = '', { unit = 'lbs', 
     const prList = prs.length
       ? `<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;">New Personal Records</p>
          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:24px;">
-         ${prs.slice(0, 8).map(p => `<tr><td style="padding:6px 0;font-size:14px;color:#C8CDD9;">${_escapeHtml(p.name || '')}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:#FF7433;text-align:right;">${p.durationSec ? `${fmtHold(p.durationSec)} hold${p.weight > 0 ? ` @ ${nf.format(p.weight)} ${_escapeHtml(unit)}` : ''}` : `${nf.format(p.weight)} ${_escapeHtml(unit)} x ${p.reps}`}</td></tr>`).join('')}
+         ${prs.slice(0, 8).map(p => `<tr><td style="padding:6px 0;font-size:14px;color:#C8CDD9;">${_escapeHtml(p.name || '')}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:#FF7433;text-align:right;">${p.durationSec ? `${fmtHold(p.durationSec)} hold${p.weight > 0 ? ` @ ${nf.format(p.weight)} ${_escapeHtml(unit)}` : ''}` : `${nf.format(p.weight)} ${_escapeHtml(unit)} x ${_escapeHtml(p.reps)}`}</td></tr>`).join('')}
          ${prs.length > 8 ? `<tr><td colspan="2" style="padding:6px 0;font-size:13px;color:#6B7590;">and ${prs.length - 8} more</td></tr>` : ''}
          </table>`
       : '';
@@ -289,7 +292,7 @@ export function renderWeeklySummary(name, summary, origin = '', { unit = 'lbs', 
     bodyMain = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:24px;">${rows.join('')}</table>${prList}${muscleBars}`;
   }
 
-  const body = `${greeting(_escapeHtml(name || ''))}
+  const body = `${greeting(name || '')}
     <p style="margin:0 0 4px;font-size:22px;font-weight:700;color:#FFFFFF;">Your Week in Review</p>
     <p style="margin:0 0 24px;font-size:13px;color:#6B7590;">${_escapeHtml(range)}</p>
     ${bodyMain}
