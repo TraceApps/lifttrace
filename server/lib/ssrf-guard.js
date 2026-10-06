@@ -65,7 +65,6 @@ export function isPrivateOrLoopback(ip) {
     if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true;     // 172.16.0.0/12
     if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return true;    // 100.64.0.0/10 CGNAT
     if (o[0] === 192 && o[1] === 0 && o[2] === 0) return true;     // 192.0.0.0/24 IETF special use
-    if (o[0] === 198 && (o[1] === 18 || o[1] === 19)) return true; // 198.18.0.0/15 benchmarking
     if (o[0] >= 224) return true;                                  // multicast, reserved, broadcast
     return false;
   }
@@ -104,6 +103,9 @@ export async function assertSafeUrl(url, { allowPrivate = false, allowPrivateEnv
 
 // The URL parsed, plus every address its host resolves to, all checked.
 async function _checkedTarget(url, { allowPrivate = false, allowPrivateEnvHint = 'ALLOW_PRIVATE_URLS' } = {}) {
+  // URL parsing silently drops tabs and line breaks, so ".\t." would pass a
+  // caller's path check and then become "..": refuse control characters.
+  if (/[\u0000-\u001f\u007f]/.test(String(url))) throw new Error('Invalid URL');
   let parsed;
   try { parsed = new URL(url); }
   catch { throw new Error('Invalid URL'); }
@@ -154,6 +156,28 @@ export function isSameServer(from, to) {
   const a = new URL(from), b = new URL(to);
   if (a.origin === b.origin) return true;
   return a.protocol === 'http:' && b.protocol === 'https:' && a.hostname === b.hostname && !a.port && !b.port;
+}
+
+/**
+ * A reply's body, at most `maxBytes` (a larger one throws), so an address
+ * that answers with an endless stream can't fill the server's memory.
+ */
+export async function readBody(res, maxBytes) {
+  const reader = res.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > maxBytes) {
+      try { await reader.cancel(); } catch {}
+      throw new Error('Reply too large');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks.map(c => Buffer.from(c)));
 }
 
 const _proxied = !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy);

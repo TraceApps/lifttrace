@@ -70,7 +70,8 @@ async function _ntFetch(cfg, path, opts = {}) {
   try {
     // NutriTrace usually lives on the home network, so that's allowed for
     // every account; the address is still checked (never cloud metadata),
-    // on every redirect hop, and the connection pinned to it.
+    // on every redirect hop (only followed on the same server), and the
+    // connection pinned to it.
     return await fetchChecked(cfg.url + path, {
       ...opts,
       headers: {
@@ -79,7 +80,7 @@ async function _ntFetch(cfg, path, opts = {}) {
         ...(opts.headers || {}),
       },
       signal: ctrl.signal,
-    }, { allowPrivate: true, maxRedirects: 3 });
+    }, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
   } finally { clearTimeout(t); }
 }
 

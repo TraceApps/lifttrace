@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
 import dns from 'node:dns/promises';
-import { fetchChecked, serviceBase, isLinkLocalOrCloudMeta, isPrivateOrLoopback, isSameServer } from '../server/lib/ssrf-guard.js';
+import { fetchChecked, serviceBase, isLinkLocalOrCloudMeta, isPrivateOrLoopback, isSameServer, readBody } from '../server/lib/ssrf-guard.js';
 
 async function server(handler) {
   const s = http.createServer(handler);
@@ -115,10 +115,12 @@ test('every cloud metadata address is always refused', () => {
   for (const ip of ['169.254.169.254', '100.100.100.200', '168.63.129.16', 'fd00:ec2::254', '::ffff:169.254.169.254', '64:ff9b::a9fe:a9fe', '64:ff9b::169.254.169.254']) {
     assert.equal(isLinkLocalOrCloudMeta(ip), true, ip);
   }
-  for (const ip of ['64:ff9b::7f00:1', '::ffff:10.0.0.1', '192.0.0.8', '198.18.0.1', '224.0.0.1', '255.255.255.255', 'ff02::1']) {
+  for (const ip of ['64:ff9b::7f00:1', '::ffff:10.0.0.1', '192.0.0.8', '224.0.0.1', '255.255.255.255', 'ff02::1']) {
     assert.equal(isPrivateOrLoopback(ip), true, ip);
   }
   assert.equal(isPrivateOrLoopback('64:ff9b::808:808'), false, 'NAT64 of a public address');
+  // Fake-IP DNS (Clash, sing-box) answers every public name with 198.18.x.x.
+  assert.equal(isPrivateOrLoopback('198.18.0.7'), false);
 });
 
 test('a service address keeps only its origin and path', () => {
@@ -136,4 +138,18 @@ test('a redirect stays on the same server only for its origin or an https upgrad
   assert.equal(isSameServer('https://music.lan/', 'http://music.lan/'), false, 'never a downgrade');
   assert.equal(isSameServer('http://music.lan/', 'https://evil.example/'), false);
   assert.equal(isSameServer('http://127.0.0.1:1/', 'http://localhost:1/'), false);
+});
+
+test('control characters in an address are refused before parsing', async () => {
+  // A tab, CR or LF would vanish in parsing and turn ".\t." into "..".
+  for (const u of ['http://127.0.0.1/api/.\t./admin', 'http://127.0.0.1/a\nb', 'http://127.0.0.1/a\rb', 'http://127.0.0.1/\u0000'])
+    await assert.rejects(fetchChecked(u, {}, { allowPrivate: true }), /Invalid URL/, JSON.stringify(u));
+});
+
+test('a reply body is read up to a cap', async () => {
+  const s = await server((req, res) => { res.writeHead(200); res.end('x'.repeat(5000)); });
+  try {
+    assert.equal((await readBody(await fetchChecked(`http://127.0.0.1:${s.port}/`, {}, { allowPrivate: true }), 10000)).length, 5000);
+    await assert.rejects(async () => readBody(await fetchChecked(`http://127.0.0.1:${s.port}/`, {}, { allowPrivate: true }), 1000), /too large/);
+  } finally { s.close(); }
 });

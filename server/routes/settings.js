@@ -8,9 +8,10 @@ import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
 
 // Push services usually live on the home network, so that's allowed for
-// every account; the address is still checked on every redirect hop.
+// every account; the address is still checked, and a redirect only
+// followed on the same server.
 async function _sendPush(url, init) {
-  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3 });
+  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
   if (res.ok) { try { await res.body?.cancel(); } catch {} }
   return res;
 }

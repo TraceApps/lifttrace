@@ -54,6 +54,10 @@ async function _fetch(url, init, allowPrivate) {
 const icyTitles = new Map();    // url -> { title, updatedAt, source }
 const fallbackTries = new Map(); // url -> last-attempt timestamp
 const FALLBACK_DEBOUNCE_MS = 30_000;
+// Titles fetched with access to the home network are kept apart from the
+// rest, so one never reaches a caller without that access (a public
+// station address can redirect inside for an admin).
+const _key = (url, allowPrivate) => (allowPrivate ? 'home|' : '') + url;
 
 // ── Title sanitization ─────────────────────────────────────────────────────
 // Handles the messy real-world payloads radio servers send:
@@ -156,7 +160,7 @@ function _extractArtwork(raw) {
 // Both are server-to-server from our Node proxy so CORS doesn't matter. Runs
 // at most once per 30s per URL. Silently no-ops on failure.
 async function _tryFallbackFetchers(url, allowPrivate) {
-  const last = fallbackTries.get(url) || 0;
+  const last = fallbackTries.get(_key(url, allowPrivate)) || 0;
   if (Date.now() - last < FALLBACK_DEBOUNCE_MS) return;
 
   let parsed;
@@ -168,7 +172,7 @@ async function _tryFallbackFetchers(url, allowPrivate) {
   // forget background fetch; no error to surface to the client).
   try { await assertSafeUrl(origin, allowPrivate); } catch { return; }
   // Only a caller allowed to reach the station takes its fallback slot.
-  fallbackTries.set(url, Date.now());
+  fallbackTries.set(_key(url, allowPrivate), Date.now());
 
   // ── Icecast status-json.xsl ─────────────────────────────────────────────
   try {
@@ -188,7 +192,7 @@ async function _tryFallbackFetchers(url, allowPrivate) {
       const rawTitle = matched?.title || matched?.yp_currently_playing || matched?.song || '';
       const clean = _sanitizeTitle(rawTitle);
       if (clean) {
-        icyTitles.set(url, { title: clean, updatedAt: Date.now(), source: 'icecast-json' });
+        icyTitles.set(_key(url, allowPrivate), { title: clean, updatedAt: Date.now(), source: 'icecast-json' });
         return;
       }
     }
@@ -205,7 +209,7 @@ async function _tryFallbackFetchers(url, allowPrivate) {
       const rawTitle = data?.songtitle || data?.songTitle || '';
       const clean = _sanitizeTitle(rawTitle);
       if (clean) {
-        icyTitles.set(url, { title: clean, updatedAt: Date.now(), source: 'shoutcast-json' });
+        icyTitles.set(_key(url, allowPrivate), { title: clean, updatedAt: Date.now(), source: 'shoutcast-json' });
         return;
       }
     }
@@ -327,7 +331,7 @@ router.get('/', async (req, res) => {
             if (m) {
               const title = _sanitizeTitle(m[1]);
               const artwork = _extractArtwork(m[1]);
-              if (title) icyTitles.set(url, { title, artwork, updatedAt: Date.now(), source: 'icy-inline' });
+              if (title) icyTitles.set(_key(url, allowPrivate), { title, artwork, updatedAt: Date.now(), source: 'icy-inline' });
             }
             metaAcc = Buffer.alloc(0);
             mode = 'audio';
@@ -344,15 +348,11 @@ router.get('/', async (req, res) => {
 });
 
 // ── Now-playing poll endpoint ───────────────────────────────────────────────
-router.get('/now-playing', async (req, res) => {
+router.get('/now-playing', (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
   const allowPrivate = _mayReachPrivate(req);
-  // The cache is shared, so its titles only go to a caller who may reach
-  // the station themselves.
-  try { await assertSafeUrl(url, allowPrivate); }
-  catch { return res.json({ title: '', artwork: '', updatedAt: 0 }); }
-  const entry = icyTitles.get(url);
+  const entry = icyTitles.get(_key(url, allowPrivate));
 
   // Fire-and-forget fallback fetch if we don't have a fresh entry. Debounced
   // per-URL to avoid hammering the upstream on every 8s client poll. The
@@ -364,7 +364,7 @@ router.get('/now-playing', async (req, res) => {
   if (!entry) return res.json({ title: '', artwork: '', updatedAt: 0 });
   // Stale entries expire after 15 minutes
   if (Date.now() - entry.updatedAt > 15 * 60 * 1000) {
-    icyTitles.delete(url);
+    icyTitles.delete(_key(url, allowPrivate));
     return res.json({ title: '', artwork: '', updatedAt: 0 });
   }
   res.json({

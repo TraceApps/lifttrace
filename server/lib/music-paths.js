@@ -14,6 +14,9 @@ export function musicApiPath(provider, splat) {
   // URL also reads "\\" as "/" and %2e as ".": split on both and refuse any
   // "." or ".." so the path can't climb out of the allowed part.
   const raw = (Array.isArray(splat) ? splat : [String(splat ?? '')]).map(String);
+  // URL parsing drops tabs and line breaks (".\t." would become ".."), so
+  // no control characters at all.
+  if (/[\u0000-\u001f\u007f]/.test(raw.join('/'))) return null;
   const parts = raw.join('/').split(/[\\/]/);
   // No empty segment either: servers read "//" as "/", which would let
   // the path start anywhere.

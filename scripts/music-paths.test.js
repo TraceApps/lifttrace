@@ -50,3 +50,8 @@ test('only music-server replies are passed back', () => {
   for (const t of ['text/html', 'text/html; charset=utf-8', 'text/plain', 'application/javascript', '', undefined])
     assert.equal(isMusicReply(t), false, String(t));
 });
+
+test("hidden characters can't turn into a climb out", () => {
+  for (const seg of ['.\t.', '.\n.', '.\r.', 'a\u0000b'])
+    assert.equal(musicApiPath('jf', ['Items', seg, 'secret']), null, JSON.stringify(seg));
+});

@@ -11,9 +11,10 @@ import { fetchChecked, serviceBase } from './ssrf-guard.js';
 
 // Push services (Gotify, ntfy, Apprise) usually live on the home network,
 // so that's allowed for every account; the address is still checked on
-// every redirect hop (never cloud metadata) and the connection pinned.
+// every redirect hop, a redirect only followed on the same server (never
+// cloud metadata), and the connection pinned.
 async function _send(url, init) {
-  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3 });
+  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
   try { await res.body?.cancel(); } catch {}
   return res;
 }
