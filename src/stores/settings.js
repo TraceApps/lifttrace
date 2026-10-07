@@ -44,6 +44,25 @@ const SERVER_SETTINGS = new Set([
 
 const _saveQueue = {};
 function _isLoggedIn() { return !!localStorage.getItem('wl:userId'); }
+// The account each waiting save was made under: one that fires after the
+// account changed is dropped, never sent under the next one.
+const _saveUser = {};
+const _saveValue = {};
+
+/** Send every setting change still waiting now (sign-out does this while
+ *  the session is still the account's own). */
+export async function flushSettingSaves() {
+  const keys = Object.keys(_saveQueue);
+  for (const key of keys) clearTimeout(_saveQueue[key]);
+  await Promise.allSettled(keys.map(async (key) => {
+    delete _saveQueue[key];
+    if (!_isLoggedIn() || _saveUser[key] !== _userKey()) return;
+    await fetch('/api/settings', {
+      method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value: _saveValue[key] }),
+    });
+  }));
+}
 
 // Keys changed on this device in the last few seconds. A sync pull or the
 // startup settings load can land between the edit and its debounced save,
@@ -58,8 +77,11 @@ export function scheduleSave(key, value) {
   if (!SERVER_SETTINGS.has(key)) return;
   _recentlyChanged.set(key, Date.now());
   clearTimeout(_saveQueue[key]);
+  _saveUser[key] = _userKey();
+  _saveValue[key] = value;
   _saveQueue[key] = setTimeout(() => {
-    if (!_isLoggedIn()) return;
+    delete _saveQueue[key];
+    if (!_isLoggedIn() || _saveUser[key] !== _userKey()) return;
     fetch('/api/settings', {
       method: 'PUT',
       credentials: 'include',
@@ -112,8 +134,33 @@ export async function loadServerSettings() {
   } catch {}
 }
 
+// Every setting store, so a change of account can read them all again
+// (reloadSettingStores). Settings are kept per account in storage (lib/db.js),
+// but a store holds the value it read last: without this, the next account
+// to sign in saw the last one's values (notification tokens, the radio
+// password, favorites, rest kept per exercise) and could save them as its
+// own.
+const _settingStores = [];
+const _userKey = () => { try { return localStorage.getItem('wl:userId') || ''; } catch { return ''; } };
+let _storesUser = _userKey();
+
+/** Read every setting store again if the signed-in account changed (or
+ *  `force`), and drop the last account's changes still waiting to go to
+ *  the server. Values are set straight into the stores: nothing is
+ *  written or sent. */
+export function reloadSettingStores({ force = false } = {}) {
+  const now = _userKey();
+  if (!force && now === _storesUser) return false;
+  _storesUser = now;
+  for (const k of Object.keys(_saveQueue)) { clearTimeout(_saveQueue[k]); delete _saveQueue[k]; }
+  _recentlyChanged.clear();
+  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, defaultValue));
+  return true;
+}
+
 function createSettingStore(key, defaultValue) {
   const store = writable(DB.getSetting(key, defaultValue));
+  _settingStores.push({ key, defaultValue, store });
 
   window.addEventListener('wl:setting', (e) => {
     if (e.detail && e.detail.key === key) {

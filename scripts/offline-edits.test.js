@@ -417,3 +417,34 @@ test('a progress photo taken offline is on the timeline while it waits', () => {
   // Nothing queued: exactly what the server said.
   assert.equal(answerWithOps('/api/body-stats/photos', kept, []), kept);
 });
+
+test('two changes of the same thing queued offline go up as one, with what both changed and the later time', () => {
+  const a = op(1, 'PUT', '/api/exercises/7', { name: 'A', category: 'legs' }, { editedAt: '2026-10-07T10:00:00.000Z', changed: ['name'] });
+  const b = op(2, 'PUT', '/api/exercises/7', { name: 'A', category: 'arms' }, { editedAt: '2026-10-07T10:05:00.000Z', changed: ['category'] });
+  const [sent] = collapseOps([a, b]);
+  assert.deepEqual(sent.changed.sort(), ['category', 'name']);
+  assert.equal(sent.editedAt, '2026-10-07T10:05:00.000Z');
+  // Either one unable to say what it changed: the server takes all it sends.
+  const [unknown] = collapseOps([a, { ...b, changed: null }]);
+  assert.equal(unknown.changed, null);
+});
+
+test('the browser\'s queued changes carry when they were made, on the server\'s clock, and what they changed', async () => {
+  const { readFileSync } = await import('node:fs');
+  const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
+  assert.match(offline, /editedAt: _serverNow\(at\),\s*\n\s*changed: await _changedFields\(method, target, body\),/);
+  assert.match(offline, /if \(op\.editedAt\) headers\['X-Edited-At'\] = op\.editedAt;/);
+  assert.match(offline, /if \(Array\.isArray\(op\.changed\)\) headers\['X-Changed-Fields'\] = op\.changed\.join\(','\);/);
+  assert.match(offline, /res\?\.headers\?\.get\?\.\('x-server-time'\)/);
+  const server = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
+  assert.match(server, /res\.set\('X-Server-Time', new Date\(\)\.toISOString\(\)\)/);
+});
+
+test('merging a change that can\'t say what it changed counts all fields, never only the later list', () => {
+  const unknown = op(1, 'PUT', '/api/exercises/7', { name: 'A', category: 'legs' }, { editedAt: '2026-10-07T10:00:00.000Z', changed: null });
+  const older = op(1, 'PUT', '/api/exercises/7', { name: 'A', category: 'legs' }, { editedAt: '2026-10-07T10:00:00.000Z' });
+  delete older.changed;   // queued by an earlier version
+  const later = op(2, 'PUT', '/api/exercises/7', { name: 'A', category: 'arms' }, { editedAt: '2026-10-07T10:05:00.000Z', changed: ['category'] });
+  assert.equal(collapseOps([unknown, later])[0].changed, null);
+  assert.equal(collapseOps([older, later])[0].changed, null);
+});

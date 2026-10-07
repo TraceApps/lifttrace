@@ -322,6 +322,27 @@ async function _createSchema(db) {
       last_error  TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name, row_id);
+
+    -- Rows moving to new ids in one go (sync.js _remapStatements): the
+    -- pairs, for the length of one transaction.
+    CREATE TABLE IF NOT EXISTS id_remap (
+      tbl TEXT NOT NULL,
+      old INTEGER NOT NULL,
+      new INTEGER NOT NULL,
+      PRIMARY KEY (tbl, old)
+    );
+    -- Where a row Disconnect made the phone's own came from: the server
+    -- (instance id, or its address) and account, its id there, and what it
+    -- held then. Connecting back to that account puts it back.
+    CREATE TABLE IF NOT EXISTS row_origin (
+      tbl             TEXT NOT NULL,
+      local_id        INTEGER NOT NULL,
+      server_id       INTEGER NOT NULL,
+      inst            TEXT,
+      uid             TEXT,
+      base            TEXT,
+      PRIMARY KEY (tbl, local_id)
+    );
   `);
 
   // ── Schema migrations for existing installs ────────────────────────────
@@ -613,6 +634,65 @@ export async function setSyncMeta(key, value) {
   );
 }
 
+/** Changes on this device that haven't reached the server: queued writes,
+ *  and rows only this device has (made before it was connected, or left
+ *  by an upload that failed). */
+export async function dbCountUnsynced() {
+  const queue = await dbQuery(`SELECT payload FROM sync_queue`, []);
+  // A row a queued write makes or changes is counted once, by that write.
+  const ids = new Set(), dates = new Set();
+  for (const r of queue) {
+    try {
+      const p = JSON.parse(r.payload);
+      if (p?.localId != null) ids.add(Number(p.localId));
+      const path = String(p?.path || '').split('?')[0];
+      for (const m of path.matchAll(/\/(-?\d+)(?=\/|$)/g)) ids.add(Number(m[1]));
+      const d = path.match(/^\/api\/(?:workout|body-stats)\/(\d{4}-\d{2}-\d{2})$/);
+      if (d) dates.add(d[1]);
+    } catch { /* counted anyway */ }
+  }
+  let total = queue.length;
+  for (const t of ['programs', 'workout_templates', 'exercises', 'workout_log', 'body_stats_log']) {
+    const dated = t === 'workout_log' || t === 'body_stats_log';
+    for (const r of await dbQuery(`SELECT id${dated ? ', date' : ''} FROM ${t} WHERE sync_state = 'pending' AND deleted_at IS NULL`, [])) {
+      if (!ids.has(Number(r.id)) && !(dated && dates.has(r.date))) total++;
+    }
+  }
+  // Cardio has no change marker: one with an id below zero is only here.
+  for (const r of await dbQuery(`SELECT id FROM cardio_log WHERE id < 0`, [])) {
+    if (!ids.has(Number(r.id))) total++;
+  }
+  return total;
+}
+
+/** Drop every row the phone holds for the account, the queue and the pull
+ *  cursor, so the next sync fills it from the account now signed in.
+ *  One-time markers in sync_meta (migrations) stay. */
+const CLEARED_TABLES = ['exercises', 'programs', 'workout_templates', 'program_assignments', 'workout_log',
+  'workout_tombstones', 'body_stats_log', 'cardio_log', 'coach_prescriptions', 'ai_chat_history',
+  'user_settings', 'sync_queue', 'row_origin', 'id_remap'];
+export async function dbClearUserData() {
+  // One statement per call: the Android plugin runs only the first
+  // statement of each line it's given.
+  for (const t of CLEARED_TABLES) {
+    await dbRun(`DELETE FROM ${t}`, []);
+  }
+  for (const k of ['last_server_time', 'last_pull_at', 'since_floor', 'full_pull_when_drained', 'temp_ids']) {
+    await dbRun(`DELETE FROM sync_meta WHERE key = ?`, [k]);
+  }
+  await setSyncMeta('full_pull', '1');
+  // Nothing here is the phone's own now: every id the next pull brings is
+  // the server's (sync.js renumberLocalRows).
+  await setSyncMeta('local_ids', '1');
+  // Checked, not assumed: a copy that isn't empty now would show the
+  // previous account's data to the next. Thrown, the account check shows
+  // its error screen (Retry, Sign Out) instead of any data.
+  for (const t of CLEARED_TABLES) {
+    const n = Number((await dbQuery(`SELECT COUNT(*) AS n FROM ${t}`, []))[0]?.n || 0);
+    if (n) throw new Error(`The previous account's data couldn't be cleared (${t}).`);
+  }
+}
+
 /** Push a write into the sync queue. Used in server-connected mode. */
 export async function enqueueSync(table, rowId, operation, payload) {
   await dbRun(
@@ -622,9 +702,21 @@ export async function enqueueSync(table, rowId, operation, payload) {
   );
 }
 
-/** Drop the local DB entirely (used by Settings → Clear Local Data). */
+/** Drop the local DB entirely (Replace with Server in the setup screen).
+ *  Every row goes first, through the open connection: the file delete
+ *  below didn't reach the database on Android (the plugin has no
+ *  deleteDatabase on the connection object, and the file isn't under the
+ *  app's Data folder), so "Local entries are deleted" kept them all. */
 export async function destroyLocalDb() {
   if (!isNative) return;
+  try {
+    const db = await getDb();
+    const tables = (await db.query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`, []))?.values || [];
+    for (const { name } of tables) await db.run(`DELETE FROM "${name.replace(/"/g, '""')}"`, []);
+  } catch (e) {
+    console.warn('[db-native] clearing local data failed:', e?.message || e);
+    throw e;
+  }
   await _closeAny();
   try { await sqlite.deleteDatabase(DB_NAME); } catch {}
   try {

@@ -520,6 +520,8 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_prescriptions_member_date ON coach_prescriptions(member_id, date);
   CREATE INDEX IF NOT EXISTS idx_prescriptions_trainer ON coach_prescriptions(trainer_id);
+  -- Whether a day was prescribed to someone: asked per day on every pull.
+  CREATE INDEX IF NOT EXISTS idx_prescriptions_template_member ON coach_prescriptions(template_id, member_id);
 `);
 
 // Coach feedback — annotations a trainer leaves on a member's completed
@@ -839,6 +841,13 @@ db.exec(`
   END;
 `);
 
+// When each field of a row last changed (lib/newer-wins.js), so an edit made
+// offline never overwrites a later one made elsewhere.
+for (const t of ['programs', 'workout_templates', 'exercises', 'workout_log', 'body_stats_log', 'user_settings']) {
+  addColumnIfMissing(t, 'field_times', 'field_times TEXT');
+}
+
+
 // ── Backfill orphan user_id rows ───────────────────────────────────────────
 // When LiftTrace was first set up in single-user mode (before the user
 // activated user-management), per-user rows were created with user_id=NULL.
@@ -1116,15 +1125,37 @@ const SYNC_DELETION_OWNER = {
 for (const [t, owner] of Object.entries(SYNC_DELETION_OWNER)) {
   // The first three predate the owner column; recreate those so the
   // definition matches (an older trigger left the owner empty, which is
-  // also what they record).
+  // also what they record). A row of an account that is itself being
+  // deleted isn't recorded: there's no phone of it left to tell.
   db.exec(`
     DROP TRIGGER IF EXISTS ${t}_sync_deleted;
     CREATE TRIGGER ${t}_sync_deleted AFTER DELETE ON ${t}
+    WHEN (${owner}) IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = (${owner}))
     BEGIN INSERT OR REPLACE INTO sync_deletions (tbl, row_id, deleted_at, user_id) VALUES ('${t}', OLD.id, datetime('now'), ${owner}); END;
     CREATE TRIGGER IF NOT EXISTS ${t}_sync_restored AFTER INSERT ON ${t}
     BEGIN DELETE FROM sync_deletions WHERE tbl = '${t}' AND row_id = NEW.id; END;
   `);
 }
+// A setting deleted (a key gone back to its default): recorded by its key,
+// under its own made-up id (the table keys records by id), for the
+// account's phones. Set again: no longer gone.
+if (!db.prepare('PRAGMA table_info(sync_deletions)').all().some(c => c.name === 'row_key')) {
+  db.exec('ALTER TABLE sync_deletions ADD COLUMN row_key TEXT');
+}
+db.exec(`
+  DROP TRIGGER IF EXISTS user_settings_sync_deleted;
+  CREATE TRIGGER user_settings_sync_deleted AFTER DELETE ON user_settings
+  WHEN EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id)
+  BEGIN
+    DELETE FROM sync_deletions WHERE tbl = 'user_settings' AND user_id = OLD.user_id AND row_key = OLD.key;
+    INSERT INTO sync_deletions (tbl, row_id, deleted_at, user_id, row_key)
+      VALUES ('user_settings', (SELECT COALESCE(MIN(row_id), 0) - 1 FROM sync_deletions WHERE tbl = 'user_settings'), datetime('now'), OLD.user_id, OLD.key);
+  END;
+  CREATE TRIGGER IF NOT EXISTS user_settings_sync_restored AFTER INSERT ON user_settings
+  BEGIN DELETE FROM sync_deletions WHERE tbl = 'user_settings' AND user_id = NEW.user_id AND row_key = NEW.key; END;
+`);
+// A year is far longer than any phone stays offline between syncs.
+db.exec(`DELETE FROM sync_deletions WHERE deleted_at < datetime('now', '-365 days')`);
 // Deletions from before the triggers existed, once: ids are never reused
 // (AUTOINCREMENT), so any id up to the highest one handed out that is no
 // longer in the table was deleted. A phone still showing it drops it on its

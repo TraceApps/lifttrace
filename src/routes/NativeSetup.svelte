@@ -384,6 +384,7 @@
           {#if localCounts.bodyStats}<li>{localCounts.bodyStats} body-stats {localCounts.bodyStats === 1 ? 'entry' : 'entries'}</li>{/if}
           {#if localCounts.programs}<li>{localCounts.programs} program{localCounts.programs === 1 ? '' : 's'}{localCounts.templates ? ` (${localCounts.templates} template${localCounts.templates === 1 ? '' : 's'})` : ''}</li>{/if}
           {#if localCounts.customExercises}<li>{localCounts.customExercises} custom exercise{localCounts.customExercises === 1 ? '' : 's'}</li>{/if}
+          {#if localCounts.cardio}<li>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</li>{/if}
           {#if localCounts.settings}<li>{localCounts.settings} setting{localCounts.settings === 1 ? '' : 's'}</li>{/if}
         </ul>
       </div>
@@ -392,7 +393,7 @@
         <button class="setup-card" on:click={() => migrateUpload(false)} disabled={migrateBusy}>
           <span class="material-symbols-rounded setup-card-icon">cloud_upload</span>
           <div class="setup-card-title">{$_('native_setup.upload_to_server')}</div>
-          <p class="setup-card-desc">Push everything on this device to your server. Re-uploaded dates overwrite cleanly.</p>
+          <p class="setup-card-desc">Push everything on this device to your server. Each workout goes up as its own session, and uploading again doesn't double it.</p>
         </button>
 
         <button class="setup-card" on:click={migrateDownload} disabled={migrateBusy}>
@@ -404,7 +405,7 @@
         <button class="setup-card" on:click={() => migrateUpload(true)} disabled={migrateBusy}>
           <span class="material-symbols-rounded setup-card-icon">merge</span>
           <div class="setup-card-title">{$_('native_setup.merge_both')}</div>
-          <p class="setup-card-desc">Upload local data, then pull the merged result back. Workouts dedupe by date; programs and exercises may duplicate.</p>
+          <p class="setup-card-desc">Upload local data, then pull the merged result back. Workouts already on the server stay as they are; programs and exercises may duplicate.</p>
         </button>
 
         <button class="btn btn-ghost migrate-skip" on:click={migrateSkip} disabled={migrateBusy}>

@@ -4,6 +4,8 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
 import { programFor, templateFor, toId } from '../lib/program-access.js';
+import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
+import { applyToBody, deleteLoses, refuseDelete, stampMerged, createdTimes } from '../lib/newer-wins.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -33,11 +35,16 @@ router.post('/', wrap((req, res) => {
   const access = programFor(program_id, uid(req));
   if (!access.canSee) return res.status(404).json({ error: 'Program not found' });
   if (!access.canChange) return res.status(403).json({ error: 'Forbidden' });
+  // Sent again after its answer was lost: the day it made (create-keys.js).
+  const before = createdBefore(req, uid(req), 'workout_templates');
+  if (before?.gone) return answerGone(res);
+  if (before) { before.exercises = JSON.parse(before.exercises || '[]'); return res.json(before); }
   const maxIdx = db.prepare('SELECT MAX(order_index) as m FROM workout_templates WHERE program_id = ?').get(program_id);
   const orderIndex = (maxIdx?.m ?? -1) + 1;
   const result = db.prepare(
-    'INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises) VALUES (?, ?, ?, ?, ?)'
-  ).run(program_id, name, day_label || null, orderIndex, JSON.stringify(exercises || []));
+    'INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, field_times) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(program_id, name, day_label || null, orderIndex, JSON.stringify(exercises || []), createdTimes(req));
+  rememberCreated(req, uid(req), 'workout_templates', result.lastInsertRowid);
   const t = db.prepare('SELECT * FROM workout_templates WHERE id = ?').get(result.lastInsertRowid);
   t.exercises = JSON.parse(t.exercises || '[]');
   res.json(t);
@@ -53,7 +60,6 @@ router.post('/', wrap((req, res) => {
 // [exUuid]: [setUuid...] } }.
 router.put('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  const { name, day_label, exercises } = req.body;
   const deletedRaw = req.body.deleted_uuids;
   const deletedExUuids = Array.isArray(deletedRaw?.exercises) ? deletedRaw.exercises
     : Array.isArray(deletedRaw) ? deletedRaw
@@ -67,6 +73,12 @@ router.put('/:id', wrap((req, res) => {
   const access = programFor(existing.program_id, uid(req));
   if (!access.canSee) return res.status(404).json({ error: `Template ${id} not found` });
   if (!access.canChange) return res.status(403).json({ error: 'Forbidden' });
+  // The newer edit of the name and label stays (lib/newer-wins.js); the
+  // exercises merge one by one, as before.
+  const body = { ...req.body };
+  let times = applyToBody(req, existing, body, { fields: ['name', 'day_label'], current: f => existing[f] });
+  if (Array.isArray(body.exercises) || body.deleted_uuids) times = stampMerged(req, times, ['exercises']);
+  const { name, day_label, exercises } = body;
 
   const tsKey = `template:${id}`;
   const priorExTs = db.prepare(
@@ -104,8 +116,8 @@ router.put('/:id', wrap((req, res) => {
      VALUES (NULL, ?, ?, ?, ?, datetime('now'))`
   );
   db.transaction(() => {
-    db.prepare('UPDATE workout_templates SET name=COALESCE(?,name), day_label=COALESCE(?,day_label), exercises=COALESCE(?,exercises) WHERE id=?')
-      .run(name || null, day_label, mergedExercisesJson, id);
+    db.prepare('UPDATE workout_templates SET name=COALESCE(?,name), day_label=COALESCE(?,day_label), exercises=COALESCE(?,exercises), field_times=? WHERE id=?')
+      .run(name || null, day_label, mergedExercisesJson, times, id);
     for (const uuid of newExTombstones) insertTombstone.run(tsKey, 'template_exercise', '', uuid);
     for (const [exUuid, uuids] of Object.entries(newSetTombstonesByEx)) {
       for (const uuid of uuids) insertTombstone.run(tsKey, 'template_set', exUuid, uuid);
@@ -120,12 +132,14 @@ router.put('/:id', wrap((req, res) => {
 // DELETE /api/templates/:id
 router.delete('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  const existing = db.prepare('SELECT program_id FROM workout_templates WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM workout_templates WHERE id = ?').get(id);
   if (existing) {
     const access = programFor(existing.program_id, uid(req));
     if (!access.canSee) return res.status(404).json({ error: `Template ${id} not found` });
     if (!access.canChange) return res.status(403).json({ error: 'Forbidden' });
-    db.prepare('DELETE FROM workout_templates WHERE id = ?').run(id);
+    const later = existing.deleted_at ? null : deleteLoses(req, existing);
+    if (later) return refuseDelete(res, existing, later);
+    if (!existing.deleted_at) db.prepare('DELETE FROM workout_templates WHERE id = ?').run(id);
   }
   res.json({ ok: true });
 }));

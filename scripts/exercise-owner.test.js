@@ -49,7 +49,7 @@ test('the edit and delete routes check ownership', () => {
   assert.match(put, /Library exercises are shared, so they cannot be edited/);
   assert.match(put, /if \(!canChangeExercise\(existing, uid\(req\)\)\) return res\.status\(404\)/);
   const del = src.slice(src.indexOf("router.delete('/:id'"), src.indexOf('// ── Catalog source'));
-  assert.match(del, /if \(!row\) return res\.json\(\{ ok: true \}\)/, 'already gone is still a success');
+  assert.match(del, /if \(!row \|\| row\.deleted_at\) return res\.json\(\{ ok: true \}\)/, 'already gone (or cleared) is still a success');
   assert.match(del, /if \(!canChangeExercise\(row, uid\(req\)\)\) return res\.status\(404\)/);
 });
 

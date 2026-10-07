@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive, uid } from '../middleware/auth.js';
+import { decide } from '../lib/newer-wins.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
@@ -45,9 +46,15 @@ router.put('/', wrap((req, res) => {
   if (!userMgmtActive() || !req.user) return res.json({ ok: true });
   const { key, value } = req.body;
   if (!key) return res.status(400).json({ error: 'key required' });
-  db.prepare('INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)')
-    .run(req.user.id, key, JSON.stringify(value));
-  res.json({ ok: true });
+  // The newer edit of a setting stays (lib/newer-wins.js). Losing, the row
+  // is still written (as it is), so its change time moves and the device
+  // gets the value that stays with its next pull.
+  const existing = db.prepare('SELECT * FROM user_settings WHERE user_id = ? AND key = ?').get(req.user.id, key);
+  const { keep, times } = decide(req, existing, { value }, { fields: ['value'] });
+  const stays = existing && keep.has('value') ? existing.value : JSON.stringify(value);
+  db.prepare('INSERT OR REPLACE INTO user_settings (user_id, key, value, field_times) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, key, stays, times);
+  res.json({ ok: true, value: JSON.parse(stays ?? 'null') });
 }));
 
 router.delete('/', wrap((req, res) => {

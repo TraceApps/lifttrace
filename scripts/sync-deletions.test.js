@@ -71,16 +71,19 @@ test('the pull sends deletions since the cursor as rows the app applies', () => 
     assert.match(sync, new RegExp(`${t}\\.push\\(\\.\\.\\.gone\\('${t}'\\)\\);`), t);
   }
   assert.match(sync, /const gone = \(tbl\) => \(fullPull \? \[\] : deletedSince\.all\(tbl, sinceSql, \.\.\.userParams\)\);/, 'a first, full pull skips them');
+  assert.match(sync, /const fullPull = sinceSql <= '1970-01-01 00:00:00' && req\.query\.held !== '1';/, 'unless the device holds rows');
   // The cursor is taken before the queries, so nothing deleted in between is missed.
   assert.ok(sync.indexOf('const serverTime = new Date().toISOString();') < sync.indexOf('deletedSince.all('));
   // and the app removes a pulled row that carries deleted_at
   const app = read('../src/lib/sync.js');
-  assert.match(app, /if \(p\.deleted_at\) \{ await dbRun\(`DELETE FROM programs WHERE id = \?`, \[p\.id\]\); continue; \}/);
-  assert.match(app, /if \(t\.deleted_at\) \{ await dbRun\(`DELETE FROM workout_templates WHERE id = \?`, \[t\.id\]\); continue; \}/);
+  // (a row with a change made on the phone still on its way up stays until
+  // that change has gone: those deletes skip rows marked pending)
+  assert.match(app, /if \(p\.deleted_at\) \{ await dbRun\(`DELETE FROM programs WHERE id = \?[^`]*`, \[p\.id\]\); continue; \}/);
+  assert.match(app, /if \(t\.deleted_at\) \{ await dbRun\(`DELETE FROM workout_templates WHERE id = \?[^`]*`, \[t\.id\]\); continue; \}/);
   assert.match(app, /if \(a\.deleted_at\) \{ await dbRun\(`DELETE FROM program_assignments WHERE id = \?`, \[a\.id\]\); continue; \}/);
-  assert.match(app, /if \(e\.deleted_at\) \{\s*await dbRun\(`DELETE FROM exercises WHERE id = \?`, \[e\.id\]\);/);
-  assert.match(app, /if \(w\.deleted_at\) \{\s*await dbRun\(`DELETE FROM workout_log WHERE id = \?`, \[w\.id\]\);/);
-  assert.match(app, /if \(b\.deleted_at\) \{ await dbRun\(`DELETE FROM body_stats_log WHERE id = \?`, \[b\.id\]\); continue; \}/);
+  assert.match(app, /if \(e\.deleted_at\) \{\s*await dbRun\(`DELETE FROM exercises WHERE id = \?[^`]*`, \[e\.id\]\);/);
+  assert.match(app, /if \(w\.deleted_at\) \{\s*await dbRun\(`DELETE FROM workout_log WHERE id = \?[^`]*`, \[w\.id\]\);/);
+  assert.match(app, /if \(b\.deleted_at\) \{ await dbRun\(`DELETE FROM body_stats_log WHERE id = \?[^`]*`, \[b\.id\]\); continue; \}/);
   assert.match(app, /if \(c\.deleted_at\) \{ await dbRun\(`DELETE FROM ai_chat_history WHERE id = \?`, \[c\.id\]\); continue; \}/);
 });
 

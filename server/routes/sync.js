@@ -30,6 +30,7 @@
  * semantics, different table list.
  */
 import { Router } from 'express';
+import zlib from 'node:zlib';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -37,7 +38,7 @@ import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
-import { canChangeProgram, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
+import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
 // Same shape as workout.js — duplicated here to keep both routes
@@ -140,13 +141,17 @@ router.get('/pull', wrap((req, res) => {
       ORDER BY p.updated_at`
   ).all(sinceSql, ...visible.args).map(parseRow);
 
-  // Days also go to the athlete a coach prescribed one to.
+  // Days also go to the athlete a coach prescribed one to, and arrive
+  // when they are prescribed: the day itself may not have changed in months.
   const visibleDays = visibleTemplatesSql(u);
+  const prescribedSince = u != null
+    ? 'OR EXISTS (SELECT 1 FROM coach_prescriptions cp WHERE cp.template_id = t.id AND cp.member_id = ? AND cp.created_at >= ?)'
+    : '';
   const workout_templates = db.prepare(
     `SELECT t.* FROM workout_templates t JOIN programs p ON p.id = t.program_id
-      WHERE t.updated_at >= ? AND ${visibleDays.sql}
+      WHERE (t.updated_at >= ? ${prescribedSince}) AND ${visibleDays.sql}
       ORDER BY t.updated_at`
-  ).all(sinceSql, ...visibleDays.args).map(parseRow);
+  ).all(sinceSql, ...(u != null ? [u, sinceSql] : []), ...visibleDays.args).map(parseRow);
 
   const program_assignments = u != null
     ? db.prepare(
@@ -215,8 +220,10 @@ router.get('/pull', wrap((req, res) => {
   // Rows deleted on the server since the cursor, as { id, deleted_at } rows
   // the app removes locally (#139): this user's own, and shared ones (whose
   // owner is NULL). Ids only: a device that never had the row deletes
-  // nothing. A first, full pull skips them, as the device holds nothing yet.
-  const fullPull = sinceSql <= '1970-01-01 00:00:00';
+  // nothing. A first, full pull skips them, as the device holds nothing yet;
+  // a full pull asked for by a device that holds data (held=1: its copy was
+  // reset to be pulled again) gets them, so what's gone leaves it too.
+  const fullPull = sinceSql <= '1970-01-01 00:00:00' && req.query.held !== '1';
   const deletedSince = db.prepare(
     `SELECT row_id AS id, deleted_at FROM sync_deletions
       WHERE tbl = ? AND deleted_at >= ? ${u != null ? 'AND (user_id IS NULL OR user_id = ?)' : ''}`
@@ -229,10 +236,43 @@ router.get('/pull', wrap((req, res) => {
   workout_log.push(...gone('workout_log'));
   body_stats_log.push(...gone('body_stats_log'));
   ai_chat_history.push(...gone('ai_chat_history'));
+  // A setting deleted: { key, deleted_at } in the settings list (db.js keeps
+  // the key with the record).
+  if (u != null && !fullPull) {
+    settings.push(...db.prepare(
+      `SELECT row_key AS key, deleted_at FROM sync_deletions WHERE tbl = 'user_settings' AND user_id = ? AND deleted_at >= ? AND row_key IS NOT NULL`
+    ).all(u, sinceSql));
+  }
+
+  // Every program and workout day this account may keep, in full: a phone
+  // drops any it holds that are not listed. That covers ones deleted, a
+  // program unassigned from an athlete, and the days of every account that
+  // older servers sent to every phone.
+  const keep = {
+    programs: db.prepare(`SELECT p.id FROM programs p WHERE ${visible.sql}`)
+      .all(...visible.args).map(r => r.id),
+    workout_templates: db.prepare(
+      `SELECT t.id FROM workout_templates t JOIN programs p ON p.id = t.program_id WHERE ${visibleDays.sql}`
+    ).all(...visibleDays.args).map(r => r.id),
+  };
+
+  // Without user accounts the program being followed lives in app_config,
+  // not in program_assignments, so it went nowhere and a phone never learned
+  // of a change made on the web. Sent in full every pull: it's one row.
+  let solo_active;
+  if (u == null) {
+    const cfg = (k) => db.prepare('SELECT value FROM app_config WHERE key = ?').get(k)?.value ?? null;
+    const pid = toId(cfg('active_program'));
+    let cursor = {};
+    try { cursor = JSON.parse(cfg('active_program_cursor') || '{}') || {}; } catch { /* none */ }
+    solo_active = pid && db.prepare('SELECT 1 FROM programs WHERE id = ?').get(pid)
+      ? { program_id: pid, week_cursor: cursor.week ?? null, week_cursor_session_base: cursor.base ?? null, week_cursor_pinned_at: cursor.pinnedAt ?? null }
+      : null;
+  }
 
   logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
 
-  res.json({
+  sendMaybeGzipped(req, res, {
     exercises,
     programs,
     workout_templates,
@@ -244,9 +284,28 @@ router.get('/pull', wrap((req, res) => {
     workout_tombstones,
     user_settings: settings,
     ai_chat_history,
+    keep,
+    ...(u == null ? { solo_active } : {}),
     server_time: serverTime,
   });
 }));
+
+// A full pull of a long history is several hundred kilobytes of JSON that
+// shrinks about twentyfold; on a phone's slow link that was the difference
+// between finishing and timing out on every try. Compressed when the client
+// takes it (Android's HTTP stack asks for gzip and unpacks it itself).
+function sendMaybeGzipped(req, res, payload) {
+  const body = JSON.stringify(payload);
+  if (body.length < 2048 || !/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+    res.type('application/json').send(body);
+    return;
+  }
+  zlib.gzip(body, (err, gz) => {
+    if (err) { res.type('application/json').send(body); return; }
+    res.set({ 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+    res.send(gz);
+  });
+}
 
 // ── POST /push ───────────────────────────────────────────────────────────
 // Receives changed rows from the client. Each row carries:
@@ -445,6 +504,9 @@ router.post('/push', wrap((req, res) => {
           `SELECT * FROM workout_log WHERE user_id ${u != null ? '= ?' : 'IS NULL'} AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1`
         ).get(...(u != null ? [u, w.date] : [w.date]));
       }
+
+      // Only a program, day and exercises this account may see.
+      Object.assign(w, cleanWorkoutRefs(u, { ...w, exercises: w.exercises || [] }, existing));
 
       const dr = w.deleted_uuids;
       const delExUuids = Array.isArray(dr?.exercises) ? dr.exercises : (Array.isArray(dr) ? dr : []);

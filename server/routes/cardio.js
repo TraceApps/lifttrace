@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
+import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -69,6 +70,10 @@ router.post('/', wrap((req, res) => {
   const dist = distance == null || distance === '' ? null : Number(distance);
   const hr = avg_hr == null || avg_hr === '' ? null : Math.floor(Number(avg_hr));
   const isTpl = is_template ? 1 : 0;
+  // Sent again after its answer was lost: the session it made (create-keys.js).
+  const before = createdBefore(req, userId, 'cardio_log');
+  if (before?.gone) return answerGone(res);
+  if (before) return res.json(before);
   const stmt = db.prepare(
     `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -81,6 +86,7 @@ router.post('/', wrap((req, res) => {
     notes ? String(notes).trim() : null,
     isTpl,
   );
+  rememberCreated(req, userId, 'cardio_log', info.lastInsertRowid);
   const row = db.prepare('SELECT * FROM cardio_log WHERE id = ?').get(info.lastInsertRowid);
   res.json(row);
 }));

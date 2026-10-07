@@ -113,6 +113,15 @@ function warnIfPlainHttp(req) {
 
 function safeUser(u) { const { password_hash, ...rest } = u; return rest; }
 
+// This server's random id (see /status), made once and kept in app_config.
+// Made again if a restore emptied app_config.
+function serverInstanceId() {
+  const row = db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get();
+  if (row?.value) return row.value;
+  db.prepare(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('instance_id', ?)`).run(crypto.randomUUID());
+  return db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get()?.value || null;
+}
+
 router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
   // setup_required distinguishes a fresh install (no users, setup needed)
@@ -144,6 +153,9 @@ router.get('/status', wrap((req, res) => {
     // Whether the sign-in cookie is HTTPS-only, so the login page can say up
     // front that signing in from a plain-HTTP page will not stick.
     secure_cookies: !_insecureCookies,
+    // A random id for this server, so the Android app can tell the same
+    // server at another address (LAN IP, domain) from a different one.
+    instance_id: serverInstanceId(),
   });
 }));
 

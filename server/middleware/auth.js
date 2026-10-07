@@ -48,17 +48,45 @@ export function sessionMaxAge() {
   return _resolveSessionHours() * 60 * 60 * 1000;
 }
 
+/** One of this server's sessions: the signature checks out with our secret
+ *  (expired or not yet valid still counts as ours). */
+function _ours(token) {
+  try { jwt.verify(token, JWT_SECRET); return true; }
+  catch (e) { return e?.name === 'TokenExpiredError' || e?.name === 'NotBeforeError'; }
+}
+
 export function authenticate(req, res, next) {
   // Accept token from cookie OR Authorization: Bearer header. Browser builds
   // (PWA) ride on the cookie; native Capacitor builds use the Bearer header
   // because the patched fetch in src/lib/apiFetch.js calls origFetch with
   // credentials:'omit' (Capacitor's WebView doesn't reliably persist
   // cross-launch cookies).
-  let token = req.cookies?.lt_token;
-  if (!token) {
-    const auth = req.headers.authorization;
-    if (auth?.startsWith('Bearer ')) token = auth.slice(7);
+  //
+  // The header, when it carries one of this server's sessions, is the
+  // session: it is set on purpose for each request. The cookie rides along
+  // with whatever the client's cookie jar still holds: on Android,
+  // CapacitorHttp sends the jar too, and a sign-in stored there could be
+  // another account's. Read first, it answered every request as that
+  // account. One of ours that has expired is no session at all, never a
+  // fall-back to the cookie. A header that isn't one of ours (a reverse
+  // proxy's own Authorization, oauth2-proxy and the like, or an API token,
+  // which its own routes check) is left alone, and the cookie decides as
+  // it always did.
+  //
+  // req.authVia says which one decided ('bearer' | 'cookie' | null), for any
+  // check that a cookie-borne session needs and a header-borne one doesn't.
+  // (This server has no CSRF middleware: the cookie is SameSite=Lax and
+  // cross-origin requests are refused by the CORS allowlist, so a foreign
+  // page can neither send the cookie with a write nor set a header.)
+  const auth = req.headers.authorization;
+  const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (bearer && _ours(bearer)) {
+    req.authVia = 'bearer';
+    try { req.user = jwt.verify(bearer, JWT_SECRET); } catch { req.user = null; }
+    return next();
   }
+  let token = req.cookies?.lt_token;
+  req.authVia = token ? 'cookie' : null;
   // Query-param fallback for asset URLs that go through the WebView's image
   // loader (<img src=...>) on native. Such requests can't carry a Bearer
   // header AND Capacitor's WebView doesn't reliably persist the cookie

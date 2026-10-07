@@ -108,6 +108,9 @@ for (const path of ['/api/body-stats/photos', '/api/exercises', '/api/auth/profi
 }
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
+// The server's clock on every answer: an app offline puts the time of each
+// edit it queues on this clock, so the newer edit wins (lib/newer-wins.js).
+router.use((req, res, next) => { res.set('X-Server-Time', new Date().toISOString()); next(); });
 
 // CORS — allow same-host + Capacitor origins.
 // Capacitor WebView origins:

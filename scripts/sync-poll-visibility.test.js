@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../src/App.svelte', import.meta.url), 'utf8');
 
 test('the poll is held in a handle rather than started and forgotten', () => {
-  assert.match(source, /const startPolling = \(\) => \{[\s\S]{0,200}setInterval\(\(\) => sync\.fullSync\(true\)/);
+  assert.match(source, /const startPolling = \(\) => \{[\s\S]{0,120}setInterval\(\(\) => \{[\s\S]{0,240}sync\.fullSync\(true\)/);
   assert.match(source, /const stopPolling = \(\) => \{[\s\S]{0,160}clearInterval\(poll\)/);
 });
 

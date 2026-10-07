@@ -4,6 +4,8 @@ import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid, userMgmtActive } from '../middleware/auth.js';
 import { currentPlanWeek } from '../lib/programWeek.js';
 import { programFor } from '../lib/program-access.js';
+import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
+import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
 
 // 404 for a program this account can't see (no hint that it exists), 403
 // for one it can see but not change (program-access.js). Returns true when
@@ -180,13 +182,18 @@ function readSoloCursor() {
 router.post('/', wrap((req, res) => {
   const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
+  // Sent again after its answer was lost: the program it made (create-keys.js).
+  const before = createdBefore(req, uid(req), 'programs');
+  if (before?.gone) return answerGone(res);
+  if (before) return res.json(before);
   const result = db.prepare(
-    `INSERT INTO programs (name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO programs (name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete, field_times)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     name, description || null, goal || 'general', uid(req), visibility || 'private',
-    clampDuration(duration_weeks), advanceMode(advance_mode), onComplete(on_complete)
+    clampDuration(duration_weeks), advanceMode(advance_mode), onComplete(on_complete), createdTimes(req)
   );
+  rememberCreated(req, uid(req), 'programs', result.lastInsertRowid);
   res.json(db.prepare('SELECT * FROM programs WHERE id = ?').get(result.lastInsertRowid));
 }));
 
@@ -194,17 +201,27 @@ router.post('/', wrap((req, res) => {
 router.put('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
   if (refuse(res, programFor(id, uid(req)), true)) return;
-  const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = req.body;
+  // The newer edit of each field stays (lib/newer-wins.js); the length and
+  // how a plan moves on go together.
+  const existingRow = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  const body = { ...req.body };
+  const times = applyToBody(req, existingRow, body, {
+    fields: ['name', 'description', 'goal', 'visibility', 'duration_weeks', 'advance_mode', 'on_complete'],
+    groups: [['duration_weeks', 'advance_mode', 'on_complete']],
+    current: f => existingRow[f],
+  });
+  const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = body;
   db.prepare(
     `UPDATE programs SET name=COALESCE(?,name), description=COALESCE(?,description),
             goal=COALESCE(?,goal), visibility=COALESCE(?,visibility),
             duration_weeks=COALESCE(?,duration_weeks), advance_mode=COALESCE(?,advance_mode),
-            on_complete=COALESCE(?,on_complete) WHERE id=?`
+            on_complete=COALESCE(?,on_complete), field_times=? WHERE id=?`
   ).run(
     name || null, description, goal || null, visibility || null,
     duration_weeks != null ? clampDuration(duration_weeks) : null,
     advance_mode != null ? advanceMode(advance_mode) : null,
     on_complete != null ? onComplete(on_complete) : null,
+    times,
     id
   );
   res.json(db.prepare('SELECT * FROM programs WHERE id = ?').get(id));
@@ -222,6 +239,13 @@ function onComplete(v) { return v === 'repeat' ? 'repeat' : 'hold'; }
 router.delete('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
   if (refuse(res, programFor(id, uid(req)), true)) return;
+  // Deleted offline before an edit made elsewhere: the edit is newer, the
+  // program stays (lib/newer-wins.js).
+  const row = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  // Already deleted: done.
+  if (!row || row.deleted_at) return res.json({ ok: true });
+  const later = deleteLoses(req, row);
+  if (later) return refuseDelete(res, row, later);
   db.prepare('DELETE FROM programs WHERE id = ?').run(id);
   res.json({ ok: true });
 }));

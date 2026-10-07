@@ -8,6 +8,7 @@
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
+  import AccountCheckError from './components/AccountCheckError.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
   import { initFold } from './lib/fold.js';
@@ -23,7 +24,9 @@
   $: if ($language) locale.set($language);
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
-  import { syncState } from './lib/sync.js';
+  import { syncState, forgetRefused } from './lib/sync.js';
+  import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
+  import { get as getStore } from 'svelte/store';
   import { offlineState } from './lib/offline-api.js';
   import NativeSetup from './routes/NativeSetup.svelte';
 
@@ -50,6 +53,12 @@
     const _say = $offlineState.refused.map(r => $_('sync.refused', { values: { what: r.what, reason: r.reason } }));
     import('./stores/toast.js').then(({ showError }) => _say.forEach(m => showError(m)));
     import('./lib/offline-api.js').then(m => m.forgetRefused());
+  }
+  // The same on Android, for changes queued offline there (lib/sync.js).
+  $: if (isNative && ($syncState.refused || []).length) {
+    const _sayNative = $syncState.refused.map(r => $_('sync.refused', { values: { what: r.what, reason: r.reason } }));
+    forgetRefused();
+    import('./stores/toast.js').then(({ showError }) => _sayNative.forEach(m => showError(m)));
   }
   // Reactive copy build for the smart connection banner. Falls back to
   // the generic "Sync error" title when a non-connection error is
@@ -394,8 +403,14 @@
         // process lived. Stopping loses nothing: coming back fires a sync of
         // its own (the resume listener below).
         let poll = null;
+        // Only for an account that is signed in and whose data is shown: a
+        // signed-out phone (or one still being checked) has nothing to sync.
         const startPolling = () => {
-          if (poll == null) poll = setInterval(() => sync.fullSync(true).catch(() => {}), 30000);
+          if (poll == null) poll = setInterval(() => {
+            const user = getStore(currentUser);
+            if (user?.id == null || !accountReadyFor(getStore(accountGate), user.id)) return;
+            sync.fullSync(true).catch(() => {});
+          }, 30000);
         };
         const stopPolling = () => {
           if (poll != null) { clearInterval(poll); poll = null; }
@@ -570,6 +585,11 @@
       }
     } catch {}
 
+    // A copy an earlier version kept for a server is tagged as the account
+    // last signed in here, before anyone signs in (lib/local-account.js).
+    if (isNative && getNativeMode() === 'server') {
+      try { await (await import('./lib/local-account.js')).tagLegacyCopy(); } catch { /* no local database */ }
+    }
     try { await loadAuthState(); } finally { authLoaded = true; }
 
     // Env-lock state for AI / SMTP / OIDC. Fetched globally so the Trace
@@ -691,6 +711,26 @@
       _wasNeedsLogin = true;
     }
   }
+
+  // Android, server mode: the phone's copy of the data must be this
+  // account's before the app shows any of it (lib/local-account.js). A
+  // different account than last time clears the copy; if that account
+  // left changes that never went up, the person is asked first, and
+  // saying no signs them back out. Every sign-in path ends by setting
+  // $currentUser, so this is the one place that sees them all. Keyed on
+  // the id, so a refreshed user object doesn't ask again; the gate itself
+  // runs one check per account at a time.
+  $: _accountId = isNative && getNativeMode() === 'server' && $currentUser?.id != null ? $currentUser.id : null;
+  $: if (_accountId != null) _checkAccount();
+  $: accountReady = _accountId == null || accountReadyFor($accountGate, _accountId);
+  async function _checkAccount() {
+    const user = getStore(currentUser);
+    if (!user || user.id == null) return;
+    const ok = await ensureLocalAccount(user, {
+      signOut: async () => { const { logout } = await import('./stores/auth.js'); await logout(); },
+    });
+    if (ok) import('./lib/sync.js').then(m => m.fullSync()).catch(() => {});
+  }
 </script>
 
 <svelte:window
@@ -707,6 +747,13 @@
   <!-- Asking the server who is signed in: a blank page, never the app. -->
 {:else if needsLogin}
   <Login />
+{:else if !accountReady}
+  <!-- Checking the phone's copy is this account's: never another account's data. -->
+  {#if $accountGate.state === 'error'}
+    <AccountCheckError on:retry={_checkAccount} on:signout={async () => { const { logout } = await import('./stores/auth.js'); await logout(); }} />
+  {/if}
+  <Toast />
+  <ConfirmDialogMount />
 {:else}
 
 <Sidebar bind:open={sidebarOpen} persistent={sidebarPinned} on:close={() => { if (!sidebarPinned) sidebarOpen = false; }} />

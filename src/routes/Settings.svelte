@@ -122,6 +122,8 @@
   let mergeProgressPct = 0;
   let mergeStage = '';
   let _pendingServerUrl = '';
+  let _pendingUserId = null;
+  let _connectMode = null;  // 'upload' | 'download' | 'merge' | null (no local data)
   let localCounts = null;   // counts from migrate.countLocalData()
   let migrationSummary = null;
 
@@ -160,10 +162,12 @@
       _pendingServerUrl = url;
       if (loginData.token) setAuthToken(loginData.token);
       if (loginData.user?.id) localStorage.setItem('wl:userId', String(loginData.user.id));
+      _pendingUserId = loginData.user?.id ?? null;
+      _connectMode = null;
 
       // Count local data so the merge dialog can show what's about to move
       const { countLocalData } = await import('../lib/migrate.js');
-      localCounts = await countLocalData();
+      localCounts = await countLocalData({ serverUrl: url, userId: _pendingUserId });
 
       if (localCounts.total > 0) {
         mergeStep = 'ask-settings';
@@ -178,6 +182,14 @@
   }
 
   async function _mergeAndConnect(mode) {
+    // Download replaces the phone's data. Changes from an earlier
+    // connection that never went up are part of it: asked about, never
+    // dropped without a word (lib/local-account.js).
+    if (mode === 'download') {
+      const { settleQueuedChanges } = await import('../lib/local-account.js');
+      if (!(await settleQueuedChanges('download', { send: false }))) return;
+    }
+    _connectMode = mode;
     mergeStep = 'syncing';
     mergeProgress = '';
     mergeProgressPct = 0;
@@ -201,6 +213,7 @@
           customExercises: 'custom exercises',
         };
         migrationSummary = await uploadLocalToServer({
+          userId: _pendingUserId,
           onProgress: (stage, current, total) => {
             mergeStage = stageLabels[stage] || stage;
             mergeProgress = `Uploading ${mergeStage} (${current + 1} / ${total})`;
@@ -224,7 +237,20 @@
     }
   }
 
-  function _finalizeConnect() {
+  async function _finalizeConnect() {
+    // The phone's data is this account's from now on, as chosen above:
+    // Download empties it so it fills from the server (the setup screen's
+    // Replace with Server does the same); otherwise it's kept and goes up.
+    // Signing in after the reload then neither asks nor clears.
+    if (_pendingUserId != null) {
+      try {
+        const { claimForServer } = await import('../lib/local-account.js');
+        await claimForServer(_pendingServerUrl, _pendingUserId, { clear: _connectMode === 'download' });
+      } catch (e) {
+        showError(e?.message || String(e));
+        return;
+      }
+    }
     setServerUrl(_pendingServerUrl);
     setNativeMode('server');
     serverMode = 'server';
@@ -240,12 +266,36 @@
     migrationSummary = null;
   }
 
+  // Disconnect is making the account's rows the phone's own (shown on the
+  // button; the app doesn't sync meanwhile).
+  let disconnecting = false;
   async function disconnectServer() {
+    if (disconnecting) return;
+    // Changes still queued for this server go up first; any that can't are
+    // asked about. Left queued, they'd go up later under whichever account
+    // the phone connects to next.
+    try {
+      const { settleQueuedChanges, setLocalOwner } = await import('../lib/local-account.js');
+      if (!(await settleQueuedChanges('disconnect'))) return;
+      // The phone's data is its own now, and goes to whichever account it's
+      // connected to next.
+      disconnecting = true;
+      await setLocalOwner();
+    } catch (e) {
+      // Not made the phone's own: still this account's, so stay connected
+      // rather than leave it to be cleared by the next sign-in.
+      disconnecting = false;
+      showError(e?.message || String(e));
+      return;
+    }
     setServerUrl(null);
     setAuthToken(null);
     setNativeMode('local');
 
-    localStorage.removeItem('wl:userId');
+    // The phone's own user from now on (standalone mode is user 1), set up
+    // already: it was in use. Removed, the first-run welcome came back.
+    localStorage.setItem('wl:userId', '1');
+    localStorage.setItem('wl_u1_setupComplete', 'true');
 
     currentUser.set(null);
     userMgmtActive.set(false);
@@ -1339,9 +1389,9 @@
                 <span class="material-symbols-rounded" style="font-size:18px">logout</span>
                 Log Out
               </button>
-              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer}>
-                <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
-                Disconnect &amp; Use Locally
+              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer} disabled={disconnecting}>
+                <span class="material-symbols-rounded" style="font-size:18px">{disconnecting ? 'progress_activity' : 'link_off'}</span>
+                {#if disconnecting}{$_('sync.disconnecting')}{:else}Disconnect &amp; Use Locally{/if}
               </button>
             </div>
           {:else}
@@ -1543,6 +1593,7 @@
             {#if localCounts.programs        > 0}<div><strong>{localCounts.programs}</strong> {localCounts.programs === 1 ? 'program' : 'programs'}</div>{/if}
             {#if localCounts.templates       > 0}<div><strong>{localCounts.templates}</strong> {localCounts.templates === 1 ? 'template' : 'templates'}</div>{/if}
             {#if localCounts.customExercises > 0}<div><strong>{localCounts.customExercises}</strong> custom {localCounts.customExercises === 1 ? 'exercise' : 'exercises'}</div>{/if}
+            {#if localCounts.cardio          > 0}<div>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</div>{/if}
             {#if localCounts.settings        > 0}<div><strong>{localCounts.settings}</strong> settings</div>{/if}
           </div>
         </div>

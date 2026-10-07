@@ -6,6 +6,8 @@ import { requireAuth, uid, userMgmtActive } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
 import { foldText } from '../lib/search-text.js';
+import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
+import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -165,9 +167,12 @@ router.post('/', wrap((req, res) => {
   const img_url = localizeDataUrl(req.body?.img_url);
   const gif_url = localizeDataUrl(req.body?.gif_url);
   if (!name) return res.status(400).json({ error: 'Name required' });
-  const result = db.prepare(
-    `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type, source, is_global, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?)`
+  // Sent again after its answer was lost: the exercise it made (create-keys.js).
+  const before = createdBefore(req, uid(req), 'exercises');
+  if (before?.gone) return answerGone(res);
+  const result = before ? null : db.prepare(
+    `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, load_type, set_type, source, is_global, created_by, field_times)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?, ?)`
   ).run(
     name, category || null,
     JSON.stringify(primary_muscles || []),
@@ -177,9 +182,11 @@ router.post('/', wrap((req, res) => {
     img_url || null, gif_url || null, video_url || null,
     _cleanLoadType(load_type),
     _cleanSetType(set_type),
-    uid(req)
+    uid(req),
+    createdTimes(req)
   );
-  const exercise = db.prepare('SELECT * FROM exercises WHERE id = ?').get(result.lastInsertRowid);
+  if (result) rememberCreated(req, uid(req), 'exercises', result.lastInsertRowid);
+  const exercise = before || db.prepare('SELECT * FROM exercises WHERE id = ?').get(result.lastInsertRowid);
   exercise.primary_muscles   = JSON.parse(exercise.primary_muscles || '[]');
   exercise.secondary_muscles = JSON.parse(exercise.secondary_muscles || '[]');
   exercise.equipment         = JSON.parse(exercise.equipment || '[]');
@@ -202,11 +209,20 @@ router.put('/:id', wrap((req, res) => {
     return res.status(403).json({ error: 'Library exercises are shared, so they cannot be edited.' });
   }
   if (!canChangeExercise(existing, uid(req))) return res.status(404).json({ error: 'Exercise not found' });
-  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, video_url, load_type, set_type } = req.body;
+  // The newer edit of each field stays (lib/newer-wins.js); the pictures
+  // and video go together.
+  const body = { ...req.body };
+  const JSON_FIELDS = new Set(['primary_muscles', 'secondary_muscles', 'equipment']);
+  const times = applyToBody(req, existing, body, {
+    fields: ['name', 'category', 'primary_muscles', 'secondary_muscles', 'equipment', 'instructions', 'tips', 'img_url', 'gif_url', 'video_url', 'load_type', 'set_type'],
+    groups: [['img_url', 'gif_url', 'video_url']],
+    current: f => (JSON_FIELDS.has(f) ? JSON.parse(existing[f] || '[]') : existing[f]),
+  });
+  const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, video_url, load_type, set_type } = body;
   // A picture chosen with no connection arrives embedded in the row; it
   // becomes a file here, so everything downstream sees an ordinary path.
-  const img_url = localizeDataUrl(req.body?.img_url);
-  const gif_url = localizeDataUrl(req.body?.gif_url);
+  const img_url = localizeDataUrl(body?.img_url);
+  const gif_url = localizeDataUrl(body?.gif_url);
   // set_type follows the same omitted/null/explicit rules as load_type.
   const nextSetType = set_type === undefined
     ? existing.set_type
@@ -219,7 +235,7 @@ router.put('/:id', wrap((req, res) => {
     : (load_type === null ? null : _cleanLoadType(load_type));
   db.prepare(
     `UPDATE exercises SET name=?, category=?, primary_muscles=?, secondary_muscles=?, equipment=?,
-     instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, load_type=?, set_type=? WHERE id=?`
+     instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, load_type=?, set_type=?, field_times=? WHERE id=?`
   ).run(
     name || existing.name, category ?? existing.category,
     JSON.stringify(primary_muscles || JSON.parse(existing.primary_muscles || '[]')),
@@ -229,6 +245,7 @@ router.put('/:id', wrap((req, res) => {
     img_url ?? existing.img_url, gif_url ?? existing.gif_url, video_url ?? existing.video_url,
     nextLoadType,
     nextSetType,
+    times,
     id
   );
   const updated = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
@@ -241,11 +258,12 @@ router.put('/:id', wrap((req, res) => {
 // DELETE /api/exercises/custom/all — bulk-delete every custom exercise the
 // user created. Must be declared BEFORE the generic /:id route so Express
 // doesn't route '/custom' through the id handler.
+// Without user accounts (uid() null) the one operator's exercises have no
+// maker, as everywhere else (lib/exercise-owner.js); this used to refuse them.
 router.delete('/custom/all', wrap((req, res) => {
   const userId = uid(req);
-  if (userId == null) return res.status(401).json({ error: 'auth required' });
   const r = db.prepare(
-    "DELETE FROM exercises WHERE is_global = 0 AND source = 'custom' AND created_by = ?"
+    "DELETE FROM exercises WHERE is_global = 0 AND source = 'custom' AND created_by IS ?"
   ).run(userId);
   res.json({ ok: true, removed: r.changes });
 }));
@@ -253,12 +271,15 @@ router.delete('/custom/all', wrap((req, res) => {
 // DELETE /api/exercises/:id
 router.delete('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  const row = db.prepare('SELECT id, is_global, created_by FROM exercises WHERE id = ?').get(id);
-  // Already gone is still a success, so a delete replayed from a phone or
-  // the offline queue does not come back as a refusal.
-  if (!row) return res.json({ ok: true });
+  const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
+  // Already gone (or cleared: soft-deleted) is still a success, so a delete
+  // replayed from a phone or the offline queue does not come back as a
+  // refusal, or as "kept".
+  if (!row || row.deleted_at) return res.json({ ok: true });
   // Only your own custom exercises; this used to delete anyone's by id.
   if (!canChangeExercise(row, uid(req))) return res.status(404).json({ error: 'Exercise not found' });
+  const later = deleteLoses(req, row);
+  if (later) return refuseDelete(res, row, later);
   db.prepare('DELETE FROM exercises WHERE id = ?').run(id);
   res.json({ ok: true });
 }));

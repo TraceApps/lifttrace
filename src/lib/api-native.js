@@ -22,6 +22,8 @@ import { currentPlanWeek } from './programWeek.js';
 import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
 import { musclesOf } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
+import { getServerUrl } from './platform.js';
+import { newTempId } from './offline-edits.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -46,6 +48,26 @@ const _parseJson = (s, fallback) => {
 };
 
 const _stringify = v => v == null ? null : (typeof v === 'string' ? v : JSON.stringify(v));
+
+// A row made here while connected to a server, but offline, gets an id below
+// zero. The server's ids are all above it, so the two can never be taken for
+// each other: a pull never lands on it, and the queued write goes up without
+// naming a server row by accident. sync.js swaps in the server's id once the
+// row is there. Standalone keeps its own counting (null: AUTOINCREMENT).
+const _newId = () => (getServerUrl() ? newTempId() : null);
+
+// Who made a program or exercise here: the signed-in account when connected
+// to a server, as the server will record it (null on a server without
+// accounts), or this device's one user (1) standalone. It was always 1, so
+// on a server a program made offline by any account but the first read as
+// someone else's (ProgramDetail, WorkoutEditor) and lost its day editing
+// until it synced, and Delete all custom exercises offline matched nothing.
+function _owner() {
+  if (!getServerUrl()) return ME;
+  let id = null;
+  try { id = Number(localStorage.getItem('wl:userId')); } catch { /* no storage */ }
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
 
 /**
  * Convert a row out of the exercises table back into the shape the client
@@ -276,12 +298,14 @@ const Exercises = {
     return _exerciseFromRow(rows[0]);
   },
   async create(body) {
+    const newId = _newId();
     const r = await dbRun(
       `INSERT INTO exercises
-        (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips,
+        (id, name, category, primary_muscles, secondary_muscles, equipment, instructions, tips,
          img_url, gif_url, video_url, load_type, set_type, source, is_global, created_by, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
+        newId,
         body.name,
         body.category || null,
         _stringify(body.primary_muscles || []),
@@ -296,12 +320,12 @@ const Exercises = {
         _cleanSetType(body.set_type),
         body.source || 'custom',
         body.is_global ? 1 : 0,
-        ME,
+        _owner(),
         _now(),
         _now(),
       ]
     );
-    return Exercises.get(r.lastId);
+    return Exercises.get(newId ?? r.lastId);
   },
   async update(id, body) {
     const sets = [];
@@ -334,7 +358,7 @@ const Exercises = {
     return { ok: true };
   },
   async deleteAllCustom() {
-    const r = await dbRun(`UPDATE exercises SET deleted_at = ?, sync_state = 'pending' WHERE created_by = ? AND is_global = 0 AND deleted_at IS NULL`, [_now(), ME]);
+    const r = await dbRun(`UPDATE exercises SET deleted_at = ?, sync_state = 'pending' WHERE created_by IS ? AND is_global = 0 AND deleted_at IS NULL`, [_now(), _owner()]);
     // `removed`, as the server answers: Settings reports the count.
     return { ok: true, removed: r?.changes || 0 };
   },
@@ -591,16 +615,17 @@ const Programs = {
     return out;
   },
   async create(body) {
+    const newId = _newId();
     const r = await dbRun(
-      `INSERT INTO programs (name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      `INSERT INTO programs (id, name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
-        body.name, body.description || null, body.goal || 'general', ME, body.visibility || 'private',
+        newId, body.name, body.description || null, body.goal || 'general', _owner(), body.visibility || 'private',
         _clampDuration(body.duration_weeks), _advanceMode(body.advance_mode), _onComplete(body.on_complete),
         _now(), _now(),
       ]
     );
-    return Programs.get(r.lastId);
+    return Programs.get(newId ?? r.lastId);
   },
   async update(id, body) {
     const sets = [];
@@ -625,11 +650,11 @@ const Programs = {
   async activate(id) {
     await dbRun(`UPDATE program_assignments SET active = 0 WHERE assigned_to = ?`, [ME]);
     await dbRun(
-      `INSERT INTO program_assignments (program_id, assigned_to, active, assigned_at)
-       VALUES (?, ?, 1, ?)
+      `INSERT INTO program_assignments (id, program_id, assigned_to, active, assigned_at)
+       VALUES (?, ?, ?, 1, ?)
        ON CONFLICT(program_id, assigned_to)
        DO UPDATE SET active = 1, assigned_at = excluded.assigned_at`,
-      [id, ME, _now()]
+      [_newId(), id, ME, _now()]
     );
     return { ok: true };
   },
@@ -666,7 +691,8 @@ const Programs = {
     return { ok: true, week: week ?? null };
   },
   async reorder(id, body) {
-    const order = Array.isArray(body?.order) ? body.order : [];
+    // The app sends { ids } (api.js reorderTemplates), as the server reads it.
+    const order = Array.isArray(body?.ids) ? body.ids : Array.isArray(body?.order) ? body.order : [];
     for (let i = 0; i < order.length; i++) {
       await dbRun(
         `UPDATE workout_templates SET order_index = ?, updated_at = ?, sync_state = 'pending' WHERE id = ? AND program_id = ?`,
@@ -688,10 +714,12 @@ const Templates = {
   async get(id) {
     // Join the parent program's duration_weeks so the WorkoutEditor renders the
     // right number of week tabs (matches the server's GET /api/templates/:id).
+    // A day a coach prescribed comes without its program, so the program is
+    // optional: without it the day still opens, as one week.
     const rows = await dbQuery(
-      `SELECT wt.*, p.duration_weeks
+      `SELECT wt.*, COALESCE(p.duration_weeks, 1) AS duration_weeks
          FROM workout_templates wt
-         JOIN programs p ON p.id = wt.program_id
+         LEFT JOIN programs p ON p.id = wt.program_id
         WHERE wt.id = ? AND wt.deleted_at IS NULL`,
       [id]
     );
@@ -701,16 +729,17 @@ const Templates = {
     const max = (await dbQuery(
       `SELECT COALESCE(MAX(order_index), -1) AS m FROM workout_templates WHERE program_id = ?`, [body.program_id]
     ))[0]?.m ?? -1;
+    const newId = _newId();
     const r = await dbRun(
-      `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, created_at, updated_at, sync_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      `INSERT INTO workout_templates (id, program_id, name, day_label, order_index, exercises, created_at, updated_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
-        body.program_id, body.name, body.day_label || null,
+        newId, body.program_id, body.name, body.day_label || null,
         body.order_index != null ? body.order_index : max + 1,
         _stringify(body.exercises || []), _now(), _now(),
       ]
     );
-    return Templates.get(r.lastId);
+    return Templates.get(newId ?? r.lastId);
   },
   async update(id, body) {
     const sets = [];
@@ -837,13 +866,14 @@ const Workout = {
         ))[0];
         nextSeq = r?.n ?? 0;
       }
+      const newId = _newId();
       const ins = await dbRun(
         `INSERT INTO workout_log
-          (user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week,
+          (id, user_id, date, template_id, program_id, name, exercises, notes, duration_min, completed, program_week,
            session_seq, created_at, updated_at, sync_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
         [
-          ME, date,
+          newId, ME, date,
           body.template_id ?? null,
           body.program_id  ?? null,
           body.name ?? null,
@@ -856,7 +886,7 @@ const Workout = {
           _now(), _now(),
         ]
       );
-      targetId = ins.lastId;
+      targetId = newId ?? ins.lastId;
     }
 
     // Option C (2026-08-11): persist any explicit per-entry deletions
@@ -952,9 +982,9 @@ const BodyStats = {
       );
     } else {
       await dbRun(
-        `INSERT INTO body_stats_log (user_id, date, stats, updated_at, sync_state)
-         VALUES (?, ?, ?, ?, 'pending')`,
-        [ME, date, _stringify(stats), _now()]
+        `INSERT INTO body_stats_log (id, user_id, date, stats, updated_at, sync_state)
+         VALUES (?, ?, ?, ?, ?, 'pending')`,
+        [_newId(), ME, date, _stringify(stats), _now()]
       );
     }
     return BodyStats.get(date);
@@ -996,12 +1026,13 @@ const Cardio = {
     const unit = (body.distance_unit === 'mi' || body.distance_unit === 'km') ? body.distance_unit : 'km';
     const notes = body.notes ? String(body.notes).trim() : null;
     const isTpl = body.is_template ? 1 : 0;
+    const newId = _newId();
     const r = await dbRun(
-      `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [ME, body.date, activity, dm, Number.isFinite(dist) ? dist : null, unit, Number.isFinite(hr) ? hr : null, notes, isTpl, _now(), _now()]
+      `INSERT INTO cardio_log (id, user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, ME, body.date, activity, dm, Number.isFinite(dist) ? dist : null, unit, Number.isFinite(hr) ? hr : null, notes, isTpl, _now(), _now()]
     );
-    const rows = await dbQuery(`SELECT * FROM cardio_log WHERE id = ?`, [r.lastId]);
+    const rows = await dbQuery(`SELECT * FROM cardio_log WHERE id = ?`, [newId ?? r.lastId]);
     return rows[0];
   },
   async update(id, body) {
@@ -1408,9 +1439,9 @@ async function handle(method, path, body, query) {
     if (id === 'sources' && sub === 'clear'  && m === 'POST')   return Exercises.sourcesClear(body?.source);
     if (id === 'sources')                                        Exercises.unsupported();
     if (id === 'sync-wger' && m === 'POST')                     return Exercises.sourcesImport('wger');
-    if (/^\d+$/.test(id) && m === 'GET')    return Exercises.get(Number(id));
-    if (/^\d+$/.test(id) && m === 'PUT')    return Exercises.update(Number(id), body || {});
-    if (/^\d+$/.test(id) && m === 'DELETE') return Exercises.del(Number(id));
+    if (/^-?\d+$/.test(id) && m === 'GET')    return Exercises.get(Number(id));
+    if (/^-?\d+$/.test(id) && m === 'PUT')    return Exercises.update(Number(id), body || {});
+    if (/^-?\d+$/.test(id) && m === 'DELETE') return Exercises.del(Number(id));
   }
 
   // ── /api/exercise-import ──────────────────────────────────────────────
@@ -1459,7 +1490,7 @@ async function handle(method, path, body, query) {
               _str(raw?.gif_url),
               _str(raw?.video_url),
               source,
-              ME,
+              _owner(),
               _now(),
               _now(),
             ]
@@ -1526,12 +1557,12 @@ async function handle(method, path, body, query) {
     if (!id                  && m === 'GET')    return Programs.list();
     if (!id                  && m === 'POST')   return Programs.create(body || {});
     if (id === 'deactivate'  && m === 'POST')   return Programs.deactivate();
-    if (/^\d+$/.test(id) && m === 'GET')        return Programs.get(Number(id));
-    if (/^\d+$/.test(id) && m === 'PUT')        return Programs.update(Number(id), body || {});
-    if (/^\d+$/.test(id) && m === 'DELETE')     return Programs.del(Number(id));
-    if (/^\d+$/.test(id) && sub === 'activate'    && m === 'POST') return Programs.activate(Number(id));
-    if (/^\d+$/.test(id) && sub === 'week-cursor' && m === 'POST') return Programs.setWeekCursor(Number(id), body || {});
-    if (/^\d+$/.test(id) && sub === 'reorder'     && m === 'PUT')  return Programs.reorder(Number(id), body || {});
+    if (/^-?\d+$/.test(id) && m === 'GET')        return Programs.get(Number(id));
+    if (/^-?\d+$/.test(id) && m === 'PUT')        return Programs.update(Number(id), body || {});
+    if (/^-?\d+$/.test(id) && m === 'DELETE')     return Programs.del(Number(id));
+    if (/^-?\d+$/.test(id) && sub === 'activate'    && m === 'POST') return Programs.activate(Number(id));
+    if (/^-?\d+$/.test(id) && sub === 'week-cursor' && m === 'POST') return Programs.setWeekCursor(Number(id), body || {});
+    if (/^-?\d+$/.test(id) && sub === 'reorder'     && m === 'PUT')  return Programs.reorder(Number(id), body || {});
     // /api/programs/:id/assign[/:userId] — POST (assign) or DELETE (unassign).
     // Standalone has no other user to assign to, so these are no-ops here.
     // In native+server mode the dispatcher hits the server first and only
@@ -1543,9 +1574,9 @@ async function handle(method, path, body, query) {
   // ── /api/templates ─────────────────────────────────────────────────────
   if (r === 'templates') {
     if (!id              && m === 'POST')   return Templates.create(body || {});
-    if (/^\d+$/.test(id) && m === 'GET')    return Templates.get(Number(id));
-    if (/^\d+$/.test(id) && m === 'PUT')    return Templates.update(Number(id), body || {});
-    if (/^\d+$/.test(id) && m === 'DELETE') return Templates.del(Number(id));
+    if (/^-?\d+$/.test(id) && m === 'GET')    return Templates.get(Number(id));
+    if (/^-?\d+$/.test(id) && m === 'PUT')    return Templates.update(Number(id), body || {});
+    if (/^-?\d+$/.test(id) && m === 'DELETE') return Templates.del(Number(id));
   }
 
   // ── /api/workout/:date | /api/workout/recent | /api/workout/history/:exerciseId ─
@@ -1555,7 +1586,7 @@ async function handle(method, path, body, query) {
   // (native) or from the server (PWA).
   if (r === 'workout') {
     if (id === 'recent'  && m === 'GET') return Workout.recent(query?.limit);
-    if (id === 'history' && /^\d+$/.test(sub) && m === 'GET') return Workout.historyFor(Number(sub));
+    if (id === 'history' && /^-?\d+$/.test(sub) && m === 'GET') return Workout.historyFor(Number(sub));
     if (id === 'history' && sub) return [];
     // /api/workout/:date/feedback — no local store for feedback in
     // standalone; return empty list so the diary renders cleanly.
@@ -1584,8 +1615,8 @@ async function handle(method, path, body, query) {
     if (id === 'templates'                   && m === 'GET')    return Cardio.templates();
     // Bare /:date fetches sessions for a single day.
     if (id && /^\d{4}-\d{2}-\d{2}$/.test(id) && m === 'GET')    return Cardio.byDate(id);
-    if (id && /^\d+$/.test(id)               && m === 'PUT')    return Cardio.update(Number(id), body || {});
-    if (id && /^\d+$/.test(id)               && m === 'DELETE') return Cardio.del(Number(id));
+    if (id && /^-?\d+$/.test(id)               && m === 'PUT')    return Cardio.update(Number(id), body || {});
+    if (id && /^-?\d+$/.test(id)               && m === 'DELETE') return Cardio.del(Number(id));
   }
 
   // ── /api/stats/* ──────────────────────────────────────────────────────
@@ -1602,7 +1633,7 @@ async function handle(method, path, body, query) {
     if (id === 'muscle-group-volume')    return Stats.muscleGroupVolume(from, to);
     if (id === 'muscle-effective-sets')  return Stats.muscleEffectiveSets(from, to);
     if (id === 'weekday-distribution')   return Stats.weekdayDistribution(from, to);
-    if (id === 'progress' && /^\d+$/.test(sub)) return Stats.progressFor(Number(sub), from, to);
+    if (id === 'progress' && /^-?\d+$/.test(sub)) return Stats.progressFor(Number(sub), from, to);
   }
 
   // ── /api/ai/* ─────────────────────────────────────────────────────────
@@ -1731,8 +1762,8 @@ async function handle(method, path, body, query) {
     if (!workouts.length) throw new Error('No workouts found in file');
 
     const library = await dbQuery(
-      `SELECT id, name FROM exercises WHERE (is_global = 1 OR created_by = ?) AND deleted_at IS NULL`,
-      [ME]
+      `SELECT id, name FROM exercises WHERE (is_global = 1 OR created_by IS ?) AND deleted_at IS NULL`,
+      [_owner()]
     );
 
     // ── /preview ──────────────────────────────────────────────────────

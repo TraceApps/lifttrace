@@ -347,6 +347,10 @@ let _latestDate = null;
 // gets applied locally; the save itself, and its promise, always
 // complete normally.
 let _epoch = 0;
+// Moved when the account changes (resetWorkoutState): a save made under
+// the previous one that fires afterwards is dropped, never sent under the
+// next.
+let _accountEpoch = 0;
 // The epoch _latestEntry was stamped in, checked by BOTH the debounced
 // timer callback below AND flushWorkoutSave (issue #86) -- a plain
 // per-call closure variable would only guard the timer path, leaving
@@ -378,9 +382,11 @@ export function saveWorkout(dateStr, entry) {
   _latestDate  = dateStr;
   _latestEntryEpoch = _epoch; // see the _epoch declaration above (issue #86)
 
+  const account = _accountEpoch;
   return new Promise((resolve, reject) => {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(async () => {
+      if (account !== _accountEpoch) { resolve(stamped); return; }
       const toSave = _latestEntry;
       const toSaveEpoch = _latestEntryEpoch;
       try {
@@ -432,6 +438,21 @@ export async function flushWorkoutSave(dateStr) {
       _latestDate  = null;
     }
   } catch {}
+}
+
+/** The account changed: nothing of the last one's workout stays on show,
+ *  and a save of it still waiting is dropped (its promise still resolves). */
+export function resetWorkoutState() {
+  _accountEpoch++;
+  _epoch++;
+  _latestEntry = null;
+  _latestDate = null;
+  _snapshotByDate.clear();
+  todayLog.set(null);
+  todaySessions.set([]);
+  currentSessionId.set(null);
+  activeProgram.set(null);
+  todayPrescription.set(null);
 }
 
 /** Derived: count of completed sets today */

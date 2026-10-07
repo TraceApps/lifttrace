@@ -219,7 +219,53 @@ changes it later.
 - **Local SQLite:** `src/lib/db-native.js` mirrors all 13 server
   tables plus `sync_meta` + `sync_queue`. Each mutable table has
   `updated_at` / `deleted_at` / `sync_state` columns
-- **Differential sync:** `src/lib/sync.js` handles push/pull cycles
+- **Differential sync:** `src/lib/sync.js` handles push/pull cycles,
+  one at a time, each request with a deadline. Offline writes are
+  queued requests replayed in order; a write that names a row the
+  server doesn't have yet joins the queue even when online. A row made
+  offline has an id below zero until its create goes up, then it and
+  every queued write naming it take the server's id; creates carry a
+  `client_key` the server dedupes on (`server/lib/create-keys.js`).
+  Every row only this device has has an id below zero: made offline,
+  made standalone (renumbered when the copy becomes an account's, or
+  before an Upload), or everything the account had here after Disconnect
+  (`renumberLocalRows`, which also records each row's origin in
+  `row_origin` so connecting back to that account puts it back:
+  `adoptLocalCopy`); a copy from an earlier version is sorted out once,
+  against the server's list (queued creates linked to their rows only on
+  an exact match). Moving rows to new ids is one transaction of a few
+  dozen statements (`id_remap`), and no sync runs while Disconnect does
+  it. So an id above zero always means the server's row. A pull writes over it, or deletes
+  it when the server did, except while a queued write is about to change
+  it (it asks for those again next time, for up to an hour; after that,
+  once the queue has gone up, it pulls everything). Rows below zero are
+  never touched by a pull (body stats on a day the server also has are
+  merged), and are created on the server, under a key, the first time a
+  write names them. The server also sends rows deleted outright
+  (`sync_deletions`), the full list of programs and program workouts the
+  account may keep, and, without user accounts, the program being
+  followed; the pull is gzipped. The local copy, its queue included,
+  belongs to one account on one server (`src/lib/local-account.js`,
+  tagged with the server's `instance_id` from `/api/auth/status`, its
+  address and the user id; a copy from before tags is tagged at startup
+  as the account last signed in). App.svelte checks it before showing
+  anything: another account clears it (asking first if the previous one
+  left changes waiting), the same user id at another address with an
+  instance id unknown is asked about, and a sync refuses while it is
+  another account's (or might be). Claiming a copy is one at a time. Each sync reads the session once. Before the copy changes
+  hands (another account, Connect, Disconnect, sign-out), a running sync
+  is stopped and waited for (`src/lib/account-gen.js`: every sync checks
+  the number before it writes), and what the app holds in memory for the
+  account is reset (`src/lib/user-state.js`). A queued edit carries the
+  time it was made (on the server's clock, from the last pull) and the
+  fields it changed (`X-Edited-At`, `X-Changed-Fields`); the server keeps
+  the newer edit of each field, or group of fields, from each row's
+  `field_times` (`server/lib/newer-wins.js`; a create is stamped with its
+  own edit time, and updated_at, which housekeeping moves, never counts); a
+  delete loses (409) to a later edit of the row. The web app's outbox sends the same headers,
+  on the clock from `X-Server-Time`. Sessions come from the
+  `Authorization` header before the cookie when it is one of this server's
+  (`req.authVia`). Signed out, no sync runs.
 - **Image cache:** `src/lib/image-cache.js` downloads exercise media
   via Filesystem to `Directory.Data/lifttrace-images/`,
   `resolveAssetUrl()` swaps in local `file://` URIs synchronously

@@ -55,7 +55,10 @@
   let assignMembers = [];
   let assigning = false;
   $: isCoach = $currentUser?.role === 'trainer' || $currentUser?.role === 'admin';
-  $: isOwner = $currentUser && program && program.created_by === $currentUser.id;
+  // On a server without accounts nothing has a maker: your programs are the
+  // ones that aren't starters, as the server sees it (lib/program-access.js).
+  $: isOwner = !!($currentUser && program && (program.created_by === $currentUser.id
+    || (!$userMgmtActive && program.created_by == null && program.visibility !== 'shared')));
   // Someone else's program (a coach's, assigned to you): its workouts open
   // but don't change, as on the server (lib/program-access.js). Only when
   // the maker is known to be another account, so nothing of your own

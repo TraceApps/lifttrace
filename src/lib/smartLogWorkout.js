@@ -77,6 +77,11 @@ export async function parseInput(text) {
 // Build a lowercased name → library candidates map. Cached per session.
 let _libraryCache = null;
 let _libraryCacheAt = 0;
+/** Another account: its own exercises aren't this one's (lib/user-state.js). */
+export function forgetLibraryCache() {
+  _libraryCache = null;
+  _libraryCacheAt = 0;
+}
 async function _getLibrary() {
   const now = Date.now();
   if (_libraryCache && now - _libraryCacheAt < 5 * 60_000) return _libraryCache;

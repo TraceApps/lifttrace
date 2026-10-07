@@ -191,6 +191,64 @@ async function _recall(url) {
   return rows.find(r => pathOf(r.key) === path)?.body;
 }
 
+// ── When an edit was made, and what it changed ──────────────────────
+// The server keeps the newer edit of each field (server/lib/newer-wins.js).
+// A change queued here goes up with the time it was made, on the server's
+// clock (this browser's, corrected by the difference seen on the last answer:
+// X-Server-Time), and the fields it changed against the copy shown when it
+// was made. Without them the server took it as made when it arrived, and
+// a change made offline overwrote a later one made elsewhere.
+const _CLOCK_KEY = 'lt:clockOffset';
+function _noteClock(res, sentAt) {
+  try {
+    const ms = Date.parse(res?.headers?.get?.('x-server-time') || '');
+    // Taken as the request arrives there: against when it left here, never
+    // when the answer finished arriving (a slow answer put the clock behind).
+    if (Number.isFinite(ms)) localStorage.setItem(_CLOCK_KEY, String(Math.round(ms - sentAt)));
+  } catch { /* no header, or no storage */ }
+}
+function _serverNow(at = Date.now()) {
+  let off = 0;
+  try { off = Number(localStorage.getItem(_CLOCK_KEY)) || 0; } catch { /* no storage */ }
+  return new Date(at + off).toISOString();
+}
+const _EDIT_FIELDS = [
+  [/^\/api\/programs\/\d+$/, ['name', 'description', 'goal', 'visibility', 'duration_weeks', 'advance_mode', 'on_complete']],
+  [/^\/api\/templates\/\d+$/, ['name', 'day_label']],
+  [/^\/api\/exercises\/\d+$/, ['name', 'category', 'primary_muscles', 'secondary_muscles', 'equipment', 'instructions', 'tips', 'img_url', 'gif_url', 'video_url', 'load_type', 'set_type']],
+  [/^\/api\/workout\/\d{4}-\d{2}-\d{2}$/, ['name', 'notes', 'duration_min', 'completed', 'program_week', 'program_id', 'template_id']],
+];
+const _norm = (v) => {
+  if (v === undefined || v === '') v = null;
+  if (typeof v === 'string' && /^\s*[[{]/.test(v)) { try { v = JSON.parse(v); } catch { /* text */ } }
+  if (typeof v === 'boolean') v = v ? 1 : 0;
+  if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim())) v = Number(v);
+  return JSON.stringify(v ?? null);
+};
+/** The fields a queued edit changes against the copy held here; null when
+ *  there's no copy to tell by (the server then takes all it sends). */
+async function _changedFields(method, target, body) {
+  if (method !== 'PUT' || !body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const p = pathOf(target);
+  if (p === '/api/settings') return typeof body.key === 'string' ? ['value'] : null;
+  try {
+    if (/^\/api\/body-stats\/\d{4}-\d{2}-\d{2}$/.test(p)) {
+      const held = (await _recall(target))?.stats?.stats;
+      if (!held || !body.stats || typeof body.stats !== 'object') return null;
+      return Object.keys(body.stats).filter(k => _norm(body.stats[k]) !== _norm(held[k]));
+    }
+    const rule = _EDIT_FIELDS.find(([re]) => re.test(p));
+    if (!rule) return null;
+    let held = await _recall(target);
+    if (/^\/api\/workout\//.test(p)) {
+      held = held?.workout;
+      if (held && body.id != null && Number(held.id) !== Number(body.id)) held = null;
+    }
+    if (!held || typeof held !== 'object') return null;
+    return rule[1].filter(f => body[f] !== undefined && _norm(body[f]) !== _norm(held[f]));
+  } catch { return null; }
+}
+
 // ── Outbox ───────────────────────────────────────────────────────────
 let _ops = null;
 async function _loadOps() {
@@ -319,12 +377,17 @@ async function _flushOnce() {
     const body = op.body == null ? undefined : JSON.stringify(remapIds(op.body, map));
     let res;
     try {
+      const headers = body ? { 'Content-Type': 'application/json' } : {};
+      if (op.editedAt) headers['X-Edited-At'] = op.editedAt;
+      if (Array.isArray(op.changed)) headers['X-Changed-Fields'] = op.changed.join(',');
+      const sentAt = Date.now();
       res = await send(path, {
         method: op.method,
         credentials: 'include',
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        headers: Object.keys(headers).length ? headers : undefined,
         body,
       });
+      _noteClock(res, sentAt);
     } catch (err) {
       // Still unreachable: keep everything and try again later.
       if (isOfflineError(err)) { stopped = { offline: true }; break; }
@@ -478,7 +541,9 @@ export async function offlineFetch(url, init, origFetch) {
 
   if (method === 'GET' || method === 'HEAD') {
     try {
+      const sentAt = Date.now();
       const res = await send(url, init);
+      _noteClock(res, sentAt);
       if (res.ok && isMirroredGet(url)) {
         try { await _remember(mirrorKey(url), await res.clone().json()); } catch { /* not json */ }
       }
@@ -535,7 +600,9 @@ export async function offlineFetch(url, init, origFetch) {
   const queued = await _loadOps();
   if (_online() && !queued.length) {
     try {
+      const sentAt = Date.now();
       const res = await send(target, init);
+      _noteClock(res, sentAt);
       if (res.ok) {
         // What the route just answered is the freshest copy there is.
         try {
@@ -558,11 +625,14 @@ export async function offlineFetch(url, init, origFetch) {
 
   const MAKES_A_ROW = ['exercise-create', 'cardio-create', 'prescription-create', 'photo-add'];
   const tempId = MAKES_A_ROW.includes(op.kind) ? newTempId() : null;
+  const at = Date.now();
   const stored = await _queue({
     method,
     path: remapPath(String(url), _swapped),
     body,
-    at: Date.now(),
+    at,
+    editedAt: _serverNow(at),
+    changed: await _changedFields(method, target, body),
     ...op,
     ...(tempId != null
       ? { tempId, id: tempId, key: `${op.kind.replace('-create', '')}:${tempId}` }

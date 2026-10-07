@@ -178,7 +178,7 @@ export function collapseOps(ops) {
   const tombs = new Map();
   const out = [];
 
-  for (const op of ops || []) {
+  for (let op of ops || []) {
     if (!op) continue;
     // A create is keyed by the temporary id it was given when it was queued,
     // which is what a later edit or removal of that row carries too.
@@ -205,6 +205,14 @@ export function collapseOps(ops) {
         byKey.set(op.key, { ...prev, body: { ...prev.body, ...op.body }, seq: op.seq });
         continue;
       }
+    }
+    // A later change of the same thing goes up in its place: it carries
+    // what both changed, made as late as the later one. When either can't
+    // say what it changed (no copy to tell by, or queued by an earlier
+    // version), the merged one counts all it sends: a narrower list would
+    // drop the earlier change's other fields.
+    if (prev) {
+      op = { ...op, changed: Array.isArray(prev.changed) && Array.isArray(op.changed) ? [...new Set([...prev.changed, ...op.changed])] : null };
     }
     byKey.set(op.key, op);
   }
