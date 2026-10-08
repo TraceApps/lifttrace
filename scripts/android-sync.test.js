@@ -574,6 +574,14 @@ test('deleting something already deleted on the server is done, not refused as k
   } finally { srv.stop(); }
 });
 
+test('a program deleted offline stays when one of its workouts was edited elsewhere later', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('deleteProgramDayEdited');
+  const kept = { programs: ['PD Plan'], days: ['PD Day edited later', 'PD Other Day'] };
+  assert.deepEqual(out.server, kept, 'edited first or never edited: deleted; edited later: kept with all its workouts');
+  assert.deepEqual(out.phone, kept);
+  assert.deepEqual(out.refused, ['deleting a program']);
+});
+
 test('a delete made offline never beats a later edit made elsewhere; the row comes back', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('deleteVsEdit');
   assert.equal(out.phoneWhileOffline, 0, 'deleted on the phone while offline');

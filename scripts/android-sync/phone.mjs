@@ -1797,6 +1797,43 @@ const scenarios = {
     };
   },
 
+  // A program deleted offline while one of its program workouts is edited
+  // on the web later: the edit is newer, so the program and its workouts
+  // stay. Edited first and deleted later, or never edited: the delete goes.
+  async deleteProgramDayEdited() {
+    me();
+    const kept = await web('phone', 'POST', '/api/programs', { name: 'PD Plan' });
+    const day = await web('phone', 'POST', '/api/templates', { program_id: kept.id, name: 'PD Day', exercises: [] });
+    await web('phone', 'POST', '/api/templates', { program_id: kept.id, name: 'PD Other Day', exercises: [] });
+    const earlier = await web('phone', 'POST', '/api/programs', { name: 'PE Plan' });
+    const eday = await web('phone', 'POST', '/api/templates', { program_id: earlier.id, name: 'PE Day', exercises: [] });
+    await web('phone', 'PUT', `/api/templates/${eday.id}`, { name: 'PE Day edited first' });
+    const plain = await web('phone', 'POST', '/api/programs', { name: 'PN Plan' });
+    await web('phone', 'POST', '/api/templates', { program_id: plain.id, name: 'PN Day', exercises: [] });
+    await syncNow();
+    await later(1100);
+    offline(true);
+    await api.deleteProgram(kept.id);
+    await api.deleteProgram(earlier.id);
+    await api.deleteProgram(plain.id);
+    await later(1100);
+    await web('phone', 'PUT', `/api/templates/${day.id}`, { name: 'PD Day edited later' });
+    offline(false);
+    await syncRaw(); await syncNow();
+    const { get } = await import('svelte/store');
+    const sp = (await web('phone', 'GET', '/api/programs')).filter(p => /^P[DEN] Plan/.test(p.name));
+    const days = [];
+    for (const p of sp) days.push(...(await web('phone', 'GET', `/api/programs/${p.id}`)).templates.map(t => t.name));
+    return {
+      server: { programs: sp.map(p => p.name).sort(), days: days.sort() },
+      phone: {
+        programs: names(await q(`SELECT name FROM programs WHERE name LIKE 'P_ Plan' AND deleted_at IS NULL ORDER BY name`)),
+        days: names(await q(`SELECT name FROM workout_templates WHERE name LIKE 'P_ %' AND deleted_at IS NULL ORDER BY name`)),
+      },
+      refused: [...new Set((get(sync.syncState).refused || []).map(x => x.what))].sort(),
+    };
+  },
+
   // Deleted offline, edited on the web later: the edit is newer, so the
   // row stays and comes back to the phone. Edited on the web first, deleted
   // offline later: the delete goes.

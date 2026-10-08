@@ -244,7 +244,12 @@ router.delete('/:id', wrap((req, res) => {
   const row = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
   // Already deleted: done.
   if (!row || row.deleted_at) return res.json({ ok: true });
-  const later = deleteLoses(req, row);
+  // Its workouts go with it, so an edit made to one of them after the
+  // delete counts too: the delete loses as a whole and all of it stays.
+  // Only their own edit stamps count (newer-wins.js); one already deleted
+  // doesn't.
+  const days = db.prepare('SELECT * FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL').all(id);
+  const later = [row, ...days].map(r => deleteLoses(req, r)).filter(Boolean).sort().pop();
   if (later) return refuseDelete(res, row, later);
   db.prepare('DELETE FROM programs WHERE id = ?').run(id);
   res.json({ ok: true });
