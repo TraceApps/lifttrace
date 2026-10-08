@@ -1,1 +1,43 @@
-{}
+{
+  "nav": {
+    "diary": "记录",
+    "exercises": "动作",
+    "programs": "计划",
+    "statistics": "统计",
+    "radio": "电台",
+    "settings": "设置"
+  },
+  "sync": {
+    "synced": "已同步",
+    "syncing": "正在同步…",
+    "refused": "服务器未接受 {what}：{reason}",
+    "sign_out_waiting_title": "有未同步的更改",
+    "sign_out_anyway": "仍然退出",
+    "waiting_title": "有未发送的更改",
+    "disconnect_anyway": "仍然断开",
+    "download_anyway": "仍然下载",
+    "switch_account_waiting_title": "另一个账号有更改待同步",
+    "switch_account_anyway": "仍然登录",
+    "account_check_failed_title": "数据打开失败",
+    "account_check_failed": "本机无法确认当前数据属于哪个账号，因此暂未显示任何内容。请重试，或退出登录。",
+    "same_server_title": "还是原来的服务器吗？",
+    "same_server": "本机存有来自 {before} 的数据，且账号与本次登录相同。{now} 是同一个服务器吗？如果是，数据将保留并与之同步。如果不是，则视为另一个账号的数据：本机数据会先被清除，且在丢弃任何尚未发送的数据前，系统会先询问你。",
+    "same_server_yes": "是，继续",
+    "same_server_no": "否，更换服务器",
+    "disconnecting": "正在断开连接…",
+    "count_cardio": "{count, plural, one {#次有氧训练} other {#次有氧训练}}",
+    "pending_web": "{count, plural, =0 {离线。你的训练记录仍会保存在本机。} one {离线。# 项更改待同步。} other {离线。# 项更改待同步。}}",
+    "sync_offline": "离线",
+    "sync_failing": "无法连接服务器",
+    "not_synced": "尚未同步",
+    "retry": "重试",
+    "retrying": "正在重试…",
+    "dismiss_message": "关闭同步提示",
+    "error_title": "同步失败",
+    "connection": {
+      "server_fallback": "服务器",
+      "no_network_title": "无网络连接",
+      "cant_reach_title": "无法连接到 {host}"
+    }
+  }
+}
