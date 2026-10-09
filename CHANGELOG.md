@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0-dev05] - 2026-10-09 (pre-release)
+
+A dev pre-release of the 1.4.0 minor. Android sync rebuilt so accounts, offline edits and deletes stay right, programs that stay with the account that made them, SSO fixes, and security updates, a critical one in the Android app among them.
+
 ### Changed
 
 - **A program your coach assigned opens read-only.** Its workouts can be followed but not changed; your coach changes them.
