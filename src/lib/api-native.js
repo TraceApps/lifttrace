@@ -1297,7 +1297,8 @@ const Stats = {
 const AiChat = {
   async getHistory() {
     const rows = await dbQuery(
-      `SELECT id, role, content, created_at FROM ai_chat_history WHERE user_id = ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1000`,
+      // The newest 1000, oldest first.
+      `SELECT id, role, content, created_at FROM (SELECT id, role, content, created_at FROM ai_chat_history WHERE user_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1000) ORDER BY id ASC`,
       [ME]
     );
     return rows;

@@ -26,9 +26,11 @@ const GEMINI_RETIRED = new Set([
 // GET /api/ai/history — chat history
 router.get('/history', wrap((req, res) => {
   const userId = uid(req);
+  // The newest 100, oldest first. id breaks ties: a question and its
+  // answer are often saved in the same second.
   const rows = userId != null
-    ? db.prepare('SELECT * FROM ai_chat_history WHERE user_id = ? ORDER BY created_at ASC LIMIT 100').all(userId)
-    : db.prepare('SELECT * FROM ai_chat_history WHERE user_id IS NULL ORDER BY created_at ASC LIMIT 100').all();
+    ? db.prepare('SELECT * FROM (SELECT * FROM ai_chat_history WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100) ORDER BY created_at ASC, id ASC').all(userId)
+    : db.prepare('SELECT * FROM (SELECT * FROM ai_chat_history WHERE user_id IS NULL ORDER BY created_at DESC, id DESC LIMIT 100) ORDER BY created_at ASC, id ASC').all();
   res.json(rows);
 }));
 
@@ -76,7 +78,7 @@ function _aiRateLimit(req, res, next) {
 setInterval(() => {
   const now = Date.now();
   for (const [k, entry] of _aiBuckets) if (now > entry.resetAt) _aiBuckets.delete(k);
-}, 30 * 60 * 1000);
+}, 30 * 60 * 1000).unref();
 
 // Normalise any image content part on an incoming message to the OpenAI
 // wire shape `{type:'image_url', image_url:{url:'data:...'}}` so the
