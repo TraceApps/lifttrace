@@ -299,6 +299,12 @@ process.on('uncaughtException', (err) => {
 app.listen(PORT, async () => {
   logger.info(`LiftTrace running on port ${PORT}`);
 
+  // Pictures stored inline as data URLs become files (lib/img-url-migration.js).
+  // Not awaited: it runs alongside requests, and retries what fails next startup.
+  import('./lib/img-url-migration.js').then(({ migrateDataUrlImages }) => migrateDataUrlImages()).catch(e => {
+    logger.warn(`[img-url-migration] failed to start: ${e.message}`);
+  });
+
   // One-time repair for instances that enabled user management on a build
   // where the handover was incomplete (TraceApps/docs#2). No-op once clean.
   try {

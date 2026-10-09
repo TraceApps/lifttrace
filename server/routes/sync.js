@@ -38,6 +38,7 @@ import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
+import { localizeDataUrl } from '../lib/image-localizer.js';
 import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
@@ -78,6 +79,21 @@ const router = Router();
 router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user?.id : null;
+
+// A picture embedded in a pushed row becomes a file, as on the REST routes,
+// so no row stores a data URL. One that can't be stored (not an image, too
+// large) is left out rather than failing the whole batch, which the client
+// would otherwise resend forever: `fallback` goes in instead.
+function localizeOr(value, fallback, opts) {
+  try {
+    const out = localizeDataUrl(value, opts);
+    if (typeof out === 'string' && /^data:/i.test(out)) throw new Error('not a supported image type');
+    return out;
+  } catch (e) {
+    logger.warn(`[sync] push: an embedded image was not stored: ${e.message}`);
+    return fallback;
+  }
+}
 
 // ── Settings keys that should never be pushed to the client ─────────────
 // Mirrors the SERVER_SETTINGS / DEVICE_PREFS split in NT but LT doesn't
@@ -335,7 +351,7 @@ router.post('/push', wrap((req, res) => {
     // ── exercises ──────────────────────────────────────────────────────
     for (const e of (body.exercises || [])) {
       const existing = e.server_id
-        ? db.prepare('SELECT updated_at, is_global, created_by FROM exercises WHERE id = ?').get(e.server_id)
+        ? db.prepare('SELECT updated_at, is_global, created_by, img_url, gif_url FROM exercises WHERE id = ?').get(e.server_id)
         : null;
       if (e.server_id && existing) {
         // Only a row this user owns is written. A library exercise, or
@@ -355,7 +371,7 @@ router.post('/push', wrap((req, res) => {
               JSON.stringify(e.secondary_muscles || []),
               JSON.stringify(e.equipment || []),
               e.instructions || null, e.tips || null,
-              e.img_url || null, e.gif_url || null, e.video_url || null,
+              localizeOr(e.img_url, existing.img_url) || null, localizeOr(e.gif_url, existing.gif_url) || null, e.video_url || null,
               e.server_id
             );
           }
@@ -371,7 +387,7 @@ router.post('/push', wrap((req, res) => {
           JSON.stringify(e.secondary_muscles || []),
           JSON.stringify(e.equipment || []),
           e.instructions || null, e.tips || null,
-          e.img_url || null, e.gif_url || null, e.video_url || null,
+          localizeOr(e.img_url, null) || null, localizeOr(e.gif_url, null) || null, e.video_url || null,
           u
         );
         result.exercises.push({ client_id: e.client_id, server_id: r.lastInsertRowid });
@@ -607,9 +623,12 @@ router.post('/push', wrap((req, res) => {
         }
         result.body_stat_media.push({ client_id: p.client_id, server_id: existing.id });
       } else if (!p.deleted_at && p.url && p.date) {
+        // Into body-stats/, served only to its owner, like the REST route.
+        const url = localizeOr(p.url, null, { subdir: 'body-stats' });
+        if (!url) continue;
         const r = db.prepare(
           `INSERT INTO body_stat_media (user_id, date, kind, url, created_at, updated_at) VALUES (?, ?, 'photo', ?, datetime('now'), datetime('now'))`
-        ).run(u, p.date, p.url);
+        ).run(u, p.date, url);
         result.body_stat_media.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
     }
