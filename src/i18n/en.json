@@ -661,7 +661,10 @@
     "mic_error":             "Could not start mic: {reason}",
     "smart_log_failed":      "Smart Log parse failed: {reason}",
     "smart_log_unknown":     "unknown error",
-    "ai_coach":              "AI Lifting Coach"
+    "ai_coach":              "AI Lifting Coach",
+    "tools_unsupported":     "This model can't use tools: it can answer, but it can't log workouts or look up your data. Pick a model with tool support in Settings.",
+    "tools_unsupported_server": "This model can't use tools: it can answer, but it can't log workouts or look up your data. Your admin can set a model with tool support.",
+    "tools_unsupported_routed": "The model that answered can't use tools, so nothing was logged or looked up."
   },
   "exercises_page": {
     "all_equipment":         "All Equipment",

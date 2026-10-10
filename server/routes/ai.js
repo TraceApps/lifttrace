@@ -5,6 +5,7 @@ import { requireAuth, uid } from '../middleware/auth.js';
 import { getAiConfig, isAiEnvLocked } from '../ai.js';
 import { getOpenAIChatParams } from '../lib/openai-chat-params.js';
 import { toolMessagesForOpenAI, toolNameFor, rememberToolCalls } from '../lib/tool-messages.js';
+import { createToolSupportMemory, sendWithToolFallback } from '../lib/tool-support.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -128,6 +129,10 @@ const AI_MAX_BYTES    = 8_000_000;
  * Wire shape (response):
  *   { text: string }                                  — final reply, no tools
  *   { assistantMessage, toolCalls: [{id,name,args}] } — model wants tools
+ *   { text, toolsUnsupported: true }: the model can't use tools, so it
+ *     answered without them
+ *   { text, toolsUnsupported: true, toolsRouted: true }: the same, for a
+ *     model the gateway picked (one name for many models)
  *
  * The client's callAIProxy runs the multi-round tool loop: when
  * toolCalls are returned, it executes them locally (tools touch the
@@ -242,6 +247,9 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
   return { assistantMessage, toolCalls };
 }
 
+// Models this server found can't use tools, by base URL and model.
+const toolSupport = createToolSupportMemory();
+
 async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl = 'https://api.openai.com') {
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
@@ -260,17 +268,27 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
   };
   if (openaiTools.length) body.tools = openaiTools;
 
-  const r = await fetch(`${baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify(body),
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error?.message || `OpenAI API ${r.status}`);
+  const send = async (b) => {
+    const r = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify(b),
+    });
+    return { ok: r.ok, status: r.status, data: await r.json() };
+  };
+  // A model that can't use tools gets the request again without them
+  // (TraceApps/nutritrace#259); toolsUnsupported lets the app say so.
+  const { ok, status, data, toolsDropped, toolsRouted } = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+  if (!ok) throw new Error(data.error?.message || `OpenAI API ${status}`);
 
   const msg = data.choices?.[0]?.message || {};
   if (!msg.tool_calls || msg.tool_calls.length === 0) {
-    return { text: msg.content || '' };
+    if (!toolsDropped) return { text: msg.content || '' };
+    // toolsRouted: the refusal named another model than the one asked for
+    // (a gateway that routes one name to many models).
+    return toolsRouted
+      ? { text: msg.content || '', toolsUnsupported: true, toolsRouted: true }
+      : { text: msg.content || '', toolsUnsupported: true };
   }
   const toolCalls = msg.tool_calls.map(tc => ({
     id:   tc.id,

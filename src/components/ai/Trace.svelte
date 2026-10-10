@@ -23,6 +23,7 @@
   import { currentDate, todayLog, activeProgram, saveWorkout } from '../../stores/workout.js';
   import { isPlaying, currentTrack, getAudioForAnalyser } from '../../stores/player.js';
   import { showError } from '../../stores/toast.js';
+  import { createToolsNotice } from '../../lib/tool-support.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { parseInput as smartParse, matchExercises, mergeIntoWorkout } from '../../lib/smartLogWorkout.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
@@ -41,6 +42,8 @@
   let messages = [];
   let input = '';
   let sending = false;
+  // Says once per conversation that the model can't use tools (TraceApps/nutritrace#259).
+  const toolsNotice = createToolsNotice();
   let messagesEl;
   let pendingImages = [];
   let hasUnread = false;
@@ -651,6 +654,14 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
       // either an API key OR an oai-compat config. Otherwise fall through
       // to the server-proxy path (env-locked install).
       const hasClientConfig = $aiApiKey || ($aiProvider === 'oai-compat' && $aiBaseUrl);
+      // The model can't use tools and answered without them: a note in the
+      // conversation says so, once (TraceApps/nutritrace#259). routed: the
+      // gateway picked a model for this request that can't, another may.
+      let toolsNote = null;
+      const onToolsUnsupported = ({ routed } = {}) => {
+        toolsNote = routed ? 'trace_ai.tools_unsupported_routed'
+          : hasClientConfig ? 'trace_ai.tools_unsupported' : 'trace_ai.tools_unsupported_server';
+      };
       if (hasClientConfig) {
         reply = await callAI({
           provider: $aiProvider,
@@ -661,6 +672,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
           systemPrompt,
           tools: TOOLS,
           onToolCall: (name, args) => runTool(name, args),
+          onToolsUnsupported,
         });
       } else {
         reply = await callAIProxy({
@@ -668,11 +680,13 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
           systemPrompt,
           tools: TOOLS,
           onToolCall: (name, args) => runTool(name, args),
+          onToolsUnsupported,
         });
       }
 
       const aMsg = { role: 'assistant', content: reply, time: new Date().toISOString() };
       messages = [...messages, aMsg];
+      if (toolsNote) messages = toolsNotice.add(messages, $_(toolsNote));
 
       if (!panelOpen) hasUnread = true;
 
@@ -698,6 +712,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
       dangerous: true,
     })) return;
     messages = [];
+    toolsNotice.reset();
     fetch('/api/ai/history', { method: 'DELETE', credentials: 'include' }).catch(() => {});
   }
 
@@ -846,6 +861,12 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
 
           {#each messages as msg}
             {@const plan = msg.role === 'assistant' ? _extractPlan(msg.content) : null}
+            {#if msg.role === 'note'}
+              <div class="lb-note" role="status">
+                <span class="material-symbols-rounded">info</span>
+                <span>{msg.content}</span>
+              </div>
+            {:else}
             <div class="lb-msg" class:user={msg.role === 'user'}>
               {#if msg.role === 'assistant'}
                 <div class="lb-msg-avatar">
@@ -876,6 +897,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
                 {/if}
               </div>
             </div>
+            {/if}
           {/each}
 
           {#if sending}
@@ -1240,6 +1262,18 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   /* "Use This Workout", appears under any assistant reply whose text
      contains a PLAN: line. Tapping pipes the plan through the existing
      Smart Add modal so the user can review + edit before saving. */
+  /* A note from the app in the conversation, such as a model that can't
+     use tools (TraceApps/nutritrace#259). */
+  .lb-note {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin-left: 40px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px; line-height: 1.4; color: var(--text-2);
+  }
+  .lb-note .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
   .lb-plan-apply {
     align-self: flex-start;
     display: inline-flex; align-items: center; gap: 6px;

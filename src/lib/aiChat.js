@@ -24,15 +24,18 @@
  * for legacy callers.
  */
 import { getOpenAIChatParams } from './openai-chat-params.js';
+import { createToolSupportMemory, sendWithToolFallback } from './tool-support.js';
 
-export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolResult, baseUrl }) {
+// onToolsUnsupported runs when the model can't use tools and answered
+// without them (TraceApps/nutritrace#259).
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolResult, onToolsUnsupported, baseUrl }) {
   // The 'oai-compat' provider points at any /v1/chat/completions endpoint.
   // Local endpoints (Ollama default) don't need an API key; cloud ones do.
   // Other providers still require a key.
   if (!apiKey && provider !== 'oai-compat') {
     throw new Error('No API key configured. Add one in Settings → AI Assistant.');
   }
-  const cb = { onToolCall, onToolResult };
+  const cb = { onToolCall, onToolResult, onToolsUnsupported };
   switch (provider) {
     case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, cb);
     case 'openai':     return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, cb, 'https://api.openai.com');
@@ -64,7 +67,7 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
  * (cookies don't survive Android WebView reloads). Without the Bearer
  * header, env-locked AI calls from Android return 401.
  */
-export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, onToolResult }) {
+export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, onToolResult, onToolsUnsupported }) {
   const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
 
   // Server proxy expects OpenAI wire shape regardless of the env-locked
@@ -97,6 +100,8 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, o
     }
 
     // No tools fired — final reply, return it.
+    // The server's model can't use tools and answered without them.
+    if (data.toolsUnsupported) onToolsUnsupported?.({ routed: !!data.toolsRouted });
     if (!data.toolCalls || data.toolCalls.length === 0) {
       return data.text || '';
     }
@@ -266,8 +271,11 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
 // `baseUrl` defaults to api.openai.com but can be any /v1/chat/completions
 // endpoint (Ollama, LM Studio, DeepSeek, Groq, etc.) — see callAI's
 // 'oai-compat' branch.
+// Models found unable to use tools, by base URL and model (TraceApps/nutritrace#259).
+const toolSupport = createToolSupportMemory();
+
 async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, cb, baseUrl = 'https://api.openai.com') {
-  const { onToolCall, onToolResult } = cb || {};
+  const { onToolCall, onToolResult, onToolsUnsupported } = cb || {};
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -298,13 +306,18 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
 
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || `AI API error ${res.status}`);
+    const send = async (b) => {
+      const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(b),
+      });
+      return { ok: res.ok, status: res.status, data: await res.json() };
+    };
+    // A model that can't use tools gets the request again without them.
+    const { ok, status, data, toolsDropped, toolsRouted } = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+    if (!ok) throw new Error(data.error?.message || `AI API error ${status}`);
+    if (toolsDropped) onToolsUnsupported?.({ routed: toolsRouted });
 
     const msg = data.choices?.[0]?.message || {};
     if (!msg.tool_calls || msg.tool_calls.length === 0) {

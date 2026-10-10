@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trace answers with models that can't use tools** ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259)). With an OpenAI-compatible model that has no tool support, every chat failed with `tool use is not supported`. Trace now asks again without tools and says once that the model can't log workouts or look things up. Thanks @jsapede for the report.
+- **Messages show on phones while Trace is open.** They were hidden behind it. Long messages wrap instead of running off the screen.
+
 ---
 
 ## [1.4.0-dev05] - 2026-10-09 (pre-release)
