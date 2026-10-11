@@ -81,6 +81,8 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 
 Published to two registries with identical tag sets: `ghcr.io/traceapps/lifttrace` (primary) and `traceapps/lifttrace` on [Docker Hub](https://hub.docker.com/r/traceapps/lifttrace) (mirror). The snippet below uses GHCR; swap in `traceapps/lifttrace:latest` if that suits your setup.
 
+**Unraid:** LiftTrace is in Community Applications. Search for LiftTrace in the Apps tab; the template sets the port, the appdata folders and the settings. Fill in JWT Secret before the first start.
+
 ```yaml
 services:
   lifttrace:
