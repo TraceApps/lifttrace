@@ -128,6 +128,32 @@ const scenarios = {
   },
 
   // An offline edit, then a later edit on the web.
+  // A sync with nothing new says so, and a page reading right after it
+  // (local-first reads start a sync of their own) doesn't start another;
+  // a change on the web is a change. LT_SOLO: a server without accounts,
+  // following a program, which sends it with every pull.
+  async idleQuiet() {
+    me();
+    const p = await web('phone', 'POST', '/api/programs', { name: 'Quiet Plan' });
+    if (process.env.LT_SOLO) await web('phone', 'POST', `/api/programs/${p.id}/activate`, {});
+    // The cursor is to the second: rows from the second of the last pull
+    // come again, so the quiet sync is a moment after.
+    await syncNow(); await later(1200); await syncNow(); await later(1200);
+    const events = [];
+    globalThis.dispatchEvent = e => { if (e?.type === 'lt:sync-complete') events.push(e.detail); return true; };
+    const pulls = [];
+    globalThis.__fetchHook = u => { if (String(u).includes('/api/sync/pull')) pulls.push(1); return null; };
+    await syncNow();
+    const quiet = events.at(-1)?.changed;
+    const before = pulls.length;
+    await api.getPrograms(); await later(500);
+    const kicked = pulls.length - before;
+    await web('phone', 'POST', '/api/programs', { name: 'Another Plan' });
+    await syncNow();
+    globalThis.__fetchHook = null;
+    return { quiet, kicked, changed: events.at(-1)?.changed, assignments: (await q(`SELECT COUNT(*) AS n FROM program_assignments`, []))[0].n };
+  },
+
   async editThenWeb() {
     const p = await web('phone', 'POST', '/api/programs', { name: 'Web Plan' });
     const ex = await web('phone', 'POST', '/api/exercises', { name: 'Web Ex' });

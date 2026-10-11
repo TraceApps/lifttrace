@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **The Android app no longer syncs every few seconds on the Diary, Programs and Statistics.** Each sync told the open page to reload, and the reload's reads started the next sync, even when nothing had changed. A sync that brings nothing now leaves the page alone (the coach's feedback still refreshes), and a read right after a sync doesn't start another. Without user accounts, the program being followed no longer counts as a change on every sync.
 - **Trace answers with models that can't use tools** ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259)). With an OpenAI-compatible model that has no tool support, every chat failed with `tool use is not supported`. Trace now asks again without tools and says once that the model can't log workouts or look things up. Thanks @jsapede for the report.
 - **Messages show on phones while Trace is open.** They were hidden behind it. Long messages wrap instead of running off the screen.
 - **Pictures, GIFs and videos uploaded to an exercise show in the Android app**, connected to a server or not ([#141](https://github.com/TraceApps/lifttrace/issues/141), reported by @rgpag1). They were blank wherever exercises show their picture, while the built-in libraries' pictures showed. They also show on the web when LiftTrace is served from a subpath (`BASE_URL`).

@@ -31,7 +31,7 @@
   onMount(() => {
     load();
     if (isNative && getServerUrl()) {
-      _onSyncComplete = () => { load(); };
+      _onSyncComplete = (e) => { if (e?.detail?.changed !== false) load(); };
       window.addEventListener('lt:sync-complete', _onSyncComplete);
     }
   });

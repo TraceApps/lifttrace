@@ -111,14 +111,14 @@ async function startServer({ accounts = true, env = {} } = {}) {
   };
 }
 
-function runPhone(srv, scenario, second = null) {
+function runPhone(srv, scenario, second = null, phoneEnv = {}) {
   return new Promise((resolve, reject) => {
     track(execFile(process.execPath, ['--import', './scripts/android-sync/register.mjs', 'scripts/android-sync/phone.mjs', scenario], {
       cwd: root,
       env: { ...process.env, LT_SERVER: srv.base, LT_TOKEN: srv.tokens.phone, LT_TOKENS: JSON.stringify(srv.tokens), LT_PHONE_USER: String(srv.memberId),
         LT_OTHER_USER: String(srv.adminId ?? ''),
         // A second server (another one the phone connects to after Disconnect).
-        LT_SERVER_B: second?.base || '', LT_TOKENS_B: JSON.stringify(second?.tokens || {}), LT_B_USER: String(second?.memberId ?? '') },
+        LT_SERVER_B: second?.base || '', LT_TOKENS_B: JSON.stringify(second?.tokens || {}), LT_B_USER: String(second?.memberId ?? ''), ...phoneEnv },
       timeout: 300000, killSignal: 'SIGKILL', maxBuffer: 4 << 20,
     }, (err, stdout, stderr) => {
       const last = stdout.trim().split('\n').pop();
@@ -132,7 +132,7 @@ async function scenario(name, opts = {}) {
   let second = null;
   try {
     if (opts.second) second = await startServer();
-    return { srv, second, out: await runPhone(srv, name, second) };
+    return { srv, second, out: await runPhone(srv, name, second, opts.phoneEnv) };
   } finally { srv.stop(); second?.stop(); }
 }
 
@@ -164,6 +164,16 @@ test('a row made offline never hides the server\'s row with the same number', { 
 test('after an offline edit has gone up, later changes on the web still arrive', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('editThenWeb');
   assert.deepEqual(out, { program: 'Renamed on the web', exercise: 'Ex renamed on the web' });
+});
+
+test('a sync with nothing new says so, and a page reading right after it starts no other', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('idleQuiet');
+  assert.deepEqual(out, { quiet: false, kicked: 0, changed: true, assignments: 0 });
+});
+
+test('a server without accounts following a program: its pull is not a change every time', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('idleQuiet', { accounts: false, phoneEnv: { LT_SOLO: '1' } });
+  assert.deepEqual(out, { quiet: false, kicked: 0, changed: true, assignments: 1 });
 });
 
 test('rows deleted on the server leave the phone, as do days it should never have had', { skip, timeout: SCENARIO_MS }, async () => {

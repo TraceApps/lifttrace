@@ -864,6 +864,14 @@
     // reflected in todayLog. preferFresher makes loadWorkout itself
     // refuse to apply anything older than what's already shown, as a
     // second line of defense.
+    // A sync that brought nothing: only the coach's feedback, which lives
+    // on the server, is asked for again; the local reads below would start
+    // another sync each (apiFetch.js) for nothing.
+    if (e?.detail?.changed === false) {
+      if ($currentDate) loadCoachFeedback($currentDate);
+      loadUnreadFeedback();
+      return;
+    }
     const t = e?.detail?.tables;
     const workoutRelevant = t && ((t.workouts || 0) > 0 || (t.workoutTombstones || 0) > 0);
     if ($currentDate && workoutRelevant) {

@@ -442,7 +442,11 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
     result.durationMs = Date.now() - started;
     _dlog('[sync] pullSnapshot done', JSON.stringify(result.tables), `errors=${result.errors.length}`, `${result.durationMs}ms`);
     // Notify routes that a sync completed so they can refresh local-first
-    // reads against the freshly-populated cache.
+    // reads against the freshly-populated cache. `changed`: whether it
+    // brought anything; a page can skip its reload when it didn't (every
+    // reload's reads used to start the next sync, every few seconds).
+    result.changed = Object.entries(result.tables).some(([k, n]) => k !== 'dropped' && Number(n) > 0);
+    _lastSyncDoneAt = Date.now();
     try { window.dispatchEvent(new CustomEvent('lt:sync-complete', { detail: result })); } catch {}
     return result;
   } finally {
@@ -1269,8 +1273,19 @@ async function _applyAssignments(rows, result, guard = _NO_GUARD) {
 async function _applySoloActive(active, result, guard = _NO_GUARD) {
   if (guard.assignments) { result.tables.assignments = 0; return; }
   _assertAlive();
-  await dbRun(`DELETE FROM program_assignments`, []);
   const pid = Number(active?.program_id);
+  // Sent with every pull: the same program at the same week is not a
+  // change, and counting it as one reloaded the pages after every sync.
+  const here = await dbQuery(`SELECT program_id, week_cursor, week_cursor_session_base, week_cursor_pinned_at FROM program_assignments WHERE active = 1`, []);
+  const same = (v, w) => (v ?? null) === (w ?? null) || (v != null && w != null && String(v) === String(w));
+  const want = Number.isSafeInteger(pid) && pid > 0;
+  if ((!want && here.length === 0) || (want && here.length === 1 && Number(here[0].program_id) === pid
+      && same(here[0].week_cursor, active.week_cursor) && same(here[0].week_cursor_session_base, active.week_cursor_session_base)
+      && same(here[0].week_cursor_pinned_at, active.week_cursor_pinned_at))) {
+    result.tables.assignments = 0;
+    return;
+  }
+  await dbRun(`DELETE FROM program_assignments`, []);
   if (Number.isSafeInteger(pid) && pid > 0) {
     await dbRun(
       `INSERT INTO program_assignments (id, program_id, assigned_to, active, week_cursor, week_cursor_session_base, week_cursor_pinned_at, assigned_at, updated_at)
@@ -1278,7 +1293,7 @@ async function _applySoloActive(active, result, guard = _NO_GUARD) {
       [newTempId(), pid, active.week_cursor ?? null, active.week_cursor_session_base ?? null, active.week_cursor_pinned_at ?? null, new Date().toISOString()]
     );
   }
-  result.tables.assignments = pid > 0 ? 1 : 0;
+  result.tables.assignments = 1;
 }
 
 async function _applyWorkouts(rows, result, guard = _NO_GUARD) {
@@ -2663,6 +2678,11 @@ async function _syncRound(silent) {
 }
 
 // ── Convenience: pull + flush ─────────────────────────────────────────────
+
+// When the last pull finished: reads that start a sync of their own
+// (apiFetch.js) leave it be when one just ran.
+let _lastSyncDoneAt = 0;
+export function lastSyncDoneAt() { return _lastSyncDoneAt; }
 
 export function runSync() {
   if (!isNative || !getServerUrl()) return Promise.resolve({ ok: false, reason: 'not native+server' });

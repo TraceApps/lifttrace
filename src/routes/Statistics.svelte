@@ -203,7 +203,7 @@
     // pass, because its start date is the earliest workout just fetched.
     if (range === 'All') await loadData();
 
-    _onSyncComplete = () => { loadData(); };
+    _onSyncComplete = (e) => { if (e?.detail?.changed !== false) loadData(); };
     window.addEventListener('lt:sync-complete', _onSyncComplete);
   });
 

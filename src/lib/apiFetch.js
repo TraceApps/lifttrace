@@ -101,7 +101,11 @@ async function _kickBackgroundSync() {
   if (now - _lastBgSync < 5000) return;          // ignore bursts within 5s
   _lastBgSync = now;
   try {
-    const { runSync } = await import('./sync.js');
+    const { runSync, lastSyncDoneAt } = await import('./sync.js');
+    // A page reloading after a sync reads through here: a sync that just
+    // finished is fresh enough, and starting another made a loop (a sync,
+    // the reload, its reads, another sync) every few seconds.
+    if (now - (lastSyncDoneAt?.() || 0) < 30000) return;
     runSync().catch(() => {});
   } catch {}
 }
