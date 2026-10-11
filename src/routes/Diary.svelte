@@ -1021,6 +1021,9 @@
     const yesterdayStr = localDateStr(d);
     // Temporarily load yesterday to grab exercises
     const currentDateBackup = $currentDate;
+    // Come back to the workout that was open, not the date's first one
+    // (issue #142): the copy is saved into whatever is loaded.
+    const sessionBackup = $currentSessionId;
     try {
       await loadWorkout(yesterdayStr);
       const yesterdayExercises = ($todayLog?.exercises || []).map(ex => ({
@@ -1029,7 +1032,7 @@
       }));
       const yesterdayName = $todayLog?.name || '';
       // Reload current date
-      await loadWorkout(currentDateBackup);
+      await loadWorkout(currentDateBackup, { sessionId: sessionBackup });
       if (yesterdayExercises.length === 0) {
         showError($_('diary.errors.no_workout_yesterday'));
         return;
@@ -1042,7 +1045,7 @@
       notes = $todayLog?.notes || '';
       showSuccess($_('diary.toast.copied_yesterday'));
     } catch (e) {
-      await loadWorkout(currentDateBackup);
+      await loadWorkout(currentDateBackup, { sessionId: sessionBackup });
       showError($_('diary.errors.copy_failed'));
     }
   }

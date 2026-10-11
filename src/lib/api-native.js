@@ -807,6 +807,9 @@ const Workout = {
   // default when the client is editing a non-default one (issue #76).
   async byDate(date, explicitId = null) {
     const row = explicitId != null ? await Workout._resolve(date, explicitId) : await Workout._defaultRow(date);
+    // A deleted session isn't one to show (_enrich drops deleted_at, so the
+    // Diary couldn't tell).
+    if (row?.deleted_at) return null;
     return Workout._enrich(row);
   },
   // GET /api/workout/:date/sessions (issue #76) — every session logged

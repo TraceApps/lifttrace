@@ -12,6 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Trace answers with models that can't use tools** ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259)). With an OpenAI-compatible model that has no tool support, every chat failed with `tool use is not supported`. Trace now asks again without tools and says once that the model can't log workouts or look things up. Thanks @jsapede for the report.
 - **Messages show on phones while Trace is open.** They were hidden behind it. Long messages wrap instead of running off the screen.
 - **Pictures, GIFs and videos uploaded to an exercise show in the Android app**, connected to a server or not ([#141](https://github.com/TraceApps/lifttrace/issues/141), reported by @rgpag1). They were blank wherever exercises show their picture, while the built-in libraries' pictures showed. They also show on the web when LiftTrace is served from a subpath (`BASE_URL`).
+- **The Android app stays on the workout you're logging when you have more than one that day** ([#142](https://github.com/TraceApps/lifttrace/issues/142), reported by @surfingbytes). Logging a set in a later workout switched the Diary back to the day's first one a few seconds later.
+- **Copy From Yesterday fills the workout you're on.** On the day's second or later workout, it replaced the day's first one instead (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
 
 ---
 

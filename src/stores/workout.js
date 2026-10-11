@@ -58,7 +58,7 @@ function _tsMs(v) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
+export async function loadWorkout(dateStr, { preferFresher = false, sessionId } = {}) {
   // See the _epoch declaration below saveWorkout (issue #86): bumping it
   // stops a save still pending for whatever date/session the user is
   // navigating away from from landing later and overwriting the date
@@ -68,9 +68,23 @@ export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
   // navigation, and bumping the epoch there would invalidate any edit
   // the user is actively mid-debounce on.
   if (!preferFresher) _epoch++;
+  // The workout to show: the one asked for, else, for a background refresh,
+  // the one already on screen (issue #142). By date alone a refresh got the
+  // date's first workout, so a second one logged in the evening switched
+  // back to the morning's every time a set synced. Gone (deleted on another
+  // device), the date's first workout shows, as before.
+  const keepId = sessionId !== undefined ? sessionId
+    : (preferFresher && dateStr === get(currentDate) ? get(currentSessionId) : null);
   currentDate.set(dateStr);
   try {
-    const data = await LtApi.getWorkout(dateStr);
+    let data = await LtApi.getWorkout(dateStr, keepId ?? null);
+    // Only that workout, still there: the server answers a deleted one by id,
+    // and the web's offline copy can answer with another. One made on this
+    // device offline comes back under the server's id once it's there.
+    const w = data?.workout;
+    if (keepId != null && (!w || w.deleted_at || (w.id !== keepId && !(keepId < 0)))) {
+      data = await LtApi.getWorkout(dateStr);
+    }
     // Stale check against the CURRENT value of currentDate, not a local
     // copy of the argument (which can never differ from itself). Matters
     // most for preferFresher: a background refresh captures $currentDate
