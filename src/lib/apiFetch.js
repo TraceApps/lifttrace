@@ -96,16 +96,18 @@ function _isLocalFirstGet(path, method) {
 // guard, so this is just to keep noise down in logs and avoid re-entrant
 // dynamic imports.
 let _lastBgSync = 0;
-async function _kickBackgroundSync() {
+// `force`: a write waiting in the queue behind a create (below) goes now,
+// however recently a sync ran.
+async function _kickBackgroundSync({ force = false } = {}) {
   const now = Date.now();
-  if (now - _lastBgSync < 5000) return;          // ignore bursts within 5s
+  if (!force && now - _lastBgSync < 5000) return; // ignore bursts within 5s
   _lastBgSync = now;
   try {
     const { runSync, lastSyncDoneAt } = await import('./sync.js');
     // A page reloading after a sync reads through here: a sync that just
     // finished is fresh enough, and starting another made a loop (a sync,
     // the reload, its reads, another sync) every few seconds.
-    if (now - (lastSyncDoneAt?.() || 0) < 30000) return;
+    if (!force && now - (lastSyncDoneAt?.() || 0) < 30000) return;
     runSync().catch(() => {});
   } catch {}
 }
@@ -143,8 +145,7 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
       // started here sends both, in order.
       if (isWrite && await namesUnsyncedRow(_stripBase(url), swapped.body)) {
         const res = await _queueWrite(url, init, method, gen);
-        _lastBgSync = 0;
-        _kickBackgroundSync();
+        _kickBackgroundSync({ force: true });
         return res;
       }
     } catch { /* sent as it is */ }

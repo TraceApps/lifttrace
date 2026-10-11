@@ -203,7 +203,17 @@
     // pass, because its start date is the earliest workout just fetched.
     if (range === 'All') await loadData();
 
-    _onSyncComplete = (e) => { if (e?.detail?.changed !== false) loadData(); };
+    // After a sync that brought nothing, every few minutes: the totals come
+    // from the server, and cardio logged on the web or the watch isn't in
+    // the pull to say so.
+    let _quietAt = 0;
+    _onSyncComplete = (e) => {
+      if (e?.detail?.changed === false) {
+        if (Date.now() - _quietAt < 5 * 60 * 1000) return;
+        _quietAt = Date.now();
+      }
+      loadData();
+    };
     window.addEventListener('lt:sync-complete', _onSyncComplete);
   });
 

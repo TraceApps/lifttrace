@@ -445,7 +445,7 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
     // reads against the freshly-populated cache. `changed`: whether it
     // brought anything; a page can skip its reload when it didn't (every
     // reload's reads used to start the next sync, every few seconds).
-    result.changed = Object.entries(result.tables).some(([k, n]) => k !== 'dropped' && Number(n) > 0);
+    result.changed = Object.values(result.tables).some(n => Number(n) > 0);
     _lastSyncDoneAt = Date.now();
     try { window.dispatchEvent(new CustomEvent('lt:sync-complete', { detail: result })); } catch {}
     return result;
