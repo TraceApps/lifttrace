@@ -1,4 +1,5 @@
 <script>
+  import { resolveAssetUrl } from '../lib/platform.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -227,7 +228,7 @@
             {#each similar as s (s.id)}
               <button class="similar-card" on:click={() => push(`/exercise/${s.id}`)}>
                 {#if s.gif_url || s.img_url}
-                  <img class="similar-img" src={s.gif_url || s.img_url} alt="" loading="lazy" />
+                  <img class="similar-img" src={resolveAssetUrl(s.gif_url || s.img_url)} alt="" loading="lazy" />
                 {:else}
                   <span class="similar-img-fallback material-symbols-rounded">fitness_center</span>
                 {/if}

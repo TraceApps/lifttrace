@@ -1,4 +1,5 @@
 <script>
+  import { resolveAssetUrl } from '../../lib/platform.js';
   import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
 
@@ -75,9 +76,9 @@
           ></iframe>
         </div>
       {:else if previewKind === 'video'}
-        <video class="preview-frame" src={previewUrl} poster={img_url || gif_url || undefined} controls preload="metadata"></video>
+        <video class="preview-frame" src={resolveAssetUrl(previewUrl)} poster={resolveAssetUrl(img_url || gif_url) || undefined} controls preload="metadata"></video>
       {:else}
-        <img class="preview-frame" src={previewUrl} alt="Exercise media preview" />
+        <img class="preview-frame" src={resolveAssetUrl(previewUrl)} alt="Exercise media preview" />
       {/if}
       <button type="button" class="clear-btn" on:click={_clearAll} aria-label="Remove media">
         <span class="material-symbols-rounded">close</span>

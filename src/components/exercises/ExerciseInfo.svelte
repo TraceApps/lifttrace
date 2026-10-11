@@ -1,4 +1,5 @@
 <script>
+  import { resolveAssetUrl } from '../../lib/platform.js';
   import { _ } from 'svelte-i18n';
   import { isTimedSet, fmtSetLabel } from '../../lib/workout.js';
   /**
@@ -35,24 +36,24 @@
       {#if /youtube\.com|youtu\.be/.test(exercise.video_url)}
         <iframe class="media-video" src={exercise.video_url.replace('watch?v=', 'embed/')} title="Demo" allowfullscreen frameborder="0"></iframe>
       {:else}
-        <video class="media-video" src={exercise.video_url} poster={exercise.img_url || exercise.gif_url || undefined} controls playsinline></video>
+        <video class="media-video" src={resolveAssetUrl(exercise.video_url)} poster={resolveAssetUrl(exercise.img_url || exercise.gif_url) || undefined} controls playsinline></video>
       {/if}
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
   {:else if exercise.gif_url && exercise.img_url && exercise.gif_url !== exercise.img_url && /\.(jpg|jpeg|png|webp)$/i.test(exercise.gif_url)}
     <div class="media-card swap">
-      <img class="swap-img frame-a" src={exercise.img_url} alt="Start position" />
-      <img class="swap-img frame-b" src={exercise.gif_url} alt="End position" />
+      <img class="swap-img frame-a" src={resolveAssetUrl(exercise.img_url)} alt="Start position" />
+      <img class="swap-img frame-b" src={resolveAssetUrl(exercise.gif_url)} alt="End position" />
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
   {:else if exercise.gif_url}
     <div class="media-card">
-      <img class="media-img" src={exercise.gif_url} alt={exercise.name} />
+      <img class="media-img" src={resolveAssetUrl(exercise.gif_url)} alt={exercise.name} />
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
   {:else if exercise.img_url}
     <div class="media-card">
-      <img class="media-img" src={exercise.img_url} alt={exercise.name} />
+      <img class="media-img" src={resolveAssetUrl(exercise.img_url)} alt={exercise.name} />
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
   {/if}

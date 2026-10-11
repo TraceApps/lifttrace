@@ -368,7 +368,7 @@
           {#each customExercises as ex (ex.id)}
             <div class="my-ex-row">
               {#if ex.img_url || ex.gif_url}
-                <img class="my-ex-thumb" src={ex.gif_url || ex.img_url} alt="" />
+                <img class="my-ex-thumb" src={resolveAssetUrl(ex.gif_url || ex.img_url)} alt="" />
               {:else if ex.video_url}
                 <span class="my-ex-thumb-fallback material-symbols-rounded">play_circle</span>
               {:else}
