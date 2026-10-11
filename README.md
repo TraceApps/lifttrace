@@ -19,6 +19,7 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
   <a href="https://traceapps.github.io/docs/lifttrace/"><img alt="Documentation" src="https://img.shields.io/badge/docs-traceapps.github.io-8A2BE2?logo=readthedocs&logoColor=white"></a>
   <a href="https://github.com/traceapps/lifttrace/pkgs/container/lifttrace"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-traceapps%2Flifttrace-181717?logo=github&logoColor=white"></a>
   <a href="https://hub.docker.com/r/traceapps/lifttrace"><img alt="Docker Hub pulls" src="https://img.shields.io/docker/pulls/traceapps/lifttrace?logo=docker&logoColor=white&label=docker%20pulls&color=2496ED"></a>
+  <a href="https://hosted.weblate.org/engage/lifttrace/"><img alt="Translation status" src="https://hosted.weblate.org/widget/lifttrace/svg-badge.svg"></a>
 </p>
 
 <p align="center">
