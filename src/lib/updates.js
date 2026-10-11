@@ -37,6 +37,7 @@ import { DB } from './db.js';
 const GH_OWNER = 'TraceApps';
 const GH_REPO  = 'lifttrace';
 const APP_NAME = 'LiftTrace';
+const CSRF_KEY = 'lt:csrf';   // this app's CSRF token in localStorage
 const CACHE_KEY_LAST_CHECK   = 'wl_updates_last_check';   // ISO string
 const CACHE_KEY_LATEST       = 'wl_updates_latest';       // JSON blob
 const CACHE_KEY_SKIP_VERSION = 'wl_updates_skip_version'; // version string user chose to skip
@@ -45,9 +46,9 @@ const CACHE_KEY_AUTO_CHECK   = 'wl_updates_auto_check';   // '1' | '0'
 
 // Cadence in HOURS the user can pick in Settings → Updates. 0 = manual
 // only (turns off every auto-check path — mount, visibility change, and
-// the periodic PWA poll below). Anything else is the throttle between
-// real GitHub API calls; a check attempted inside the window resolves
-// from the cached blob instead of hitting the network.
+// the once-per-24h refresh below). Anything else is the throttle
+// between real GitHub API calls; a check attempted inside the window
+// resolves from the cached blob instead of hitting the network.
 function _throttleMs() {
   const hours = Number(DB.getSetting('updateCheckInterval', 4)) || 0;
   if (!hours || hours < 0) return Infinity;         // manual only
@@ -611,7 +612,7 @@ export function formatAgo(dateOrIso) {
 export async function setServerUpdateCheck(enabled) {
   try {
     const { apiUrl } = await import('./platform.js');
-    const csrf = !isNative ? localStorage.getItem('nt:csrf') : null;
+    const csrf = !isNative ? localStorage.getItem(CSRF_KEY) : null;
     const res = await fetch(apiUrl('/api/updates/config'), {
       method: 'PUT',
       credentials: 'include',

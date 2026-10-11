@@ -167,7 +167,7 @@
       const t = getAuthToken();
       if (t) h['Authorization'] = `Bearer ${t}`;
     } else {
-      const csrf = localStorage.getItem('nt:csrf');
+      const csrf = localStorage.getItem('lt:csrf');
       if (csrf) h['X-CSRF-Token'] = csrf;
     }
     return h;
