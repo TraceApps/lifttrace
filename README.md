@@ -124,7 +124,7 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `LOG_LEVEL` | `info` | `error` \| `warn` \| `info` \| `debug` |
 | `EXERCISE_SOURCES` | `wger,free-db` | Sources to auto-seed on first boot (`wger`, `free-db`, `exercisedb`, `exercisedb-oss`) |
 | `EXERCISEDB_OSS_URL` | (upstream) | Point the OSS exercise source at your own mirror |
-| `INSECURE_COOKIES` | `0` | Set `1` only for non-HTTPS deployments |
+| `INSECURE_COOKIES` | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `BASE_URL` | (none) | Mount at a subpath (e.g. `/lifttrace`) instead of root |
 | `PUBLIC_URL` | (none) | The full address people open the app at, subpath included (e.g. `https://lift.example.com`). Links in emails (password reset, invites, sharing) use it. Unset, they use an address an admin has opened the app at. |
 | `RECOVERY_TOKEN` | (none) | Token for the "Disable user management" recovery endpoint |

@@ -8,9 +8,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { cookieBlockedByHttp, droppedCookieReason, COOKIE_HELP_URLS } from '../src/lib/cookie-check.js';
 
-const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+// \r\n read as \n, so a Windows checkout passes the same checks.
+const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 test('blocked only when the cookie is HTTPS-only and the page is not secure', () => {
   const secureCookie = { secure_cookies: true }, lanCookie = { secure_cookies: false };
@@ -62,6 +64,31 @@ test('the warning has its words and points at the fix', () => {
   }
   assert.match(en.login.cookie_warning.http_body, /INSECURE_COOKIES=1/);
   assert.equal(COOKIE_HELP_URLS.http, 'https://traceapps.github.io/docs/getting-started/lan-http/');
-  assert.equal(COOKIE_HELP_URLS.dropped, 'https://traceapps.github.io/docs/getting-started/reverse-proxy/');
+  assert.equal(COOKIE_HELP_URLS.dropped, 'https://traceapps.github.io/docs/getting-started/reverse-proxy/#sign-in-doesnt-stick',
+    'the section of the guide about it, not the top of a long page');
   assert.match(read('../src/components/ui/CookieWarning.svelte'), /href=\{COOKIE_HELP_URLS\[reason\] \|\| COOKIE_HELP_URLS\.http\}/);
+});
+
+// cookie-check.js and CookieWarning.svelte are the same file in CookTrace,
+// LiftTrace, NoteTrace and NutriTrace, and every app pins the same hashes.
+// Change all four copies together, then update both hashes in every app.
+test('the shared files match the hashes every Trace app pins', () => {
+  const sha = (p) => createHash('sha256').update(read(p)).digest('hex');
+  assert.equal(sha('../src/lib/cookie-check.js'),
+    '22a77b732aa3c969bb66a47ef5541e72319fc50e47385fea85d776b1967285bd', 'src/lib/cookie-check.js');
+  assert.equal(sha('../src/components/ui/CookieWarning.svelte'),
+    '49e882c0ccb444ff5bd062deb1b818cfab9d4ddae62e8f3249ecf53349e271ed', 'src/components/ui/CookieWarning.svelte');
+});
+
+// INSECURE_COOKIES is explained in the same words in every Trace app's
+// README, DEPLOY.md and .env.example, and a value set in .env reaches the app.
+test('the docs explain INSECURE_COOKIES the same way as the other Trace apps', () => {
+  const cell = 'Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/).';
+  for (const f of ['../README.md', '../DEPLOY.md']) assert.ok(read(f).includes(cell), `${f} describes INSECURE_COOKIES the shared way`);
+  const env = read('../.env.example');
+  assert.match(env, /# Optional: Sign in over plain HTTP \(no TLS in front\)\n(# .*\n)+# INSECURE_COOKIES=1\n/);
+  assert.match(env, /leave it unset \(0\) behind HTTPS/);
+  const compose = read('../docker-compose.yml');
+  assert.ok(/env_file:\s*\n\s*- \.env\n/.test(compose) || /^\s+- INSECURE_COOKIES=\$\{INSECURE_COOKIES:-\}$/m.test(compose),
+    'docker-compose.yml passes INSECURE_COOKIES from .env to the app');
 });

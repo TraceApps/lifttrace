@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Pictures, GIFs and videos uploaded to an exercise show in the Android app**, connected to a server or not ([#141](https://github.com/TraceApps/lifttrace/issues/141), reported by @rgpag1). They were blank wherever exercises show their picture, while the built-in libraries' pictures showed. They also show on the web when LiftTrace is served from a subpath (`BASE_URL`).
 - **The Android app stays on the workout you're logging when you have more than one that day** ([#142](https://github.com/TraceApps/lifttrace/issues/142), reported by @surfingbytes). Logging a set in a later workout switched the Diary back to the day's first one a few seconds later.
 - **Copy From Yesterday fills the workout you're on.** On the day's second or later workout, it replaced the day's first one instead (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
+- **`INSECURE_COOKIES` set in `.env` reaches the app with the sample `docker-compose.yml`.** It was ignored there; only uncommenting the compose file's `INSECURE_COOKIES=1` line worked. The README, DEPLOY.md, `.env.example` and `docker-compose.yml` now explain it the same way as the other Trace apps: what it does, why signing in at a plain `http://` address loops without it, and to leave it off behind HTTPS. When the browser drops the sign-in cookie on an HTTPS address, "How to fix it" on the sign-in screen opens the part of the reverse proxy guide about it.
 
 ---
 

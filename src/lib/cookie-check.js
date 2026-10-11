@@ -10,6 +10,9 @@
  *
  * `status` is the server's /api/auth/status reply. The Android app is never
  * affected: it signs in with a token, not the cookie.
+ *
+ * The same file in all four Trace apps, like CookieWarning.svelte; change
+ * them together (scripts/cookie-check.test.js holds each one's hash).
  */
 export function cookieBlockedByHttp(status, { native = false, secureContext } = {}) {
   if (native) return false;
@@ -24,8 +27,9 @@ export function droppedCookieReason(status, opts = {}) {
 }
 
 // Where "How to fix it" goes for each reason: the plain-HTTP page, or the
-// reverse-proxy guide when the page was secure and something else dropped it.
+// reverse-proxy guide's section on it when the page was secure and something
+// else dropped the cookie.
 export const COOKIE_HELP_URLS = {
   http:    'https://traceapps.github.io/docs/getting-started/lan-http/',
-  dropped: 'https://traceapps.github.io/docs/getting-started/reverse-proxy/',
+  dropped: 'https://traceapps.github.io/docs/getting-started/reverse-proxy/#sign-in-doesnt-stick',
 };
