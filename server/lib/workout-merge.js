@@ -50,7 +50,7 @@ function _dedupe(entries, tombstoneSet) {
  *
  * @returns {{merged: Array, newTombstoneUuids: string[]}}
  */
-export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombstoneUuids) {
+export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombstoneUuids, changedUuids = null) {
   const server = Array.isArray(serverEntries) ? serverEntries : [];
   const client = Array.isArray(clientEntries) ? clientEntries : [];
   const deleted = Array.isArray(deletedUuids) ? deletedUuids.filter(x => typeof x === 'string' && x) : [];
@@ -128,7 +128,12 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
       continue;
     }
     const existing = serverByUuid.get(entry.uuid);
-    const winner = (!existing || _tsOf(entry) >= _tsOf(existing)) ? entry : existing;
+    // A client that says what it changed (`changedUuids`) only overrides
+    // those: the rest of what it sends is the copy it loaded, carried along,
+    // and may be older than the server's. A phone still showing a set as not
+    // done, saving something else, put it back over the watch's "done".
+    const theirs = changedUuids ? changedUuids.has(entry.uuid) : _tsOf(entry) >= _tsOf(existing);
+    const winner = (!existing || theirs) ? entry : existing;
     posByUuid.set(entry.uuid, ordered.length);
     ordered.push(winner);
   }
@@ -147,6 +152,24 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
 }
 
 /**
+ * What a save says it changed: `{ exercises: [uuid], sets: { exerciseUuid:
+ * [uuid] } }`, or null when it doesn't say (an older app, the watch, Trace),
+ * which keeps the merge as it always was.
+ */
+export function changedUuidsOf(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string' && x) : null);
+  const exercises = ids(raw.exercises);
+  if (!exercises || !raw.sets || typeof raw.sets !== 'object' || Array.isArray(raw.sets)) return null;
+  const sets = {};
+  for (const [ex, list] of Object.entries(raw.sets)) {
+    const l = ids(list);
+    if (l) sets[ex] = l;
+  }
+  return { exercises, sets };
+}
+
+/**
  * Two-level merge for the exercises→sets shape specific to LT. Applies
  * mergeEntries at the exercise layer, then for each surviving exercise
  * that also appears on the client side, applies mergeEntries to its
@@ -162,12 +185,14 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
 export function mergeExercises(
   serverExercises, clientExercises,
   deletedExerciseUuids, tombstonedExerciseUuids,
-  deletedSetUuidsByExercise = {}, tombstonedSetUuidsByExercise = {}
+  deletedSetUuidsByExercise = {}, tombstonedSetUuidsByExercise = {},
+  changed = null
 ) {
   // Exercise-level merge first — decides who's in the workout.
   const exResult = mergeEntries(
     serverExercises, clientExercises,
-    deletedExerciseUuids, tombstonedExerciseUuids
+    deletedExerciseUuids, tombstonedExerciseUuids,
+    changed ? new Set(changed.exercises) : null
   );
 
   // For each surviving exercise: if the client also had this exercise,
@@ -198,7 +223,8 @@ export function mergeExercises(
     const priorSetTombstones = tombstonedSetUuidsByExercise[ex.uuid] || [];
     const setResult = mergeEntries(
       serverEx.sets || [], clientEx.sets || [],
-      deletedSetUuids, priorSetTombstones
+      deletedSetUuids, priorSetTombstones,
+      changed ? new Set(changed.sets[ex.uuid] || []) : null
     );
     if (setResult.newTombstoneUuids.length) {
       newSetTombstonesByExercise[ex.uuid] = setResult.newTombstoneUuids;

@@ -117,8 +117,14 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_ROUTE = "com.lifttrace.app.wear.ROUTE"
     }
 
+    override fun onPause() {
+        store.showing = false
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        store.showing = true
         // The phone only sends a rest to a watch that has been used lately,
         // and this is what it goes by.
         Pairing.publishAwake(applicationContext)

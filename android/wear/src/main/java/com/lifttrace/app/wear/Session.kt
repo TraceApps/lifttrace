@@ -339,6 +339,18 @@ object Session {
      * is what keeps a session's name, notes and length from being flattened by
      * a watch that only ever knew about one set.
      */
+    /** `{ exercises: [], sets: { exerciseUuid: [setUuid] } }` for these changes. */
+    fun changedUuids(changes: List<Change>): JSONObject {
+        val sets = JSONObject()
+        for (c in changes) {
+            val list = sets.optJSONArray(c.exerciseUuid) ?: JSONArray().also { sets.put(c.exerciseUuid, it) }
+            var seen = false
+            for (i in 0 until list.length()) if (list.optString(i) == c.setUuid) seen = true
+            if (!seen) list.put(c.setUuid)
+        }
+        return JSONObject().put("exercises", JSONArray()).put("sets", sets)
+    }
+
     fun upsert(raw: JSONObject, change: Change): JSONObject {
         val body = JSONObject(raw.toString())
         val exercises = body.optJSONArray("exercises") ?: return body

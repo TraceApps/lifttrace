@@ -2,9 +2,27 @@ import { writable, get } from 'svelte/store';
 
 const KEY = 'lt:workoutTimer';
 
-function _load() {
+function _raw() {
   try { return JSON.parse(localStorage.getItem(KEY) || 'null'); }
   catch { return null; }
+}
+function _load() {
+  return sane(_raw());
+}
+
+/**
+ * A timer that can't be right is no timer. The watch was once told a start
+ * time of 0 (the phone's plugin dropped any number in milliseconds), so the
+ * phone and the watch both counted from 1970: 497712 hours. One already kept
+ * like that goes, rather than showing that until it's reset by hand.
+ */
+export function sane(state) {
+  if (!state || typeof state !== 'object') return null;
+  // Seconds: a run of more than about 115 days is no workout, which is also
+  // what a pause or resume of one counting from 1970 carries forward.
+  const seconds = (v) => Number(v) >= 0 && Number(v) < 1e7;
+  if (state.paused) return seconds(state.pausedElapsed) ? state : null;
+  return Number(state.startTime) > 1e12 && seconds(state.baseElapsed || 0) ? state : null;
 }
 const AT_KEY = 'lt:workoutTimerAt';
 
@@ -32,7 +50,8 @@ export function timerStampedAt() {
     // and reading that as nought would let the watch's word beat it: the
     // phone would adopt whatever the watch last said, and finishing the
     // workout would then write its length down as zero.
-    return Number(localStorage.getItem(AT_KEY)) || Number(_load()?.at) || 0;
+    // As kept: a timer that can't be right (see sane) still said something, when.
+    return Number(localStorage.getItem(AT_KEY)) || Number(_raw()?.at) || 0;
   } catch {
     return 0;
   }
@@ -43,6 +62,7 @@ export function timerStampedAt() {
  * without telling it back what it just told us.
  */
 export function adoptTimer(state, at = 0) {
+  state = sane(state);
   localStorage.setItem(AT_KEY, String(at || state?.at || Date.now()));
   if (state) localStorage.setItem(KEY, JSON.stringify(state));
   else localStorage.removeItem(KEY);

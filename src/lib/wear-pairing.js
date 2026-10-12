@@ -159,10 +159,11 @@ export async function syncWorkoutTimer() {
     // most recent one", and taking the wrong one is how a paused timer
     // starts itself again.
     const remote = await WearPairing.readTimer();
-    const { timerStampedAt, adoptTimer } = await import('../stores/workoutTimer.js');
+    const { timerStampedAt, adoptTimer, sane } = await import('../stores/workoutTimer.js');
     const mine = timerStampedAt();
     const theirs = remote?.found ? Number(remote.at || 0) : 0;
-    const local = JSON.parse(localStorage.getItem('lt:workoutTimer') || 'null');
+    // One that can't be right goes out as stopped, which clears it on the watch too.
+    const local = sane(JSON.parse(localStorage.getItem('lt:workoutTimer') || 'null'));
     if (theirs > mine) {
       adoptTimer(remote.cleared ? null : {
         date: String(remote.date || ''),
@@ -177,6 +178,27 @@ export async function syncWorkoutTimer() {
     // Only speak up when this phone genuinely has the later word. Saying it
     // again otherwise would restamp a stale record as the newest one.
     if (mine > theirs) await publishWorkoutTimer(local, mine);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The watch saved the day: `fn` runs, so the phone reads it again at once
+ * rather than at its next sync, up to half a minute later.
+ */
+export function onWatchSaved(fn) {
+  if (!isNative) return;
+  try { WearPairing.addListener('dayChanged', (e) => fn(String(e?.date || ''))); } catch { /* no watch here */ }
+}
+
+/** This phone saved the day: the watch, while it's in use, reads it again. */
+export async function tellWatchDaySaved(date) {
+  if (!isNative) return false;
+  if (!(await watchInUse())) return false;
+  try {
+    await WearPairing.dayChanged({ date: String(date || '') });
     return true;
   } catch {
     return false;

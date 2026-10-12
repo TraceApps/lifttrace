@@ -3,7 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { onWorkoutCompleted } from '../lib/coach-activity.js';
-import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
+import { mergeExercises, ensureExerciseUuids, changedUuidsOf } from '../lib/workout-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
 import { getRecordsCore, hasQualifyingSet } from '../lib/mcp/tools/get-records.js';
@@ -278,7 +278,8 @@ router.put('/:date', wrap((req, res) => {
   } = mergeExercises(
     serverExercises, ensureExerciseUuids(exercises || []),
     deletedExUuids, priorExTombstones,
-    deletedSetsByEx, priorSetTombstones
+    deletedSetsByEx, priorSetTombstones,
+    changedUuidsOf(req.body.changed_uuids)
   );
 
   // Insert-if-new; otherwise UPDATE. An empty merged list is still a

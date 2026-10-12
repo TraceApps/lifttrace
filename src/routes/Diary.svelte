@@ -1583,6 +1583,7 @@
   async function updateExercise(idx, ex) {
     const old = exercises[idx];
     let setJustCompleted = false;
+    let prCheck = null;
 
     if (old && ex.sets && old.sets) {
       // Only WORKING sets trigger post-set logic (rest timer, PR check,
@@ -1615,76 +1616,83 @@
           });
         }
 
-        // PR check — compare to PRIOR workouts only (not today), skip
-        // celebrations when planning ahead (future date)
-        const justCompletedSet = ex.sets.find((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
-        const justCompletedTimed = !!justCompletedSet && isTimedSet(ex, justCompletedSet);
-        if (!isFuture && justCompletedTimed && !justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0 && ex.exercise_id) {
-          // Timed set (issue #89): celebrate the longest hold, or a heavier
-          // load held, against prior timed sessions only.
-          try {
-            const history = await LtApi.getWorkoutHistory(ex.exercise_id);
-            let priorDur = 0, priorDurW = 0, priorCount = 0;
-            for (const h of history) {
-              if (h.date === $currentDate) continue;
-              for (const s of h.sets || []) {
-                if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
-                const d = Number(s.duration_sec) || 0;
-                if (d <= 0) continue;
-                priorCount++;
-                if (d > priorDur) priorDur = d;
-                if ((s.weight || 0) > priorDurW) priorDurW = s.weight || 0;
-              }
-            }
-            const d = Number(justCompletedSet.duration_sec);
-            const w = justCompletedSet.weight || 0;
-            if (priorCount > 0 && (d > priorDur || (w > 0 && w > priorDurW))) {
-              celebrateHoldPR(ex.exercise_name, d, w, $weightUnit);
-            }
-          } catch {}
-        } else if (!isFuture && justCompletedSet && !justCompletedTimed && justCompletedSet.weight > 0 && ex.exercise_id) {
-          try {
-            const history = await LtApi.getWorkoutHistory(ex.exercise_id);
-            // Collect prior completed sets, EXCLUDING today — otherwise your
-            // first set becomes the baseline and later sets never beat it.
-            let priorMax = 0;
-            let priorE1rm = 0;
-            let priorSetCount = 0;
-            for (const h of history) {
-              if (h.date === $currentDate) continue;
-              for (const s of h.sets || []) {
-                if (s.completed && s.weight > 0 && !isTimedSet({ set_type: h.set_type }, s)) {
-                  priorSetCount++;
-                  if (s.weight > priorMax) priorMax = s.weight;
-                  const e1 = calc1RM(s.weight, s.reps);
-                  if (e1 > priorE1rm) priorE1rm = e1;
+        // PR check, once the set is saved: it awaits the history, and a
+        // save built after that from the exercise as it was before put back
+        // whatever arrived meanwhile (the watch ticking another set of it).
+        prCheck = async () => {
+          // Compared to PRIOR workouts only (not today), skipping
+          // celebrations when planning ahead (future date)
+          const justCompletedSet = ex.sets.find((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
+          const justCompletedTimed = !!justCompletedSet && isTimedSet(ex, justCompletedSet);
+          if (!isFuture && justCompletedTimed && !justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0 && ex.exercise_id) {
+            // Timed set (issue #89): celebrate the longest hold, or a heavier
+            // load held, against prior timed sessions only.
+            try {
+              const history = await LtApi.getWorkoutHistory(ex.exercise_id);
+              let priorDur = 0, priorDurW = 0, priorCount = 0;
+              for (const h of history) {
+                if (h.date === $currentDate) continue;
+                for (const s of h.sets || []) {
+                  if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
+                  const d = Number(s.duration_sec) || 0;
+                  if (d <= 0) continue;
+                  priorCount++;
+                  if (d > priorDur) priorDur = d;
+                  if ((s.weight || 0) > priorDurW) priorDurW = s.weight || 0;
                 }
               }
-            }
-            // Only celebrate if there's a baseline (≥1 prior workout) AND
-            // the new lift beats it
-            if (priorSetCount > 0) {
-              const newE1rm = calc1RM(justCompletedSet.weight, justCompletedSet.reps);
-              const isWeightPR = justCompletedSet.weight > priorMax;
-              const isE1rmPR = newE1rm > priorE1rm;
-              if (isWeightPR || isE1rmPR) {
-                celebratePR(
-                  ex.exercise_name,
-                  justCompletedSet.weight,
-                  $weightUnit,
-                  justCompletedSet.reps,
-                  isWeightPR ? 'weight' : 'e1rm',
-                );
+              const d = Number(justCompletedSet.duration_sec);
+              const w = justCompletedSet.weight || 0;
+              if (priorCount > 0 && (d > priorDur || (w > 0 && w > priorDurW))) {
+                celebrateHoldPR(ex.exercise_name, d, w, $weightUnit);
               }
-            }
-          } catch {}
-        }
+            } catch {}
+          } else if (!isFuture && justCompletedSet && !justCompletedTimed && justCompletedSet.weight > 0 && ex.exercise_id) {
+            try {
+              const history = await LtApi.getWorkoutHistory(ex.exercise_id);
+              // Collect prior completed sets, EXCLUDING today, otherwise your
+              // first set becomes the baseline and later sets never beat it.
+              let priorMax = 0;
+              let priorE1rm = 0;
+              let priorSetCount = 0;
+              for (const h of history) {
+                if (h.date === $currentDate) continue;
+                for (const s of h.sets || []) {
+                  if (s.completed && s.weight > 0 && !isTimedSet({ set_type: h.set_type }, s)) {
+                    priorSetCount++;
+                    if (s.weight > priorMax) priorMax = s.weight;
+                    const e1 = calc1RM(s.weight, s.reps);
+                    if (e1 > priorE1rm) priorE1rm = e1;
+                  }
+                }
+              }
+              // Only celebrate if there's a baseline (≥1 prior workout) AND
+              // the new lift beats it
+              if (priorSetCount > 0) {
+                const newE1rm = calc1RM(justCompletedSet.weight, justCompletedSet.reps);
+                const isWeightPR = justCompletedSet.weight > priorMax;
+                const isE1rmPR = newE1rm > priorE1rm;
+                if (isWeightPR || isE1rmPR) {
+                  celebratePR(
+                    ex.exercise_name,
+                    justCompletedSet.weight,
+                    $weightUnit,
+                    justCompletedSet.reps,
+                    isWeightPR ? 'weight' : 'e1rm',
+                  );
+                }
+              }
+            } catch {}
+          }
+        };
       }
     }
 
     const updated = [...exercises];
     updated[idx] = ex;
-    await saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
+    const saving = saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
+    if (prCheck) await prCheck();
+    await saving;
 
     // Workout completion check — skip when planning ahead
     if (setJustCompleted && !isFuture) {
@@ -2220,7 +2228,15 @@
     }
   }
 
+  // What the notes box held when it was focused. Leaving it untouched saves
+  // nothing: saved anyway, a box showing older notes (changed on the web, by
+  // Trace or on another device since it was filled) put them back.
+  let _notesAtFocus = null;
+  function notesFocused() { _notesAtFocus = notes; }
   async function saveNotes() {
+    const typed = _notesAtFocus == null || notes !== _notesAtFocus;
+    _notesAtFocus = null;
+    if (!typed) { notes = $todayLog?.notes || ''; return; }
     await saveWorkout($currentDate, { ...($todayLog || {}), notes });
   }
 
@@ -2436,6 +2452,7 @@
           class="hud-notes-input"
           placeholder={$_('diary_extra.notes_ph')}
           bind:value={notes}
+          on:focus={notesFocused}
           on:blur={saveNotes}
           rows="4"
         ></textarea>
@@ -2817,6 +2834,7 @@
             class="notes-input"
             placeholder={$_('diary_extra.notes_ph')}
             bind:value={notes}
+            on:focus={notesFocused}
             on:blur={saveNotes}
             rows="2"
           ></textarea>

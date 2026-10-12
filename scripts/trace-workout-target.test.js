@@ -33,6 +33,7 @@ register('data:text/javascript,' + encodeURIComponent(`
   }`), import.meta.url);
 
 const { ensureExerciseUuids } = await import('../src/lib/workout-uuid.js');
+const { mergeExercises, changedUuidsOf } = await import('../server/lib/workout-merge.js');
 const DAY = '2026-10-07';
 let rows = [];
 // The program the user follows, in its third week.
@@ -68,7 +69,16 @@ globalThis.fetch = async (path, init = {}) => {
     const target = body.new_session ? null : body.id != null ? rows.find(r => r.id === body.id && r.date === m[1]) : live(m[1])[0];
     // As the server: every exercise and set gets a uuid.
     const fields = (b) => ({ name: b.name ?? null, exercises: ensureExerciseUuids(b.exercises), notes: b.notes || null, completed: b.completed ? 1 : 0, program_id: b.program_id || null, template_id: b.template_id || null, program_week: b.program_week ?? null });
-    if (target) { Object.assign(target, fields(body)); return json({ workout: target }); }
+    if (target && globalThis.__queueReply) {
+      // As a phone with no connection answers: its own copy, queued.
+      return json({ workout: { ...target, ...body, exercises: ensureExerciseUuids(body.exercises || []) }, queued: true });
+    }
+    if (target) {
+      // Exercises as the server merges them, saying-what-changed included.
+      const exercises = mergeExercises(target.exercises || [], ensureExerciseUuids(body.exercises || []), [], [], {}, {}, changedUuidsOf(body.changed_uuids)).merged;
+      Object.assign(target, fields(body), { exercises });
+      return json({ workout: target });
+    }
     const made = { id: 100 + rows.length, date: m[1], ...fields(body) };
     rows.push(made);
     return json({ workout: made });
@@ -362,12 +372,12 @@ test("a Diary edit made while Trace marks the workout finished keeps Trace's fin
 test('what the Diary did change still goes up', () => {
   const known = { name: 'Push', notes: null, duration_min: null, completed: 0, template_id: null, program_id: null, program_week: null };
   const current = { ...known, name: 'Push Heavy', completed: 1 };
-  const out = store.detailsToSave({ ...known, notes: 'felt strong' }, current, known);
+  const out = store.detailsToSave({ ...known, notes: 'felt strong' }, current, new Set(['notes']));
   assert.equal(out.notes, 'felt strong');
   assert.equal(out.name, 'Push Heavy');
   assert.equal(out.completed, 1);
   // A template loaded in the Diary takes the program, its workout and the week together.
-  const t = store.detailsToSave({ ...known, template_id: 3, program_id: 1, program_week: null }, { ...known, program_week: 4 }, known);
+  const t = store.detailsToSave({ ...known, template_id: 3, program_id: 1, program_week: null }, { ...known, program_week: 4 }, new Set(['template_id', 'program_id']));
   assert.deepEqual([t.template_id, t.program_id, t.program_week], [3, 1, null]);
   // Nothing to compare against: as before, the Diary's value unless it has none.
   assert.equal(store.detailsToSave({ name: null, notes: 'x' }, { name: 'Push', notes: 'y' }, null).name, 'Push');
@@ -396,10 +406,140 @@ test('two Diary saves in a row still keep a name changed elsewhere since the Dia
   const shown = get(store.todayLog);         // still says Push
   const withSet = (w, reps) => ({ ...w, exercises: w.exercises.map((e, i) => (i ? e : { ...e, sets: [...e.sets, { reps, weight: 60 }] })) });
   // The second edit comes in while the first save is on its way.
-  globalThis.__duringPut = () => { store.saveWorkout(DAY, withSet(withSet(shown, 7), 6)).catch(() => {}); };
+  globalThis.__duringPut = () => { store.saveWorkout(DAY, withSet(get(store.todayLog), 6)).catch(() => {}); };
   store.saveWorkout(DAY, withSet(shown, 7)).catch(() => {});
   await new Promise(r => setTimeout(r, 900));
   const w = rows.find(r => r.id === 2);
   assert.equal(w.name, 'Chest');
   assert.equal(w.exercises[0].sets.length, 3, 'both sets saved');
+});
+
+test('the Diary says which exercises and sets it changed since what it showed', () => {
+  const shown = [
+    { uuid: 'b', exercise_name: 'Bench', sets: [{ uuid: 's1', reps: 8, completed: false }, { uuid: 's2', reps: 8, completed: false }] },
+    { uuid: 'd', exercise_name: 'Dips', notes: null, sets: [{ uuid: 'd1', reps: 10 }] },
+  ];
+  const next = [
+    { uuid: 'b', exercise_name: 'Bench', sets: [{ uuid: 's1', reps: 8, completed: false }, { uuid: 's2', reps: 6, completed: true }, { uuid: 's3', reps: 5 }] },
+    { uuid: 'd', exercise_name: 'Dips', notes: 'slow', sets: [{ uuid: 'd1', reps: 10, _open: true }] },
+    { uuid: 'f', exercise_name: 'Fly', sets: [{ uuid: 'f1', reps: 12 }] },
+  ];
+  assert.deepEqual(store.changedUuids(shown, next), { exercises: ['d', 'f'], sets: { b: ['s2', 's3'], f: ['f1'] } });
+});
+
+test("the Diary's save carries what it changed, so a set done elsewhere stays done", async () => {
+  day();
+  await store.loadWorkout(DAY);
+  await store.switchSession(DAY, 2);
+  const shown = get(store.todayLog);
+  let sent = null;
+  globalThis.__duringPut = (body) => { sent = body; };
+  store.saveWorkout(DAY, { ...shown, exercises: shown.exercises.map(e => ({ ...e, sets: [...e.sets, { reps: 6, weight: 60 }] })) }).catch(() => {});
+  await new Promise(r => setTimeout(r, 450));
+  assert.ok(sent?.changed_uuids, 'sent');
+  assert.deepEqual(sent.changed_uuids.exercises, []);
+  const ex = shown.exercises[0].uuid;
+  assert.equal(sent.changed_uuids.sets[ex].length, 1, 'only the new set');
+});
+
+test('a set edited in place on screen still counts as changed', async () => {
+  day();
+  await store.loadWorkout(DAY);
+  await store.switchSession(DAY, 2);
+  const shown = get(store.todayLog);
+  let sent = null;
+  globalThis.__duringPut = (body) => { sent = body; };
+  shown.exercises[0].sets[0].completed = true; // mutated, as a bound input would
+  store.saveWorkout(DAY, { ...shown }).catch(() => {});
+  await new Promise(r => setTimeout(r, 450));
+  const ex = shown.exercises[0];
+  assert.deepEqual(sent.changed_uuids.sets[ex.uuid], [ex.sets[0].uuid]);
+  assert.equal(rows.find(r => r.id === 2).exercises[0].sets[0].completed, true);
+});
+
+test('a set unticked while the save that ticked it is still on its way stays unticked', async () => {
+  day();
+  await store.loadWorkout(DAY);
+  await store.switchSession(DAY, 2);
+  const shown = get(store.todayLog);
+  const tick = (w, done) => ({ ...w, exercises: w.exercises.map((e, i) => (i ? e : { ...e, sets: e.sets.map((x, j) => (j ? x : { ...x, completed: done })) })) });
+  // Unticked while the tick's save is in the air.
+  globalThis.__duringPut = () => { store.saveWorkout(DAY, tick(get(store.todayLog), false)).catch(() => {}); };
+  store.saveWorkout(DAY, tick(shown, true)).catch(() => {});
+  await new Promise(r => setTimeout(r, 900));
+  assert.equal(rows.find(r => r.id === 2).exercises[0].sets[0].completed, false);
+});
+
+test("a refresh bringing the watch's tick while a Diary edit waits keeps both", async () => {
+  day();
+  rows[1].exercises[0].sets.push({ uuid: 'y1', reps: 8, weight: 60, completed: false });
+  await store.loadWorkout(DAY);
+  await store.switchSession(DAY, 2);
+  const shown = get(store.todayLog);
+  // The Diary ticks set 1; its save waits out the debounce.
+  store.saveWorkout(DAY, { ...shown, exercises: shown.exercises.map((e, i) => (i ? e : { ...e, sets: e.sets.map((x, j) => (j ? x : { ...x, completed: true })) })) }).catch(() => {});
+  // Meanwhile the watch ticks y1, and a refresh shows it here.
+  rows[1].exercises[0].sets.find(x => x.uuid === 'y1').completed = true;
+  rows[1].updated_at = '2099-01-01 00:00:00';
+  await store.loadWorkout(DAY, { preferFresher: true });
+  await new Promise(r => setTimeout(r, 450));
+  const sets = rows.find(r => r.id === 2).exercises[0].sets;
+  assert.equal(sets[0].completed, true, "the Diary's tick");
+  assert.equal(sets.find(x => x.uuid === 'y1').completed, true, "and the watch's");
+});
+
+test('a change queued with no connection is still listed by the next save, until one reaches the server', async () => {
+  day();
+  await store.loadWorkout(DAY);
+  await store.switchSession(DAY, 2);
+  const tick = (w) => ({ ...w, exercises: w.exercises.map((e, i) => (i ? e : { ...e, sets: e.sets.map((x, j) => (j ? x : { ...x, completed: true })) })) });
+  globalThis.__queueReply = true;
+  store.saveWorkout(DAY, tick(get(store.todayLog))).catch(() => {});
+  await new Promise(r => setTimeout(r, 450));
+  globalThis.__queueReply = false;
+  let sent = null;
+  globalThis.__duringPut = (body) => { sent = body; };
+  const w = get(store.todayLog);
+  store.saveWorkout(DAY, { ...w, name: 'Push A' }).catch(() => {});
+  await new Promise(r => setTimeout(r, 450));
+  const ex = w.exercises[0];
+  assert.deepEqual(sent.changed_uuids.sets[ex.uuid], [ex.sets[0].uuid], 'the queued tick still said');
+  assert.equal(rows.find(r => r.id === 2).exercises[0].sets[0].completed, true);
+});
+
+test('a refresh waits while a change made here is still waiting to save', async () => {
+  day();
+  await store.loadWorkout(DAY);
+  await store.switchSession(DAY, 2);
+  const w = get(store.todayLog);
+  store.saveWorkout(DAY, { ...w, name: 'Mine' }).catch(() => {});
+  rows[1].name = 'Theirs';
+  rows[1].updated_at = '2099-01-01 00:00:00';
+  await store.loadWorkout(DAY, { preferFresher: true });
+  assert.equal(get(store.todayLog).name, 'Mine', 'not shown over the waiting change');
+  await new Promise(r => setTimeout(r, 450));
+});
+
+test('the Diary saves notes only when typed, and a set before checking it for a record', async () => {
+  const { readFileSync } = await import('node:fs');
+  const diary = readFileSync(new URL('../src/routes/Diary.svelte', import.meta.url), 'utf8');
+  assert.equal((diary.match(/on:focus=\{notesFocused\}\s*\n\s*on:blur=\{saveNotes\}/g) || []).length, 2);
+  assert.match(diary, /const typed = _notesAtFocus == null \|\| notes !== _notesAtFocus;/);
+  assert.match(diary, /const saving = saveWorkout\(\$currentDate, \{ \.\.\.\(\$todayLog \|\| \{\}\), exercises: updated \}\);\s*\n\s*if \(prCheck\) await prCheck\(\);/);
+});
+
+test('a save the server refused does not shut out the refreshes after it', async () => {
+  day();
+  await store.loadWorkout(DAY);
+  await store.switchSession(DAY, 2);
+  const real = globalThis.fetch;
+  globalThis.fetch = async (path, init) => (init?.method === 'PUT' ? new Response('{"error":"no"}', { status: 400 }) : real(path, init));
+  try {
+    store.saveWorkout(DAY, { ...get(store.todayLog), name: 'Refused' }).catch(() => {});
+    await new Promise(r => setTimeout(r, 450));
+  } finally { globalThis.fetch = real; }
+  rows[1].name = 'From the watch';
+  rows[1].updated_at = '2099-01-01 00:00:00';
+  await store.loadWorkout(DAY, { preferFresher: true });
+  assert.equal(get(store.todayLog).name, 'From the watch');
 });

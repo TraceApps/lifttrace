@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { mergeEntries, mergeExercises, mergeStatsObject, ensureExerciseUuids, ensureUuids } from '../server/lib/workout-merge.js';
+import { mergeEntries, mergeExercises, mergeStatsObject, ensureExerciseUuids, ensureUuids, changedUuidsOf } from '../server/lib/workout-merge.js';
 
 // Port of NutriTrace's scripts/diary-merge.test.js — same class of bug,
 // same fix. LT's twist: exercises are two-level (exercise → sets), and
@@ -284,4 +284,46 @@ test('mergeEntries: duplicate uuid in client list de-dupes to one slot at its fi
   const { merged } = mergeEntries(server, client, [], []);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].name, 'second');
+});
+
+// ── A save that says what it changed ────────────────────────────────
+// The watch marked a set done. The phone, still showing it not done, saved
+// something else on the workout, and its copy put the set back: last writer
+// won every set. A save that names what it changed only overrides those.
+
+test("a set the save didn't change keeps the server's newer state", () => {
+  const server = [_ex('b', { sets: [_set('s1', { completed: 1 }), _set('s2', { completed: 0 })] })];
+  const stale = [_ex('b', { sets: [_set('s1', { completed: 0 }), _set('s2', { completed: 0 }), _set('s3', { completed: 0 })] })];
+  const { merged } = mergeExercises(server, stale, [], [], {}, {}, { exercises: [], sets: { b: ['s3'] } });
+  assert.deepEqual(merged[0].sets.map(x => [x.uuid, x.completed]), [['s1', 1], ['s2', 0], ['s3', 0]]);
+});
+
+test('a set the save did change is its own, done or undone', () => {
+  const server = [_ex('b', { sets: [_set('s1', { completed: 1 })] })];
+  const undone = [_ex('b', { sets: [_set('s1', { completed: 0 })] })];
+  const { merged } = mergeExercises(server, undone, [], [], {}, {}, { exercises: [], sets: { b: ['s1'] } });
+  assert.equal(merged[0].sets[0].completed, 0);
+});
+
+test("an exercise the save didn't change keeps the server's own fields, its sets still merged", () => {
+  const server = [_ex('b', { notes: 'grip wider', sets: [_set('s1')] })];
+  const client = [_ex('b', { notes: null, sets: [_set('s1'), _set('s2')] })];
+  const { merged } = mergeExercises(server, client, [], [], {}, {}, { exercises: [], sets: { b: ['s2'] } });
+  assert.equal(merged[0].notes, 'grip wider');
+  assert.equal(merged[0].sets.length, 2);
+});
+
+test('a save that says nothing is merged as it always was: what it sends wins', () => {
+  const server = [_ex('b', { sets: [_set('s1', { completed: 1 })] })];
+  const client = [_ex('b', { sets: [_set('s1', { completed: 0 })] })];
+  assert.equal(mergeExercises(server, client, [], [], {}, {}).merged[0].sets[0].completed, 0);
+  assert.equal(mergeExercises(server, client, [], [], {}, {}, null).merged[0].sets[0].completed, 0);
+});
+
+test('what a save says it changed is read strictly', () => {
+  assert.equal(changedUuidsOf(null), null);
+  assert.equal(changedUuidsOf([]), null);
+  assert.equal(changedUuidsOf({ exercises: 'a', sets: {} }), null);
+  assert.equal(changedUuidsOf({ exercises: [] }), null, 'no sets: not saying');
+  assert.deepEqual(changedUuidsOf({ exercises: ['a', 3, ''], sets: { b: ['s1', null], c: 'x' } }), { exercises: ['a'], sets: { b: ['s1'] } });
 });

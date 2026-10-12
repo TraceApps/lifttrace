@@ -9,6 +9,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **The workout timer shows the right time with a watch paired.** Started or paused on the phone, it reached the watch as having started in 1970, so both showed hundreds of thousands of hours. A timer already stuck like that clears itself.
+- **A set marked done on the watch stays done.** Saving anything on the phone while it still showed that set as not done put it back. A save now changes only the sets and exercises it changed, which also covers two phones, or a phone and a browser, on the same workout.
+- **The phone and the watch show each other's sets at once.** A set logged on one shows on the other right away while it's open, rather than at its next refresh, up to 45 seconds later. Neither checks while its screen is off.
 - **The Android app no longer syncs every few seconds on the Diary, Programs and Statistics.** Each sync told the open page to reload, and the reload's reads started the next sync, even when nothing had changed. A sync that brings nothing now leaves the page alone (the coach's feedback still refreshes), and a read right after a sync doesn't start another. Without user accounts, the program being followed no longer counts as a change on every sync.
 - **Trace answers with models that can't use tools** ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259)). With an OpenAI-compatible model that has no tool support, every chat failed with `tool use is not supported`. Trace now asks again without tools and says once that the model can't log workouts or look things up. Thanks @jsapede for the report.
 - **Messages show on phones while Trace is open.** They were hidden behind it. Long messages wrap instead of running off the screen.

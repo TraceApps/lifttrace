@@ -44,6 +44,8 @@ object Pairing {
     private const val KEY_LASTS = "last_times"
     private const val KEY_LASTS_DAY = "last_times_day"
     private const val KEY_REFUSED = "refused_token"
+    /** When the phone last said it saved the day (an open app reads it again). */
+    const val KEY_DAY = "day_saved_at"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -59,6 +61,27 @@ object Pairing {
         }
         prefs(ctx).registerOnSharedPreferenceChangeListener(listener)
         return listener
+    }
+
+    /** The phone saved the day: noted, so an open app reads it again at once. */
+    fun noteDaySaved(ctx: Context) {
+        prefs(ctx).edit().putLong(KEY_DAY, System.currentTimeMillis()).apply()
+    }
+
+    /**
+     * This watch saved the day: the phone reads it again at once. Without
+     * this it found out at its next sync, up to half a minute later, and a
+     * set logged here wasn't there when you looked.
+     */
+    fun tellPhoneDaySaved(ctx: Context, date: String) {
+        val payload = date.toByteArray(Charsets.UTF_8)
+        runCatching {
+            Wearable.getNodeClient(ctx).connectedNodes.addOnSuccessListener { nodes ->
+                for (node in nodes) {
+                    Wearable.getMessageClient(ctx).sendMessage(node.id, PairingService.DAY_PATH, payload)
+                }
+            }
+        }.onFailure { Log.w(TAG, "couldn't tell the phone about the day: " + it.message) }
     }
 
     /** The saved link, or null when the phone hasn't paired yet. */
@@ -197,14 +220,25 @@ object Pairing {
         val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
         val date = o.optString("date")
         if (date.isBlank()) return null
-        return SessionTimer(
+        val timer = SessionTimer(
             date = date,
             startTime = o.optLong("startTime", 0L),
             baseElapsedSec = o.optDouble("baseElapsed", 0.0),
             paused = o.optBoolean("paused", false),
             pausedElapsedSec = o.optDouble("pausedElapsed", 0.0),
         )
+        return if (sane(timer)) timer else null
     }
+
+    /**
+     * A timer that can't be right is no timer. The phone once sent a start
+     * time of 0 (its plugin dropped any number in milliseconds), so the watch
+     * counted from 1970: 497712 hours. One kept like that goes.
+     */
+    fun sane(timer: SessionTimer): Boolean =
+        if (timer.paused) timer.pausedElapsedSec in 0.0..1e7
+        // A pause or resume of one counting from 1970 carries it forward here.
+        else timer.startTime > 1_000_000_000_000L && timer.baseElapsedSec in 0.0..1e7
 
     /**
      * Something the phone (or this watch) said about the timer. Anything older

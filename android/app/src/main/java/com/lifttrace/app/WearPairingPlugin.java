@@ -9,6 +9,9 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import android.util.Log;
 
 import com.google.android.gms.wearable.DataClient;
+import com.google.android.gms.wearable.MessageClient;
+import com.google.android.gms.wearable.Node;
+import java.nio.charset.StandardCharsets;
 import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
@@ -31,7 +34,64 @@ public class WearPairingPlugin extends Plugin {
     /** A rest between sets, and the watch saying its app has been opened. */
     private static final String REST_PATH = "/lifttrace/rest";
     private static final String AWAKE_PATH = "/lifttrace/awake";
+    /** "I just saved the day": the other device reads it again at once. */
+    private static final String DAY_PATH = "/lifttrace/day";
     private static final String TAG = "WearPairing";
+
+    /** A number from the call, whatever size it arrived as (see JsNumber). */
+    private static double num(PluginCall call, String name) {
+        return JsNumber.num(call.getData().opt(name));
+    }
+
+    private static long whole(PluginCall call, String name) {
+        return JsNumber.whole(call.getData().opt(name));
+    }
+
+    /**
+     * The watch saved the day it is showing. Without this the phone found out
+     * at its next sync, up to half a minute later, and a set logged on the
+     * wrist wasn't on the phone when you looked.
+     */
+    private final MessageClient.OnMessageReceivedListener dayListener = event -> {
+        if (!DAY_PATH.equals(event.getPath())) return;
+        JSObject data = new JSObject();
+        data.put("date", new String(event.getData(), StandardCharsets.UTF_8));
+        notifyListeners("dayChanged", data);
+    };
+
+    @Override
+    public void load() {
+        try {
+            Wearable.getMessageClient(getContext()).addListener(dayListener);
+        } catch (Exception e) {
+            Log.w(TAG, "no watch messages here: " + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        try {
+            Wearable.getMessageClient(getContext()).removeListener(dayListener);
+        } catch (Exception e) {
+            Log.w(TAG, "couldn't stop listening: " + e.getMessage());
+        }
+    }
+
+    /** This phone saved the day: the watch reads it again at once. */
+    @PluginMethod
+    public void dayChanged(PluginCall call) {
+        byte[] payload = call.getString("date", "").getBytes(StandardCharsets.UTF_8);
+        Wearable.getNodeClient(getContext()).getConnectedNodes()
+            .addOnSuccessListener(nodes -> {
+                for (Node node : nodes) {
+                    Wearable.getMessageClient(getContext()).sendMessage(node.getId(), DAY_PATH, payload);
+                }
+                JSObject ret = new JSObject();
+                ret.put("sent", nodes.size());
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
 
     /** True when a watch is paired with this phone, so the UI can say so. */
     @PluginMethod
@@ -90,10 +150,10 @@ public class WearPairingPlugin extends Plugin {
     public void timer(PluginCall call) {
         PutDataMapRequest req = PutDataMapRequest.create(TIMER_PATH);
         req.getDataMap().putString("date", call.getString("date", ""));
-        req.getDataMap().putLong("startTime", call.getDouble("startTime", 0d).longValue());
-        req.getDataMap().putDouble("baseElapsed", call.getDouble("baseElapsed", 0d));
+        req.getDataMap().putLong("startTime", whole(call, "startTime"));
+        req.getDataMap().putDouble("baseElapsed", num(call, "baseElapsed"));
         req.getDataMap().putBoolean("paused", Boolean.TRUE.equals(call.getBoolean("paused", false)));
-        req.getDataMap().putDouble("pausedElapsed", call.getDouble("pausedElapsed", 0d));
+        req.getDataMap().putDouble("pausedElapsed", num(call, "pausedElapsed"));
         req.getDataMap().putBoolean("cleared", false);
         // The stamp comes from whoever made the change, so both devices are
         // judging by the same reading rather than by when a write happened.
@@ -104,8 +164,7 @@ public class WearPairingPlugin extends Plugin {
     }
 
     private long stampOf(PluginCall call) {
-        Double at = call.getDouble("at", 0d);
-        long stamp = at == null ? 0L : at.longValue();
+        long stamp = whole(call, "at");
         return stamp > 0 ? stamp : System.currentTimeMillis();
     }
 
@@ -181,10 +240,8 @@ public class WearPairingPlugin extends Plugin {
         req.getDataMap().putBoolean("cleared", cleared);
         if (!cleared) {
             req.getDataMap().putString("label", call.getString("label", ""));
-            Double total = call.getDouble("total", 0d);
-            Double endsAt = call.getDouble("endsAt", 0d);
-            req.getDataMap().putInt("total", total == null ? 0 : total.intValue());
-            req.getDataMap().putLong("endsAt", endsAt == null ? 0L : endsAt.longValue());
+            req.getDataMap().putInt("total", (int) whole(call, "total"));
+            req.getDataMap().putLong("endsAt", whole(call, "endsAt"));
         }
         req.getDataMap().putLong("at", stampOf(call));
         Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())

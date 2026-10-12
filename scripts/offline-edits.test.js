@@ -651,3 +651,12 @@ test("a day's first workout made in this browser, with none of the day held, goe
   assert.match(offline, /if \(newWorkout\) body = \{ \.\.\.body, new_session: true, client_key: body\.client_key \|\| `web-workout\$\{tempId\}` \};/);
   assert.match(offline, /op\.kind === 'workout' \? \{ tempId, key: `workout:\$\{date\}#\$\{tempId\}` \}/);
 });
+
+test("a workout's queued saves go up saying everything any of them changed", () => {
+  const save = (seq, changed) => op(seq, 'PUT', `/api/workout/${DAY2}`, { id: 5, exercises: [], ...(changed ? { changed_uuids: changed } : {}) });
+  const [one] = collapseOps([save(1, { exercises: ['a'], sets: { a: ['s1'] } }), save(2, { exercises: [], sets: { a: ['s2'], b: ['t1'] } })]);
+  assert.deepEqual(one.body.changed_uuids, { exercises: ['a'], sets: { a: ['s1', 's2'], b: ['t1'] } });
+  // One queued by an earlier version says nothing, so the merged one says nothing.
+  const [two] = collapseOps([save(1, null), save(2, { exercises: [], sets: { a: ['s2'] } })]);
+  assert.equal(two.body.changed_uuids, undefined);
+});

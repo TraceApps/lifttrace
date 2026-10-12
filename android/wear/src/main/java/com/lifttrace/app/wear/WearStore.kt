@@ -59,6 +59,9 @@ class WearStore(private val ctx: Context) {
      */
     private val work = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /** Is the app on screen? Set by the activity as it comes and goes. */
+    @Volatile var showing = false
+
     /** One send at a time: two at once would read the same day twice and race. */
     private val sending = Mutex()
 
@@ -74,6 +77,11 @@ class WearStore(private val ctx: Context) {
             Pairing.KEY_SESSION -> _state.update { it.copy(session = sessionTimer()) }
             Pairing.KEY_URL, Pairing.KEY_TOKEN ->
                 _state.update { it.copy(paired = Pairing.config(ctx) != null) }
+            // The phone saved the day: read it again now, not at the next poll,
+            // but only on screen. Off screen it waits: coming back reads it
+            // anyway, and a watch reading the network with its screen off is
+            // battery spent on nobody.
+            Pairing.KEY_DAY -> if (showing) work.launch { refresh(quiet = true) }
         }
     }
 
@@ -365,10 +373,15 @@ class WearStore(private val ctx: Context) {
                 op.minutes?.let { body.put("duration_min", it) }
                 if (op.finished) body.put("completed", 1)
             }
+            // Which sets this changes: the server keeps its own of the rest, so
+            // a set the phone changed between the read above and this save
+            // isn't put back by the copy read here.
+            body.put("changed_uuids", Session.changedUuids(batch.mapNotNull { it.change }))
             val saved = LiftApi.saveWorkout(cfg, date, body)
             // Only what actually went up comes off the queue. Anything logged
             // while this was in the air is a later entry and stays.
             forget(batch)
+            Pairing.tellPhoneDaySaved(ctx, date)
             val workout = Session.parse(saved)
             if (workout != null) {
                 Pairing.putCache(ctx, wrap(workout))

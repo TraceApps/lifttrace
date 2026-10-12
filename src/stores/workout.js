@@ -35,39 +35,98 @@ function _snapshotKey(dateStr, sessionId) {
 function _snapshotExercises(dateStr, sessionId) {
   return _snapshotByDate.get(_snapshotKey(dateStr, sessionId)) || [];
 }
-function _setSnapshot(dateStr, sessionId, workout, { details = true } = {}) {
+function _setSnapshot(dateStr, sessionId, workout) {
   const key = _snapshotKey(dateStr, sessionId);
   if (workout && Array.isArray(workout.exercises)) {
     _snapshotByDate.set(key, workout.exercises);
   } else {
     _snapshotByDate.set(key, []);
   }
-  if (details) _setDetails(dateStr, sessionId, workout);
-}
-function _setDetails(dateStr, sessionId, workout) {
-  _detailsByKey.set(_snapshotKey(dateStr, sessionId), workout ? _detailsOf(workout) : null);
 }
 
-// A workout's own details as this Diary last had them from the server (or
-// this device's copy), beside the exercises above. A save sends the whole
-// workout as shown, so one shown from before another change (Trace marking
-// it finished, naming it, loading a template) put the old values back: only
-// the details this Diary changed since are its to send.
-const _detailsByKey = new Map();
+// What this Diary changed and hasn't seen saved yet, per workout: each
+// exercise, set and detail, by when it was last changed. A save sends the
+// whole workout as shown, so one shown from before another change (the watch
+// ticking a set, Trace naming the workout) put the old values back: only what
+// was changed here is the save's to say. Noted as each change is made,
+// against what was on screen just before it, so a refresh landing in
+// between, or a change undone while the save before it was still on its way,
+// can't make someone else's change look like this Diary's, or this Diary's
+// look like none.
+const _editsByKey = new Map();
+let _editSeq = 0;
+// What the Diary was showing, as a copy: an edit made in place on screen
+// would otherwise change this too and read as no change at all.
+let _shown = null;
+todayLog.subscribe(v => { _shown = v ? JSON.parse(JSON.stringify(v)) : null; });
 const _DETAILS = ['name', 'notes', 'duration_min', 'completed', 'template_id', 'program_id', 'program_week'];
 // The program, its workout and the week go together, as on the server.
 const _PROGRAM = ['template_id', 'program_id', 'program_week'];
-function _detailsOf(w) {
-  return Object.fromEntries(_DETAILS.map(f => [f, w?.[f]]));
-}
 const _same = (a, b) => {
   const n = (v) => (v === undefined || v === '' ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v);
   return String(n(a)) === String(n(b));
 };
-/** The details a save sends: this Diary's where it changed them, the
- *  current copy's for the rest. With nothing to compare against, as before. */
-export function detailsToSave(client, current, known) {
-  if (!known) {
+// One exercise or set against another: the same, leaving out what only the
+// screen keeps (fields starting with _) and, for an exercise, its sets.
+function _sameEntry(a, b, skip = null) {
+  const norm = (o) => JSON.stringify(Object.keys(o || {}).filter(k => !k.startsWith('_') && k !== skip).sort().map(k => [k, o[k]]));
+  return norm(a) === norm(b);
+}
+
+/** The exercises and sets in `next` that are new or different from `before`. */
+export function changedUuids(before, next) {
+  const was = new Map((before || []).filter(e => e?.uuid).map(e => [e.uuid, e]));
+  const exercises = [];
+  const sets = {};
+  for (const ex of next || []) {
+    if (!ex?.uuid) continue;
+    const old = was.get(ex.uuid);
+    if (!old || !_sameEntry(ex, old, 'sets')) exercises.push(ex.uuid);
+    const oldSets = new Map((old?.sets || []).filter(x => x?.uuid).map(x => [x.uuid, x]));
+    const changed = (ex.sets || []).filter(x => x?.uuid && (!oldSets.has(x.uuid) || !_sameEntry(x, oldSets.get(x.uuid))));
+    if (changed.length) sets[ex.uuid] = changed.map(x => x.uuid);
+  }
+  return { exercises, sets };
+}
+
+/** Note what an edit changed: `before` is what was on screen (null: all of it). */
+function _noteEdits(key, before, next) {
+  const ch = changedUuids(before?.exercises || [], next?.exercises || []);
+  const fields = before ? _DETAILS.filter(f => !_same(next?.[f], before?.[f])) : _DETAILS;
+  if (!ch.exercises.length && !Object.keys(ch.sets).length && !fields.length) return;
+  const m = _editsByKey.get(key) || new Map();
+  const at = ++_editSeq;
+  for (const u of ch.exercises) m.set(`e ${u}`, at);
+  for (const [ex, list] of Object.entries(ch.sets)) for (const u of list) m.set(`s ${ex} ${u}`, at);
+  for (const f of fields) m.set(`f ${f}`, at);
+  _editsByKey.set(key, m);
+}
+
+/** What a save of `key` carries: everything changed here so far. */
+function _editsOf(key) {
+  const out = { exercises: [], sets: {}, fields: new Set(), upTo: _editSeq };
+  for (const k of (_editsByKey.get(key) || new Map()).keys()) {
+    const [kind, a, b] = k.split(' ');
+    if (kind === 'e') out.exercises.push(a);
+    else if (kind === 's') (out.sets[a] ||= []).push(b);
+    else out.fields.add(a);
+  }
+  return out;
+}
+
+/** Saved: what was changed by then is the server's now. A change made while
+ *  the save was on its way stays, for the next one. */
+function _editsSaved(key, upTo) {
+  const m = _editsByKey.get(key);
+  if (!m) return;
+  for (const [k, at] of m) if (at <= upTo) m.delete(k);
+  if (!m.size) _editsByKey.delete(key);
+}
+
+/** The details a save sends: this Diary's where it changed them (`edited`),
+ *  the current copy's for the rest. With nothing to go by, as before. */
+export function detailsToSave(client, current, edited) {
+  if (!edited) {
     return {
       name: client.name ?? current.name,
       notes: client.notes ?? current.notes,
@@ -77,13 +136,9 @@ export function detailsToSave(client, current, known) {
       program_week: client.program_week ?? current.program_week,
     };
   }
-  const changed = (f) => !_same(client[f], known[f]);
-  const program = _PROGRAM.some(changed);
+  const program = _PROGRAM.some(f => edited.has(f));
   const out = {};
-  for (const f of _DETAILS) {
-    const mine = _PROGRAM.includes(f) ? program : changed(f);
-    out[f] = mine ? client[f] : current[f];
-  }
+  for (const f of _DETAILS) out[f] = (_PROGRAM.includes(f) ? program : edited.has(f)) ? client[f] : current[f];
   return out;
 }
 
@@ -163,6 +218,16 @@ export async function loadWorkout(dateStr, { preferFresher = false, sessionId } 
       // for this same session; equal timestamps still apply, since a
       // tombstone-driven cross-device deletion patches `exercises`
       // in place without bumping `updated_at`.
+      // A change made here still waiting to save, or on its way: its answer
+      // brings the merged copy. Shown now, the next edit would be built on
+      // this one and put back what that change did.
+      // Only while one is actually waiting or on its way (both always end):
+      // a save the server refused stays recorded, and must not shut out
+      // every refresh after it.
+      if ((_armed && _latestDate === dateStr) || _inFlight) {
+        loadWorkoutSessions(dateStr).catch(() => {});
+        return;
+      }
       const current = get(todayLog);
       const sameSession = current?.id != null && current.id === (data.workout?.id ?? null);
       if (sameSession && _tsMs(data.workout?.updated_at) < _tsMs(current.updated_at)) {
@@ -217,8 +282,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
           const moved = key.slice(0, -String(oldId).length) + newId;
           _snapshotByDate.set(moved, ex);
           _snapshotByDate.delete(key);
-          _detailsByKey.set(moved, _detailsByKey.get(key) ?? null);
-          _detailsByKey.delete(key);
+          if (_editsByKey.has(key)) { _editsByKey.set(moved, _editsByKey.get(key)); _editsByKey.delete(key); }
         }
       }
     }
@@ -404,16 +468,32 @@ async function _mergeAndSave(dateStr, clientEntry) {
   // deletions the local user actually performed since load.
   const deleted_uuids = diffTombstones(_snapshotExercises(dateStr, sessionId), nextExercises);
 
+  // Only what this Diary changed is its to say (see _editsByKey): the rest of
+  // the workout, as shown here, may be older than the copy just read.
+  const key = _snapshotKey(dateStr, sessionId);
+  const edits = _editsOf(key);
   const toSave = server ? {
     ...server,
     ...clientEntry,
     exercises: nextExercises,
-    // A stale-cache write must not wipe what changed elsewhere since this
-    // Diary loaded the workout (another device, Trace): see detailsToSave.
-    ...detailsToSave(clientEntry, server, _detailsByKey.get(_snapshotKey(dateStr, sessionId))),
+    ...detailsToSave(clientEntry, server, edits.fields),
     deleted_uuids,
+    changed_uuids: { exercises: edits.exercises, sets: edits.sets },
   } : { ...clientEntry, exercises: nextExercises, deleted_uuids };
+  if (!server) delete toSave.changed_uuids;
   const saved = await LtApi.saveWorkout(dateStr, toSave);
+  // Only once it reached the server: a queued save can still be refused, and
+  // a later one sent straight up must still say what this one changed.
+  if (saved?.workout && !saved.queued) {
+    _editsSaved(key, edits.upTo);
+    // Under its server id too, where a new workout's or a swapped id's are now.
+    const savedKey = _snapshotKey(dateStr, saved.workout.id ?? null);
+    if (savedKey !== key) _editsSaved(savedKey, edits.upTo);
+  }
+  // On the server now: a watch in use reads the day again at once.
+  if (saved?.workout && !saved.queued) {
+    import('../lib/wear-pairing.js').then(({ tellWatchDaySaved }) => tellWatchDaySaved(dateStr)).catch(() => {});
+  }
   // Refresh snapshot to the server-authoritative post-merge state so
   // subsequent saves diff against reality (including any concurrent
   // additions the server folded in). Keyed by the saved row's own id —
@@ -424,7 +504,7 @@ async function _mergeAndSave(dateStr, clientEntry) {
   // came back (saveWorkout / flushWorkoutSave): with a newer edit waiting,
   // the screen keeps its own, and moved here a detail changed elsewhere would
   // read as the Diary's own change on the next save, and be put back.
-  if (saved?.workout) _setSnapshot(dateStr, saved.workout.id ?? sessionId, saved.workout, { details: false });
+  if (saved?.workout) _setSnapshot(dateStr, saved.workout.id ?? sessionId, saved.workout);
   return saved;
 }
 
@@ -489,6 +569,9 @@ export function saveWorkout(dateStr, entry) {
     ...entry,
     exercises: ensureExerciseUuids(entry.exercises || []),
   };
+  // What this edit changed, against what was on screen just before it.
+  const before = _shown && (_shown.id ?? null) === (stamped.id ?? null) ? _shown : null;
+  _noteEdits(_snapshotKey(dateStr, stamped.id ?? null), before, stamped);
   todayLog.set(stamped);
   _latestEntry = stamped;
   _latestDate  = dateStr;
@@ -513,7 +596,6 @@ export function saveWorkout(dateStr, entry) {
         // than blanking the Diary (issue #102).
         if (_latestEntry === toSave && toSaveEpoch === _epoch && saved?.workout) {
           todayLog.set(saved.workout);
-          _setDetails(dateStr, saved.workout.id ?? null, saved.workout);
           // Resolves currentSessionId once a brand-new day's first save
           // gets its id assigned (issue #76) — a no-op for every
           // subsequent save on an already-known session.
@@ -551,7 +633,6 @@ export async function flushWorkoutSave(dateStr) {
     saved = await _mergeAndSave(date, toSave);
     if (_latestEntry === toSave && toSaveEpoch === _epoch && saved?.workout) {
       todayLog.set(saved.workout);
-      _setDetails(date, saved.workout.id ?? null, saved.workout);
       currentSessionId.set(saved.workout?.id ?? null);
       loadWorkoutSessions(date).catch(() => {});
       // Clear so re-firing lifecycle handlers can't re-save the same
@@ -571,7 +652,7 @@ export function resetWorkoutState() {
   _latestEntry = null;
   _latestDate = null;
   _snapshotByDate.clear();
-  _detailsByKey.clear();
+  _editsByKey.clear();
   todayLog.set(null);
   todaySessions.set([]);
   currentSessionId.set(null);

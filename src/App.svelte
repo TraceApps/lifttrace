@@ -419,6 +419,17 @@
         document.addEventListener('visibilitychange', () => {
           if (document.hidden) stopPolling(); else startPolling();
         });
+        // A set logged on the watch is on the phone when you look, not at
+        // the next poll: the watch says when it has saved.
+        import('./lib/wear-pairing.js').then(({ onWatchSaved }) => onWatchSaved(() => {
+          // Only on screen: in the background it waits, since coming back
+          // syncs anyway, and a sync per set logged would wake the radio
+          // with nobody looking.
+          if (document.hidden) return;
+          const user = getStore(currentUser);
+          if (user?.id == null || !accountReadyFor(getStore(accountGate), user.id)) return;
+          sync.fullSync(true).catch(() => {});
+        })).catch(() => {});
         // Resume from background → fire a visible sync (matches NT's
         // App.resume listener wiring).
         try {

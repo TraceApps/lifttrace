@@ -176,6 +176,10 @@ const _tombs = (body) => {
 export function collapseOps(ops) {
   const byKey = new Map();
   const tombs = new Map();
+  // What each of a workout's queued saves said it changed, together. One
+  // that didn't say (queued by an earlier version) makes the merged one say
+  // nothing, so the server takes all of it, as it did then.
+  const changes = new Map();
   const out = [];
 
   for (let op of ops || []) {
@@ -194,6 +198,19 @@ export function collapseOps(ops) {
         t.sets.set(ex, set);
       }
       tombs.set(op.key, t);
+      const listed = op.body?.changed_uuids;
+      const c = changes.has(op.key) ? changes.get(op.key) : { exercises: new Set(), sets: new Map() };
+      if (c === null || !listed || typeof listed !== 'object' || !Array.isArray(listed.exercises)) {
+        changes.set(op.key, null);
+      } else {
+        for (const uuid of listed.exercises) c.exercises.add(uuid);
+        for (const [ex, uuids] of Object.entries(listed.sets || {})) {
+          const set = c.sets.get(ex) || new Set();
+          for (const uuid of uuids || []) set.add(uuid);
+          c.sets.set(ex, set);
+        }
+        changes.set(op.key, c);
+      }
     }
 
     const prev = byKey.get(op.key);
@@ -234,16 +251,17 @@ export function collapseOps(ops) {
   for (const op of byKey.values()) {
     if (op.kind !== 'workout') { out.push(op); continue; }
     const t = tombs.get(op.key);
-    out.push({
-      ...op,
-      body: {
-        ...op.body,
-        deleted_uuids: {
-          exercises: [...t.exercises],
-          sets: Object.fromEntries([...t.sets].map(([ex, set]) => [ex, [...set]])),
-        },
+    const c = changes.get(op.key);
+    const body = {
+      ...op.body,
+      deleted_uuids: {
+        exercises: [...t.exercises],
+        sets: Object.fromEntries([...t.sets].map(([ex, set]) => [ex, [...set]])),
       },
-    });
+    };
+    if (c) body.changed_uuids = { exercises: [...c.exercises], sets: Object.fromEntries([...c.sets].map(([ex, set]) => [ex, [...set]])) };
+    else delete body.changed_uuids;
+    out.push({ ...op, body });
   }
   return out.sort((a, b) => (a.seq || 0) - (b.seq || 0));
 }
