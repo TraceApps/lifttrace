@@ -29,6 +29,7 @@ register('data:text/javascript,' + encodeURIComponent(`
 // Workouts by date, in the order the date's sessions were started.
 const days = new Map();
 const calls = [];
+let sessionReads = 0;
 globalThis.__ltApi = {
   async getWorkout(date, id = null) {
     calls.push([date, id]);
@@ -37,9 +38,11 @@ globalThis.__ltApi = {
     const w = id != null ? list.find(x => x.id === id) : list[0];
     return { workout: w ? structuredClone(w) : null };
   },
-  async getWorkoutSessions(date) { return { sessions: structuredClone(days.get(date) || []) }; },
+  async getWorkoutSessions(date) { sessionReads++; return { sessions: structuredClone(days.get(date) || []) }; },
   async getMyPrescriptionForDate() { return null; },
 };
+// The store listens on window for a workout made offline getting its server id.
+globalThis.window = new EventTarget();
 const { get } = await import('svelte/store');
 const store = await import('../src/stores/workout.js');
 const shown = () => ({ id: get(store.todayLog)?.id ?? null, session: get(store.currentSessionId) });
@@ -148,4 +151,70 @@ test("the phone's copy never answers with a deleted workout by id", () => {
   const native = readFileSync(new URL('../src/lib/api-native.js', import.meta.url), 'utf8');
   const byDate = native.slice(native.indexOf('async byDate(date, explicitId = null)'), native.indexOf('async sessions(date)'));
   assert.match(byDate, /if \(row\?\.deleted_at\) return null;/);
+});
+
+test('a refresh that started before a tab switch never undoes the switch', async () => {
+  days.set(DAY, [morning, evening]);
+  await store.loadWorkout(DAY);
+  let release;
+  globalThis.__answer = (date, id) => (id === 1 ? new Promise(r => { release = () => r({ workout: structuredClone(morning) }); }) : undefined);
+  const refresh = store.loadWorkout(DAY, { preferFresher: true }); // asks for workout 1, answer held back
+  globalThis.__answer = null;
+  await store.switchSession(DAY, 2);
+  assert.deepEqual(shown(), { id: 2, session: 2 });
+  release();
+  await refresh;
+  assert.deepEqual(shown(), { id: 2, session: 2 }, 'the refresh for the old tab is dropped');
+});
+
+test('a refresh that started before going to another date is dropped too', async () => {
+  days.set(DAY, [morning, evening]);
+  days.set('2026-10-08', [{ ...morning, id: 3, date: '2026-10-08' }]);
+  await store.loadWorkout(DAY);
+  let release;
+  globalThis.__answer = (date, id) => (date === DAY && id === 1 ? new Promise(r => { release = () => r({ workout: structuredClone(morning) }); }) : undefined);
+  const refresh = store.loadWorkout(DAY, { preferFresher: true });
+  globalThis.__answer = null;
+  await store.loadWorkout('2026-10-08');
+  release();
+  await refresh;
+  assert.equal(get(store.currentDate), '2026-10-08');
+  assert.deepEqual(shown(), { id: 3, session: 3 });
+});
+
+test('a workout made offline keeps its tab, highlighted, when it gets its server id', async () => {
+  const made = { ...evening, id: -1791674512861001 };
+  days.set(DAY, [morning, made]);
+  await store.loadWorkout(DAY);
+  await store.loadWorkoutSessions(DAY);
+  await store.switchSession(DAY, made.id);
+  // Mid-sync the phone's copy of the date is being rebuilt: a list read then
+  // comes back without the workout, which made its tab vanish for seconds.
+  days.set(DAY, [morning]);
+  const reads = sessionReads;
+  globalThis.window.dispatchEvent(new CustomEvent('lt:workout-ids', { detail: { map: [[made.id, 6]] } }));
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(sessionReads, reads, 'the list is not read again mid-sync');
+  // Right away, before the tab list is fetched again: the open workout's tab
+  // carries the id the Diary now has open.
+  assert.equal(get(store.currentSessionId), 6);
+  assert.ok(get(store.todaySessions).some(s => s.id === 6), 'the tab has the new id');
+  assert.ok(!get(store.todaySessions).some(s => s.id === made.id), 'and not the old one');
+});
+
+test('a refresh that started while a tab switch was loading never undoes it either', async () => {
+  days.set(DAY, [morning, evening]);
+  await store.loadWorkout(DAY);
+  let releaseSwitch, releaseRefresh;
+  globalThis.__answer = (date, id) => {
+    if (id === 2) return new Promise(r => { releaseSwitch = () => r({ workout: structuredClone(evening) }); });
+    if (id === 1) return new Promise(r => { releaseRefresh = () => r({ workout: structuredClone(morning) }); });
+    return undefined;
+  };
+  const switching = store.switchSession(DAY, 2); // under way, the open workout still 1
+  const refresh = store.loadWorkout(DAY, { preferFresher: true }); // starts after it, for workout 1
+  globalThis.__answer = null;
+  releaseSwitch(); await switching;
+  releaseRefresh(); await refresh;
+  assert.deepEqual(shown(), { id: 2, session: 2 });
 });

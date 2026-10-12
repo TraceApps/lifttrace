@@ -827,7 +827,15 @@
     if (isNative && getServerUrl()) {
       window.addEventListener('lt:sync-complete', _onSyncComplete);
     }
+    window.addEventListener('lt:workout-opened', _onWorkoutOpened);
   });
+
+  // Another workout opened from outside the Diary (Trace starting one from a
+  // template): the notes box shows its notes, not the last one's, which a
+  // tap away would have saved onto it.
+  function _onWorkoutOpened() {
+    notes = $todayLog?.notes || '';
+  }
 
   // Pull-to-refresh: track touch deltas while at scrollY 0. Past a
   // threshold the user gets a brief loading indicator + a refresh
@@ -891,6 +899,7 @@
     // Only disable if the user had auto-enable setting on (they can toggle manually too)
     document.removeEventListener('visibilitychange', handleVisibility);
     window.removeEventListener('lt:sync-complete', _onSyncComplete);
+    window.removeEventListener('lt:workout-opened', _onWorkoutOpened);
     _stopDayTick();
   });
 

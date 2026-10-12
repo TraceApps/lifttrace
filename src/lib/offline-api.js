@@ -21,7 +21,7 @@
 import { writable } from 'svelte/store';
 import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs,
-  answerWithOps, queuedWorkoutReply, newTempId, createdId, remapIds, remapPath,
+  answerWithOps, queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, orphanWorkoutSave, opsAsKnown,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply,
 } from './offline-edits.js';
 // Loaded with everything else, never fetched on demand: a picture is kept
@@ -191,6 +191,58 @@ async function _recall(url) {
   return rows.find(r => pathOf(r.key) === path)?.body;
 }
 
+/** What was last seen for exactly this call, with no fallback. */
+async function _recallExact(key) {
+  return (await _tx('answers', 'readonly', s => s.get(key)))?.body;
+}
+
+// A day can hold more than one workout (#76). Each is kept under its own id
+// (`?id=`), and the plain day under the day's first: a save of another one
+// filed there made a read of the day, or of another workout, answer with it.
+const _WORKOUT_DAY = /^\/api\/workout\/\d{4}-\d{2}-\d{2}$/;
+const _WORKOUT_READ = /^\/api\/workout\/(\d{4}-\d{2}-\d{2})(?:\/sessions)?$/;
+const _wantedWorkout = (url) => {
+  if (!_WORKOUT_DAY.test(pathOf(url))) return null;
+  const id = new URLSearchParams(String(url).split('?')[1] || '').get('id');
+  return id != null && id !== '' ? Number(id) : null;
+};
+/** The copy held for one workout, by id: only that workout's. */
+async function _recallWorkout(path, id) {
+  const own = await _recallExact(`${path}?id=${id}`);
+  if (own) return own;
+  const day = await _recallExact(path);
+  return day?.workout && Number(day.workout.id) === Number(id) ? day : undefined;
+}
+/**
+ * The day's first workout as held here: the plain day's copy, else the
+ * earliest of the workouts held by id. Any copy of the path would do for
+ * other calls, but here it could be the day's second workout.
+ */
+async function _recallDay(path) {
+  const row = await _tx('answers', 'readonly', s => s.get(path));
+  if (row?.body?.workout) return row.body;
+  // None held for the day, or its first deleted here: the earliest still
+  // there, of the copies taken since (an older one may be of a workout
+  // deleted since, here or elsewhere).
+  const held = (await _all('answers'))
+    .filter(r => r.key !== path && pathOf(r.key) === path && r.body?.workout && !r.body.workout.deleted_at && (!row || row.body?.deletedHere || r.at > row.at))
+    .sort((a, b) => (a.body.workout.session_seq ?? Infinity) - (b.body.workout.session_seq ?? Infinity) || a.at - b.at);
+  return held[0]?.body ?? row?.body;
+}
+async function _rememberWorkout(path, workout, day) {
+  if (workout?.id != null) await _remember(`${path}?id=${workout.id}`, { workout });
+  // The plain day is its first workout, or this one when none is known.
+  const first = day?.workout?.id;
+  if (first == null || Number(first) === Number(workout?.id)) await _remember(path, { workout });
+}
+/** The fields the caller says it changed (X-Changed-Fields), if it said. */
+function _callerChanged(init) {
+  const h = init?.headers;
+  if (!h) return null;
+  const v = typeof h.get === 'function' ? h.get('X-Changed-Fields') : (h['X-Changed-Fields'] ?? h['x-changed-fields']);
+  return typeof v === 'string' ? v.split(',').map(f => f.trim()).filter(Boolean) : null;
+}
+
 // ── When an edit was made, and what it changed ──────────────────────
 // The server keeps the newer edit of each field (server/lib/newer-wins.js).
 // A change queued here goes up with the time it was made, on the server's
@@ -241,6 +293,7 @@ async function _changedFields(method, target, body) {
     if (!rule) return null;
     let held = await _recall(target);
     if (/^\/api\/workout\//.test(p)) {
+      if (body.id != null && _WORKOUT_DAY.test(p)) held = await _recallWorkout(p, body.id);
       held = held?.workout;
       if (held && body.id != null && Number(held.id) !== Number(body.id)) held = null;
     }
@@ -270,7 +323,7 @@ export async function forgetRefused() {
 const _channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('lifttrace-offline') : null;
 _channel?.addEventListener('message', async (e) => {
   if (e.data?.type !== 'outbox') return;
-  if (e.data.ids) _swapped = { ..._swapped, ...e.data.ids };
+  if (e.data.ids) { _swapped = { ..._swapped, ...e.data.ids }; _announceIds(e.data.ids); }
   _ops = null;
   await _loadOps();
   _publish();
@@ -278,6 +331,14 @@ _channel?.addEventListener('message', async (e) => {
     window.dispatchEvent(new CustomEvent('lt:offline-synced'));
   }
 });
+
+// The Diary follows a workout made here to the id the server gave it, as on
+// Android (stores/workout.js), so the next save goes to that workout.
+function _announceIds(map) {
+  if (typeof window === 'undefined') return;
+  const pairs = Object.entries(map || {}).map(([from, to]) => [Number(from), Number(to)]);
+  if (pairs.length) window.dispatchEvent(new CustomEvent('lt:workout-ids', { detail: { map: pairs } }));
+}
 
 /**
  * What each temporary id became. A screen already open goes on showing the
@@ -368,13 +429,16 @@ async function _flushOnce() {
   await _loadSwapped();
   const done = new Set();
   const refused = [];
+  // The workouts the server answered with, filed again once the replay is done.
+  const answered = [];
   // Ids learned in an earlier run apply to what is still queued from it.
   const map = { ..._swapped };
   let stopped = null;
 
   for (const op of collapseOps(ops)) {
     const path = remapPath(op.path, map);
-    const body = op.body == null ? undefined : JSON.stringify(remapIds(op.body, map));
+    const orphan = orphanWorkoutSave(op, map, ops);
+    const body = op.body == null ? undefined : JSON.stringify(remapIds(orphan ?? op.body, map));
     let res;
     try {
       const headers = body ? { 'Content-Type': 'application/json' } : {};
@@ -410,10 +474,14 @@ async function _flushOnce() {
       if (op.key) done.add(op.key);
       continue;
     }
-    if (op.tempId != null) {
+    if (op.kind === 'workout') {
+      try { const w = (await res.clone().json())?.workout; if (w) answered.push({ path: pathOf(path), workout: w }); } catch { /* not json */ }
+    }
+    const madeAs = op.tempId ?? (orphan ? op.body.id : null);
+    if (madeAs != null) {
       let created = null;
       try { created = createdId(await res.clone().json()); } catch { /* not json */ }
-      if (created != null) map[Number(op.tempId)] = created;
+      if (created != null) map[Number(madeAs)] = created;
     }
     if (op.key) done.add(op.key);
   }
@@ -425,6 +493,7 @@ async function _flushOnce() {
   if (Object.keys(map).length) {
     await _rememberSwapped(map);
     _channel?.postMessage({ type: 'outbox', ids: map });
+    _announceIds(map);
   }
 
   const cleared = new Set(sentSeqs(ops, [...done]));
@@ -443,6 +512,7 @@ async function _flushOnce() {
   // stays. Clearing the lot would leave someone who reconnects for a moment
   // and loses signal again with nothing at all to look at.
   await _forgetTouched(collapseOps(ops));
+  await _refileWorkouts(answered);
   _resetBackoff();
   _publish({ syncing: false, error: null, online: true, refused: standing });
   _channel?.postMessage({ type: 'outbox', synced: true, ids: map });
@@ -464,8 +534,27 @@ async function _flushOnce() {
  */
 async function _forgetTouched(sent) {
   const prefixes = new Set();
+  const exact = new Set();
   for (const op of sent) {
     const path = pathOf(op.path);
+    // A workout: what it changes, not every workout held. Dropping the lot
+    // left the day, and every other day, unreadable offline after any save
+    // made online, until each was opened again. The workout itself is filed
+    // again from the server's answer (_refileWorkouts).
+    if ((op.kind === 'workout' || op.kind === 'workout-delete') && _WORKOUT_DAY.test(path)) {
+      const ids = [op.body?.id, _wantedWorkout(op.path), op.tempId].filter(id => id != null);
+      for (const id of ids) exact.add(`${path}?id=${id}`);
+      // A new workout of the day leaves the day's first as it is.
+      const made = !!op.body?.new_session && op.body?.id == null;
+      const first = (await _recallExact(path))?.workout?.id;
+      if (made ? first != null && Number(first) === Number(op.tempId)
+        : !ids.length || first == null || ids.some(id => Number(id) === Number(first))) exact.add(path);
+      prefixes.add(`${path}/sessions`);
+      prefixes.add('/api/workout/recent');
+      prefixes.add('/api/workout/history');
+      prefixes.add('/api/stats');
+      continue;
+    }
     prefixes.add(path);
     const parent = path.replace(/\/(-?\d+)(\/[a-z-]+)?$/, '');
     if (parent && parent !== path) prefixes.add(parent);
@@ -482,8 +571,16 @@ async function _forgetTouched(sent) {
     if (op.kind === 'profile') prefixes.add('/api/auth/me');
   }
   const rows = await _all('answers');
-  const stale = rows.filter(r => [...prefixes].some(p => pathOf(r.key) === p || pathOf(r.key).startsWith(p + '/')));
+  const stale = rows.filter(r => exact.has(r.key) || [...prefixes].some(p => pathOf(r.key) === p || pathOf(r.key).startsWith(p + '/')));
   if (stale.length) await _tx('answers', 'readwrite', s => { for (const r of stale) s.delete(r.key); });
+}
+
+/** Workouts the server just answered for, filed again: the freshest copy
+ *  there is, and what a read of that day finds with no connection. */
+async function _refileWorkouts(answered) {
+  for (const { path, workout } of answered) {
+    if (workout?.id != null) await _rememberWorkout(path, workout, await _recallDay(path));
+  }
 }
 
 /** How much is waiting to go up. */
@@ -540,6 +637,24 @@ export async function offlineFetch(url, init, origFetch) {
   const method = (init?.method || 'GET').toUpperCase();
 
   if (method === 'GET' || method === 'HEAD') {
+    // A row made here, by the id the server has since given it.
+    url = remapPath(String(url), _swapped);
+    const wanted = _wantedWorkout(url);
+    const fromHere = async () => {
+      if (!isMirroredGet(url)) return _offlineReply(url);
+      const ops = opsAsKnown(await _loadOps(), _swapped);
+      // One workout of the day: that workout's copy, never another's.
+      const answer = wanted != null
+        ? answerWithOps(url, await _recallWorkout(pathOf(url), wanted), ops, (await _recallDay(pathOf(url)))?.workout?.id)
+        : answerWithOps(url, _WORKOUT_DAY.test(pathOf(url)) ? await _recallDay(pathOf(url)) : await _recall(url), ops);
+      // Even with no copy of this call, what is queued for it may be the whole
+      // answer: a day never opened online, with a run logged on it here.
+      if (answer === undefined) return _offlineReply(url);
+      return _json(200, answer);
+    };
+    // A workout started here and still waiting to go up: the server has
+    // never had its id, so the answer is here.
+    if (wanted != null && isTempId(wanted)) return fromHere();
     try {
       const sentAt = Date.now();
       const res = await send(url, init);
@@ -548,17 +663,27 @@ export async function offlineFetch(url, init, origFetch) {
         try { await _remember(mirrorKey(url), await res.clone().json()); } catch { /* not json */ }
       }
       _publish({ online: true });
+      // A workout day, or its tabs, with saves of it still waiting to go up:
+      // the server's answer with them on top, as with no connection. Read as
+      // the server has it, the next save (Trace's, built on that) went up in
+      // their place and they were lost.
+      const day = res.ok ? pathOf(url).match(_WORKOUT_READ) : null;
+      if (day) {
+        const ops = opsAsKnown(await _loadOps(), _swapped);
+        if (ops.some(op => (op.kind === 'workout' || op.kind === 'workout-delete') && op.key.startsWith(`workout:${day[1]}#`))) {
+          try {
+            const fresh = await res.clone().json();
+            const first = wanted != null ? (await _recallDay(pathOf(url)))?.workout?.id : undefined;
+            const answer = answerWithOps(url, fresh, ops, first);
+            if (answer !== fresh) return _json(200, answer);
+          } catch { /* not json */ }
+        }
+      }
       return res;
     } catch (err) {
       if (!isOfflineError(err)) throw err;
       _publish({ online: false });
-      if (!isMirroredGet(url)) return _offlineReply(url);
-      const mirrored = await _recall(url);
-      // Even with no copy of this call, what is queued for it may be the whole
-      // answer: a day never opened online, with a run logged on it here.
-      const answer = answerWithOps(url, mirrored, await _loadOps());
-      if (answer === undefined) return _offlineReply(url);
-      return _json(200, answer);
+      return fromHere();
     }
   }
 
@@ -582,7 +707,24 @@ export async function offlineFetch(url, init, origFetch) {
     }
   }
 
-  const body = _bodyOf(init);
+  let body = _bodyOf(init);
+  // A save naming its workout is a change of that one: a `new_session` left
+  // on it (carried over from an earlier answer) would start another.
+  if (method === 'PUT' && body?.new_session && body.id != null && _WORKOUT_DAY.test(pathOf(url))) {
+    body = { ...body };
+    delete body.new_session;
+    delete body.client_key;
+    init = { ...init, body: JSON.stringify(body) };
+  }
+  // A row made here that the server has since given its own id: by that id,
+  // also for a save sent straight up (one prepared before the swap was heard).
+  if (body && typeof body === 'object' && Object.keys(_swapped).length) {
+    const remapped = remapIds(body, _swapped);
+    if (JSON.stringify(remapped) !== JSON.stringify(body)) {
+      body = remapped;
+      init = { ...init, body: JSON.stringify(body) };
+    }
+  }
   const target = remapPath(String(url), _swapped);
   const op = writeOp(method, target, body);
   if (!op) {
@@ -605,15 +747,14 @@ export async function offlineFetch(url, init, origFetch) {
       _noteClock(res, sentAt);
       if (res.ok) {
         // What the route just answered is the freshest copy there is.
-        try {
-          const answered = await res.clone().json();
-          if (op.kind === 'workout' && answered?.workout) await _remember(pathOf(target), answered);
-        } catch { /* not json */ }
-        // And whatever this change makes stale goes, the same as after a
+        let answered = null;
+        try { answered = (await res.clone().json())?.workout ?? null; } catch { /* not json */ }
+        // Whatever this change makes stale goes, the same as after a
         // replay. Without this, something deleted while online was still in
         // the copy held here, and came back the moment the connection did
         // not: the lists are read from that copy, and nothing had told them.
-        await _forgetTouched([{ ...op, path: target }]);
+        await _forgetTouched([{ ...op, path: target, body }]);
+        if (op.kind === 'workout' && answered) await _refileWorkouts([{ path: pathOf(target), workout: answered }]);
         _publish({ online: true, error: null });
       }
       return res;
@@ -624,31 +765,58 @@ export async function offlineFetch(url, init, origFetch) {
   }
 
   const MAKES_A_ROW = ['exercise-create', 'cardio-create', 'prescription-create', 'photo-add'];
-  const tempId = MAKES_A_ROW.includes(op.kind) ? newTempId() : null;
+  // A workout is made here too. It gets a temporary id, which the replay
+  // learns the server's own for, so what is saved into it next follows it.
+  const day = op.kind === 'workout' ? await _recallDay(pathOf(target)) : undefined;
+  // A save naming its workout is a change of that one, whatever else it says.
+  // A day's first made here, with none of the day's held, is a new workout of
+  // the day as well: sent by date alone, the server put it into the day's
+  // first workout, which took its name, when the day had workouts this
+  // browser hadn't seen (never opened, or logged elsewhere meanwhile).
+  // A save naming no workout while the day's first is one made here (its own
+  // save still on its way when this one was made) is a change of that one.
+  if (op.kind === 'workout' && body?.id == null && !body?.new_session && day?.workout && isTempId(day.workout.id)) {
+    const id = _swapped[Number(day.workout.id)] ?? day.workout.id;
+    body = { ...body, id };
+    op.key = `workout:${pathOf(target).split('/').pop()}#${id}`;
+  }
+  const newWorkout = op.kind === 'workout' && body?.id == null && (!!body?.new_session || !day?.workout);
+  const tempId = MAKES_A_ROW.includes(op.kind) || newWorkout ? newTempId() : null;
+  if (newWorkout) body = { ...body, new_session: true, client_key: body.client_key || `web-workout${tempId}` };
+  const date = op.kind === 'workout' ? pathOf(target).split('/').pop() : null;
   const at = Date.now();
   const stored = await _queue({
     method,
     path: remapPath(String(url), _swapped),
+    // Sent twice (its answer lost on the way back), a new workout is still
+    // one: it carries a key (above).
     body,
     at,
     editedAt: _serverNow(at),
-    changed: await _changedFields(method, target, body),
+    // What the caller says it changed, else what differs from the copy here.
+    // A new workout is all new.
+    changed: newWorkout ? null : (_callerChanged(init) ?? await _changedFields(method, target, body)),
     ...op,
-    ...(tempId != null
-      ? { tempId, id: tempId, key: `${op.kind.replace('-create', '')}:${tempId}` }
-      : {}),
+    ...(tempId == null ? {}
+      : op.kind === 'workout' ? { tempId, key: `workout:${date}#${tempId}` }
+      : { tempId, id: tempId, key: `${op.kind.replace('-create', '')}:${tempId}` }),
   });
   if (!stored) return _offlineReply();
 
   // Answer in the shape the route would have, so the screen carries on.
   if (op.kind === 'workout') {
-    const mirrored = await _recall(pathOf(target));
-    const reply = queuedWorkoutReply(mirrored, body, newTempId());
-    await _remember(pathOf(target), { workout: reply.workout });
+    const mirrored = body?.id != null ? await _recallWorkout(pathOf(target), body.id) : day;
+    const reply = queuedWorkoutReply(mirrored, body, tempId ?? newTempId());
+    await _rememberWorkout(pathOf(target), reply.workout, day);
     return _json(200, reply);
   }
   if (op.kind === 'workout-delete') {
-    await _remember(pathOf(target), { workout: null });
+    const gone = _wantedWorkout(target);
+    const first = (await _recallDay(pathOf(target)))?.workout?.id;
+    const doomed = gone ?? first;
+    if (doomed != null) await _remember(`${pathOf(target)}?id=${doomed}`, { workout: null });
+    // Marked as deleted here: the day's other workouts held from before still count.
+    if (gone == null || Number(first) === gone) await _remember(pathOf(target), { workout: null, deletedHere: true });
     return _json(200, { ok: true, deleted: true, queued: true, offline: true });
   }
   // Shaped like the route's own answer: the screens read these.

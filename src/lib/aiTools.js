@@ -12,7 +12,10 @@
  * server-side noise is trimmed. On failure the executor throws; the
  * chat loop catches and relays a `{ error: ... }` payload to the model.
  */
+import { get } from 'svelte/store';
 import { isTimedSet } from './workout.js';
+import { ensureExerciseUuids } from './workout-uuid.js';
+import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settlePendingSave } from '../stores/workout.js';
 import { foldText } from './search-text.js';
 
 // ── Small helpers ──────────────────────────────────────────────────────────
@@ -32,8 +35,62 @@ async function _post(path, body) {
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
-async function _put(path, body) {
-  const res = await fetch(path, { ..._jsonOpts, method: 'PUT', body: JSON.stringify(body || {}) });
+// The workout a tool that names a date reads and writes: the one open in
+// the Diary when it's that date, else the date's first. By date alone the
+// server answers with the first, so on a day with two workouts Trace wrote
+// into the morning's while the evening's was open (issue #142).
+async function _workoutForDate(date) {
+  const open = date === get(currentDate) ? get(currentSessionId) : null;
+  if (open != null) {
+    // A failed read is an error, never a reason to write into another one.
+    const r = await _get(`/api/workout/${date}?id=${open}`);
+    const w = r?.workout;
+    // Still there and the one asked for (one made offline comes back under
+    // the server's id once it's there).
+    if (w && !w.deleted_at && (w.id === open || open < 0)) return { workout: w };
+  }
+  return _get(`/api/workout/${date}`).catch(() => ({ workout: null }));
+}
+
+// What a tool saved into the workout open in the Diary shows there at once.
+// The Diary saves its whole copy back, so one still showing the old exercises
+// put them back over what Trace logged; with changes waiting to sync, its next
+// save replaced Trace's outright. A new workout opens (`open`: it's a new one).
+function _showInDiary(date, workout, { open = false } = {}) {
+  if (workout?.id == null || date !== get(currentDate)) return;
+  const shown = get(currentSessionId);
+  if (!open && shown != null && shown !== workout.id) return;
+  showWorkout(date, workout);
+  if (open || shown == null) loadWorkoutSessions(date).catch(() => {});
+}
+
+// What a workout already has that a tool doesn't change. An update writes
+// every field, so one left out was cleared: its notes, that it was
+// finished, and its program and week.
+function _kept(w) {
+  if (!w) return {};
+  return {
+    notes: w.notes ?? null,
+    completed: w.completed ? 1 : 0,
+    program_id: w.program_id ?? null,
+    template_id: w.template_id ?? null,
+    program_week: w.program_week ?? null,
+  };
+}
+
+// `changed`: the fields this write sets. The server keeps its own current
+// value of every other field sent (X-Changed-Fields, server/lib/newer-wins.js),
+// so the rest of a workout, sent along for the phone's own copy, never
+// counts as edited now and never overrides a newer edit made elsewhere.
+async function _put(path, body, changed = null) {
+  // A workout's exercises and sets carry their ids from here, as the Diary's
+  // do. Without them, saved on the phone with no connection, the Diary gave
+  // them ids of its own on its next save, and the server kept both copies.
+  if (/^\/api\/workout\/\d{4}-\d{2}-\d{2}$/.test(path) && Array.isArray(body?.exercises)) {
+    body = { ...body, exercises: ensureExerciseUuids(body.exercises) };
+  }
+  const headers = changed ? { ..._jsonOpts.headers, 'X-Changed-Fields': changed.join(',') } : _jsonOpts.headers;
+  const res = await fetch(path, { ..._jsonOpts, headers, method: 'PUT', body: JSON.stringify(body || {}) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -410,7 +467,7 @@ export const TOOLS = [
   {
     name: 'start_workout_from_template',
     description:
-      "Load a workout template into a diary day (default today) so the user can execute it. Pass template_id or template_name (resolved against the user's programs' templates). Use for 'load push day' / 'start Day A'.",
+      "Load a workout template into a diary day (default today) so the user can execute it. It fills the workout open in the diary when that one is empty; otherwise it starts a new workout of the day (new_workout: true). On the day open in the diary, the diary then shows it and later tools write into it; on another day, log sets into it with log_set and the workout_id returned. Pass template_id or template_name (resolved against the user's programs' templates). Use for 'load push day' / 'start Day A'.",
     parameters: {
       type: 'object',
       properties: {
@@ -570,9 +627,14 @@ async function _dispatch(name, args) {
   throw new Error('Unknown tool: ' + name);
 }
 
+// Tools that save into a workout. A Diary change still waiting to save goes
+// first, so they read it and save on top of it rather than over it.
+const WORKOUT_WRITES = new Set(['log_set', 'log_workout', 'add_exercise_to_diary', 'start_workout_from_template']);
+
 export async function runTool(name, args) {
   args = args || {};
   checkWriteDate(name, args);
+  if (WORKOUT_WRITES.has(name)) await settlePendingSave(get(currentDate)).catch(() => {});
   if (!RANGE_TOOLS.has(name)) return _dispatch(name, args);
 
   const cleaned = cleanRangeArgs(args);
@@ -628,7 +690,7 @@ async function _getWorkout({ id }) {
   // Pull the same date via the by-date GET so feedback + program_duration
   // context land too.
   try {
-    const detail = await _get(`/api/workout/${w.date}`);
+    const detail = await _get(`/api/workout/${w.date}?id=${w.id}`);
     const shaped = _shapeWorkout(detail?.workout || w);
     if (detail?.workout?.feedback?.length) {
       shaped.coach_feedback = detail.workout.feedback.map(f => ({
@@ -1053,7 +1115,7 @@ async function _logWorkout({ date, name, duration_min, exercises }) {
     throw new Error(`Unknown exercise(s): ${unknown.join(', ')}. Please confirm and I'll add as custom, or pick from get_exercises.`);
   }
 
-  const existing = await _get(`/api/workout/${date}`).catch(() => ({ workout: null }));
+  const existing = await _workoutForDate(date);
   const existingExs = existing?.workout?.exercises || [];
   const newExs = resolved.map(({ lib, input }) => ({
     exercise_id: lib.id,
@@ -1073,12 +1135,15 @@ async function _logWorkout({ date, name, duration_min, exercises }) {
   const merged = existingExs.concat(newExs);
 
   const saved = await _put(`/api/workout/${date}`, {
+    ...(existing?.workout?.id != null ? { id: existing.workout.id } : {}),
+    ..._kept(existing?.workout),
     name: name ?? existing?.workout?.name ?? null,
     duration_min: duration_min ?? existing?.workout?.duration_min ?? null,
     exercises: merged,
     completed: 1,
-  });
+  }, ['exercises', 'completed', ...(name != null ? ['name'] : []), ...(duration_min != null ? ['duration_min'] : [])]);
   const w = saved?.workout;
+  _showInDiary(date, w);
   let sets_logged = 0;
   for (const ex of newExs) sets_logged += ex.sets.length;
   return {
@@ -1095,7 +1160,7 @@ async function _addExerciseToDiary({ exercise_name, date }) {
   const d = date || _today();
   const lib = await _resolveExerciseByName(exercise_name);
   if (!lib) throw new Error(`Unknown exercise: ${exercise_name}`);
-  const existing = await _get(`/api/workout/${d}`).catch(() => ({ workout: null }));
+  const existing = await _workoutForDate(d);
   const exs = (existing?.workout?.exercises || []).slice();
   const position = exs.length;
   exs.push({
@@ -1104,10 +1169,13 @@ async function _addExerciseToDiary({ exercise_name, date }) {
     sets: [{ weight: 0, reps: 0, completed: false }],
   });
   const saved = await _put(`/api/workout/${d}`, {
+    ...(existing?.workout?.id != null ? { id: existing.workout.id } : {}),
+    ..._kept(existing?.workout),
     name: existing?.workout?.name ?? null,
     duration_min: existing?.workout?.duration_min ?? null,
     exercises: exs,
-  });
+  }, ['exercises']);
+  _showInDiary(d, saved?.workout);
   return {
     workout_id: saved?.workout?.id,
     exercise_added_id: lib.id,
@@ -1148,10 +1216,13 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
   sets.push(newSet);
   exs[idx] = { ...exs[idx], sets, ...(timed && !exs[idx].set_type ? { set_type: 'time' } : {}) };
   const saved = await _put(`/api/workout/${wRow.date}`, {
+    id: wRow.id,
+    ..._kept(wRow),
     name: wRow.name ?? null,
     duration_min: wRow.duration_min ?? null,
     exercises: exs,
-  });
+  }, ['exercises']);
+  _showInDiary(wRow.date, saved?.workout);
   const total_volume = Math.round((saved?.workout?.exercises || []).reduce((a, e) => a + _exerciseVolume(e), 0));
   return {
     set_id: sets.length - 1,
@@ -1202,8 +1273,20 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
     if (!tpl) throw new Error(`No template matching "${template_name}"`);
   }
 
-  const existing = await _get(`/api/workout/${d}`).catch(() => ({ workout: null }));
-  const existingExs = existing?.workout?.exercises || [];
+  // The plan week it's performed in, as the Diary records it: only for the
+  // program being followed. Unknown, it's left out, as for any other program.
+  let planWeek = null;
+  if (tpl.program_id != null) {
+    const prog = await _get(`/api/programs/${Number(tpl.program_id)}`).catch(() => null);
+    planWeek = prog?.is_active ? (prog.current_week || null) : null;
+  }
+
+  // Loaded into a workout already under way, the template took its name and
+  // piled onto its exercises. It goes into an empty one, or else becomes a
+  // new workout of the day, as the Diary's + does.
+  const existing = await _workoutForDate(d);
+  const target = existing?.workout;
+  const asNew = !!target?.exercises?.length;
   const tplExs = (tpl.exercises || []).map(ex => ({
     exercise_id: ex.exercise_id || null,
     exercise_name: ex.exercise_name || ex.name || '',
@@ -1218,14 +1301,20 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
     ...(ex.rest_seconds  != null ? { rest_seconds:  ex.rest_seconds  } : {}),
   }));
   const saved = await _put(`/api/workout/${d}`, {
+    ...(asNew ? { new_session: true } : target ? { id: target.id, ..._kept(target) } : {}),
     template_id: tpl.id,
     program_id: tpl.program_id ?? null,
+    program_week: planWeek,
     name: tpl.name,
-    duration_min: existing?.workout?.duration_min ?? null,
-    exercises: existingExs.concat(tplExs),
-  });
+    duration_min: asNew ? null : (target?.duration_min ?? null),
+    exercises: tplExs,
+  }, asNew ? null : ['exercises', 'name', 'template_id', 'program_id', 'program_week']);
+  // A new workout opens in the Diary when it's that date, so what the user
+  // asks next goes into it.
+  _showInDiary(d, saved?.workout, { open: asNew });
   return {
     workout_id: saved?.workout?.id,
+    new_workout: asNew,
     exercises_loaded: tplExs.length,
     from_template: { id: tpl.id, name: tpl.name },
   };

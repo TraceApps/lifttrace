@@ -2468,6 +2468,17 @@ async function _flushQueue(token = getAuthToken(), gen = accountGen()) {
       // sent: the server would read the number as one of its own rows.
       if (deviceRefs.length) payload = _swapIds(payload, (id) => (isTempId(id) ? null : undefined));
 
+      // A workout this phone made itself, naming no workout: a new one of
+      // the day. Sent by date alone, the server put it into the day's first
+      // workout, which took its name: the phone hadn't seen the day's
+      // workouts yet (a first sync still running, another device logging the
+      // same day meanwhile). The key keeps a second send to one workout.
+      if (isWorkout && own != null && isTempId(own) && payload.method === 'PUT' && payload.body
+          && typeof payload.body === 'object' && !Array.isArray(payload.body)
+          && _targetWorkoutId(payload) == null && !payload.body.new_session) {
+        payload = { ...payload, body: { ...payload.body, new_session: true, client_key: payload.body.client_key || `device-workout:${own}` } };
+      }
+
       if (!_alive()) break;
       try {
         const sent = await _serverFetch(payload.method, payload.path, payload.body, undefined, _editHeaders(payload));

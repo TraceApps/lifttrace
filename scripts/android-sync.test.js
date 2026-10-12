@@ -244,6 +244,19 @@ test('a write naming a row made offline waits for it, even once back online', { 
   assert.deepEqual(out.refused, []);
 });
 
+test("a workout logged on the phone before it saw the day's workouts stays its own, not merged into the day's first", { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('firstSyncDay');
+  assert.equal(out.madeHere, true, 'made on the phone, under its own id');
+  assert.deepEqual(out.server, [
+    { name: 'Morning Mobility', notes: 'stretch', ex: ['Hip Opener'] },
+    { name: 'Phone Push', notes: null, ex: ['Bench'] },
+  ]);
+  assert.deepEqual(out.phone, ['Morning Mobility', 'Phone Push']);
+  assert.deepEqual(out.emptyDay, [{ name: 'Phone Legs', notes: null, ex: ['Squat'] }], 'one, though sent twice');
+  assert.equal(out.queue, 0);
+  assert.deepEqual(out.refused, []);
+});
+
 test('a create sent again after its answer was lost makes one row', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('lostAnswer');
   assert.deepEqual(out, { serverPlans: 1, serverCardio: 1, queue: 0 });

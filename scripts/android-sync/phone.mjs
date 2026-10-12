@@ -362,6 +362,44 @@ const scenarios = {
     };
   },
 
+  // A workout logged on the phone before it had seen the day's workouts (its
+  // first sync still running, another device logging the same day meanwhile)
+  // goes up as a workout of its own, not into the day's first one, which took
+  // its name. On a day with none, it is the day's only workout, even when its
+  // answer is lost and it goes again.
+  async firstSyncDay() {
+    me();
+    await syncNow();
+    const D = '2026-10-06', E = '2026-10-07';
+    await web('phone', 'PUT', `/api/workout/${D}`, { name: 'Morning Mobility', notes: 'stretch', exercises: [{ uuid: 'm1', exercise_name: 'Hip Opener', sets: [{ uuid: 'ms1', reps: 10, weight: 0 }] }] });
+    offline(true);
+    const made = await api.saveWorkout(D, { name: 'Phone Push', exercises: [{ uuid: 'p1', exercise_name: 'Bench', sets: [{ uuid: 'ps1', reps: 8, weight: 60 }] }] });
+    await api.saveWorkout(E, { name: 'Phone Legs', exercises: [{ uuid: 'l1', exercise_name: 'Squat', sets: [{ uuid: 'ls1', reps: 5, weight: 100 }] }] });
+    offline(false);
+    let drop = 1;
+    globalThis.__httpHook = async (method, o) => {
+      if (drop > 0 && method === 'PUT' && o.url.endsWith(`/api/workout/${E}`)) {
+        drop--;
+        await realFetch(o.url, { method, headers: o.headers, body: JSON.stringify(o.data) });
+        throw new TypeError('Failed to fetch');
+      }
+      return null;
+    };
+    await syncRaw();
+    globalThis.__httpHook = null;
+    await syncNow(); await syncNow();
+    const day = async (d) => (await web('phone', 'GET', `/api/workout/${d}/sessions`)).sessions
+      .map(w => ({ name: w.name, notes: w.notes, ex: w.exercises.map(e => e.exercise_name) }));
+    return {
+      madeHere: made?.workout?.id < 0,
+      server: await day(D),
+      emptyDay: await day(E),
+      phone: names(await q(`SELECT name FROM workout_log WHERE date = ? AND deleted_at IS NULL ORDER BY session_seq, id`, [D])),
+      queue: (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n,
+      refused,
+    };
+  },
+
   // A create reaches the server but its answer is lost: sent again, one row.
   async lostAnswer() {
     await syncNow();

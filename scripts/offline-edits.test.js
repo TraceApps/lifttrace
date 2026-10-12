@@ -7,7 +7,7 @@ import test from 'node:test';
 import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
-  describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply,
+  describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, orphanWorkoutSave, opsAsKnown,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -432,7 +432,7 @@ test('two changes of the same thing queued offline go up as one, with what both 
 test('the browser\'s queued changes carry when they were made, on the server\'s clock, and what they changed', async () => {
   const { readFileSync } = await import('node:fs');
   const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
-  assert.match(offline, /editedAt: _serverNow\(at\),\s*\n\s*changed: await _changedFields\(method, target, body\),/);
+  assert.match(offline, /editedAt: _serverNow\(at\),[\s\S]{0,200}changed: newWorkout \? null : \(_callerChanged\(init\) \?\? await _changedFields\(method, target, body\)\),/);
   assert.match(offline, /if \(op\.editedAt\) headers\['X-Edited-At'\] = op\.editedAt;/);
   assert.match(offline, /if \(Array\.isArray\(op\.changed\)\) headers\['X-Changed-Fields'\] = op\.changed\.join\(','\);/);
   assert.match(offline, /res\?\.headers\?\.get\?\.\('x-server-time'\)/);
@@ -447,4 +447,207 @@ test('merging a change that can\'t say what it changed counts all fields, never 
   const later = op(2, 'PUT', '/api/exercises/7', { name: 'A', category: 'arms' }, { editedAt: '2026-10-07T10:05:00.000Z', changed: ['category'] });
   assert.equal(collapseOps([unknown, later])[0].changed, null);
   assert.equal(collapseOps([older, later])[0].changed, null);
+});
+
+// ── A day with more than one workout, in the browser ────────────────
+// A new workout of the day saved while the queue waited answered with the
+// day's first workout's id, so the Diary opened that one and the next save
+// went into it; it was filed under the first workout too, so a change of
+// that one queued beside it was merged away. Found while fixing #142.
+
+const DAY2 = '2026-10-07';
+// As offline-api.js queues a new workout: its own temporary id and key.
+const made = (seq, tempId, body) => ({ ...op(seq, 'PUT', `/api/workout/${DAY2}`, { ...body, new_session: true, client_key: `web-workout${tempId}` }), tempId, key: `workout:${DAY2}#${tempId}` });
+
+test('a new workout of the day answers as itself, not as the workout held here', () => {
+  const reply = queuedWorkoutReply({ workout: { id: 4, name: 'Mobility', notes: 'stretch' } }, { name: 'Leg Day', new_session: true, exercises: [] }, -77);
+  assert.equal(reply.workout.id, -77);
+  assert.equal(reply.workout.name, 'Leg Day');
+  assert.equal(reply.workout.notes, undefined, "nothing of the other workout's");
+  // The Diary saves it back whole: with the flag still on, every save of it
+  // started yet another workout.
+  assert.equal(reply.workout.new_session, undefined);
+  assert.equal(queuedWorkoutReply(null, { name: 'Leg Day', new_session: true, client_key: 'web-workout-77' }, -77).workout.client_key, undefined);
+});
+
+test('a new workout and the changes made to it go up as one new workout', () => {
+  const ops = [
+    op(1, 'PUT', `/api/workout/${DAY2}`, { id: 4, name: 'Mobility', exercises: [] }, { changed: ['exercises'] }),
+    made(2, -77, { name: 'Leg Day', exercises: [{ uuid: 'sq' }] }),
+    op(3, 'PUT', `/api/workout/${DAY2}`, { id: -77, name: 'Leg Day', exercises: [{ uuid: 'sq' }, { uuid: 'hip' }] }, { changed: ['exercises'] }),
+  ];
+  const sent = collapseOps(ops);
+  assert.equal(sent.length, 2, "Mobility's change still goes up");
+  assert.equal(sent[0].body.id, 4);
+  const leg = sent[1];
+  assert.equal(leg.body.new_session, true, 'still made as a new workout');
+  assert.equal(leg.tempId, -77, 'the replay learns its id');
+  assert.equal(leg.body.client_key, 'web-workout-77', 'sent twice, still one');
+  assert.deepEqual(leg.body.exercises.map(e => e.uuid), ['sq', 'hip'], 'with the newest values');
+  assert.equal(leg.changed, null, 'all of it is new');
+});
+
+test('two new workouts of the same day are two workouts', () => {
+  const sent = collapseOps([made(1, -77, { name: 'Legs' }), made(2, -78, { name: 'Arms' })]);
+  assert.deepEqual(sent.map(o => o.body.name), ['Legs', 'Arms']);
+});
+
+test('a new workout made and deleted before going up never goes up', () => {
+  const sent = collapseOps([made(1, -77, { name: 'Legs' }), op(2, 'DELETE', `/api/workout/${DAY2}?id=-77`)]);
+  assert.deepEqual(sent, []);
+});
+
+test("a day's first workout made here keeps its temporary id through later saves", () => {
+  const sent = collapseOps([
+    op(1, 'PUT', `/api/workout/${DAY2}`, { name: 'Push', exercises: [] }, { tempId: -60 }),
+    op(2, 'PUT', `/api/workout/${DAY2}`, { name: 'Push', exercises: [{ uuid: 'b' }] }),
+  ]);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].tempId, -60);
+});
+
+test('a workout read by id shows only what was queued for that workout', () => {
+  const ops = [
+    op(1, 'PUT', `/api/workout/${DAY2}`, { id: 4, name: 'Mobility', exercises: [{ uuid: 'm' }] }),
+    made(2, -77, { name: 'Leg Day', exercises: [{ uuid: 'sq' }] }),
+    op(3, 'PUT', `/api/workout/${DAY2}`, { id: 5, name: 'Push', exercises: [{ uuid: 'p' }, { uuid: 'p2' }] }),
+  ];
+  const push = answerWithOps(`/api/workout/${DAY2}?id=5`, { workout: { id: 5, name: 'Push', notes: 'n' } }, ops, 4);
+  assert.equal(push.workout.name, 'Push');
+  assert.equal(push.workout.exercises.length, 2);
+  assert.equal(push.workout.notes, 'n');
+  const leg = answerWithOps(`/api/workout/${DAY2}?id=-77`, undefined, ops, 4);
+  assert.equal(leg.workout.id, -77, 'a new one, under its temporary id');
+  assert.equal(leg.workout.name, 'Leg Day');
+  // The plain day is its first workout, not the last one saved.
+  const first = answerWithOps(`/api/workout/${DAY2}`, { workout: { id: 4, name: 'Mobility' } }, ops);
+  assert.equal(first.workout.id, 4);
+  assert.deepEqual(first.workout.exercises.map(e => e.uuid), ['m']);
+});
+
+test("a day's first workout made here reads back by its temporary id", () => {
+  const ops = [
+    op(1, 'PUT', `/api/workout/${DAY2}`, { name: 'Push', exercises: [{ uuid: 'a' }] }, { tempId: -60 }),
+    op(2, 'PUT', `/api/workout/${DAY2}`, { id: -60, name: 'Push', exercises: [{ uuid: 'a' }, { uuid: 'b' }] }),
+  ];
+  assert.equal(answerWithOps(`/api/workout/${DAY2}?id=-60`, undefined, ops).workout.exercises.length, 2);
+  assert.equal(answerWithOps(`/api/workout/${DAY2}`, { workout: null }, ops).workout.exercises.length, 2);
+});
+
+test("the day's tabs show a workout started here and drop one deleted here", () => {
+  const held = { sessions: [{ id: 4, name: 'Mobility' }, { id: 5, name: 'Push' }] };
+  const ops = [
+    made(1, -77, { name: 'Leg Day', exercises: [] }),
+    op(2, 'PUT', `/api/workout/${DAY2}`, { id: -77, name: 'Leg Day', exercises: [{ uuid: 'sq' }] }),
+    op(3, 'PUT', `/api/workout/${DAY2}`, { id: 5, name: 'Push Day', exercises: [] }),
+    op(4, 'DELETE', `/api/workout/${DAY2}?id=4`),
+  ];
+  const tabs = answerWithOps(`/api/workout/${DAY2}/sessions`, held, ops).sessions;
+  assert.deepEqual(tabs.map(t => [t.id, t.name]), [[5, 'Push Day'], [-77, 'Leg Day']]);
+  assert.equal(answerWithOps(`/api/workout/${DAY2}/sessions`, held, []), held, 'nothing queued: as held');
+});
+
+test('a workout read or deleted by a temporary id follows it to the real one', () => {
+  assert.equal(remapPath(`/api/workout/${DAY2}?id=-77`, { [-77]: 31 }), `/api/workout/${DAY2}?id=31`);
+  assert.equal(remapPath(`/api/workout/${DAY2}?id=-77`, {}), `/api/workout/${DAY2}?id=-77`);
+  assert.equal(remapPath(`/api/workout/${DAY2}?id=-778`, { [-77]: 31 }), `/api/workout/${DAY2}?id=-778`, 'the whole id, not a prefix');
+  assert.equal(remapPath('/api/exercises/-5', { [-5]: 9 }), '/api/exercises/9');
+});
+
+test('a new workout started on an empty day is the day, read by date', () => {
+  const ops = [made(1, -77, { name: 'Legs', exercises: [{ uuid: 'sq' }] })];
+  assert.equal(answerWithOps(`/api/workout/${DAY2}`, { workout: null }, ops).workout.id, -77);
+  assert.equal(answerWithOps(`/api/workout/${DAY2}`, undefined, ops).workout.name, 'Legs');
+  // A day that has a first workout is still that one.
+  assert.equal(answerWithOps(`/api/workout/${DAY2}`, { workout: { id: 4, name: 'Mobility' } }, ops).workout.id, 4);
+});
+
+test('a save that names its workout is a change of it, never a new workout', async () => {
+  const { readFileSync } = await import('node:fs');
+  const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
+  assert.match(offline, /const newWorkout = op\.kind === 'workout' && body\?\.id == null && \(!!body\?\.new_session \|\| !day\?\.workout\);/);
+});
+
+test('a workout started here reads back without the flag that made it, so saving it back is a change, not another workout', () => {
+  const ops = [made(1, -77, { name: 'Legs', exercises: [] })];
+  const read = answerWithOps(`/api/workout/${DAY2}?id=-77`, undefined, ops).workout;
+  assert.equal(read.new_session, undefined);
+  assert.equal(read.client_key, undefined);
+  const tab = answerWithOps(`/api/workout/${DAY2}/sessions`, { sessions: [] }, ops).sessions[0];
+  assert.equal(tab.new_session, undefined);
+  // Saved back whole, with its id: still that workout.
+  const again = queuedWorkoutReply({ workout: read }, { ...read, new_session: true, exercises: [{ uuid: 's' }] }, -99);
+  assert.equal(again.workout.id, -77);
+});
+
+test("a save by a temporary id the server never learned goes up as a new workout, not into the day's first", () => {
+  const save = op(2, 'PUT', `/api/workout/${DAY2}`, { id: -77, name: 'Legs', exercises: [{ uuid: 's' }] });
+  const body = orphanWorkoutSave(save, {}, [save]);
+  assert.equal(body.new_session, true);
+  assert.equal(body.id, undefined);
+  assert.equal(body.client_key, 'web-workout-77', 'sent twice, still one');
+  assert.equal(body.name, 'Legs');
+  assert.equal(orphanWorkoutSave(save, { [-77]: 31 }, [save]), null, 'learned: sent by its real id');
+  assert.equal(orphanWorkoutSave(op(1, 'PUT', `/api/workout/${DAY2}`, { id: 4 }), {}, []), null, 'a server id');
+  // Queued by an earlier version: the day's first, made with no temporary id.
+  const legacy = op(1, 'PUT', `/api/workout/${DAY2}`, { name: 'Push', exercises: [] });
+  assert.equal(orphanWorkoutSave(save, {}, [legacy, save]), null);
+});
+
+test('the replay sends such a save as a new workout and learns its id', async () => {
+  const { readFileSync } = await import('node:fs');
+  const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
+  assert.match(offline, /const orphan = orphanWorkoutSave\(op, map, ops\);\s*\n\s*const body = op\.body == null \? undefined : JSON\.stringify\(remapIds\(orphan \?\? op\.body, map\)\);/);
+  assert.match(offline, /const madeAs = op\.tempId \?\? \(orphan \? op\.body\.id : null\);/);
+});
+
+test('online, a workout day and its tabs are read with the saves still waiting laid over them', async () => {
+  const { readFileSync } = await import('node:fs');
+  const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
+  assert.match(offline, /const _WORKOUT_READ = \/\^\\\/api\\\/workout\\\/\(\\d\{4\}-\\d\{2\}-\\d\{2\}\)\(\?:\\\/sessions\)\?\$\/;/);
+  assert.match(offline, /const answer = answerWithOps\(url, fresh, ops, first\);\s*\n\s*if \(answer !== fresh\) return _json\(200, answer\);/);
+  // The server's answer for one workout, with what is queued for it on top.
+  const fresh = { workout: { id: 7, name: 'Push', exercises: [{ uuid: 'b', sets: [{ uuid: 's1' }] }] } };
+  const ops = [op(1, 'PUT', `/api/workout/${DAY2}`, { id: 7, name: 'Push', exercises: [{ uuid: 'b', sets: [{ uuid: 's1' }, { uuid: 's2' }] }] })];
+  assert.equal(answerWithOps(`/api/workout/${DAY2}?id=7`, fresh, ops, 4).workout.exercises[0].sets.length, 2);
+  assert.equal(answerWithOps(`/api/workout/${DAY2}?id=8`, fresh, ops, 4), fresh, 'another workout: as the server has it');
+});
+
+test("deleting with no id named takes the day's first tab only, as the server does", () => {
+  const held = { sessions: [{ id: 4, name: 'Mobility' }, { id: 5, name: 'Push' }] };
+  const tabs = answerWithOps(`/api/workout/${DAY2}/sessions`, held, [op(1, 'DELETE', `/api/workout/${DAY2}`)]).sessions;
+  assert.deepEqual(tabs.map(t => t.id), [5]);
+});
+
+test('what is still queued under a temporary id is found by the real id once known', () => {
+  const ops = [op(2, 'PUT', `/api/workout/${DAY2}`, { id: -60, name: 'Push', exercises: [{ uuid: 'a' }, { uuid: 'b' }] })];
+  const known = opsAsKnown(ops, { [-60]: 31 });
+  assert.equal(known[0].key, `workout:${DAY2}#31`);
+  assert.equal(known[0].body.id, 31);
+  const read = answerWithOps(`/api/workout/${DAY2}?id=31`, { workout: { id: 31, name: 'Push', exercises: [{ uuid: 'a' }] } }, known, 31);
+  assert.equal(read.workout.exercises.length, 2);
+  const tabs = answerWithOps(`/api/workout/${DAY2}/sessions`, { sessions: [{ id: 31, name: 'Push' }] }, known).sessions;
+  assert.deepEqual(tabs.map(t => t.id), [31], 'one tab, not a second under the old id');
+  assert.equal(opsAsKnown(ops, {}), ops, 'nothing learned: as queued');
+});
+
+test("deleting with no id named takes the day's first off the recent list, not the whole day", () => {
+  const held = [{ id: 4, date: DAY2, session_seq: 0 }, { id: 5, date: DAY2, session_seq: 1 }];
+  const rows = answerWithOps('/api/workout/recent', held, [op(1, 'DELETE', `/api/workout/${DAY2}`)]);
+  assert.deepEqual(rows.map(r => r.id), [5]);
+});
+
+test("a deletion made here leaves the day's other workouts readable", async () => {
+  const { readFileSync } = await import('node:fs');
+  const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
+  assert.match(offline, /_remember\(pathOf\(target\), \{ workout: null, deletedHere: true \}\)/);
+  assert.match(offline, /\(!row \|\| row\.body\?\.deletedHere \|\| r\.at > row\.at\)/);
+  assert.match(offline, /const doomed = gone \?\? first;/);
+});
+
+test("a day's first workout made in this browser, with none of the day held, goes up as a new workout, not into the server's first", async () => {
+  const { readFileSync } = await import('node:fs');
+  const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
+  assert.match(offline, /if \(newWorkout\) body = \{ \.\.\.body, new_session: true, client_key: body\.client_key \|\| `web-workout\$\{tempId\}` \};/);
+  assert.match(offline, /op\.kind === 'workout' \? \{ tempId, key: `workout:\$\{date\}#\$\{tempId\}` \}/);
 });
