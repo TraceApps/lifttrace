@@ -125,6 +125,9 @@ public class WearPairingPlugin extends Plugin {
         PutDataMapRequest req = PutDataMapRequest.create(PATH);
         req.getDataMap().putString("serverUrl", serverUrl);
         req.getDataMap().putString("token", token);
+        // The release this phone runs: a watch on an older one updates itself
+        // to it (installed from GitHub; the Play Store keeps its own current).
+        req.getDataMap().putString("appVersion", call.getString("appVersion", ""));
         // The timestamp makes every write distinct, so re-pairing after a token
         // refresh still reaches the watch instead of being seen as unchanged.
         req.getDataMap().putLong("at", System.currentTimeMillis());

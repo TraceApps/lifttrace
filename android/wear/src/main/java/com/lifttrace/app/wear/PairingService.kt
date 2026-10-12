@@ -44,8 +44,11 @@ class PairingService : WearableListenerService() {
             val map = DataMapItem.fromDataItem(event.dataItem).dataMap
             val url = map.getString("serverUrl").orEmpty()
             val token = map.getString("token").orEmpty()
-            if (url.isNotBlank() && token.isNotBlank()) Pairing.save(this, url, token)
-            else Pairing.clear(this)
+            if (url.isNotBlank() && token.isNotBlank()) {
+                Pairing.save(this, url, token, map.getString("appVersion").orEmpty())
+                // The phone may be on a newer release than this watch.
+                WatchUpdate.check(this)
+            } else Pairing.clear(this)
         }
     }
 

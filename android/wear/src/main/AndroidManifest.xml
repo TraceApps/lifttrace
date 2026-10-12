@@ -14,6 +14,11 @@
          Denied, the rest still runs and still buzzes; it just has nowhere
          to show itself. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Installed from GitHub, the watch updates itself to the phone's release
+         (WatchUpdate.kt): with a tap on a notification, or without one where
+         Android allows an app to update itself. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <application
         android:allowBackup="false"
@@ -82,6 +87,11 @@
 
         <!-- The phone hands over the server address and a token once, and takes
              them away again when the account signs out. -->
+        <!-- What Android made of an update the watch installed itself. -->
+        <receiver
+            android:name=".UpdateResultReceiver"
+            android:exported="false" />
+
         <service
             android:name=".PairingService"
             android:exported="true"

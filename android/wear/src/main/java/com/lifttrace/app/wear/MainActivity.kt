@@ -119,12 +119,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         store.showing = false
+        WatchUpdate.onScreen = false
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
         store.showing = true
+        // An update the phone is already on, asked about now that you're looking.
+        WatchUpdate.onScreen = true
+        WatchUpdate.check(applicationContext, onScreen = true)
         // The phone only sends a rest to a watch that has been used lately,
         // and this is what it goes by.
         Pairing.publishAwake(applicationContext)
