@@ -54,6 +54,7 @@ test('each route calls the shared xCore function rather than a fresh db.prepare'
     'getWorkoutCore', 'listRecentWorkoutsCore', 'getRecordsCore',
     'getExerciseProgressCore', 'searchExercisesCore', 'listProgramsCore',
     'getActiveProgramCore', 'getBodyStatCore', 'logSetCore', 'logBodyStatCore',
+    'getCardioCore', 'logCardioCore',
   ]) {
     assert.match(route, new RegExp(coreFn), `public-api.js should import and call ${coreFn}`);
   }

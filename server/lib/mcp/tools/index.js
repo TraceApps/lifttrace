@@ -23,9 +23,11 @@ import { registerGetActiveProgram } from './get-active-program.js';
 import { registerGetBodyStat } from './get-body-stat.js';
 import { registerGetBodyStats } from './get-body-stats.js';
 import { registerListProgressPhotos } from './list-progress-photos.js';
+import { registerGetCardio } from './get-cardio.js';
 import { registerLogSet } from './log-set.js';
 import { registerLogBodyStat } from './log-body-stat.js';
 import { registerAddProgressPhoto } from './add-progress-photo.js';
+import { registerLogCardio } from './log-cardio.js';
 import { registerDeleteWorkout } from './delete-workout.js';
 
 export function registerReadTools(server, ctx) {
@@ -40,12 +42,14 @@ export function registerReadTools(server, ctx) {
   registerGetBodyStat(server, ctx);
   registerGetBodyStats(server, ctx);
   registerListProgressPhotos(server, ctx);
+  registerGetCardio(server, ctx);
 }
 
 export function registerWriteTools(server, ctx) {
   registerLogSet(server, ctx);
   registerLogBodyStat(server, ctx);
   registerAddProgressPhoto(server, ctx);
+  registerLogCardio(server, ctx);
 }
 
 export function registerDestroyTools(server, ctx) {
