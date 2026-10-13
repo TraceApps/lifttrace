@@ -105,6 +105,12 @@ async function startServer({ accounts = true, env = {} } = {}) {
   } catch (e) { stop(); throw e; }
   const memberToken = jwt.sign({ id: member.user.id, username: member.user.username, role: member.user.role }, SECRET, { expiresIn: '1h' });
   const expired = jwt.sign({ id: member.user.id, username: member.user.username, role: member.user.role, exp: Math.floor(Date.now() / 1000) - 60 }, SECRET);
+  // Creating the member sent the admin's coaching request; the member
+  // accepts it, so the admin is their coach as before.
+  try {
+    const { requests } = await call(memberToken, 'GET', '/api/coaching/state');
+    await call(memberToken, 'POST', `/api/coaching/pairings/${requests[0].id}/accept`, {});
+  } catch (e) { stop(); throw e; }
   return {
     base, call, tokens: { other: admin.token, phone: memberToken, expired }, memberId: member.user.id, adminId: admin.user.id, dbPath: join(dir, 'app.db'),
     stop,
@@ -640,7 +646,7 @@ test('a logged workout keeps a coach\'s exercises and a prescribed program', { s
   const srv = await startServer();
   try {
     const { call, tokens, memberId } = srv;
-    await call(tokens.other, 'POST', `/api/trainer/members/${memberId}`);
+    // The admin coaches the member already (startServer).
     const ex = await call(tokens.other, 'POST', '/api/exercises', { name: 'Coach Sled Push' });
     const plan = await call(tokens.other, 'POST', '/api/programs', { name: 'Coach 8wk', duration_weeks: 8 });
     const day = await call(tokens.other, 'POST', '/api/templates', { program_id: plan.id, name: 'Rx Day', exercises: [{ exercise_id: ex.id, name: 'Coach Sled Push' }] });

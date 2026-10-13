@@ -63,6 +63,10 @@ export const MIRRORED_GETS = [
   /^\/api\/trainer\/members\/\d+\/workout\/\d{4}-\d{2}-\d{2}$/,
   /^\/api\/trainer\/members\/\d+\/prescriptions$/,
   /^\/api\/trainer\/activity$/,
+  // Where you stand in coaching, and the requests a coach sent: read-only
+  // here (asking, answering and leaving need the server, see writeOp).
+  /^\/api\/coaching\/state$/,
+  /^\/api\/coaching\/requests$/,
   // Who is signed in, and how. Without these the app reads an unreachable
   // server as "nobody is signed in" and starts forgetting what depends on it,
   // and Settings greets you with an error instead of your own profile.
@@ -550,7 +554,7 @@ export function describeOp(op) {
     case 'exercise-delete':  return 'an exercise you deleted';
     case 'program-activate': return 'the program you started';
     case 'program-week':     return 'the program week you moved to';
-    case 'coach-note':       return 'the note you left for your member';
+    case 'coach-note':       return 'the note you left for your client';
     case 'coach-reply':      return 'your reply to your coach';
     case 'seen':             return 'marking notes as read';
     case 'prescription-create': return 'the work you prescribed';

@@ -2286,7 +2286,7 @@
     {#if $currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}
               on:click={openCoachInbox}
-              title="Coach Feedback" aria-label="Coach feedback">
+              title={$_('coaching.sheets.coach_feedback')} aria-label={$_('coaching.sheets.coach_feedback')}>
         <span class="material-symbols-rounded">
           {unreadFeedbackCount > 0 ? 'mark_email_unread' : 'forum'}
         </span>
@@ -3425,7 +3425,7 @@
 <!-- Coach Feedback Inbox — list every note the member's coach has left.
      Tapping a row marks that specific row seen and jumps to the workout's
      date. "Mark All Seen" clears the inbox without navigating. -->
-<Sheet open={showCoachInbox} on:close={() => showCoachInbox = false} title="Coach Feedback">
+<Sheet open={showCoachInbox} on:close={() => showCoachInbox = false} title={$_('coaching.sheets.coach_feedback')}>
   <div class="inbox-sheet">
     {#if !inboxLoading && inboxRows.some(r => !r.seen_by_member_at)}
       <div class="inbox-toolbar">

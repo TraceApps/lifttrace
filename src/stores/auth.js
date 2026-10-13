@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import { loadServerSettings } from './settings.js';
 import { isNative, getServerUrl, apiUrl, setAuthToken, getAuthToken } from '../lib/platform.js';
 import { clearPhotoBlobs } from '../lib/photo-blobs.js';
+import { setCoachingFromServer, loadCachedCoaching, clearCoaching } from './coaching.js';
 
 export const currentUser = writable(null);
 export const userMgmtActive = writable(false);
@@ -91,6 +92,8 @@ export async function loadAuthState() {
         userMgmtActive.set(true);
         currentUser.set(claims?.id != null ? { id: claims.id, username: claims.username, role: claims.role } : null);
       }
+      // Coaching as this account last knew it (kept on this device).
+      try { const uid = localStorage.getItem('wl:userId'); if (uid) loadCachedCoaching(uid); } catch { /* none */ }
       return;
     }
     const active     = !!statusData.active;
@@ -107,10 +110,15 @@ export async function loadAuthState() {
     if (!active && !user) {
       await _hydrateLocalUser({ setUserId: false });
       localStorage.removeItem('wl:userId');
+      clearCoaching();
       return;
     }
 
     currentUser.set(user);
+    // Coaching: a server from before consent sends neither field, and what
+    // is new stays away.
+    if (user) setCoachingFromServer({ supported: statusData.coaching ?? 0, state: meData.coaching ?? null, userId: user.id });
+    else clearCoaching();
     if (user) {
       try { (await import('../lib/account-gen.js')).markSignedOut(false); } catch { /* none */ }
     }
@@ -222,6 +230,8 @@ export async function logout() {
       await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include', signal: AbortSignal.timeout?.(5000) });
     }
   } catch { /* the server's cookie goes with the jar on Android; on the web it expires */ }
+  // Where this account stood in coaching goes with it.
+  clearCoaching();
   const userId = leavingId;
   if (userId) {
     const prefix = `wl_u${userId}_`;

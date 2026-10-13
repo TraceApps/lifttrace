@@ -1,22 +1,34 @@
 <script>
+  // Programs | Coach | Coaching. Coach is for someone with a coach or a
+  // request to answer; Coaching is for trainers and admins, as before.
+  // Everyone else gets nothing here, so Programs looks exactly as it did.
   import { _ } from 'svelte-i18n';
   import { currentUser } from '../../stores/auth.js';
   import { location, push } from 'svelte-spa-router';
+  import { coachTab } from '../../stores/coaching.js';
+
+  // Shown on the Coach page even while the state is still loading, so
+  // arriving there by link never strands anyone.
+  export let force = false;
 
   $: isCoach = $currentUser?.role === 'trainer' || $currentUser?.role === 'admin';
-  $: current = $location.startsWith('/coaching') ? 'coaching' : 'programs';
+  $: current = $location.startsWith('/coaching') ? 'coaching' : $location.startsWith('/coach') ? 'coach' : 'programs';
+  $: tabs = [
+    { key: 'programs', path: '/programs', icon: 'calendar_month', label: $_('nav.programs') },
+    ...($coachTab || (force && current === 'coach') ? [{ key: 'coach', path: '/coach', icon: 'sports', label: $_('coaching.tabs.coach') }] : []),
+    ...(isCoach ? [{ key: 'coaching', path: '/coaching', icon: 'supervisor_account', label: $_('coaching.tabs.coaching') }] : []),
+  ];
 </script>
 
-{#if isCoach}
-  <div class="coach-tabs">
-    <button class="tab" class:active={current === 'programs'} on:click={() => push('/programs')}>
-      <span class="material-symbols-rounded icon">calendar_month</span>
-      <span>{$_('nav.programs')}</span>
-    </button>
-    <button class="tab" class:active={current === 'coaching'} on:click={() => push('/coaching')}>
-      <span class="material-symbols-rounded icon">supervisor_account</span>
-      <span>Coaching</span>
-    </button>
+{#if tabs.length > 1}
+  <div class="coach-tabs" role="tablist" aria-label={$_('coaching.tabs.aria')}>
+    {#each tabs as t (t.key)}
+      <button class="tab" class:active={current === t.key} role="tab" aria-selected={current === t.key}
+        on:click={() => { if (current !== t.key) push(t.path); }}>
+        <span class="material-symbols-rounded icon">{t.icon}</span>
+        <span>{t.label}</span>
+      </button>
+    {/each}
   </div>
 {/if}
 

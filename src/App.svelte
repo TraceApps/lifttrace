@@ -205,6 +205,7 @@
   import Radio           from './routes/Radio.svelte';
   import Settings        from './routes/Settings.svelte';
   import Coaching        from './routes/Coaching.svelte';
+  import Coach           from './routes/Coach.svelte';
   import MiniPlayer      from './components/radio/MiniPlayer.svelte';
   import RestTimer       from './components/diary/RestTimer.svelte';
   import FullPlayer      from './components/radio/FullPlayer.svelte';
@@ -232,6 +233,7 @@
     '/radio':                 Radio,
     '/settings':              Settings,
     '/settings/:section':     Settings,
+    '/coach':                 Coach,
     '/coaching':              Coaching,
     '/coaching/:memberId':    Coaching,
     '/wizard':                Wizard,

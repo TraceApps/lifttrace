@@ -9,11 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Coaching asks first.** A coach (a Trainer, or an admin) sends a request with an optional note, and nothing of yours is shared until you accept it on the new Coach tab in Programs. You have one coach at a time: to accept another, leave yours first. A coach can take a request back and sees declines and departures from the last week. An admin's trainer picker in Settings, Users, an invite, and a member created by an admin send a request too, instead of pairing outright. Coaching set up before this update stays as it is, with nothing to accept. An Android app from before this update shows no requests; answer them on the web or after updating.
+- **You can leave your coach**, from their name on the Coach tab in Programs (Leave Coach). Only the coach or an admin could end it before. As when a coach ends it, the prescriptions and programs that coach gave you are removed.
+- **Notifications for coaching requests and answers**, in Settings, Notifications, Coaching, on by default and only for people in coaching: New Recommendation (a coach asks to coach you) and Client's Answer (someone accepts or declines your request, or leaves). They say who, never the note.
+
 - **The watch app updates itself to the phone's release.** Installed from GitHub, it used to stay on whatever version it was put on with adb. Now, when the phone updates, the watch fetches the same release's watch app and installs it. The first time, the watch asks you to allow LiftTrace to install apps; after that it updates without a tap, while the watch is on its charger.
 
 ### Changed
 
 - **Importing workouts from other apps is no longer marked Experimental.**
+- **"Client" is the word for the person a coach coaches**, in Coaching, the notifications and the program menu (it was "member" or "coachee"). The Member role keeps its name. The Coaching tab, its sheet titles and its lists can now be translated.
+- **The Android app without a server says Coaching Needs a Server** on Coaching and Coach, with a button to connect one, instead of showing empty lists.
+
+### Security
+
+- **A coach no longer receives every unpaired member's account record.** The list for adding a client carried each member's email, birthday, gender and the rest; it now carries only an id and a name.
+- **An admin no longer sees every coach's activity, or a client's workouts, prescriptions and set videos, without being their coach.** Each coach's activity feed shows their own clients' events, and only while coaching them. Admins keep the pairing controls in Settings, Users. Every coach route now checks for an active pairing the client accepted, and refuses another coach's client, a request still waiting and coaching that ended alike.
 
 ### Fixed
 

@@ -108,3 +108,13 @@ async function _pushToService(userId, title, message, priority = 5) {
 export async function pushNotify(userId, title, message, priority = 5) {
   return _pushToService(userId, title, message, priority);
 }
+
+/**
+ * Send a push unless the person turned this kind off (on by default). For
+ * the coaching notifications: a missing setting means on.
+ */
+export async function pushNotifyDefaultOn(userId, settingKey, title, message, priority = 5) {
+  const v = _getSetting(userId, settingKey);
+  if (v === false || v === 'false') return;
+  return _pushToService(userId, title, message, priority);
+}

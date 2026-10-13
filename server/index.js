@@ -34,6 +34,7 @@ import exerciseImport    from './routes/exercise-import.js';
 import notifyRoutes      from './routes/notify.js';
 import ntFederation      from './routes/nt-federation.js';
 import trainerRoutes     from './routes/trainer.js';
+import coachingRoutes    from './routes/coaching.js';
 import prescriptionRoutes from './routes/prescriptions.js';
 import coachFeedbackRoutes from './routes/coach-feedback.js';
 import syncRoutes         from './routes/sync.js';
@@ -54,6 +55,7 @@ import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { autoSeed }        from './exercise-sources/index.js';
 import { seedPrograms }    from './seed-templates.js';
 import { startScheduler }  from './lib/scheduler.js';
+import { adoptExistingPairings } from './lib/coaching.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -62,6 +64,10 @@ import db from './db.js';
 seedSmtpFromEnv();
 seedAiFromEnv();
 seedOidcFromEnv();
+
+// Coaching from before consent stays as it was: a client who already has a
+// trainer keeps them, accepted, with nothing to answer.
+try { adoptExistingPairings(); } catch (e) { logger.warn(`[coaching] keeping existing pairings failed: ${e?.message || e}`); }
 
 // Seed built-in programs (Monumental Valley, Shredville) on first startup
 seedPrograms();
@@ -131,6 +137,8 @@ router.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      // The Android app reads this from an answer (another origin).
+      res.setHeader('Access-Control-Expose-Headers', 'X-LT-Coaching');
     }
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -220,6 +228,7 @@ router.use('/api/exercise-import', exerciseImport);
 router.use('/api/notify',       notifyRoutes);
 router.use('/api/nt',           ntFederation);
 router.use('/api/trainer',      trainerRoutes);
+router.use('/api/coaching',     coachingRoutes);
 router.use('/api/prescriptions', prescriptionRoutes);
 router.use('/api/coach-feedback', coachFeedbackRoutes);
 router.use('/api/sync',          syncRoutes);

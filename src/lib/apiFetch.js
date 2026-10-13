@@ -205,6 +205,10 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     // A sign-in, sign-out or other session request is never queued: sent
     // later, it would act for whoever is signed in by then.
     if (isWrite && /^\/api\/auth\//.test(_stripBase(url))) return _jsonResponse(503, { error: 'Offline.', offline: true });
+    // Coaching consent (asking, answering, leaving, ending) changes who can
+    // see whose data: it is decided by the server at the moment it happens,
+    // never replayed later from a queue (the web app refuses the same).
+    if (isWrite && _needsServerNow(_stripBase(url), method)) return _jsonResponse(503, { error: 'This needs a connection.', offline: true });
     if (isWrite) return _queueWrite(url, init, method, gen);
     // Who is signed in is the server's to say: offline, this device's
     // standalone answer (its local user) would stand in for the account.
@@ -213,6 +217,13 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     await _localWrites;
     return _dispatchLocal(url, init);
   }
+}
+
+/** A write that only means something now, with the server (coaching consent). */
+function _needsServerNow(fullPath, method) {
+  const path = String(fullPath).split('?')[0];
+  if (/^\/api\/coaching\//.test(path)) return true;
+  return (method === 'POST' || method === 'DELETE') && /^\/api\/trainer\/members\/\d+$/.test(path);
 }
 
 // Creates that go into the queue carry a key made here once, so one sent

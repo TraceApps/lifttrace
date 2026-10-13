@@ -12,6 +12,10 @@ import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/p
 import { claimAnonymousData, releaseDataBeforeDisable, purgeUserRows } from '../lib/claim-anonymous-data.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
+import {
+  COACHING_VERSION, coachingState, requestFromInvite, requestClient, endPairing, endAsClient,
+  endCoachingIfNotCoach, canCoach, roleOf, personName,
+} from '../lib/coaching.js';
 
 const router = Router();
 
@@ -156,13 +160,19 @@ router.get('/status', wrap((req, res) => {
     // A random id for this server, so the Android app can tell the same
     // server at another address (LAN IP, domain) from a different one.
     instance_id: serverInstanceId(),
+    // Coaching with consent. Servers before it report none, and the app
+    // hides what is new there.
+    coaching: COACHING_VERSION,
   });
 }));
 
 router.get('/me', wrap((req, res) => {
   if (!req.user) return res.json({ user: null });
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  res.json({ user: user ? safeUser(user) : null });
+  // Where this person stands in coaching, so the app knows whether to show
+  // the Coach tab without asking again.
+  const coaching = user && userMgmtActive() ? coachingState(user.id) : null;
+  res.json({ user: user ? safeUser(user) : null, coaching });
 }));
 
 router.post('/login', rateLimitLogin, wrap((req, res) => {
@@ -197,15 +207,16 @@ router.post('/register', wrap((req, res) => {
   { const pwErr = validatePassword(password, [username, email, full_name].filter(Boolean)); if (pwErr) return res.status(400).json({ error: pwErr }); }
   const hash = bcrypt.hashSync(password, BCRYPT_COST);
   const assignedRole = isFirst ? 'admin' : (role || 'member');
-  // Default: whoever creates a member is their trainer. Reversible from the
-  // admin dropdown if that's wrong.
-  const defaultTrainerId = (!isFirst && assignedRole === 'member' && req.user
-    && (req.user.role === 'trainer' || req.user.role === 'admin'))
-    ? req.user.id : null;
   const result = db.prepare(
-    `INSERT INTO users (username, password_hash, full_name, nickname, birthday, gender, role, email, trainer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(username.trim().toLowerCase(), hash, full_name || null, nickname || null, birthday || null, gender || null, assignedRole, email ? email.trim().toLowerCase() : null, defaultTrainerId);
+    `INSERT INTO users (username, password_hash, full_name, nickname, birthday, gender, role, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(username.trim().toLowerCase(), hash, full_name || null, nickname || null, birthday || null, gender || null, assignedRole, email ? email.trim().toLowerCase() : null);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  // Whoever creates a member used to become their trainer. Now they ask:
+  // the request waits for the new account's first sign-in, and nothing is
+  // shared until it's accepted. Ended from the admin dropdown if unwanted.
+  if (!isFirst && assignedRole === 'member' && req.user && canCoach(roleOf(req.user.id))) {
+    requestFromInvite(req.user.id, user.id);
+  }
   let token = null;
   if (isFirst) {
     claimAnonymousData(user.id);
@@ -250,7 +261,17 @@ router.put('/password', requireAuth, wrap((req, res) => {
 }));
 
 router.get('/users', requireAuth, requireAdmin, wrap((req, res) => {
-  res.json(db.prepare('SELECT * FROM users ORDER BY created_at').all().map(safeUser));
+  // Coaching requests waiting for each member's answer, so Users shows them
+  // (the trainer picker sends one) without a request of its own.
+  const pending = new Map();
+  for (const r of db.prepare(`
+    SELECT cc.id, cc.client_id, u.id AS coach_id, u.full_name, u.nickname, u.username
+      FROM coach_clients cc JOIN users u ON u.id = cc.coach_id WHERE cc.status = 'pending' ORDER BY cc.id
+  `).all()) {
+    if (!pending.has(r.client_id)) pending.set(r.client_id, []);
+    pending.get(r.client_id).push({ id: r.id, coach: { id: r.coach_id, name: personName(r) } });
+  }
+  res.json(db.prepare('SELECT * FROM users ORDER BY created_at').all().map(u => ({ ...safeUser(u), coaching_requests: pending.get(u.id) || [] })));
 }));
 
 router.delete('/me', requireAuth, wrap((req, res) => {
@@ -318,26 +339,39 @@ router.put('/users/:id/role', requireAuth, requireAdmin, wrap((req, res) => {
   if (!['admin', 'trainer', 'member'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (id === req.user.id) return res.status(400).json({ error: 'Cannot change your own role' });
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
-  // If role flipped away from member, detach any trainer_id; if away from trainer, detach all members
-  if (role !== 'member') db.prepare('UPDATE users SET trainer_id = NULL WHERE id = ?').run(id);
-  if (role !== 'trainer') db.prepare('UPDATE users SET trainer_id = NULL WHERE trainer_id = ?').run(id);
-  res.json({ ok: true });
+  // Only Members are coached: anyone else leaves their coach (and their
+  // requests end). Someone who can no longer coach (made a Member) stops
+  // coaching. An admin can coach, so a Trainer made an admin keeps clients.
+  const endedAsClient = role !== 'member' ? endAsClient(id, req.user.id) : 0;
+  const endedAsCoach = endCoachingIfNotCoach(id, req.user.id);
+  res.json({ ok: true, coaching_ended: endedAsClient + endedAsCoach });
 }));
 
-// PUT /api/auth/users/:id/trainer — admin assigns a trainer to a member
+// PUT /api/auth/users/:id/trainer: an admin's pairing control. Choosing a
+// trainer sends that trainer's request, which the member accepts or
+// declines (an admin used to pair them outright). No trainer ends the
+// member's coaching and any request waiting for them.
 router.put('/users/:id/trainer', requireAuth, requireAdmin, wrap((req, res) => {
   const id = parseInt(req.params.id);
   const { trainer_id } = req.body;
   const user = db.prepare('SELECT role FROM users WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (user.role !== 'member') return res.status(400).json({ error: 'Only members can be assigned a trainer' });
-  if (trainer_id != null) {
-    const trainer = db.prepare('SELECT role FROM users WHERE id = ?').get(trainer_id);
-    if (!trainer) return res.status(400).json({ error: 'Trainer not found' });
-    if (trainer.role !== 'trainer' && trainer.role !== 'admin') return res.status(400).json({ error: 'Selected user is not a trainer' });
+  if (trainer_id == null || trainer_id === '') {
+    const open = db.prepare(`SELECT id FROM coach_clients WHERE client_id = ? AND status IN ('pending', 'active')`).all(id);
+    for (const r of open) endPairing(r.id, req.user.id);
+    db.prepare('UPDATE users SET trainer_id = NULL WHERE id = ?').run(id);
+    return res.json({ ok: true, status: null });
   }
-  db.prepare('UPDATE users SET trainer_id = ? WHERE id = ?').run(trainer_id || null, id);
-  res.json({ ok: true });
+  const trainerId = parseInt(trainer_id);
+  const trainer = db.prepare('SELECT role FROM users WHERE id = ?').get(trainerId);
+  if (!trainer) return res.status(400).json({ error: 'Trainer not found' });
+  if (trainer.role !== 'trainer' && trainer.role !== 'admin') return res.status(400).json({ error: 'Selected user is not a trainer' });
+  const own = db.prepare(`SELECT status FROM coach_clients WHERE coach_id = ? AND client_id = ? AND status IN ('pending', 'active')`).get(trainerId, id);
+  if (own) return res.json({ ok: true, status: own.status });
+  try { requestClient(trainerId, id); }
+  catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+  res.json({ ok: true, status: 'pending' });
 }));
 
 router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
@@ -467,18 +501,14 @@ router.post('/accept-invite', wrap((req, res) => {
   if (!invite || invite.used) return res.status(400).json({ error: 'Invalid or already used invite link' });
   if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'Invite link has expired' });
   const hash = bcrypt.hashSync(password, BCRYPT_COST);
-  // If invited as member by a trainer/admin, inherit inviter as default trainer
-  let inviterTrainerId = null;
-  if (invite.role === 'member' && invite.created_by) {
-    const inviter = db.prepare('SELECT role FROM users WHERE id = ?').get(invite.created_by);
-    if (inviter && (inviter.role === 'trainer' || inviter.role === 'admin')) {
-      inviterTrainerId = invite.created_by;
-    }
-  }
-  const result = db.prepare('INSERT INTO users (username, password_hash, full_name, role, email, trainer_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(username.trim().toLowerCase(), hash, full_name || null, invite.role, invite.email || null, inviterTrainerId);
+  const result = db.prepare('INSERT INTO users (username, password_hash, full_name, role, email) VALUES (?, ?, ?, ?, ?)')
+    .run(username.trim().toLowerCase(), hash, full_name || null, invite.role, invite.email || null);
   db.prepare('UPDATE invite_tokens SET used = 1 WHERE token = ?').run(token);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  // A member invited by a trainer or admin used to get the inviter as their
+  // trainer. Now the inviter's request waits for them here, and nothing is
+  // shared until they accept it.
+  if (invite.role === 'member' && invite.created_by) requestFromInvite(invite.created_by, user.id);
   const issued = signToken(user);
   res.cookie('lt_token', issued, COOKIE_OPTS);
   res.json({ user: safeUser(user), token: issued });

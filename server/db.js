@@ -1185,4 +1185,34 @@ try {
   console.warn('[db] sync deletions backfill failed:', e?.message || e);
 }
 
+// ── Coaching with consent ───────────────────────────────────────────────────
+// A coach and a client, the same table NutriTrace uses. The coach asks, the
+// client accepts or declines, and either side (or an admin) can end it. A
+// client can hold several requests (one per coach), so asking never reveals
+// who already has a coach, but only one active coach. The active pairing is
+// also users.trainer_id, which everything from before reads; pairings that
+// existed before this table are adopted as active at start-up
+// (lib/coaching.js adoptExistingPairings), with nothing to accept.
+// Both people cascade: deleting either account removes the pairing.
+// Only adds: no existing table is rebuilt and no column changed.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_clients (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    coach_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'declined', 'ended')),
+    note         TEXT,
+    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    responded_at TEXT,
+    ended_at     TEXT,
+    ended_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_id, status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_active
+    ON coach_clients(client_id) WHERE status = 'active';
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_request
+    ON coach_clients(coach_id, client_id) WHERE status = 'pending';
+`);
+
 export default db;

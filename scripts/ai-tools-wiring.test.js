@@ -80,6 +80,7 @@ const EXEMPT = {
   coach_feedback:        'returned inside get_workout detail',
   body_stat_media:       'covered by get_progress_photos',
   set_media:             'video Trace cannot watch; the coach note on a clip is returned inside get_workout detail',
+  coach_clients:         'who coaches whom: consent between two people, not training data Trace reasons about',
 };
 
 // table -> a tool whose implementation must mention this API path

@@ -9,6 +9,7 @@ import db, { dedupeExercisesOnce } from '../db.js';
 import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
+import { adoptExistingPairings } from '../lib/coaching.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -235,6 +236,18 @@ function restoreFromZip(zip) {
     for (const u of data.users || []) insUser.run(u);
     for (const u of data.users || []) if (u.trainer_id) linkTrainer.run(u.trainer_id, u.id);
 
+    // Coaching pairings (requests, answers, endings). Emptied with the users
+    // above (they cascade). A backup from before they existed has none: its
+    // trainers are kept as accepted pairings after the restore
+    // (adoptExistingPairings, below).
+    db.prepare('DELETE FROM coach_clients').run();
+    const insPairing = db.prepare(`INSERT OR IGNORE INTO coach_clients (id,coach_id,client_id,status,note,requested_at,responded_at,ended_at,ended_by,updated_at) VALUES (@id,@coach_id,@client_id,@status,@note,@requested_at,@responded_at,@ended_at,@ended_by,@updated_at)`);
+    for (const c of data.coach_clients || []) {
+      insPairing.run({ note: null, responded_at: null, ended_at: null, ended_by: null, ...c,
+        requested_at: c.requested_at || c.updated_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
+        updated_at: c.updated_at || c.requested_at || new Date().toISOString().replace('T', ' ').slice(0, 19) });
+    }
+
     // Restore custom exercises (user-created, not global seeds)
     const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type)`);
     for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, ...e });
@@ -383,6 +396,9 @@ function restoreFromZip(zip) {
   }
   seedSmtpFromEnv();
   seedAiFromEnv();
+  // A backup from before coaching asked for consent: its trainers stay, as
+  // accepted pairings with nothing to answer.
+  try { adoptExistingPairings(); } catch { /* the next start-up does it */ }
 }
 
 function dumpDatabase() {
@@ -398,6 +414,7 @@ function dumpDatabase() {
     coach_prescriptions: db.prepare('SELECT * FROM coach_prescriptions').all(),
     coach_feedback:      safe('SELECT * FROM coach_feedback'),
     coach_activity:      safe('SELECT * FROM coach_activity'),
+    coach_clients:       safe('SELECT * FROM coach_clients'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
     body_stat_media:     safe('SELECT * FROM body_stat_media'),

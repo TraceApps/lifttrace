@@ -10,6 +10,7 @@
   import { resolveAssetUrl, iconUrl, isNative, getNativeMode } from '../../lib/platform.js';
   import { radioEnabled, radioUrl, radioStationsEnabled } from '../../stores/settings.js';
   import { updateAvailable } from '../../lib/updates.js';
+  import { coachingBadge } from '../../stores/coaching.js';
   import { pwaUpdateReady } from '../../lib/pwa-update.js';
 
   export let open = false;
@@ -47,7 +48,7 @@
   // active: Coaching under Programs, Progress photos under Statistics.
   $: activePath = (() => {
     const base = $location.split('?')[0];
-    if (base.startsWith('/coaching')) return '/programs';
+    if (base.startsWith('/coach')) return '/programs';
     if (base.startsWith('/progress')) return '/statistics';
     return base;
   })();
@@ -111,6 +112,9 @@
         >
           <span class="material-symbols-rounded sidebar-icon">
             {item.icon}
+            {#if item.path === '/programs' && $coachingBadge}
+              <span class="nav-update-dot" aria-label={$_('coaching.badge_aria')}></span>
+            {/if}
             {#if item.path === '/settings' && ($updateAvailable.available || $pwaUpdateReady)}
               <span class="nav-update-dot" aria-label="Update available"></span>
             {/if}

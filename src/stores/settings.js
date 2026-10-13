@@ -35,6 +35,7 @@ const SERVER_SETTINGS = new Set([
   'notifStreakAlert', 'notifStreakTime',
   'notifWorkoutComplete', 'notifPRCelebrations',
   'notifMemberCompletes', 'notifMemberMissed', 'notifMemberReply', 'notifCoachFeedback',
+  'notifCoachRecommendation', 'notifClientAnswer',
   'notifWeeklySummary', 'weeklySummaryDay', 'weeklySummaryTime',
   'bodyStatsVisible', 'exerciseLoadTypes', 'exerciseSetTypes',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
@@ -303,6 +304,11 @@ export const notifMemberMissed    = createSettingStore('notifMemberMissed',    t
 export const notifMemberReply     = createSettingStore('notifMemberReply',     true);
 // Member-side: ping when their coach leaves feedback on a workout.
 export const notifCoachFeedback   = createSettingStore('notifCoachFeedback',   true);
+// Coaching (the same settings NutriTrace has; the server sends these, on
+// unless turned off): a coach asking to coach you or prescribing a workout,
+// and, for a coach, a client's answer to a request (or leaving).
+export const notifCoachRecommendation = createSettingStore('notifCoachRecommendation', true);
+export const notifClientAnswer        = createSettingStore('notifClientAnswer',        true);
 export const notifWeeklySummary   = createSettingStore('notifWeeklySummary',   false);
 export const weeklySummaryDay     = createSettingStore('weeklySummaryDay',     0);
 export const weeklySummaryTime    = createSettingStore('weeklySummaryTime',    '09:00');

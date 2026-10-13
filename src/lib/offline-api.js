@@ -662,6 +662,16 @@ export async function offlineFetch(url, init, origFetch) {
       if (res.ok && isMirroredGet(url)) {
         try { await _remember(mirrorKey(url), await res.clone().json()); } catch { /* not json */ }
       }
+      // A coach who no longer coaches this client (they left, or the
+      // coaching ended): the copies of their pages go, so none opens later
+      // with no connection.
+      const formerClient = res.status === 404 ? pathOf(url).match(/\/api\/trainer\/members\/(\d+)(\/|$)/) : null;
+      if (formerClient) {
+        // Kept under the path as asked (a BASE_URL subpath included).
+        const prefix = pathOf(url).slice(0, formerClient.index) + `/api/trainer/members/${formerClient[1]}`;
+        const keys = (await _all('answers')).map(r => r.key).filter(k => k === prefix || k.startsWith(prefix + '/') || k.startsWith(prefix + '?'));
+        if (keys.length) await _tx('answers', 'readwrite', st => { for (const k of keys) st.delete(k); });
+      }
       _publish({ online: true });
       // A workout day, or its tabs, with saves of it still waiting to go up:
       // the server's answer with them on top, as with no connection. Read as

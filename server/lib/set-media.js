@@ -25,6 +25,7 @@
  */
 import db from '../db.js';
 import { resolveUploadPath, unlinkMediaFile } from './upload-paths.js';
+import { coachesClient } from './coaching.js';
 
 export { resolveUploadPath, unlinkMediaFile };
 
@@ -45,7 +46,9 @@ export function canReadMedia(viewerId, row) {
   if (viewerId == null) return row.user_id == null;      // single-user mode
   if (row.user_id === viewerId) return true;
   const owner = db.prepare('SELECT trainer_id FROM users WHERE id = ?').get(row.user_id);
-  return !!owner && owner.trainer_id === viewerId;
+  // The pairing the client accepted, with the coach still able to coach:
+  // the same guard every coach route uses (lib/coaching.js).
+  return !!owner && owner.trainer_id === viewerId && coachesClient(viewerId, row.user_id);
 }
 
 /**
