@@ -14,7 +14,8 @@
  *
  * These check the parts of the fix: the button sends the browser's own
  * credentials, the uploads rule keeps only a readable 200 that isn't a page,
- * and the pages already kept are swept out once.
+ * and the pages already kept are swept out once. The rule also matches
+ * uploads under a BASE_URL subpath, where it used to keep nothing.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -48,6 +49,26 @@ test('uploads-cache refuses a page', async () => {
     const r = res(t);
     assert.equal(await willUpdate({ response: r }), r, String(t));
   }
+});
+
+test('uploads-cache matches uploads under the worker\'s scope, root or BASE_URL subpath', () => {
+  const cfg = read('../vite.config.js');
+  const src = cfg.match(/urlPattern: (\(\{ url, sameOrigin \}\) =>[\s\S]*?),\s*handler: 'CacheFirst',\s*options: \{\s*cacheName: 'uploads-cache'/);
+  assert.ok(src, 'uploads-cache urlPattern not found');
+  const at = (scope) => {
+    const match = new Function('self', `return (${src[1]});`)({ registration: { scope } });
+    return (href, sameOrigin = true) => match({ url: new URL(href), sameOrigin });
+  };
+  const root = at('https://x.example/');
+  assert.equal(root('https://x.example/uploads/exercises/a.png'), true);
+  assert.equal(root('https://x.example/uploads/body-stats/a.jpg'), false);
+  assert.equal(root('https://x.example/api/uploads/a.png'), false);
+  assert.equal(root('https://cdn.example/uploads/a.png', false), false);
+  // Served from a subpath (BASE_URL=/lifttrace), the worker's scope is /lifttrace/.
+  const sub = at('https://x.example/lifttrace/');
+  assert.equal(sub('https://x.example/lifttrace/uploads/exercises/a.png'), true);
+  assert.equal(sub('https://x.example/lifttrace/uploads/body-stats/a.jpg'), false);
+  assert.equal(sub('https://x.example/uploads/exercises/a.png'), false);
 });
 
 test('main.js runs the sweep after the legacy purge', () => {

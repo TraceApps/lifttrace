@@ -108,9 +108,11 @@ export default defineConfig({
             // account that signs in on the browser profile, and its entries
             // outlive sign-out, so caching them here would reopen exactly the
             // leak the authenticated photo route closes.
+            // Under the worker's own scope, so a BASE_URL subpath
+            // (/lifttrace/uploads/...) is kept too, not only the root.
             urlPattern: ({ url, sameOrigin }) =>
               sameOrigin
-              && url.pathname.startsWith('/uploads/')
+              && url.pathname.startsWith(new URL(self.registration.scope).pathname + 'uploads/')
               && !url.pathname.includes('/body-stats/'),
             handler: 'CacheFirst',
             options: {

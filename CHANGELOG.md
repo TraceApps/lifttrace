@@ -36,6 +36,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **An exercise or set Trace adds with no connection is no longer saved twice** once the Diary saves that workout (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
 - **On the web, workouts stay readable offline after a save made online.** Any online save dropped the browser's copy of every workout, so going offline right after showed an empty Diary, and anything logged then went into the day's first workout, wiping its name and notes (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
 - **Pictures and videos on your exercises no longer stay broken behind a login proxy.** Pre-cache media for offline fetched them without the browser's sign-in. Behind basic auth they were never kept for offline use; behind a proxy that signs you in on another address (Authelia, VoidAuth), its sign-in page was kept in their place, and they showed broken, online too, for up to 90 days. The same happened once a proxy's session ran out with its sign-in page on the same address, and for a picture whose file was gone. Pictures broken that way show again (found while fixing [notetrace#22](https://github.com/TraceApps/notetrace/issues/22)).
+- **Uploaded pictures and videos are kept for offline use when LiftTrace is served from a subpath** (`BASE_URL`). Only an install at the root kept them, so with no connection your exercises' and profile pictures showed broken, even after Pre-cache media for offline.
 
 ---
 
