@@ -1043,8 +1043,7 @@
       "workout_added": "训练已添加",
       "workout_deleted": "训练已删除",
       "program_deleted": "计划已删除",
-      "duplicated": "计划已复制",
-      "member_fallback": "成员"
+      "duplicated": "计划已复制"
     },
     "workouts": "训练",
     "add_workout": "添加训练",
@@ -1441,7 +1440,6 @@
   },
   "coaching": {
     "toast": {
-      "released": "{name} 已从你的名单中移除",
       "program_active": "{program} 现在是 {name} 的激活计划",
       "feedback_saved": "反馈已保存",
       "feedback_removed": "反馈已移除",
@@ -1451,13 +1449,10 @@
       "pick_template": "选择训练模板",
       "workout_prescribed": "训练已指定",
       "pick_program": "选择计划",
-      "member_added": "{name} 已添加到你的名单",
       "prescription_updated": "处方已更新",
       "prescription_removed": "处方已移除"
     },
-    "add_coachee": "添加学员",
     "mark_all_seen": "全部标记为已读",
-    "no_members": "暂无成员",
     "stat_streak": "连续天数",
     "stat_recent": "最近训练",
     "stat_active": "激活的计划",
@@ -1477,9 +1472,6 @@
     "notes": "备注",
     "template": "训练模板",
     "confirm": {
-      "release_coachee_title": "移除学员？",
-      "release_coachee_msg": "从你的教练名单中移除 {name}？他们的账户保留 — 你只是不再是他们的教练，你给他们的任何处方或计划分配都将被移除。",
-      "release_confirm": "移除",
       "delete_note_title": "删除此备注？",
       "delete_workout_note_msg": "你对此训练的反馈将被移除。",
       "delete_exercise_note_msg": "你对此动作的备注将被移除。",
