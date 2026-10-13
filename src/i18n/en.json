@@ -182,6 +182,25 @@
     }
   },
   "diary": {
+    "prescription": {
+      "title":            "Coach {name} prescribed:",
+      "your_coach":       "your coach",
+      "a_workout":        "a workout",
+      "coach_pick":       "Coach Pick",
+      "from":             "from {name}",
+      "accept":           "Accept",
+      "decline":          "Decline",
+      "decline_title":    "Decline This Workout?",
+      "decline_message":  "{name} will see that you declined it.",
+      "accepted":         "Workout accepted",
+      "declined":         "Workout declined",
+      "load":             "Load",
+      "loaded":           "Loaded",
+      "waiting_head":     "Waiting for Your Answer",
+      "suggested_head":   "Suggested by Your Coach",
+      "from_card":        "From {name}",
+      "prescribed_workout": "Prescribed workout"
+    },
     "workout_name_placeholder": "Workout name...",
     "tap_to_rename":            "Tap to rename",
     "nav": {
@@ -1441,6 +1460,9 @@
     "prescribed":              "Prescribed Workouts",
     "completed":               "Completed",
     "missed":                  "Missed",
+    "px_waiting":              "Waiting for an Answer",
+    "px_accepted":             "Accepted",
+    "px_declined":             "Declined",
     "recent_workouts":         "Recent Workouts",
     "assign_hint":             "Pick one of your programs to assign to {name}.",
     "program_label":           "Program",
@@ -2062,13 +2084,13 @@
       "member_reply":           "Client Replied to Feedback",
       "member_reply_desc":      "Push when a client replies to one of your notes",
       "recommendation":         "New Recommendation",
-      "recommendation_desc":    "When a coach asks to coach you. Says who, never a note.",
+      "recommendation_desc":    "When a coach asks to coach you, or your coach prescribes a workout. Says who, never a note.",
       "message":                "New Message",
       "message_desc":           "When your coach or a client sends you a message. Says who wrote, not what.",
       "email":                  "Email Me Too",
       "email_desc":             "At most one email per conversation every 30 minutes, saying who wrote. Needs an email on your account and email set up on the server.",
       "answer":                 "Client's Answer",
-      "answer_desc":            "When someone accepts or declines your request, or leaves."
+      "answer_desc":            "When someone accepts or declines your request or a workout you prescribed, or leaves."
     },
     "summaries": {
       "weekly":            "Weekly Summary",

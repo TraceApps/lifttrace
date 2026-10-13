@@ -267,8 +267,9 @@ function restoreFromZip(zip) {
     const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at,week_cursor,week_cursor_session_base,week_cursor_pinned_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at,@week_cursor,@week_cursor_session_base,@week_cursor_pinned_at)`);
     for (const a of data.program_assignments || []) insAssign.run(_withAssignDefaults(a));
 
-    const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at)`);
-    for (const cp of data.coach_prescriptions || []) insPrescription.run(cp);
+    // A backup from before the Accept step has no status: accepted, as at upgrade.
+    const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at,status,responded_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at,@status,@responded_at)`);
+    for (const cp of data.coach_prescriptions || []) insPrescription.run({ responded_at: null, ...cp, status: cp.status || 'accepted' });
 
     const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week)`);
     for (const w of data.workout_log || []) insWorkout.run(_withField(w, 'program_week'));

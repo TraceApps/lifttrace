@@ -142,6 +142,13 @@ export function coachingState(userId) {
   counts.unread = coachActive.reduce((n, id) => n + unread(id), 0);
   const asClientUnread = row ? unread(row.id) : 0;
   const requests = rows.filter(r => r.status === 'pending');
+  // Prescriptions from the coach waiting for an answer (dated ones until
+  // the day after their date, as the server can't know the client's day).
+  const prescriptions = row ? db.prepare(`
+    SELECT COUNT(*) AS c FROM coach_prescriptions
+     WHERE member_id = ? AND trainer_id = ? AND status = 'pending'
+       AND (date IS NULL OR date >= date('now', '-1 day'))
+  `).get(userId, row.coach_id).c : 0;
   return {
     role,
     can_coach: canCoach(role),
@@ -168,7 +175,7 @@ export function coachingState(userId) {
     // For the dot on Programs: unread messages, and things waiting for this
     // person's answer.
     unread: asClientUnread + past.reduce((n, x) => n + x.unread, 0) + counts.unread,
-    awaiting: requests.length,
+    awaiting: requests.length + prescriptions,
   };
 }
 
@@ -378,6 +385,26 @@ export async function notifyRequest(coachId, clientId) {
     await pushNotifyDefaultOn(clientId, 'notifCoachRecommendation', 'Coaching', `${_name(coachId)} wants to be your coach.`, 5);
   } catch (e) {
     logger.warn(`[coaching] request notification failed: ${e?.message || e}`);
+  }
+}
+
+/** A coach prescribed a workout: the client hears who (never the note),
+ *  under New Recommendation (on unless turned off). */
+export async function notifyPrescription(coachId, clientId) {
+  try {
+    await pushNotifyDefaultOn(clientId, 'notifCoachRecommendation', 'Coaching', `${_name(coachId)} prescribed a workout.`, 5);
+  } catch (e) {
+    logger.warn(`[coaching] prescription notification failed: ${e?.message || e}`);
+  }
+}
+
+/** The client accepted or declined a prescription (on unless turned off). */
+export async function notifyPrescriptionAnswer(row, answer) {
+  try {
+    const text = `${_name(row.member_id)} ${answer === 'accepted' ? 'accepted' : 'declined'} the workout you prescribed.`;
+    await pushNotifyDefaultOn(row.trainer_id, 'notifClientAnswer', 'Coaching', text, 5);
+  } catch (e) {
+    logger.warn(`[coaching] prescription answer notification failed: ${e?.message || e}`);
   }
 }
 

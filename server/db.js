@@ -1214,6 +1214,12 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_request
     ON coach_clients(coach_id, client_id) WHERE status = 'pending';
 `);
+// A prescription asks before it loads: the client accepts or declines it,
+// then loads it as before. Every prescription made before this counts as
+// accepted (the default), so nothing already given asks again.
+addColumnIfMissing('coach_prescriptions', 'status', "status TEXT NOT NULL DEFAULT 'accepted'");
+addColumnIfMissing('coach_prescriptions', 'responded_at', 'responded_at TEXT');
+
 // One conversation per pairing, beside the notes on workouts (which stay as
 // they are): text and at most one photo per message, the same table as
 // NutriTrace's. `uuid` comes from the sending device, so a message sent

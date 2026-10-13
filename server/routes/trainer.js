@@ -7,7 +7,7 @@ import { templateFor, toId } from '../lib/program-access.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { setVolume } from '../lib/volume.js';
 import { sendCoachFeedback, isEmailConfigured } from '../email.js';
-import { guardClient, activePairing, requireCoachRole, requestClient, endPairing, person } from '../lib/coaching.js';
+import { guardClient, activePairing, requireCoachRole, requestClient, endPairing, person, notifyPrescription } from '../lib/coaching.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -350,9 +350,10 @@ router.post('/members/:id/prescriptions', wrap((req, res) => {
   if (template_id && !templateFor(template_id, uid(req)).canSee) {
     return res.status(404).json({ error: 'Template not found' });
   }
+  // Waiting for the client's answer (Accept, then Load).
   const result = db.prepare(
-    `INSERT INTO coach_prescriptions (trainer_id, member_id, date, template_id, name, exercises, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO coach_prescriptions (trainer_id, member_id, date, template_id, name, exercises, notes, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`
   ).run(
     req.user.id, memberId,
     date || null,
@@ -362,6 +363,7 @@ router.post('/members/:id/prescriptions', wrap((req, res) => {
     notes || null
   );
   const row = db.prepare('SELECT * FROM coach_prescriptions WHERE id = ?').get(result.lastInsertRowid);
+  notifyPrescription(req.user.id, memberId);
   res.json(parsePrescription(row));
 }));
 
@@ -424,9 +426,14 @@ router.put('/prescriptions/:id', wrap((req, res) => {
   if (next.date !== row.date) {
     db.prepare(`DELETE FROM coach_activity WHERE prescription_id = ?`).run(id);
   }
+  // A different workout, or one the client declined given again: it asks
+  // again (only a new date or notes keep an accepted one accepted).
+  const reask = row.status === 'declined'
+    || (next.template_id || null) !== (row.template_id || null) || (next.name || null) !== (row.name || null);
   db.prepare(
-    `UPDATE coach_prescriptions SET date = ?, template_id = ?, name = ?, notes = ? WHERE id = ?`
+    `UPDATE coach_prescriptions SET date = ?, template_id = ?, name = ?, notes = ?${reask ? `, status = 'pending', responded_at = NULL` : ''} WHERE id = ?`
   ).run(next.date || null, next.template_id || null, next.name || null, next.notes || null, id);
+  if (reask && row.status !== 'pending') notifyPrescription(req.user.id, row.member_id);
   res.json({ ok: true });
 }));
 

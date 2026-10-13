@@ -556,14 +556,20 @@
   // today — until this lands they were created server-side and rendered
   // nowhere on the member's diary.
   let suggestedPrescriptions = [];
+  // Every prescription waiting for an answer, dated ones too (the dot on
+  // Programs counts them, so they are all answerable here, on any day).
+  let askingPrescriptions = [];
   async function loadSuggestedPrescriptions() {
     try {
       const all = await LtApi.getMyUpcomingPrescriptions();
-      // Filter to UNDATED only — dated ones already show via the existing
-      // todayPrescription banner on their assigned day.
-      suggestedPrescriptions = (all || []).filter(p => !p.date);
-    } catch { suggestedPrescriptions = []; }
+      // Undated and accepted: dated ones show in the banner on their day.
+      // (The server leaves out declined ones.)
+      suggestedPrescriptions = (all || []).filter(p => !p.date && p.status !== 'declined' && pxStatus(p) === 'accepted');
+      askingPrescriptions = (all || []).filter(p => pxStatus(p) === 'pending');
+    } catch { suggestedPrescriptions = []; askingPrescriptions = []; }
   }
+  // The one in today's banner asks there.
+  $: askingShown = askingPrescriptions.filter(p => p.id !== $todayPrescription?.id);
 
   // Coach feedback for the current date. Loaded separately because the
   // diary's workout GET is served local-first from SQLite which has no
@@ -752,6 +758,43 @@
     loadUnreadFeedback();
   }
 
+  // A prescription asks first: Accept, then Load as before; Decline and it
+  // goes. A server from before this sends no status: accepted. Answering
+  // works offline (it waits and goes when the connection is back).
+  const pxStatus = (px) => px?.status || 'accepted';
+  async function answerPrescription(px, answer) {
+    const coach = px.trainer_name || $_('diary.prescription.your_coach');
+    if (answer === 'decline' && !await confirmDialog({
+      title: $_('diary.prescription.decline_title'),
+      message: $_('diary.prescription.decline_message', { values: { name: coach } }),
+      confirmText: $_('diary.prescription.decline'),
+      cancelText: $_('common.cancel'),
+    })) return;
+    const show = (status) => {
+      todayPrescription.update(p => (p && p.id === px.id ? (status === 'declined' ? null : { ...p, status }) : p));
+      askingPrescriptions = askingPrescriptions.filter(p => p.id !== px.id);
+      if (status === 'accepted' && !px.date) suggestedPrescriptions = [...suggestedPrescriptions.filter(p => p.id !== px.id), { ...px, status }];
+    };
+    try {
+      const res = await fetch(`/api/prescriptions/${px.id}/answer`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) });
+      const r = await res.json().catch(() => ({}));
+      // Answered already (on another device): show that answer.
+      if (res.status === 409 && r?.prescription?.status) { show(r.prescription.status); showError(r.error); return; }
+      if (!res.ok) throw new Error(r?.error || `HTTP ${res.status}`);
+      const status = r?.status || (answer === 'accept' ? 'accepted' : 'declined');
+      show(status);
+      showSuccess(status === 'accepted' ? $_('diary.prescription.accepted') : $_('diary.prescription.declined'));
+      // Answered on the server: read again, so the copies kept for a dead
+      // zone are the answered ones. Kept for later (no connection): what is
+      // shown stays (the phone's own copy has no prescriptions to read).
+      if (!r?.queued) {
+        LtApi.getMyPrescriptionForDate($currentDate).then(p => { if ($currentDate) todayPrescription.set(p || null); }).catch(() => {});
+        loadSuggestedPrescriptions();
+      }
+      import('../stores/coaching.js').then(m => m.refreshCoaching()).catch(() => {});
+    } catch (e) { showError(e.message); }
+  }
+
   async function startSuggestedPrescription(px) {
     let exs;
     if (px.template_id) {
@@ -766,7 +809,7 @@
     }
     await loadTemplate({
       exercises: exs,
-      name: px.template_name || px.name || 'Coach pick',
+      name: px.template_name || px.name || $_('diary.prescription.coach_pick'),
       id: px.template_id || null,
     }, 'diary.confirm.replace_suggested_msg');
   }
@@ -1321,7 +1364,7 @@
     try {
       await loadTemplate({
         exercises: exs,
-        name: px.template_name || px.name || 'Prescribed workout',
+        name: px.template_name || px.name || $_('diary.prescription.prescribed_workout'),
         id: px.template_id || null,
       }, 'diary.confirm.replace_prescribed_msg');
     } finally {
@@ -2509,28 +2552,33 @@
   {/if}
 
 
-  {#if $todayPrescription && ($todayPrescription.id || $todayPrescription.template_id || $todayPrescription.exercises)}
+  {#if $todayPrescription && ($todayPrescription.id || $todayPrescription.template_id || $todayPrescription.exercises) && pxStatus($todayPrescription) !== 'declined'}
     {@const px = $todayPrescription}
     {@const alreadyLoaded = $todayLog?.template_id && $todayLog.template_id === px.template_id && ($todayLog?.exercises?.length > 0)}
-    <div class="coach-banner" class:loaded={alreadyLoaded}>
+    <div class="coach-banner" class:loaded={alreadyLoaded && pxStatus(px) !== 'pending'} class:asking={pxStatus(px) === 'pending'}>
       <span class="material-symbols-rounded coach-icon">supervisor_account</span>
       <div class="coach-body">
         <div class="coach-title">
-          Coach {px.trainer_name || 'your trainer'} prescribed:
-          <strong>{px.template_name || px.name || 'a workout'}</strong>
+          {$_('diary.prescription.title', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}
+          <strong>{px.template_name || px.name || $_('diary.prescription.a_workout')}</strong>
         </div>
         {#if px.notes}
           <div class="coach-notes">{px.notes}</div>
         {/if}
       </div>
-      {#if alreadyLoaded}
+      {#if pxStatus(px) === 'pending'}
+        <div class="coach-answer">
+          <button class="btn btn-secondary coach-btn" on:click={() => answerPrescription(px, 'decline')}>{$_('diary.prescription.decline')}</button>
+          <button class="btn btn-primary coach-btn" on:click={() => answerPrescription(px, 'accept')}>{$_('diary.prescription.accept')}</button>
+        </div>
+      {:else if alreadyLoaded}
         <span class="coach-loaded-chip">
           <span class="material-symbols-rounded" style="font-size:14px">check_circle</span>
-          Loaded
+          {$_('diary.prescription.loaded')}
         </span>
       {:else}
         <button class="btn btn-primary coach-btn" on:click={loadFromPrescription}>
-          Load
+          {$_('diary.prescription.load')}
         </button>
       {/if}
     </div>
@@ -2592,19 +2640,46 @@
     {/each}
   {/if}
 
+  {#if askingShown.length > 0}
+    <!-- Waiting for an answer: on any day, so the dot always leads somewhere. -->
+    <div class="suggested-section">
+      <div class="suggested-head">
+        <span class="material-symbols-rounded suggested-icon">assignment</span>
+        {$_('diary.prescription.waiting_head')}
+      </div>
+      {#each askingShown as px (px.id)}
+        <div class="suggested-row asking">
+          <div class="suggested-body">
+            <span class="suggested-title">{px.template_name || px.name || $_('diary.prescription.coach_pick')}</span>
+            <span class="suggested-sub">
+              {#if px.date}{formatDateHeader(px.date)} · {/if}
+              {#if px.program_name}{px.program_name} · {/if}
+              {$_('diary.prescription.from', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}
+              {#if px.notes} · {px.notes}{/if}
+            </span>
+          </div>
+          <div class="coach-answer">
+            <button class="btn btn-secondary coach-btn" on:click={() => answerPrescription(px, 'decline')}>{$_('diary.prescription.decline')}</button>
+            <button class="btn btn-primary coach-btn" on:click={() => answerPrescription(px, 'accept')}>{$_('diary.prescription.accept')}</button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   {#if suggestedPrescriptions.length > 0 && exercises.length === 0 && !isFuture}
     <div class="suggested-section">
       <div class="suggested-head">
         <span class="material-symbols-rounded suggested-icon">recommend</span>
-        Suggested by your coach
+        {$_('diary.prescription.suggested_head')}
       </div>
       {#each suggestedPrescriptions as px (px.id)}
         <button class="suggested-row" on:click={() => startSuggestedPrescription(px)}>
           <div class="suggested-body">
-            <span class="suggested-title">{px.template_name || px.name || 'Coach pick'}</span>
+            <span class="suggested-title">{px.template_name || px.name || $_('diary.prescription.coach_pick')}</span>
             <span class="suggested-sub">
               {#if px.program_name}{px.program_name} · {/if}
-              from {px.trainer_name || 'your coach'}
+              {$_('diary.prescription.from', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}
               {#if px.notes} · {px.notes}{/if}
             </span>
           </div>
@@ -2674,11 +2749,12 @@
               <span class="qc-meta">{$_('diary_extra.tap_pick_workout')}</span>
             </button>
           {/if}
-          {#each suggestedPrescriptions.slice(0, 1) as px (px.id)}
+          <!-- Only one the client accepted: a waiting one asks first, above. -->
+          {#each suggestedPrescriptions.filter(p => pxStatus(p) === 'accepted').slice(0, 1) as px (px.id)}
             <button class="quick-card coach" on:click={() => startSuggestedPrescription(px)}>
               <span class="qc-tag">{$_('diary_extra.coach_pick')}</span>
-              <span class="qc-title">{px.template_name || px.name || 'Coach workout'}</span>
-              <span class="qc-meta">From {px.trainer_name || 'your coach'}</span>
+              <span class="qc-title">{px.template_name || px.name || $_('diary.prescription.coach_pick')}</span>
+              <span class="qc-meta">{$_('diary.prescription.from_card', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}</span>
             </button>
           {/each}
           {#each recentWorkouts.slice(0, 1) as rw (rw.id)}
@@ -4119,6 +4195,12 @@
   .coach-title strong { font-weight: 700; }
   .coach-notes { font-size: 12px; color: var(--text-3); line-height: 1.3; font-style: italic; }
   .coach-btn { height: 36px; padding: 0 16px; font-size: 13px; flex-shrink: 0; }
+  .coach-answer { display: flex; gap: 8px; flex-shrink: 0; margin-left: auto; }
+  /* Asking: the buttons go under the title when there isn't room beside it. */
+  .coach-banner.asking { flex-wrap: wrap; }
+  .coach-banner.asking .coach-body { min-width: min(180px, 100%); }
+  .suggested-row.asking { cursor: default; flex-wrap: wrap; }
+  .suggested-row.asking:hover { background: none; }
   .coach-loaded-chip {
     display: inline-flex; align-items: center; gap: 4px;
     padding: 5px 10px; border-radius: var(--radius-full);

@@ -138,6 +138,10 @@ export function writeOp(method, url, body) {
   if (path === '/api/trainer/activity/seen' && m === 'POST') return { kind: 'seen', key: 'seen:activity' };
   match = path.match(/^\/api\/trainer\/members\/(\d+)\/prescriptions$/);
   if (match && m === 'POST') return { kind: 'prescription-create', key: null };
+  // A client's answer to a prescription (Accept, Decline): their own
+  // answer, so it queues like their notes; the last one written goes up.
+  match = path.match(/^\/api\/prescriptions\/(\d+)\/answer$/);
+  if (match && m === 'POST') return { kind: 'prescription-answer', key: `prescription-answer:${match[1]}`, id: Number(match[1]) };
   match = path.match(/^\/api\/trainer\/prescriptions\/(-?\d+)$/);
   if (match && (m === 'PUT' || m === 'DELETE')) {
     return { kind: m === 'PUT' ? 'prescription-update' : 'prescription-delete', key: `prescription:${match[1]}`, id: Number(match[1]) };
@@ -340,6 +344,15 @@ function _opsForWorkout(ops, date, want, firstId) {
  */
 export function answerWithOps(url, mirrored, ops, firstId = undefined) {
   const path = pathOf(url);
+  // A prescription answered here: shown answered until the server has it.
+  if (/^\/api\/prescriptions\/my\//.test(path)) {
+    const answers = new Map((ops || []).filter(op => op.kind === 'prescription-answer')
+      .sort((a, b) => (a.seq || 0) - (b.seq || 0))
+      .map(op => [op.id, op.body?.answer === 'accept' ? 'accepted' : 'declined']));
+    if (!answers.size || mirrored == null) return mirrored;
+    const apply = (r) => (r && answers.has(r.id) ? { ...r, status: answers.get(r.id) } : r);
+    return Array.isArray(mirrored) ? mirrored.map(apply) : apply(mirrored);
+  }
   const day = path.match(/^\/api\/workout\/(\d{4}-\d{2}-\d{2})$/);
   if (day) {
     // A day can hold more than one workout (#76): only what was queued for
@@ -513,6 +526,8 @@ export function queuedReply(op, body, tempId) {
     case 'exercise-update':
     case 'prescription-update':
       return { ...(body || {}), id: op.id, updated_at: now, ...queued };
+    case 'prescription-answer':
+      return { id: op.id, status: body?.answer === 'accept' ? 'accepted' : 'declined', ...queued };
     default:
       return { ok: true, ...(body || {}), ...queued };
   }
@@ -560,6 +575,7 @@ export function describeOp(op) {
     case 'prescription-create': return 'the work you prescribed';
     case 'prescription-update': return 'a prescription you changed';
     case 'prescription-delete': return 'a prescription you removed';
+    case 'prescription-answer': return 'your answer to a prescription';
     case 'profile':          return 'your profile';
     case 'photo-add':        return 'the progress photo you took';
     case 'photo-delete':     return 'a progress photo you removed';

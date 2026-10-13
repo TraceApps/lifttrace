@@ -1078,11 +1078,15 @@ async function _getCoachPrescription({ date } = {}) {
     prescribed: true,
     prescription: {
       trainer_name: row.trainer_name || null,
-      workout_template_ref: row.template_id ? { id: row.template_id, name: row.template_name } : null,
+      // Not loadable until the user accepts it on the Diary.
+      workout_template_ref: row.template_id && (row.status || 'accepted') === 'accepted' ? { id: row.template_id, name: row.template_name } : null,
+      workout_name: row.template_name || row.name || null,
       program_name: row.program_name || null,
       inline_name: row.name || null,
       notes: row.notes || null,
       target_date: row.date || d,
+      // 'pending' (waiting for the user's Accept or Decline), 'accepted' or 'declined'.
+      status: row.status || 'accepted',
     },
   };
 }

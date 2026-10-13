@@ -842,8 +842,12 @@
                   </span>
                   <span class="row-sub">
                     {fmtDate(p.date)}
+                    <!-- The client's answer (a server from before it sends none). -->
+                    {#if p.status === 'pending'} · <span class="px-waiting">{$_('coaching.px_waiting')}</span>{/if}
+                    {#if p.status === 'declined'} · <span style="color:var(--danger)">{$_('coaching.px_declined')}</span>{/if}
+                    {#if p.status === 'accepted' && p.responded_at && p.completed !== 1} · {$_('coaching.px_accepted')}{/if}
                     {#if p.completed === 1} · <span style="color:var(--success)">{$_('coaching.completed')}</span>{/if}
-                    {#if p.completed === 0 && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
+                    {#if p.completed === 0 && p.status !== 'declined' && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
                     {#if p.notes} · {p.notes}{/if}
                   </span>
                 </div>
@@ -1559,6 +1563,7 @@
     width: 8px; height: 8px; border-radius: 50%;
     background: var(--accent); flex-shrink: 0;
   }
+  .px-waiting { color: var(--accent); }
   .btn-link {
     background: none; border: none; cursor: pointer;
     color: var(--accent); font-size: 12px; font-weight: 600;
