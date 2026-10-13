@@ -499,8 +499,7 @@
       "workout_added": "Allenamento aggiunto",
       "workout_deleted": "Allenamento eliminato",
       "program_deleted": "Programma eliminato",
-      "duplicated": "Programma duplicato",
-      "member_fallback": "membro"
+      "duplicated": "Programma duplicato"
     },
     "add_workout": "Aggiungi allenamento",
     "assign_hint": "Scegli un membro a cui assegnare {name} a:",
@@ -809,7 +808,6 @@
     "program_label": "Programma",
     "cancel": "Annulla",
     "toast": {
-      "released": "{name} rilasciato dal tuo elenco",
       "program_active": "{program} è ora il programma attivo di {name}",
       "feedback_saved": "Feedback salvato",
       "feedback_removed": "Feedback rimosso",
@@ -819,13 +817,10 @@
       "pick_template": "Scegli un modello di allenamento",
       "workout_prescribed": "Allenamento prescritto",
       "pick_program": "Scegli un programma",
-      "member_added": "{name} aggiunto al tuo elenco",
       "prescription_updated": "Prescrizione aggiornata",
       "prescription_removed": "Prescrizione rimossa"
     },
-    "add_coachee": "Aggiungi un coachee",
     "mark_all_seen": "Segna tutti quelli visti",
-    "no_members": "Ancora nessun membro",
     "stat_streak": "Serie di giorni",
     "stat_recent": "Allenamenti recenti",
     "stat_active": "Programma attivo",
@@ -842,9 +837,6 @@
     "notes": "Note",
     "template": "Modello di allenamento",
     "confirm": {
-      "release_coachee_title": "Rilasciare l'allievo?",
-      "release_coachee_msg": "Rimuovere {name} dal tuo elenco di allenatori? Il loro account rimane: semplicemente non sarai più il loro allenatore e qualsiasi prescrizione o incarico di programma che hai assegnato loro verrà rimosso.",
-      "release_confirm": "Rilascia",
       "delete_note_title": "Eliminare questa nota?",
       "delete_workout_note_msg": "Il tuo feedback sul livello di allenamento per questa sessione verrà rimosso.",
       "delete_exercise_note_msg": "La tua nota su questo esercizio verrà rimossa.",
