@@ -247,6 +247,12 @@ function restoreFromZip(zip) {
         requested_at: c.requested_at || c.updated_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
         updated_at: c.updated_at || c.requested_at || new Date().toISOString().replace('T', ' ').slice(0, 19) });
     }
+    // Their conversations (the photos come back with the uploads folder).
+    db.prepare('DELETE FROM coach_messages').run();
+    const insMessage = db.prepare(`INSERT OR IGNORE INTO coach_messages (id,uuid,pairing_id,sender_id,body,image_url,recommendation_id,read_at,created_at,updated_at,deleted_at) VALUES (@id,@uuid,@pairing_id,@sender_id,@body,@image_url,@recommendation_id,@read_at,@created_at,@updated_at,@deleted_at)`);
+    for (const m of data.coach_messages || []) {
+      insMessage.run({ body: null, image_url: null, recommendation_id: null, read_at: null, deleted_at: null, ...m });
+    }
 
     // Restore custom exercises (user-created, not global seeds)
     const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type)`);
@@ -415,6 +421,7 @@ function dumpDatabase() {
     coach_feedback:      safe('SELECT * FROM coach_feedback'),
     coach_activity:      safe('SELECT * FROM coach_activity'),
     coach_clients:       safe('SELECT * FROM coach_clients'),
+    coach_messages:      safe('SELECT * FROM coach_messages'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
     body_stat_media:     safe('SELECT * FROM body_stat_media'),

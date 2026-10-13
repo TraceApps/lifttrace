@@ -14,10 +14,11 @@
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
   import { resolveAssetUrl } from '../lib/platform.js';
-  import { coachingSupported, coachingState, inCoaching, coachingNeedsServer, coachingFetch, refreshCoaching } from '../stores/coaching.js';
+  import { coachingSupported, coachingVersion, coachingState, inCoaching, coachingNeedsServer, coachingFetch, refreshCoaching } from '../stores/coaching.js';
   import { coachingErrorText } from '../lib/coaching-view.js';
   import RequestSheet from '../components/coaching/RequestSheet.svelte';
   import CoachingNeedsServer from '../components/coaching/CoachingNeedsServer.svelte';
+  import Conversation from '../components/coaching/Conversation.svelte';
 
   // Android with no server: say so, never an empty list.
   const needsServer = coachingNeedsServer();
@@ -88,13 +89,16 @@
   $: _requestCount = (Number(_c.pending) || 0) + (Number(_c.recent) || 0);
   // Each count on its own: a decline moves one from waiting to answered,
   // an accept from waiting to clients, and the lists follow.
-  $: _countsKey = `${Number(_c.pending) || 0}.${Number(_c.recent) || 0}.${Number(_c.active) || 0}`;
+  $: _countsKey = `${Number(_c.pending) || 0}.${Number(_c.recent) || 0}.${Number(_c.active) || 0}.${Number(_c.unread) || 0}`;
   async function loadRequests() {
     if (!$coachingSupported || !_requestCount) { requests = []; return; }
     try { requests = await coachingFetch('GET', '/api/coaching/requests'); }
     catch { requests = []; }
   }
   let _countsFor = null;
+  // Back on the list from a client's page: their unread count is fresh.
+  let _wasOnClient = false;
+  $: { if (memberId) _wasOnClient = true; else if (_wasOnClient && _listReady) { _wasOnClient = false; loadMembers(); } }
   $: if (_listReady && !needsServer && _countsKey !== _countsFor) {
     const first = _countsFor === null;
     _countsFor = _countsKey;
@@ -707,8 +711,8 @@
                   {initials(m)}
                 {/if}
               </div>
-              {#if unreadByMember[m.id]}
-                <span class="avatar-badge">{unreadByMember[m.id]}</span>
+              {#if (unreadByMember[m.id] || 0) + (m.unread || 0)}
+                <span class="avatar-badge">{(unreadByMember[m.id] || 0) + (m.unread || 0)}</span>
               {/if}
             </div>
             <div class="member-info">
@@ -767,6 +771,17 @@
             </div>
           </div>
         </div>
+
+        <!-- The conversation, beside the notes on workouts below. A server
+             from before consent has none. -->
+        {#if $coachingVersion >= 2 && overview.pairing_id}
+          <section class="block conversation-block">
+            <div class="block-head">
+              <h3 class="block-title">{$_('coaching.chat.title')}</h3>
+            </div>
+            <Conversation conv={{ pairingId: overview.pairing_id, side: 'coach', clientId: memberId }} otherName={memberLabel(overview.user)} />
+          </section>
+        {/if}
 
         <!-- Programs -->
         <section class="block">

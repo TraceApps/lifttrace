@@ -35,7 +35,7 @@ const SERVER_SETTINGS = new Set([
   'notifStreakAlert', 'notifStreakTime',
   'notifWorkoutComplete', 'notifPRCelebrations',
   'notifMemberCompletes', 'notifMemberMissed', 'notifMemberReply', 'notifCoachFeedback',
-  'notifCoachRecommendation', 'notifClientAnswer',
+  'notifCoachRecommendation', 'notifClientAnswer', 'notifCoachMessage', 'notifCoachMessageEmail',
   'notifWeeklySummary', 'weeklySummaryDay', 'weeklySummaryTime',
   'bodyStatsVisible', 'exerciseLoadTypes', 'exerciseSetTypes',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
@@ -309,6 +309,9 @@ export const notifCoachFeedback   = createSettingStore('notifCoachFeedback',   t
 // and, for a coach, a client's answer to a request (or leaving).
 export const notifCoachRecommendation = createSettingStore('notifCoachRecommendation', true);
 export const notifClientAnswer        = createSettingStore('notifClientAnswer',        true);
+// A new message in the conversation (push on by default; email off).
+export const notifCoachMessage        = createSettingStore('notifCoachMessage',        true);
+export const notifCoachMessageEmail   = createSettingStore('notifCoachMessageEmail',   false);
 export const notifWeeklySummary   = createSettingStore('notifWeeklySummary',   false);
 export const weeklySummaryDay     = createSettingStore('weeklySummaryDay',     0);
 export const weeklySummaryTime    = createSettingStore('weeklySummaryTime',    '09:00');

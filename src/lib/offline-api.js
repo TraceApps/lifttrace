@@ -75,17 +75,29 @@ function _db() {
   // what was kept with it rather than leaving it in a database nothing reads.
   const leaving = _dbPromise?.name && _dbPromise.name !== name ? _dbPromise.name : null;
   const p = new Promise((resolve) => {
-    const req = indexedDB.open(name, 3);
+    // 4: coaching conversations kept on the device (lib/coach-messages.js).
+    const req = indexedDB.open(name, 4);
     req.onupgradeneeded = () => {
       const db = req.result;
+      if (!db.objectStoreNames.contains('coach_messages')) db.createObjectStore('coach_messages', { keyPath: 'uuid' });
       if (!db.objectStoreNames.contains('answers')) db.createObjectStore('answers', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
       if (!db.objectStoreNames.contains('refused')) db.createObjectStore('refused', { keyPath: 'at' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
     };
-    req.onsuccess = () => resolve(req.result);
+    // Another tab with this database open on its old version holds an
+    // upgrade back: this page works without it meanwhile and asks again
+    // next time, rather than going on without it until a reload.
+    let gaveUp = false;
+    req.onsuccess = () => {
+      const db = req.result;
+      // A newer version opened in another tab: let it upgrade.
+      db.onversionchange = () => { try { db.close(); } catch { /* closed */ } if (_dbPromise === p) _dbPromise = null; };
+      if (gaveUp) { try { db.close(); } catch { /* closed */ } return; }
+      resolve(db);
+    };
     req.onerror = () => resolve(null);
-    req.onblocked = () => resolve(null);
+    req.onblocked = () => { gaveUp = true; if (_dbPromise === p) _dbPromise = null; resolve(null); };
   });
   p.name = name;
   _dbPromise = p;
@@ -583,6 +595,19 @@ async function _refileWorkouts(answered) {
   }
 }
 
+/**
+ * The coaching conversations kept in this account's database: their own
+ * store, sent by lib/coach-messages.js rather than the outbox (a message
+ * keeps its uuid and is shown as waiting until the server has it).
+ */
+export const coachStore = {
+  /** Is the database there to keep things in (not blocked, not private mode)? */
+  available: async () => !!(await _db()),
+  all: (store) => _all(store),
+  put: (store, rows) => _tx(store, 'readwrite', s => { for (const r of rows) s.put(r); return true; }),
+  del: (store, keys) => _tx(store, 'readwrite', s => { for (const k of keys) s.delete(k); return true; }),
+};
+
 /** How much is waiting to go up. */
 export async function pendingCount() {
   return (await _loadOps()).length;
@@ -593,6 +618,7 @@ export async function clearOffline() {
   await _tx('answers', 'readwrite', s => s.clear());
   await _tx('outbox', 'readwrite', s => s.clear());
   await _tx('refused', 'readwrite', s => s.clear());
+  await _tx('coach_messages', 'readwrite', s => s.clear());
   _ops = [];
   _swapped = {};
   _dbPromise = null;

@@ -10,7 +10,7 @@
     notifStreakAlert, notifStreakTime,
     notifWorkoutComplete, notifPRCelebrations,
     notifMemberCompletes, notifMemberMissed, notifMemberReply,
-    notifCoachFeedback, notifCoachRecommendation, notifClientAnswer,
+    notifCoachFeedback, notifCoachRecommendation, notifClientAnswer, notifCoachMessage, notifCoachMessageEmail,
     notifWeeklySummary, weeklySummaryDay, weeklySummaryTime,
   } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
@@ -273,6 +273,24 @@
           <p class="sub-label">{$_('settings_notifications.sections.coaching')}</p>
           <div class="card">
             <!-- Only for people in coaching: everyone else sees this card as before. -->
+            {#if $inCoaching}
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <span class="setting-label">{$_('settings_notifications.coach.message')}</span>
+                  <span class="setting-hint">{$_('settings_notifications.coach.message_desc')}</span>
+                </div>
+                <Toggle bind:checked={$notifCoachMessage} />
+              </div>
+              {#if $notifCoachMessage}
+                <div class="setting-row">
+                  <div class="setting-label-group">
+                    <span class="setting-label">{$_('settings_notifications.coach.email')}</span>
+                    <span class="setting-hint">{$_('settings_notifications.coach.email_desc')}</span>
+                  </div>
+                  <Toggle bind:checked={$notifCoachMessageEmail} />
+                </div>
+              {/if}
+            {/if}
             {#if $coachTab}
               <div class="setting-row">
                 <div class="setting-label-group">

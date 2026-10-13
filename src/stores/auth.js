@@ -206,8 +206,16 @@ export async function logout() {
     try {
       const { flushOutbox, clearOffline, pendingCount } = await import('../lib/offline-api.js');
       const sent = await flushOutbox().catch(() => false);
-      if (!sent) {
-        const waiting = await pendingCount();
+      // Coaching messages written offline wait in their own store: they go
+      // now too, and count as waiting if they can't.
+      let messagesWaiting = 0;
+      try {
+        const m = await import('../lib/coach-messages.js');
+        await m.flushCoachMessages().catch(() => {});
+        messagesWaiting = (await m.pendingCoachMessages()).length;
+      } catch { /* none */ }
+      if (!sent || messagesWaiting) {
+        const waiting = (sent ? 0 : await pendingCount()) + messagesWaiting;
         if (waiting > 0) {
           const { confirmDialog } = await import('./confirmDialog.js');
           const { get: getStore } = await import('svelte/store');

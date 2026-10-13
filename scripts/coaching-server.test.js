@@ -127,9 +127,9 @@ function assertNoUserRows(value, where) {
 }
 
 test('the server says it supports coaching, and /me says where you stand', { skip: !ready }, async () => {
-  assert.equal((await call(null, 'GET', '/api/auth/status')).data.coaching, 1);
+  assert.equal((await call(null, 'GET', '/api/auth/status')).data.coaching, 2, '1 consent, 2 the conversation');
   const me = (await call('plain', 'GET', '/api/auth/me')).data;
-  assert.deepEqual(me.coaching, { role: 'member', can_coach: false, as_client: null, requests: [], as_coach: { pending: 0, active: 0, recent: 0 }, awaiting: 0 });
+  assert.deepEqual(me.coaching, { role: 'member', can_coach: false, as_client: null, requests: [], past: [], as_coach: { pending: 0, active: 0, recent: 0, active_ids: [], unread: 0 }, unread: 0, awaiting: 0 });
   assert.equal((await call('coach1', 'GET', '/api/auth/me')).data.coaching.can_coach, true);
 });
 

@@ -73,7 +73,7 @@ function _hasTransparency(ctx, w, h) {
  * A file as a data URL the server will accept, scaled to something sensible.
  * Throws with a message worth showing if the photo cannot be kept.
  */
-export async function embeddableDataUrl(file) {
+export async function embeddableDataUrl(file, { redraw = false } = {}) {
   const original = await _readAsDataUrl(file);
   const declared = String(file?.type || original.slice(5, Math.max(5, original.indexOf(';'))) || '');
 
@@ -98,7 +98,9 @@ export async function embeddableDataUrl(file) {
   }
 
   // Small enough already, and in a format the server stores? Keep it as it is.
-  if (KNOWN.test(declared) && original.length <= MAX_EMBEDDED_BYTES
+  // `redraw`: always drawn again, which leaves the photo's metadata (where
+  // and when it was taken) behind: for a photo that goes to another person.
+  if (!redraw && KNOWN.test(declared) && original.length <= MAX_EMBEDDED_BYTES
       && w && h && w <= MAX_DIM && h <= MAX_DIM) {
     return original;
   }

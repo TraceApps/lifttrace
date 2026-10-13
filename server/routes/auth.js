@@ -12,6 +12,7 @@ import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/p
 import { claimAnonymousData, releaseDataBeforeDisable, purgeUserRows } from '../lib/claim-anonymous-data.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
+import { deletePhotosForUser, deleteAllPhotos } from '../lib/coaching-messages.js';
 import {
   COACHING_VERSION, coachingState, requestFromInvite, requestClient, endPairing, endAsClient,
   endCoachingIfNotCoach, canCoach, roleOf, personName,
@@ -290,6 +291,9 @@ router.delete('/me', requireAuth, wrap((req, res) => {
   // so would any cascade that removed the rows before this ran.
   deleteMediaForUser(id);
   deleteSetMediaForUser(id);
+  // Coaching conversations go with the pairing (it cascades); their photo
+  // files go here, first, while the rows still say which they are.
+  deletePhotosForUser(id);
   db.prepare('DELETE FROM workout_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM body_stats_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM program_assignments WHERE assigned_to = ?').run(id);
@@ -312,6 +316,9 @@ router.delete('/users/:id', requireAuth, requireAdmin, wrap((req, res) => {
   // so would any cascade that removed the rows before this ran.
   deleteMediaForUser(id);
   deleteSetMediaForUser(id);
+  // Coaching conversations go with the pairing (it cascades); their photo
+  // files go here, first, while the rows still say which they are.
+  deletePhotosForUser(id);
   db.prepare('DELETE FROM workout_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM body_stats_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM program_assignments WHERE assigned_to = ?').run(id);
@@ -378,6 +385,8 @@ router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
   // Hand the sole account's data back to single-user mode before dropping
   // accounts, otherwise it keeps a user id nothing can read again.
   releaseDataBeforeDisable();
+  // Coaching goes with the accounts (it cascades); so do its photos.
+  deleteAllPhotos();
   db.prepare('DELETE FROM users').run();
   // Persist intent: this was an explicit disable, not a fresh install.
   // /status uses this to keep setup_required=false so the client doesn't
@@ -403,6 +412,8 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
   } catch {}
   if (!ok) return res.status(403).json({ error: 'Invalid recovery token' });
   releaseDataBeforeDisable();
+  // Coaching goes with the accounts (it cascades); so do its photos.
+  deleteAllPhotos();
   db.prepare('DELETE FROM users').run();
   // Same single_user_mode flag as DELETE /management — recovery is an
   // intentional disable, not a fresh install.

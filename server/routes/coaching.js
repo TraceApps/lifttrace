@@ -6,13 +6,21 @@
  * No route here returns a full user row: people are { id, name }.
  */
 import { Router } from 'express';
+import fs from 'fs';
+import path from 'path';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { linkBase } from '../lib/public-url.js';
+import { UPLOAD_RESPONSE_HEADERS } from '../lib/upload-paths.js';
 import {
   person, roleOf, coachingState, acceptPairing, declinePairing, endPairing,
-  notifyClientAnswer, requireAccount, requireCoachRole,
+  notifyClientAnswer, requireAccount, requireCoachRole, guardClient,
 } from '../lib/coaching.js';
+import {
+  canRead, canWrite, createMessage, deleteMessage, markRead, listMessages, messageOut,
+  notifyMessage, pairingById, photoPath, PHOTO_TYPES,
+} from '../lib/coaching-messages.js';
 
 const router = Router();
 
@@ -84,6 +92,75 @@ router.post('/pairings/:id/end', requireAccount, wrap((req, res) => {
   if (!endPairing(row.id, me, { purge, onlyStatus: expect })) return res.status(409).json({ error: 'This coaching has already ended.' });
   if (row.status === 'active' && me === row.client_id) notifyClientAnswer(row, 'left');
   res.json(coachingState(me));
+}));
+
+// ── The conversation ────────────────────────────────────────────────────────
+// The same three handlers for both sides: the client reaches them by
+// /pairings/:id/messages (readable after coaching ends), the coach by
+// /clients/:clientId/messages behind the coach guard (active only).
+function _listMessages(p, req, res) {
+  const since = typeof req.query.since === 'string' && /^\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?$/.test(req.query.since) ? req.query.since : null;
+  const serverTime = new Date().toISOString();
+  res.json({ pairing_id: p.id, status: p.status, can_send: canWrite(p, req.user.id), messages: listMessages(p.id, since), server_time: serverTime });
+}
+function _sendMessage(p, req, res) {
+  let out;
+  try { out = createMessage(p, req.user.id, req.body || {}); }
+  catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+  if (out.created) notifyMessage(p, out.row, () => linkBase(req));
+  res.json(messageOut(out.row));
+}
+function _readMessages(p, req, res) {
+  res.json({ marked: markRead(p.id, req.user.id) });
+}
+
+function _clientPairing(req, res, { write = false } = {}) {
+  const p = pairingById(Number(req.params.id));
+  if (!p || p.client_id !== req.user.id || !(write ? canWrite(p, req.user.id) : canRead(p, req.user.id))) {
+    res.status(404).json({ error: 'Conversation not found' });
+    return null;
+  }
+  return p;
+}
+router.get('/pairings/:id/messages', requireAccount, wrap((req, res) => {
+  const p = _clientPairing(req, res); if (p) _listMessages(p, req, res);
+}));
+router.post('/pairings/:id/messages', requireAccount, wrap((req, res) => {
+  const p = _clientPairing(req, res, { write: true }); if (p) _sendMessage(p, req, res);
+}));
+router.post('/pairings/:id/messages/read', requireAccount, wrap((req, res) => {
+  const p = _clientPairing(req, res); if (p) _readMessages(p, req, res);
+}));
+
+// The coach's side: behind the one guard (lib/coaching.js guardClient).
+router.get('/clients/:clientId/messages', wrap((req, res) => {
+  const p = guardClient(req, res, req.params.clientId); if (p) _listMessages(p, req, res);
+}));
+router.post('/clients/:clientId/messages', wrap((req, res) => {
+  const p = guardClient(req, res, req.params.clientId); if (p) _sendMessage(p, req, res);
+}));
+router.post('/clients/:clientId/messages/read', wrap((req, res) => {
+  const p = guardClient(req, res, req.params.clientId); if (p) _readMessages(p, req, res);
+}));
+
+// Delete your own message, from either side ("Message deleted").
+router.delete('/messages/:uuid', requireAccount, wrap((req, res) => {
+  try { res.json(messageOut(deleteMessage(String(req.params.uuid), req.user.id))); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+
+// A photo from a conversation: only to the two people in it (the coach only
+// while coaching), and never once its message is deleted.
+router.get('/photos/:name', requireAccount, wrap((req, res) => {
+  const file = photoPath(req.params.name);
+  const m = file && db.prepare('SELECT pairing_id FROM coach_messages WHERE image_url = ? AND deleted_at IS NULL').get(req.params.name);
+  if (!m || !canRead(pairingById(m.pairing_id), req.user.id) || !fs.existsSync(file)) return res.status(404).json({ error: 'Not found' });
+  // sendFile, not a bare stream: a file deleted between the check and the
+  // read (its message deleted at that moment) answers 404 instead of an
+  // unhandled stream error.
+  res.sendFile(path.resolve(file), {
+    headers: { ...UPLOAD_RESPONSE_HEADERS, 'Cache-Control': 'private, no-store', 'Content-Type': PHOTO_TYPES[req.params.name.split('.').pop()] || 'application/octet-stream' },
+  }, (err) => { if (err && !res.headersSent) res.status(404).json({ error: 'Not found' }); });
 }));
 
 // ── Admin: see pairings (the controls are in Users) ─────────────────────────

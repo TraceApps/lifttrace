@@ -5,7 +5,7 @@
   import { _ } from 'svelte-i18n';
   import { currentUser } from '../../stores/auth.js';
   import { location, push } from 'svelte-spa-router';
-  import { coachTab } from '../../stores/coaching.js';
+  import { coachTab, coachUnread, clientsUnread } from '../../stores/coaching.js';
 
   // Shown on the Coach page even while the state is still loading, so
   // arriving there by link never strands anyone.
@@ -14,9 +14,9 @@
   $: isCoach = $currentUser?.role === 'trainer' || $currentUser?.role === 'admin';
   $: current = $location.startsWith('/coaching') ? 'coaching' : $location.startsWith('/coach') ? 'coach' : 'programs';
   $: tabs = [
-    { key: 'programs', path: '/programs', icon: 'calendar_month', label: $_('nav.programs') },
-    ...($coachTab || (force && current === 'coach') ? [{ key: 'coach', path: '/coach', icon: 'sports', label: $_('coaching.tabs.coach') }] : []),
-    ...(isCoach ? [{ key: 'coaching', path: '/coaching', icon: 'supervisor_account', label: $_('coaching.tabs.coaching') }] : []),
+    { key: 'programs', path: '/programs', icon: 'calendar_month', label: $_('nav.programs'), unread: 0 },
+    ...($coachTab || (force && current === 'coach') ? [{ key: 'coach', path: '/coach', icon: 'sports', label: $_('coaching.tabs.coach'), unread: $coachUnread }] : []),
+    ...(isCoach ? [{ key: 'coaching', path: '/coaching', icon: 'supervisor_account', label: $_('coaching.tabs.coaching'), unread: $clientsUnread }] : []),
   ];
 </script>
 
@@ -27,6 +27,7 @@
         on:click={() => { if (current !== t.key) push(t.path); }}>
         <span class="material-symbols-rounded icon">{t.icon}</span>
         <span>{t.label}</span>
+        {#if t.unread}<span class="tab-unread" aria-label={$_('coaching.unread', { values: { n: t.unread } })}>{t.unread}</span>{/if}
       </button>
     {/each}
   </div>
@@ -69,4 +70,5 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.25), inset 0 0 0 1px var(--border);
   }
   .icon { font-size: 18px; }
+  .tab-unread { min-width: 18px; padding: 0 6px; border-radius: var(--radius-full); background: var(--accent); color: var(--accent-text, #fff); font-size: 11px; font-weight: 700; line-height: 18px; }
 </style>

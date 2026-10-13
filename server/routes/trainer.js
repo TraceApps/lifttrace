@@ -49,7 +49,11 @@ router.get('/members', wrap((req, res) => {
     const weekCount = db.prepare(
       `SELECT COUNT(*) as c FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL AND date >= date('now', '-7 days')`
     ).get(u.id)?.c || 0;
-    return { ...clientOut(u), pairing_id: u.pairing_id, coached_since: u.coached_since, active_program: active?.name || null, last_workout_date: last?.date || null, week_count: weekCount };
+    // Messages from this client the coach hasn't read (the conversation).
+    const unread = db.prepare(
+      `SELECT COUNT(*) AS c FROM coach_messages WHERE pairing_id = ? AND sender_id != ? AND read_at IS NULL AND deleted_at IS NULL`
+    ).get(u.pairing_id, req.user.id).c;
+    return { ...clientOut(u), pairing_id: u.pairing_id, coached_since: u.coached_since, active_program: active?.name || null, last_workout_date: last?.date || null, week_count: weekCount, unread };
   });
   res.json(out);
 }));

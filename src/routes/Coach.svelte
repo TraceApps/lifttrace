@@ -7,13 +7,14 @@
   import { replace } from 'svelte-spa-router';
   import { bannerStyle } from '../stores/settings.js';
   import {
-    coachingState, coachingNeedsServer, refreshCoaching, setCoachingFromServer, coachTab, coachingFetch,
+    coachingState, coachingNeedsServer, refreshCoaching, setCoachingFromServer, coachTab, coachingFetch, coachingVersion,
   } from '../stores/coaching.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { coachingErrorText, formatServerDay } from '../lib/coaching-view.js';
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import CoachingNeedsServer from '../components/coaching/CoachingNeedsServer.svelte';
+  import Conversation from '../components/coaching/Conversation.svelte';
 
   const needsServer = coachingNeedsServer();
   let loaded = false;
@@ -23,6 +24,11 @@
   $: pairing = $coachingState?.as_client || null;
   $: coachName = pairing?.coach?.name || '';
   $: requests = $coachingState?.requests || [];
+  // Coaching that ended: its conversation stays readable here.
+  $: past = $coachingState?.past || [];
+  let pastId = null;
+  $: if (!past.some(p => p.id === pastId)) pastId = past[0]?.id ?? null;
+  $: shownPast = past.find(p => p.id === pastId) || null;
 
   onMount(async () => {
     if (!needsServer) await refreshCoaching();
@@ -132,7 +138,24 @@
 
       {#if pairing}
         <p class="coach-sees">{$_('coaching.client.coach_sees', { values: { name: coachName } })}</p>
-      {:else if loaded && !requests.length}
+        {#if $coachingVersion >= 2}<Conversation conv={{ pairingId: pairing.id, side: 'client' }} otherName={coachName} />{/if}
+      {/if}
+      {#if shownPast}
+        <section class="past">
+          <h2 class="past-title">{$_('coaching.client.past_title')}</h2>
+          {#if past.length > 1}
+            <div class="past-pick" role="tablist">
+              {#each past as p (p.id)}
+                <button class="past-chip" class:active={p.id === pastId} role="tab" aria-selected={p.id === pastId} on:click={() => pastId = p.id}>
+                  {p.coach.name}{#if p.unread} <span class="unread-pill">{p.unread}</span>{/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+          <p class="coach-sees">{$_('coaching.client.past_body', { values: { name: shownPast.coach.name, date: formatServerDay(shownPast.ended_at) } })}</p>
+          <Conversation conv={{ pairingId: shownPast.id, side: 'client' }} otherName={shownPast.coach.name} readOnly />
+        </section>
+      {:else if loaded && !requests.length && !pairing}
         <p class="coach-empty">{$_('coaching.client.none')}</p>
       {/if}
     {/if}
@@ -170,4 +193,10 @@
   .consent-blocked { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); font-size: 13px; line-height: 1.45; }
   .consent-blocked .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
   .coach-empty { color: var(--text-3); margin-top: 24px; text-align: center; }
+  .past { margin-top: 8px; }
+  .past-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); margin: 0 0 8px; font-weight: 700; }
+  .past-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+  .past-chip { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-2); border-radius: var(--radius-full); padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .past-chip.active { border-color: var(--accent); color: var(--accent); }
+  .unread-pill { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: var(--radius-full); background: var(--accent); color: var(--accent-text, #fff); font-size: 11px; font-weight: 700; text-align: center; }
 </style>

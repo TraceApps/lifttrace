@@ -226,6 +226,32 @@ export async function sendCoachFeedback(email, workoutName, coachName, feedbackT
 }
 
 /**
+ * A new coaching message: who wrote, never what. At most one per
+ * conversation every 30 minutes (lib/coaching-messages.js decides).
+ */
+export async function sendCoachMessage(email, senderName, appUrl) {
+  if (!email) return;
+  const origin = new URL(appUrl).origin;
+  const who = `<strong style="color:#FFFFFF;">${_escapeHtml(senderName || 'Someone')}</strong>`;
+  const body = `
+    ${greeting(null)}
+    <p style="margin:0 0 10px;font-size:22px;font-weight:700;color:#FFFFFF;line-height:1.3;">
+      New Message
+    </p>
+    <p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      ${who} sent you a message in LiftTrace. Open the app to read it.
+    </p>
+    ${ctaButton(appUrl, 'Open LiftTrace')}
+    ${fallbackUrl(appUrl)}`;
+  await sendMail({
+    to: email,
+    subject: `New message from ${senderName || 'your coach'}`,
+    html: emailWrapper(origin, body, 'You get this because you turned on email for new coaching messages. Turn it off in Settings, Notifications.'),
+    text: `${senderName || 'Someone'} sent you a message in LiftTrace. Open the app to read it:\n${appUrl}\n\nTurn these emails off in Settings, Notifications.`,
+  });
+}
+
+/**
  * Weekly summary (issue #98). `summary` comes from buildWeeklySummary in
  * lib/weekly-summary.js. Charts are plain table bars: mail clients drop
  * inline SVG and hold back remote images, but a coloured cell with a width

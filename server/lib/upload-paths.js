@@ -51,8 +51,12 @@ export function resolveUploadPath(url) {
  * as well as public. Every /api/full-backup route is admin-only; serving
  * the artefact itself from the pre-auth static tree handed the same data to
  * anyone. Gating photos while leaving this open would have achieved nothing.
+ *
+ * coaching: photos sent in a coach and client's conversation. Read only
+ * through GET /api/coaching/photos/:name, which serves them to the two
+ * people in that conversation.
  */
-const PRIVATE_SUBDIRS = ['body-stats', 'backups', 'set-videos'];
+const PRIVATE_SUBDIRS = ['body-stats', 'backups', 'set-videos', 'coaching'];
 
 /**
  * True when a request path under the /uploads mount would land inside a

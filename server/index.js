@@ -112,6 +112,8 @@ const EMBEDDED_PHOTO_LIMIT = '6mb';
 for (const path of ['/api/body-stats/photos', '/api/exercises', '/api/auth/profile']) {
   router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
 }
+// A coaching message can carry one photo (scaled down by the app first).
+router.use('/api/coaching', express.json({ limit: '5mb' }));
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
 // The server's clock on every answer: an app offline puts the time of each

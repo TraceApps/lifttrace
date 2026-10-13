@@ -1214,5 +1214,29 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_request
     ON coach_clients(coach_id, client_id) WHERE status = 'pending';
 `);
+// One conversation per pairing, beside the notes on workouts (which stay as
+// they are): text and at most one photo per message, the same table as
+// NutriTrace's. `uuid` comes from the sending device, so a message sent
+// again after a dropped connection is stored once. Deleting a message keeps
+// the row ("Message deleted") and drops its text and photo. Messages go with
+// the pairing, and the pairing with either account. recommendation_id is
+// kept for the shape NutriTrace uses; LiftTrace leaves it empty.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid              TEXT NOT NULL UNIQUE,
+    pairing_id        INTEGER NOT NULL REFERENCES coach_clients(id) ON DELETE CASCADE,
+    sender_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body              TEXT,
+    image_url         TEXT,
+    recommendation_id INTEGER,
+    read_at           TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at        TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_pairing ON coach_messages(pairing_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_updated ON coach_messages(updated_at);
+`);
 
 export default db;
