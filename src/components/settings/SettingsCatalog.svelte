@@ -86,7 +86,11 @@
       async function worker() {
         while (idx < urls.length) {
           const myIdx = idx++;
-          try { await fetch(urls[myIdx], { mode: 'no-cors', credentials: 'omit' }); } catch {}
+          // The browser's own credentials mode, not 'omit': a picture on this
+          // server sits behind whatever login a reverse proxy puts in front
+          // of the app, and without it the proxy answers with its sign-in
+          // page. Other sites' media gets no credentials either way.
+          try { await fetch(urls[myIdx], { mode: 'no-cors' }); } catch {}
           precacheProgress = { done: precacheProgress.done + 1, total: urls.length };
         }
       }

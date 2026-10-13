@@ -41,6 +41,7 @@ installApiFetch();
 // to auto-hide after 1.2s; calling hide() explicitly here as belt-and-suspenders.
 import { Capacitor } from '@capacitor/core';
 import { purgeLegacyPhotoCache } from './lib/photo-blobs.js';
+import { purgePagesKeptAsPictures } from './lib/uploads-cache.js';
 if (Capacitor.isNativePlatform()) {
   (async () => {
     try {
@@ -89,4 +90,6 @@ DB.init()
 
 // See purgeLegacyPhotoCache: clears photo bytes cached by the service
 // worker back when /uploads served them publicly. Runs once per install.
-purgeLegacyPhotoCache();
+// Then, also once, purgePagesKeptAsPictures: pages (a login proxy's sign-in,
+// the app's own) left in that cache in place of pictures.
+purgeLegacyPhotoCache().then(purgePagesKeptAsPictures);
