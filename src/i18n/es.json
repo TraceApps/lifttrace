@@ -786,8 +786,7 @@
       "workout_added": "Entrenamiento añadido",
       "workout_deleted": "Entrenamiento eliminado",
       "program_deleted": "Programa eliminado",
-      "duplicated": "Programa duplicado",
-      "member_fallback": "miembro"
+      "duplicated": "Programa duplicado"
     },
     "workouts": "Entrenamientos",
     "add_workout": "Añadir entrenamiento",
@@ -1127,7 +1126,6 @@
   },
   "coaching": {
     "toast": {
-      "released": "{name} ya no está en tu lista",
       "program_active": "{program} es ahora el programa activo de {name}",
       "feedback_saved": "Comentario guardado",
       "feedback_removed": "Comentario eliminado",
@@ -1137,13 +1135,10 @@
       "pick_template": "Elige una plantilla de entrenamiento",
       "workout_prescribed": "Entrenamiento prescrito",
       "pick_program": "Elige un programa",
-      "member_added": "{name} añadido a tu lista",
       "prescription_updated": "Prescripción actualizada",
       "prescription_removed": "Prescripción eliminada"
     },
-    "add_coachee": "Añadir un alumno",
     "mark_all_seen": "Marcar todo como visto",
-    "no_members": "Todavía no hay miembros",
     "stat_streak": "Días seguidos",
     "stat_recent": "Entrenamientos recientes",
     "stat_active": "Programa activo",
@@ -1163,9 +1158,6 @@
     "notes": "Notas",
     "template": "Plantilla de entrenamiento",
     "confirm": {
-      "release_coachee_title": "¿Dar de baja al alumno?",
-      "release_coachee_msg": "¿Quitar a {name} de tu lista de alumnos? Su cuenta se mantiene; simplemente dejarás de ser su entrenador, y se eliminarán las prescripciones y las asignaciones de programa que le hayas dado.",
-      "release_confirm": "Dar de baja",
       "delete_note_title": "¿Eliminar esta nota?",
       "delete_workout_note_msg": "Tu comentario sobre esta sesión se eliminará.",
       "delete_exercise_note_msg": "Tu nota sobre este ejercicio se eliminará.",
