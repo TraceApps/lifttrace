@@ -102,7 +102,6 @@
     "signing_out": "退出登录中…",
     "admin": "管理员",
     "hide": "隐藏",
-    "experimental": "实验性",
     "errors": {
       "cant_reach_server": "无法连接服务器",
       "failed": "失败",
@@ -957,7 +956,6 @@
     "cancel": "取消"
   },
   "settings_workout_import": {
-    "experimental": "实验性",
     "how_to_export": "如何导出",
     "import_another_file": "导入另一个文件",
     "ready_to_import": "准备导入",

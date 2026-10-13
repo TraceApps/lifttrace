@@ -78,7 +78,6 @@
     "signing_out":  "Signing out…",
     "admin":        "admin",
     "hide":         "Hide",
-    "experimental": "Experimental",
     "errors": {
       "cant_reach_server":      "Could not reach server",
       "failed":                 "Failed",
@@ -900,7 +899,6 @@
     "cancel":                "Cancel"
   },
   "settings_workout_import": {
-    "experimental":          "Experimental",
     "how_to_export":         "How to Export",
     "import_another_file":   "Import Another File",
     "ready_to_import":       "Ready to Import",

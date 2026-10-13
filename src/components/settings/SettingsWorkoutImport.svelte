@@ -120,7 +120,6 @@
   <button class="section-toggle" on:click={onToggle}>
     <span class="si"><span class="material-symbols-rounded">download</span></span>
     <span class="section-name">{$_('settings.workout_import.section')}</span>
-    <span class="exp-badge">{$_('settings_workout_import.experimental')}</span>
     <span class="material-symbols-rounded chevron" class:rotated={expanded}>expand_more</span>
   </button>
   {#if expanded}
@@ -209,14 +208,6 @@
 {/if}
 
 <style>
-  .exp-badge {
-    margin-left: 8px;
-    padding: 2px 8px; border-radius: var(--radius-full);
-    background: color-mix(in srgb, var(--warning, #FFB020) 18%, transparent);
-    color: var(--warning, #FFB020);
-    font-size: 10px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
-  }
-
   .card-body { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px; }
   .setting-desc { font-size: 12px; color: var(--text-3); margin: 0; line-height: 1.5; }
 

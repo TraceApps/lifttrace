@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **The watch app updates itself to the phone's release.** Installed from GitHub, it used to stay on whatever version it was put on with adb. Now, when the phone updates, the watch fetches the same release's watch app and installs it. The first time, the watch asks you to allow LiftTrace to install apps; after that it updates without a tap, while the watch is on its charger.
 
+### Changed
+
+- **Importing workouts from other apps is no longer marked Experimental.**
+
 ### Fixed
 
 - **The workout timer shows the right time with a watch paired.** Started or paused on the phone, it reached the watch as having started in 1970, so both showed hundreds of thousands of hours. A timer already stuck like that clears itself.

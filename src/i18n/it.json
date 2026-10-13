@@ -73,7 +73,6 @@
     "signing_out": "Uscita…",
     "admin": "admin",
     "hide": "Nascondi",
-    "experimental": "Sperimentale",
     "errors": {
       "failed": "Errore",
       "cant_reach_server": "Impossibile raggiungere il server",
@@ -445,7 +444,6 @@
     "goal": "Obiettivo"
   },
   "settings_workout_import": {
-    "experimental": "Sperimentale",
     "cancel": "Annulla",
     "how_to_export": "Come esportare",
     "import_another_file": "Importa un altro file",

@@ -2044,12 +2044,6 @@
   .about-desc { font-size: 13px; color: var(--text-2); line-height: 1.5; padding: 12px 16px; }
   .about-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-size: 14px; color: var(--text-1); }
   .about-feat-icon { font-size: 20px; color: var(--accent); flex-shrink: 0; }
-  .exp-badge {
-    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-    background: var(--warning); color: #0A0B0F;
-    padding: 2px 6px; border-radius: var(--radius-full);
-    vertical-align: middle; margin-left: 6px;
-  }
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-label { font-size: 13px; font-weight: 600; color: var(--text-2); }
   .form-input {

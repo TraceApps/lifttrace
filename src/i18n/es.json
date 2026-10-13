@@ -73,7 +73,6 @@
     "signing_out": "Cerrando sesión…",
     "admin": "admin",
     "hide": "Ocultar",
-    "experimental": "Experimental",
     "errors": {
       "cant_reach_server": "No se pudo conectar con el servidor",
       "failed": "Error",
@@ -702,7 +701,6 @@
     "cancel": "Cancelar"
   },
   "settings_workout_import": {
-    "experimental": "Experimental",
     "how_to_export": "Cómo exportar",
     "import_another_file": "Importar otro fichero",
     "ready_to_import": "Listo para importar",

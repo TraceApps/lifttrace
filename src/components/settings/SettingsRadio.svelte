@@ -150,11 +150,4 @@
 {/if}
 
 <style>
-  .exp-badge {
-    font-size: 9px; font-weight: 700; padding: 2px 6px;
-    border-radius: var(--radius-sm);
-    background: var(--accent-dim); color: var(--accent);
-    text-transform: uppercase; letter-spacing: 0.06em;
-    margin-left: 6px;
-  }
 </style>
