@@ -22,6 +22,10 @@
   let userList = [];
   let inviteEmail = '';
   let inviteRole = 'member';
+  // A coach chosen for the new account ('' = none): only then does it get a
+  // coaching request, from that coach. Nothing is chosen for it otherwise.
+  let inviteCoach = '';
+  let addCoach = '';
   let inviteResult = null;
   let inviting = false;
   let pendingInvites = []; // { token, email, role, expires_at }
@@ -182,13 +186,14 @@
       const res = await fetch('/api/auth/invite', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole }),
+        body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole, ...(inviteRole === 'member' && inviteCoach !== '' ? { coach_id: Number(inviteCoach) } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { showError(data.error || $_('settings.users.err_failed_create_invite')); return; }
       inviteResult = data;
       if (data.sent) showSuccess($_('settings.users.invite_sent_to', { values: { email: _inviteEmailTrimmed } }));
       inviteEmail = '';
+      inviteCoach = '';
       await loadPendingInvites();
     } catch(e) {
       showError(e.message || $_('settings.users.err_could_not_create_invite'));
@@ -206,11 +211,11 @@
       const res = await fetch('/api/auth/register', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: addUsername, password: addPassword, full_name: addFullName, role: addRole }),
+        body: JSON.stringify({ username: addUsername, password: addPassword, full_name: addFullName, role: addRole, ...(addRole === 'member' && addCoach !== '' ? { coach_id: Number(addCoach) } : {}) }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
       showSuccess($_('settings.users.user_created'));
-      addUsername = ''; addPassword = ''; addFullName = ''; addRole = 'member';
+      addUsername = ''; addPassword = ''; addFullName = ''; addRole = 'member'; addCoach = '';
       showAddUser = false;
       await loadUsers();
     } catch(e) { showError(e.message); }
@@ -455,6 +460,21 @@
                 <span class="material-symbols-rounded um-role-chev">expand_more</span>
               </div>
             </div>
+            {#if inviteRole === 'member' && trainers.length}
+              <div class="um-role-pair">
+                <label class="um-role-label" for="invite-coach-sel">{$_('settings.users.new_coach')}</label>
+                <div class="um-role-select-wrap">
+                  <select id="invite-coach-sel" class="um-role-styled-select" bind:value={inviteCoach}>
+                    <option value="">{$_('settings.users.new_coach_none')}</option>
+                    {#each trainers as t (t.id)}
+                      <option value={String(t.id)}>{t.full_name || t.username}</option>
+                    {/each}
+                  </select>
+                  <span class="material-symbols-rounded um-role-chev">expand_more</span>
+                </div>
+              </div>
+              {#if inviteCoach !== ''}<p class="setting-hint um-coach-hint">{$_('settings.users.new_coach_hint')}</p>{/if}
+            {/if}
             <button class="btn btn-primary" style="height:36px;font-size:13px" on:click={inviteUser} disabled={!_inviteCanSubmit}>
               {inviting ? $_('settings.users.sending') : (_inviteEmailTrimmed ? $_('settings.users.send_invite') : $_('settings.users.generate_invite_link'))}
             </button>
@@ -468,6 +488,9 @@
                       <span class="pending-invite-meta">
                         {inv.role === 'admin' ? 'Admin' : (inv.role === 'trainer' ? 'Trainer' : 'Member')} ·
                         expires {new Date(inv.expires_at).toLocaleDateString()}
+                        {#if inv.coach_id && trainers.find(t => t.id === inv.coach_id)}
+                          · {$_('settings.users.new_coach_meta', { values: { name: trainers.find(t => t.id === inv.coach_id).full_name || trainers.find(t => t.id === inv.coach_id).username } })}
+                        {/if}
                       </span>
                     </div>
                     <button class="pending-invite-revoke" on:click={() => revokeInvite(inv.token)}
@@ -527,6 +550,21 @@
                   <span class="material-symbols-rounded um-role-chev">expand_more</span>
                 </div>
               </div>
+            {#if addRole === 'member' && trainers.length}
+              <div class="um-role-pair">
+                <label class="um-role-label" for="add-coach-sel">{$_('settings.users.new_coach')}</label>
+                <div class="um-role-select-wrap">
+                  <select id="add-coach-sel" class="um-role-styled-select" bind:value={addCoach}>
+                    <option value="">{$_('settings.users.new_coach_none')}</option>
+                    {#each trainers as t (t.id)}
+                      <option value={String(t.id)}>{t.full_name || t.username}</option>
+                    {/each}
+                  </select>
+                  <span class="material-symbols-rounded um-role-chev">expand_more</span>
+                </div>
+              </div>
+              {#if addCoach !== ''}<p class="setting-hint um-coach-hint">{$_('settings.users.new_coach_hint')}</p>{/if}
+            {/if}
               <button class="btn btn-secondary" style="width:100%;height:36px;font-size:13px" on:click={addUser} disabled={adding || !addUsername || !addPassword}>
                 {adding ? $_('settings.users.creating') : $_('settings.users.create_directly')}
               </button>
@@ -694,6 +732,7 @@
   .user-row-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
   .user-row-meta { font-size: 12px; color: var(--text-3); }
   .user-row-selects { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+  .um-coach-hint { margin: 0; font-size: 12px; }
   .user-row-pending { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-3); margin-top: 4px; }
   .user-row-pending .btn-link { background: none; border: none; padding: 2px 6px; border-radius: var(--radius-sm); color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
   .user-row-pending .btn-link:hover { background: var(--accent-dim); }

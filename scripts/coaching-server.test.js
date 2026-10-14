@@ -436,20 +436,32 @@ test('role changes end coaching that no longer fits', { skip: !ready }, async ()
   await ok('admin', 'PUT', `/api/auth/users/${ids.coach2}/role`, { role: 'trainer' });
 });
 
-test('a new account and an invite bring a request, never a coach', { skip: !ready }, async () => {
-  const { user } = await ok('admin', 'POST', '/api/auth/register', { username: 'newbie', password: PW, full_name: 'New Bie', role: 'member' });
-  ids.newbie = user.id; sign('newbie', user.role);
-  assert.equal(user.trainer_id ?? null, null);
-  const s = await state('newbie');
-  assert.equal(s.as_client, null);
-  assert.deepEqual(s.requests.map(r => r.coach.id), [ids.admin], 'the admin who made it asks');
-
-  const inv = await ok('admin', 'POST', '/api/auth/invite', { role: 'member' });
-  const token = new URL(inv.inviteUrl.replace('#/', '')).searchParams.get('token');
-  const acc = await ok(null, 'POST', '/api/auth/accept-invite', { token, username: 'invited', password: PW, full_name: 'In Vited' });
-  ids.invited = acc.user.id; tok.invited = acc.token;
-  assert.equal(acc.user.trainer_id ?? null, null);
-  assert.deepEqual((await state('invited')).requests.map(r => r.coach.id), [ids.admin]);
+test('a new account or invite asks for coaching only when a coach was chosen, as that coach', { skip: !ready }, async () => {
+  const join = async (username, body) => {
+    const inv = await ok('admin', 'POST', '/api/auth/invite', { role: 'member', ...body });
+    const token = new URL(inv.inviteUrl.replace('#/', '')).searchParams.get('token');
+    const acc = await ok(null, 'POST', '/api/auth/accept-invite', { token, username, password: PW, full_name: username });
+    ids[username] = acc.user.id; tok[username] = acc.token;
+    assert.equal(acc.user.trainer_id ?? null, null, 'never a coach outright');
+    return (await state(username)).requests.map(r => r.coach);
+  };
+  const create = async (username, body) => {
+    const { user } = await ok('admin', 'POST', '/api/auth/register', { username, password: PW, full_name: username, role: 'member', ...body });
+    ids[username] = user.id; sign(username, user.role);
+    assert.equal(user.trainer_id ?? null, null, 'never a coach outright');
+    return (await state(username)).requests.map(r => r.coach);
+  };
+  // No coach chosen: no card.
+  assert.deepEqual(await create('newbie'), [], 'created with no coach: nothing to answer');
+  assert.deepEqual(await join('invited'), [], 'invited with no coach: nothing to answer');
+  // A coach chosen: that coach's request, naming them.
+  assert.deepEqual(await create('newbie2', { coach_id: ids.coach1 }), [{ id: ids.coach1, name: 'Sam Coach' }]);
+  assert.deepEqual(await join('invited2', { coach_id: ids.coach1 }), [{ id: ids.coach1, name: 'Sam Coach' }]);
+  // The admin choosing themselves: a normal request from them.
+  assert.deepEqual(await create('newbie3', { coach_id: ids.admin }), [{ id: ids.admin, name: 'Ada Admin' }]);
+  // Someone who can't coach is refused, before any account is made.
+  assert.equal((await call('admin', 'POST', '/api/auth/register', { username: 'nobody1', password: PW, role: 'member', coach_id: ids.plain })).status, 400);
+  assert.equal((await call('admin', 'POST', '/api/auth/invite', { role: 'member', coach_id: ids.plain })).status, 400);
 });
 
 test('deleting an account removes its pairings; the other person is fine', { skip: !ready }, async () => {

@@ -206,18 +206,19 @@ router.post('/register', wrap((req, res) => {
   const { username, password, full_name, nickname, birthday, gender, role, email } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   { const pwErr = validatePassword(password, [username, email, full_name].filter(Boolean)); if (pwErr) return res.status(400).json({ error: pwErr }); }
-  const hash = bcrypt.hashSync(password, BCRYPT_COST);
   const assignedRole = isFirst ? 'admin' : (role || 'member');
+  // A coach chosen on the form (never implied by who created the account).
+  const coachId = isFirst ? null : _chosenCoach(req.body?.coach_id, assignedRole);
+  if (coachId === false) return res.status(400).json({ error: 'That person can\'t coach.' });
+  const hash = bcrypt.hashSync(password, BCRYPT_COST);
   const result = db.prepare(
     `INSERT INTO users (username, password_hash, full_name, nickname, birthday, gender, role, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(username.trim().toLowerCase(), hash, full_name || null, nickname || null, birthday || null, gender || null, assignedRole, email ? email.trim().toLowerCase() : null);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-  // Whoever creates a member used to become their trainer. Now they ask:
-  // the request waits for the new account's first sign-in, and nothing is
-  // shared until it's accepted. Ended from the admin dropdown if unwanted.
-  if (!isFirst && assignedRole === 'member' && req.user && canCoach(roleOf(req.user.id))) {
-    requestFromInvite(req.user.id, user.id);
-  }
+  // Whoever creates a member used to become their trainer. Now an account
+  // gets a coaching request only when a coach was chosen for it, from that
+  // coach; it waits for the first sign-in and shares nothing until accepted.
+  if (coachId) requestFromInvite(coachId, user.id);
   let token = null;
   if (isFirst) {
     claimAnonymousData(user.id);
@@ -467,12 +468,23 @@ router.post('/reset-password', wrap((req, res) => {
   res.json({ user: safeUser(user), token: token2 });
 }));
 
+// The coach chosen for a new account: null when none, false when the
+// person chosen can't coach (or the new account won't be a Member).
+function _chosenCoach(raw, role) {
+  if (raw == null || raw === '') return null;
+  const id = parseInt(raw);
+  if (!Number.isInteger(id) || role !== 'member' || !canCoach(roleOf(id))) return false;
+  return id;
+}
+
 router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   const { email, role = 'member' } = req.body;
+  const coachId = _chosenCoach(req.body?.coach_id, role);
+  if (coachId === false) return res.status(400).json({ error: 'That person can\'t coach.' });
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
-    .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires);
+  db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at, coach_id) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires, coachId);
   const baseUrl = linkBase(req);
   if (!baseUrl) return res.status(500).json({ error: 'The app\'s address is unknown. Set PUBLIC_URL, then try again.' });
   const inviteUrl = `${baseUrl}/#/accept-invite?token=${token}`;
@@ -489,7 +501,7 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
 // ── Admin: list pending invites (not used, not expired) ───────────────────
 router.get('/invites', requireAuth, requireAdmin, wrap((req, res) => {
   const rows = db.prepare(
-    `SELECT token, email, role, expires_at, created_by
+    `SELECT token, email, role, expires_at, created_by, coach_id
      FROM invite_tokens
      WHERE used = 0 AND expires_at > datetime('now')
      ORDER BY expires_at DESC`
@@ -517,9 +529,9 @@ router.post('/accept-invite', wrap((req, res) => {
   db.prepare('UPDATE invite_tokens SET used = 1 WHERE token = ?').run(token);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
   // A member invited by a trainer or admin used to get the inviter as their
-  // trainer. Now the inviter's request waits for them here, and nothing is
-  // shared until they accept it.
-  if (invite.role === 'member' && invite.created_by) requestFromInvite(invite.created_by, user.id);
+  // trainer. Now only a coach chosen on the invite asks, and their request
+  // waits here; nothing is shared until it's accepted.
+  if (invite.role === 'member' && invite.coach_id) requestFromInvite(invite.coach_id, user.id);
   const issued = signToken(user);
   res.cookie('lt_token', issued, COOKIE_OPTS);
   res.json({ user: safeUser(user), token: issued });

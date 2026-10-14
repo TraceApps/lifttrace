@@ -1218,6 +1218,8 @@ db.exec(`
 // then loads it as before. Every prescription made before this counts as
 // accepted (the default), so nothing already given asks again.
 addColumnIfMissing('coach_prescriptions', 'status', "status TEXT NOT NULL DEFAULT 'accepted'");
+// An invite can name a coach: their request waits for the new account.
+addColumnIfMissing('invite_tokens', 'coach_id', 'coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
 addColumnIfMissing('coach_prescriptions', 'responded_at', 'responded_at TEXT');
 
 // One conversation per pairing, beside the notes on workouts (which stay as

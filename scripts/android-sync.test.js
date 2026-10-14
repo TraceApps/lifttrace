@@ -101,12 +101,12 @@ async function startServer({ accounts = true, env = {} } = {}) {
   let admin, member;
   try {
     admin = await call(null, 'POST', '/api/auth/register', { username: 'coach', password: 'Str0ng-Pass-77!x' });
-    member = await call(admin.token, 'POST', '/api/auth/register', { username: 'athlete', password: 'Str0ng-Pass-88!y', role: 'member' });
+    member = await call(admin.token, 'POST', '/api/auth/register', { username: 'athlete', password: 'Str0ng-Pass-88!y', role: 'member', coach_id: admin.user.id });
   } catch (e) { stop(); throw e; }
   const memberToken = jwt.sign({ id: member.user.id, username: member.user.username, role: member.user.role }, SECRET, { expiresIn: '1h' });
   const expired = jwt.sign({ id: member.user.id, username: member.user.username, role: member.user.role, exp: Math.floor(Date.now() / 1000) - 60 }, SECRET);
-  // Creating the member sent the admin's coaching request; the member
-  // accepts it, so the admin is their coach as before.
+  // The member was created with the admin as their coach (a request); the
+  // member accepts it, so the admin is their coach as before.
   try {
     const { requests } = await call(memberToken, 'GET', '/api/coaching/state');
     await call(memberToken, 'POST', `/api/coaching/pairings/${requests[0].id}/accept`, {});
