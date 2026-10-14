@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0-dev06] - 2026-10-14 (pre-release)
+
+A dev pre-release of the 1.4.0 minor. Coaching that asks the client first, with a conversation between coach and client; the watch app updating itself; the phone and watch keeping each other's sets; and Trace and the Diary saving into the workout you mean, online and offline.
+
 ### Added
 
 - **Coaching asks first.** A coach (a Trainer, or an admin) sends a request with an optional note, and nothing of yours is shared until you accept it on the new Coach tab in Programs. You have one coach at a time: to accept another, leave yours first. A coach can take a request back and sees declines and departures from the last week. An admin's trainer picker in Settings, Users sends a request too, instead of pairing outright, and so does choosing a coach when creating or inviting a member; an account created or invited with no coach chosen gets no request. Coaching set up before this update stays as it is, with nothing to accept. An Android app from before this update shows no requests; answer them on the web or after updating.
@@ -14,7 +20,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **A conversation between a coach and their client**, beside the notes on workouts and exercises, which stay where they are. Text up to 4,000 characters and a photo per message, with read receipts, unread counts on the Coach and Coaching tabs and a dot on Programs, and deleting your own message ("Message deleted"). The client finds it on the Coach tab, the coach on the client's page in Coaching. It is kept on the device and opens with no connection; a message written offline shows as waiting and is sent once when the connection returns. Photos are served only to the two people. When coaching ends, the client can still read it and nobody can write. Trace never reads it.
 - **A prescribed workout asks before it loads.** On the Diary, a workout your coach prescribes shows Accept and Decline, on its day and under Waiting for Your Answer on any day; once accepted, Load works as before, and a declined one goes away. Your coach sees Waiting for an Answer, Accepted or Declined; a declined workout is never reported as missed, and giving it again (or changing which workout it is) asks again. Answering works offline and goes when the connection returns. Prescriptions from before this update count as accepted, so nothing asks again. An Android app from before this update still shows Load, without asking.
 - **Notifications for coaching requests and answers**, in Settings, Notifications, Coaching, on by default and only for people in coaching: New Message (with Email Me Too, off by default, at most one email per conversation every 30 minutes), New Recommendation (a coach asks to coach you, or prescribes a workout) and Client's Answer (someone accepts or declines your request or a workout you prescribed, or leaves). They say who, never what was written.
-
 - **The watch app updates itself to the phone's release.** Installed from GitHub, it used to stay on whatever version it was put on with adb. Now, when the phone updates, the watch fetches the same release's watch app and installs it. The first time, the watch asks you to allow LiftTrace to install apps; after that it updates without a tap, while the watch is on its charger.
 
 ### Changed
@@ -22,11 +27,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Importing workouts from other apps is no longer marked Experimental.**
 - **"Client" is the word for the person a coach coaches**, in Coaching, the notifications and the program menu (it was "member" or "coachee"). The Member role keeps its name. The Coaching tab, its sheet titles and its lists can now be translated.
 - **The Android app without a server says Coaching Needs a Server** on Coaching and Coach, with a button to connect one, instead of showing empty lists.
-
-### Security
-
-- **A coach no longer receives every unpaired member's account record.** The list for adding a client carried each member's email, birthday, gender and the rest; it now carries only an id and a name.
-- **An admin no longer sees every coach's activity, or a client's workouts, prescriptions and set videos, without being their coach.** Each coach's activity feed shows their own clients' events, and only while coaching them. Admins keep the pairing controls in Settings, Users. Every coach route now checks for an active pairing the client accepted, and refuses another coach's client, a request still waiting and coaching that ended alike.
 
 ### Fixed
 
@@ -50,6 +50,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **On the web, workouts stay readable offline after a save made online.** Any online save dropped the browser's copy of every workout, so going offline right after showed an empty Diary, and anything logged then went into the day's first workout, wiping its name and notes (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
 - **Pictures and videos on your exercises no longer stay broken behind a login proxy.** Pre-cache media for offline fetched them without the browser's sign-in. Behind basic auth they were never kept for offline use; behind a proxy that signs you in on another address (Authelia, VoidAuth), its sign-in page was kept in their place, and they showed broken, online too, for up to 90 days. The same happened once a proxy's session ran out with its sign-in page on the same address, and for a picture whose file was gone. Pictures broken that way show again (found while fixing [notetrace#22](https://github.com/TraceApps/notetrace/issues/22)).
 - **Uploaded pictures and videos are kept for offline use when LiftTrace is served from a subpath** (`BASE_URL`). Only an install at the root kept them, so with no connection your exercises' and profile pictures showed broken, even after Pre-cache media for offline.
+
+### Security
+
+- **A coach no longer receives every unpaired member's account record.** The list for adding a client carried each member's email, birthday, gender and the rest; it now carries only an id and a name.
+- **An admin no longer sees every coach's activity, or a client's workouts, prescriptions and set videos, without being their coach.** Each coach's activity feed shows their own clients' events, and only while coaching them. Admins keep the pairing controls in Settings, Users. Every coach route now checks for an active pairing the client accepted, and refuses another coach's client, a request still waiting and coaching that ended alike.
+- `npm audit` reports 0 vulnerabilities for the app and the server.
 
 ---
 
