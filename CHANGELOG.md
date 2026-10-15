@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Reminders set just after midnight fire.** The server read the hour after midnight as 24, so a workout reminder, streak alert or weekly summary set between 00:00 and 00:59 never came. One set just before midnight still comes when the check runs just after it, and counts for the day it was set on: a weekly summary set for 23:30 or later no longer goes out that morning instead.
 - **The current streak in Statistics counts the right days around midnight.** On a server not set to UTC, it started from tomorrow or from yesterday for part of every night, so a streak could read 0, or leave out the workout just logged.
 - **Trace logs and looks up dates in New Zealand, Tonga, Samoa and Kiritimati.** At UTC+13 and +14 every date failed Trace's date check, so a dated workout, cardio session or body stat was refused and the dates of a question were ignored.
 - **Cardio minutes by week count in the right week.** In Statistics > Cardio, when the server's time zone (or the phone's, offline or without a server) was west of UTC, such as anywhere in the Americas, a Monday session counted in the week before and each week was labeled with a Tuesday.

@@ -94,6 +94,6 @@ for (const c of CASES) {
 test('the streak-at-risk alert walks back from the same today it checked', () => {
   const sched = readFileSync(new URL('../server/lib/scheduler.js', import.meta.url), 'utf8');
   const block = sched.slice(sched.indexOf('// \u2500\u2500 Streak alert'), sched.indexOf('Weekly summary (issue #98)'));
-  assert.match(block, /let ds = shiftDay\(today, -1\);/);
+  assert.match(block, /let ds = _shiftDay\(day, -1\);/);
   assert.doesNotMatch(block, /checkDate|toISOString\(\)\.slice\(0, 10\);\s*const row/);
 });

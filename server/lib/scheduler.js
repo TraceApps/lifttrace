@@ -33,23 +33,46 @@ function _getUserSetting(userId, key, defaultVal) {
 
 function _localHour(timezone) {
   try {
+    // hourCycle h23, not hour12: false: with that, Node 20's ICU writes the
+    // hour after midnight as "24", and nothing set for 00:00 to 00:59 fired.
     const str = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone || 'UTC',
-      hour: 'numeric', minute: 'numeric', hour12: false,
+      hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
     }).format(new Date());
     const [h, m] = str.split(':').map(Number);
-    return { hour: h, minute: m };
+    return { hour: h % 24, minute: m };
   } catch {
     const now = new Date();
     return { hour: now.getHours(), minute: now.getMinutes() };
   }
 }
 
-function _withinWindow(localTime, targetStr, windowMin = 15) {
+/**
+ * Whether a time is due now, and for which day: 0 for today, -1 for
+ * yesterday (a 23:55 reminder checked at 00:05 belongs to the day that just
+ * ended), null when not due. Due up to windowMin late, across midnight too;
+ * up to windowMin early only on the same day, so a reminder for just after
+ * midnight never goes out the evening before.
+ */
+export function _dueDay(localTime, targetStr, windowMin = 15) {
   const [th, tm] = (targetStr || '00:00').split(':').map(Number);
   const targetMins = th * 60 + tm;
-  const currentMins = localTime.hour * 60 + localTime.minute;
-  return Math.abs(currentMins - targetMins) <= windowMin;
+  const currentMins = (localTime.hour % 24) * 60 + localTime.minute;
+  const late = ((currentMins - targetMins) % 1440 + 1440) % 1440;
+  if (late <= windowMin) return currentMins < targetMins ? -1 : 0;
+  const early = targetMins - currentMins;
+  return early >= 0 && early <= windowMin ? 0 : null;
+}
+
+export function _withinWindow(localTime, targetStr, windowMin = 15) {
+  return _dueDay(localTime, targetStr, windowMin) !== null;
+}
+
+/** A YYYY-MM-DD moved by n calendar days. */
+function _shiftDay(iso, n) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 function _todayStr(timezone) {
@@ -131,11 +154,13 @@ async function _processUser(userId) {
   const workoutReminder = _getUserSetting(userId, 'notifWorkoutReminder', false);
   if (workoutReminder) {
     const time = _getUserSetting(userId, 'notifWorkoutTime', '07:00');
-    if (_withinWindow(localTime, time) && !_ranRecently(userId, 'workoutReminder', 3600000)) {
-      // Check if workout already logged today
+    const due = _dueDay(localTime, time);
+    if (due !== null && !_ranRecently(userId, 'workoutReminder', 3600000)) {
+      // Check if a workout is already logged on the reminder's day
+      const day = _shiftDay(today, due);
       const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, day)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(day);
       if (!logged) {
         // Get active program template name
         let templateName = '';
@@ -177,24 +202,25 @@ async function _processUser(userId) {
   const streakAlert = _getUserSetting(userId, 'notifStreakAlert', false);
   if (streakAlert) {
     const time = _getUserSetting(userId, 'notifStreakTime', '20:00');
-    if (_withinWindow(localTime, time) && !_ranRecently(userId, 'streakAlert', 3600000)) {
+    const due = _dueDay(localTime, time);
+    if (due !== null && !_ranRecently(userId, 'streakAlert', 3600000)) {
+      const day = _shiftDay(today, due); // the alert's day (yesterday, just after midnight)
       const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
+        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, day)
+        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(day);
       if (!logged) {
         // Calculate current streak
         // Calendar days back from the same today the check above used,
         // stepped in UTC on the bare date (#101).
         let streak = 0;
-        const shiftDay = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-        let ds = shiftDay(today, -1); // start from yesterday
+        let ds = _shiftDay(day, -1); // start from the day before
         while (true) {
           const row = userId
             ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, ds)
             : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(ds);
           if (!row) break;
           streak++;
-          ds = shiftDay(ds, -1);
+          ds = _shiftDay(ds, -1);
         }
         if (streak > 0) {
           await pushNotify(userId, '🔥 Streak at Risk!', `Your ${streak}-day streak is on the line — log a workout today to keep it alive!`, 7);
@@ -212,14 +238,17 @@ async function _processUser(userId) {
     const targetTime = _getUserSetting(userId, 'weeklySummaryTime', '09:00');
     // The user's own weekday, not the server's: the two disagree for part of
     // every day whenever they sit in different time zones.
-    if (_localWeekday(tz) === targetDay && _withinWindow(localTime, targetTime, 30) && !_ranRecently(userId, 'weeklySummary', 6 * 24 * 3600000)) {
+    // Just after midnight a late match is yesterday's: it goes on yesterday's
+    // weekday, so a 23:50 Monday summary never goes out early on Monday morning.
+    const due = _dueDay(localTime, targetTime, 30);
+    if (due !== null && (_localWeekday(tz) + 7 + due) % 7 === targetDay && !_ranRecently(userId, 'weeklySummary', 6 * 24 * 3600000)) {
       const workouts = userId
         ? db.prepare('SELECT date, exercises, duration_min FROM workout_log WHERE user_id = ? AND deleted_at IS NULL').all(userId)
         : db.prepare('SELECT date, exercises, duration_min FROM workout_log WHERE deleted_at IS NULL').all();
       const summary = buildWeeklySummary({
         workouts,
         library: _exerciseLibrary(),
-        today,
+        today: _shiftDay(today, due),
         goal: _getUserSetting(userId, 'weeklyWorkoutGoal', 4),
       });
       const unit = _getUserSetting(userId, 'weightUnit', 'lbs') === 'kg' ? 'kg' : 'lbs';
