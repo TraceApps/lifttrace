@@ -183,17 +183,18 @@ async function _processUser(userId) {
         : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
       if (!logged) {
         // Calculate current streak
+        // Calendar days back from the same today the check above used,
+        // stepped in UTC on the bare date (#101).
         let streak = 0;
-        let checkDate = new Date();
-        checkDate.setDate(checkDate.getDate() - 1); // start from yesterday
+        const shiftDay = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+        let ds = shiftDay(today, -1); // start from yesterday
         while (true) {
-          const ds = checkDate.toISOString().slice(0, 10);
           const row = userId
             ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, ds)
             : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(ds);
           if (!row) break;
           streak++;
-          checkDate.setDate(checkDate.getDate() - 1);
+          ds = shiftDay(ds, -1);
         }
         if (streak > 0) {
           await pushNotify(userId, '🔥 Streak at Risk!', `Your ${streak}-day streak is on the line — log a workout today to keep it alive!`, 7);
