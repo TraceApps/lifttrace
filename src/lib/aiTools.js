@@ -545,9 +545,11 @@ const WRITE_DATE_FIELD = {
   add_coach_prescription: 'target_date',
 };
 
+// A calendar day, checked in UTC: read as local noon, a date at UTC+13/+14
+// (or -12) came back as another day in UTC, so every date failed there.
 function _isRealDate(s) {
   if (typeof s !== 'string' || !DATE_RE.test(s)) return false;
-  const d = new Date(`${s}T12:00:00`);
+  const d = new Date(`${s}T00:00:00Z`);
   return !isNaN(d) && d.toISOString().slice(0, 10) === s;
 }
 function _daysFromToday(s) {
