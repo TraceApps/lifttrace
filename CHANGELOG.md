@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Cardio minutes by week count in the right week.** In Statistics > Cardio, when the server's time zone (or the phone's, offline or without a server) was west of UTC, such as anywhere in the Americas, a Monday session counted in the week before and each week was labeled with a Tuesday.
 - **Signing in with SSO finishes on phones with an older Android System WebView.** On older WebView versions (seen on 124), the app didn't recognize the sign-in return from the browser, so the sign-in page closed and the app stayed signed out.
 
 ---

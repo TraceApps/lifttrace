@@ -1070,10 +1070,8 @@ const Cardio = {
     );
     const byWeek = {};
     for (const row of rows) {
-      const d = new Date(row.date);
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+      // Calendar days, weeks in UTC, like the server (Stats._weekStart).
+      const weekStart = Stats._weekStart(String(row.date).slice(0, 10));
       byWeek[weekStart] = (byWeek[weekStart] || 0) + row.duration_min;
     }
     return Object.entries(byWeek).map(([week, minutes]) => ({ week, minutes })).sort((a, b) => a.week.localeCompare(b.week));

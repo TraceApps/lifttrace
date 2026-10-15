@@ -136,6 +136,17 @@ router.delete('/:id', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
+// A session's date is a calendar day: its week is found in UTC on the bare
+// date, as stats.js does (#101). Reading it as local time put Monday
+// sessions in the week before, west of UTC. A date stored with a time on
+// it counts by its day.
+function _weekStart(date) {
+  const d = new Date(`${String(date).slice(0, 10)}T00:00:00Z`);
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().slice(0, 10);
+}
+
 // GET /api/cardio/stats/weekly?start=YYYY-MM-DD&end=YYYY-MM-DD
 //   Weekly minutes total, ISO-week bucketed (Monday start), for the
 //   Statistics Cardio metric.
@@ -148,10 +159,7 @@ router.get('/stats/weekly', wrap((req, res) => {
     : db.prepare('SELECT date, duration_min FROM cardio_log WHERE user_id IS NULL AND date BETWEEN ? AND ?').all(start, end);
   const byWeek = {};
   for (const row of rows) {
-    const d = new Date(row.date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+    const weekStart = _weekStart(row.date);
     byWeek[weekStart] = (byWeek[weekStart] || 0) + row.duration_min;
   }
   res.json(Object.entries(byWeek).map(([week, minutes]) => ({ week, minutes })).sort((a, b) => a.week.localeCompare(b.week)));
