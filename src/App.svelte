@@ -532,9 +532,13 @@
             await Browser.close().catch(() => {});
           } catch {}
           try {
-            const u = new URL(url);
-            const host = (u.hostname || u.host || '').toLowerCase();
-            const params = u.searchParams;
+            // Read by hand (lib/app-link.js): older WebViews leave new URL()'s
+            // host empty for this scheme, so SSO never finished there.
+            const { parseAppLink } = await import('./lib/app-link.js');
+            const link = parseAppLink(url);
+            if (!link) throw new Error('not an app link');
+            const host = link.host;
+            const params = link.params;
             if (host === 'oidc-callback') {
               const errMsg = params.get('error');
               const linked = params.get('linked');
