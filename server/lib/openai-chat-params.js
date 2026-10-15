@@ -13,8 +13,21 @@ const GPT_56_MODEL = /^gpt-5\.6(?:-|$)/;
  * when the field is missing, and the reply then fails to parse as JSON
  * (TraceApps/nutritrace#258). Every caller reads one JSON reply, so say so.
  */
+/**
+ * The address /v1/chat/completions goes after. A provider's docs (and
+ * OpenAI's own SDKs) often give it ending in /v1, or as the whole endpoint;
+ * either way the part before it is used, so /v1 isn't doubled
+ * (TraceApps/notetrace#18).
+ */
+export function openAIBase(url) {
+  return String(url || '').trim()
+    .replace(/\/+$/, '')
+    .replace(/\/chat\/completions$/i, '')
+    .replace(/\/v1$/i, '');
+}
+
 export function getOpenAIChatParams({ baseUrl, model, hasTools, maxTokens = 4096 }) {
-  const isOfficialOpenAI = baseUrl?.replace(/\/+$/, '') === OPENAI_API_ORIGIN;
+  const isOfficialOpenAI = openAIBase(baseUrl) === OPENAI_API_ORIGIN;
   if (!isOfficialOpenAI) return { stream: false, max_tokens: maxTokens };
 
   const params = { stream: false, max_completion_tokens: maxTokens };

@@ -13,6 +13,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Trace logs and looks up dates in New Zealand, Tonga, Samoa and Kiritimati.** At UTC+13 and +14 every date failed Trace's date check, so a dated workout, cardio session or body stat was refused and the dates of a question were ignored.
 - **Cardio minutes by week count in the right week.** In Statistics > Cardio, when the server's time zone (or the phone's, offline or without a server) was west of UTC, such as anywhere in the Americas, a Monday session counted in the week before and each week was labeled with a Tuesday.
 - **Signing in with SSO finishes on phones with an older Android System WebView.** On older WebView versions (seen on 124), the app didn't recognize the sign-in return from the browser, so the sign-in page closed and the app stayed signed out.
+- **OpenAI Compatible accepts a Base URL with or without `/v1`**, or the whole `/v1/chat/completions` address, in Settings and in `AI_BASE_URL` (found with [notetrace#18](https://github.com/TraceApps/notetrace/issues/18)). Given with `/v1`, every request went to `/v1/v1/chat/completions`.
+- **Settings tests OpenAI Compatible without an API key.** Settings never tested a server that needs no key (Ollama, LM Studio), so its status stayed blank. **Test Connection** now has its own row; the setting filled in last tests on its own once everything it needs is there, and a test only counts for the settings it tested.
+- **When Trace gets no answer from your provider, it says what to check** instead of "Failed to fetch": the Base URL, or a server that has to allow this site on every answer, errors included, or an https:// address for a page on HTTPS. A reverse proxy that adds CORS headers only to successful answers hid the provider's real error, such as a model that can't use tools.
 
 ---
 

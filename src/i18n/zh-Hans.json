@@ -1616,7 +1616,6 @@
       "enable_desc": "在所有页面添加浮动聊天按钮",
       "provider": "提供商",
       "base_url": "基础 URL",
-      "base_url_desc": "任何兼容 OpenAI /v1/chat/completions 的端点，包括 Ollama、LM Studio、LocalAI、vLLM、llama.cpp 的服务器、DeepSeek、Groq、Together AI、Mistral La Plateforme 等。不要包含路径，只需填写源地址。",
       "base_url_ph": "http://localhost:11434  或  https://api.deepseek.com",
       "testing": "测试中…",
       "save": "保存",

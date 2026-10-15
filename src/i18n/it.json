@@ -971,7 +971,6 @@
       "enable_desc": "Aggiunge un pulsante di chat mobile a tutte le pagine",
       "provider": "Fornitore",
       "base_url": "URL di base",
-      "base_url_desc": "Qualsiasi endpoint /v1/chat/completions compatibile con OpenAI, Ollama, LM Studio, LocalAI, vLLM, server di llama.cpp, DeepSeek, Groq, Together AI, Mistral La Plateforme, ecc. Non includere il percorso, solo l'origine.",
       "base_url_ph": "http://localhost:11434 o https://api.deepseek.com",
       "testing": "Test…",
       "model": "Modello",

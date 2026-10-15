@@ -684,6 +684,9 @@
     "set_not_found":  "Couldn't find that set. You held {time}."
   },
   "trace_ai": {
+    "unreachable": "Couldn't get an answer from {host}. Check the Base URL in Settings → AI Assistant. If it's right, that server has to allow requests from {origin} on every answer, errors included (with nginx, add_header … always), or Trace can be set up on the LiftTrace server instead.",
+    "unreachable_insecure": "This page is on HTTPS, so the browser won't call {host} over plain HTTP. Give your provider an https:// address, or set Trace up on the LiftTrace server instead.",
+    "unreachable_official": "{host} didn't answer. Check this device's connection.",
     "voice_error":           "Voice error: {reason}",
     "voice_unknown":         "unknown",
     "mic_error":             "Could not start mic: {reason}",
@@ -1720,7 +1723,8 @@
       "connected":         "Trace AI connected, assistant is ready",
       "empty_response":    "Empty response from AI",
       "test_failed":       "Test failed",
-      "fill_required":     "Fill in provider, API key, and model first"
+      "fill_required":     "Fill in provider, API key, and model first",
+      "fill_required_custom": "Fill in the Base URL and model first"
     },
     "provider_env_locked": "Environment-locked",
     "env_lock_banner": "Configured via environment variables, changes are disabled.",
@@ -1733,7 +1737,11 @@
       "enable_desc":       "Adds a floating chat button to all pages",
       "provider":          "Provider",
       "base_url":          "Base URL",
-      "base_url_desc":     "Any OpenAI Compatible /v1/chat/completions endpoint, Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. Don't include the path, just the origin.",
+      "base_url_desc":     "Any OpenAI Compatible /v1/chat/completions endpoint, Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. With or without /v1.",
+      "test_connection":   "Test Connection",
+      "test_connection_desc": "Checks that Trace can reach your provider.",
+      "test_connection_desc_locked": "Checks that Trace can reach the server's AI provider.",
+      "test":              "Test",
       "base_url_ph":       "http://localhost:11434  or  https://api.deepseek.com",
       "testing":           "Testing…",
       "save":              "Save",

@@ -79,7 +79,7 @@
   }
 
   // Any change to provider/model/key/baseUrl clears the prior verification —
-  // the user must re-save (which re-tests) before the green pill returns.
+  // saving the field (or Test Connection) tests again.
   function _invalidate() {
     if ($aiKeyVerified) aiKeyVerified.set(false);
     testError = '';
@@ -92,7 +92,7 @@
   // with no Save button: on a phone in portrait an inline button beside the
   // field ran off the edge of the screen (issue #94). The connection is
   // tested only when the value actually changed, so tabbing through does
-  // not spend API quota; the status banner's Test button re-tests on demand.
+  // not spend API quota; Test Connection re-tests on demand.
   let aiKeyFocused = false;
   let aiBaseUrlFocused = false;
 
@@ -101,7 +101,7 @@
     if (aiKeyVal === ($aiApiKey || '')) return;
     aiApiKey.set(aiKeyVal);
     _invalidate();
-    if (canTest) await testConnection();
+    await _autoTest();
   }
 
   async function saveAiBaseUrl() {
@@ -111,7 +111,7 @@
     if (trimmed === ($aiBaseUrl || '')) return;
     aiBaseUrl.set(trimmed);
     _invalidate();
-    if (canTest) await testConnection();
+    await _autoTest();
   }
 
   function blurOnEnter(e) { if (e.key === 'Enter') e.currentTarget.blur(); }
@@ -137,11 +137,25 @@
     }
   }
 
-  // Required fields for a meaningful test.
-  $: canTest = !envLocks.ai
-    && !!aiKeyVal?.trim()
-    && !!$aiModel?.trim()
-    && ($aiProvider !== 'oai-compat' || !!aiBaseUrlVal?.trim());
+  // Required fields for a meaningful test. A function, read when a field is
+  // saved, rather than a $: value that may not have caught up yet. An
+  // OpenAI-compatible server may need no key (Ollama, LM Studio), as in chat;
+  // a cloud provider with no model chosen uses its default, as chat does
+  // (TraceApps/notetrace#18).
+  const _canTest = () => !envLocks.ai && ($aiProvider === 'oai-compat'
+    ? !!aiBaseUrlVal?.trim() && !!$aiModel?.trim()
+    : !!aiKeyVal?.trim());
+
+  // A saved field tests once everything it needs is filled in, whichever
+  // field comes last (the model, with no key). Until then it waits quietly;
+  // Test says what's missing. An OpenAI-compatible server is tried before
+  // its key (the field below) is in, as it may need none: a failure then
+  // shows in the banner only, rather than a pop-up about a key still coming.
+  async function _autoTest() {
+    if (!_canTest()) return;
+    const keyMayFollow = $aiProvider === 'oai-compat' && !aiKeyVal?.trim();
+    await testConnection({ quietFail: keyMayFollow });
+  }
 
   // "Effectively connected" — green banner when the user has all the
   // required pieces in place, even before they go through Save (covers
@@ -153,21 +167,39 @@
     ? !!envLocks.ai_enabled
     : ($aiEnabled
         && !!$aiModel?.trim()
-        && !!$aiApiKey?.trim()
-        && ($aiProvider !== 'oai-compat' || !!$aiBaseUrl?.trim()));
+        // An OpenAI-compatible server may need no key (Ollama, LM Studio).
+        && ($aiProvider === 'oai-compat' ? !!$aiBaseUrl?.trim() : !!$aiApiKey?.trim()));
   $: testStatus = testing
     ? 'testing'
     : testError
       ? 'fail'
       : ($aiKeyVerified || _hasAll ? 'ok' : '');
 
-  async function testConnection() {
-    if (!canTest && !envLocks.ai) {
-      testError = $_('settings_trace.toast.fill_required');
+  // What a test was run with. A result only counts for the settings it
+  // tested: a field changed while it ran makes it stale, and it goes. What
+  // changed it tests on its own once saved (a field left, a model picked),
+  // waiting its turn; a provider switch doesn't, so the old provider's key
+  // isn't sent to the new one.
+  const _testedKey = () => JSON.stringify([envLocks.ai, $aiProvider, $aiApiKey, $aiModel, $aiBaseUrl]);
+  let _testAgain = null;
+
+  async function testConnection({ quietFail = false } = {}) {
+    if (testing) {
+      // A test someone asked for outranks a quiet automatic one.
+      _testAgain = { quietFail: quietFail && (_testAgain?.quietFail ?? true) };
+      return;
+    }
+    if (!_canTest() && !envLocks.ai) {
+      testError = $_($aiProvider === 'oai-compat' ? 'settings_trace.toast.fill_required_custom' : 'settings_trace.toast.fill_required');
       return;
     }
     testing   = true;
     testError = '';
+    const tested = _testedKey();
+    const stale = () => {
+      if (_testedKey() === tested) return false;
+      return true;
+    };
     try {
       const messages     = [{ role: 'user', content: 'Say "hi" in one word.' }];
       const systemPrompt = 'You are a test bot. Reply with exactly one short word.';
@@ -185,14 +217,21 @@
         });
       }
       if (!text || typeof text !== 'string') throw new Error($_('settings_trace.toast.empty_response'));
+      if (stale()) return;
       aiKeyVerified.set(true);
       showSuccess($_('settings_trace.toast.connected'));
     } catch (e) {
+      if (stale()) return;
       testError = e.message || $_('settings_trace.toast.test_failed');
       aiKeyVerified.set(false);
-      showError(testError);
+      if (!quietFail) showError(testError);
     } finally {
       testing = false;
+      if (_testAgain) {
+        const again = _testAgain;
+        _testAgain = null;
+        if (_canTest() || envLocks.ai) testConnection(again);
+      }
     }
   }
 
@@ -226,8 +265,6 @@
             status={testStatus}
             connectedAs={_providerLabel}
             error={testError}
-            onRetest={() => testConnection()}
-            retestDisabled={testing}
           />
         {/if}
         <div class="setting-row">
@@ -262,7 +299,7 @@
             </div>
             <div class="setting-row">
               <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-              <input class="form-input-sm" type="text" bind:value={$aiModel} placeholder={$_('settings_trace.labels.model_ph')} disabled={envLocks.ai} />
+              <input class="form-input-sm" type="text" bind:value={$aiModel} on:change={_autoTest} placeholder={$_('settings_trace.labels.model_ph')} disabled={envLocks.ai} />
             </div>
             <div style="padding:10px 16px;display:flex;gap:8px;align-items:flex-start;background:color-mix(in srgb,#f59e0b 8%, transparent);border-left:3px solid #f59e0b;border-radius:6px">
               <span class="material-symbols-rounded" style="font-size:18px;color:#f59e0b;flex-shrink:0">info</span>
@@ -273,7 +310,7 @@
           {:else}
             <div class="setting-row">
               <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-              <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={_syncModelFromSelect} disabled={envLocks.ai}>
+              <select class="form-select-sm" bind:value={aiModelSelectVal} on:change={() => { _syncModelFromSelect(); _autoTest(); }} disabled={envLocks.ai}>
                 {#each providerModels as m}
                   <option value={m.value}>{m.label}</option>
                 {/each}
@@ -284,7 +321,7 @@
                 <span class="setting-label">{$_('settings_trace.labels.custom_model_id')}</span>
                 <input class="form-input-sm" type="text"
                   placeholder={$aiProvider === 'gemini' ? 'gemini-3.5-flash' : $aiProvider === 'claude' ? 'claude-sonnet-5' : 'gpt-4o'}
-                  bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} disabled={envLocks.ai} />
+                  bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} on:change={_autoTest} disabled={envLocks.ai} />
               </div>
               <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:flex-start">
                 <span class="material-symbols-rounded" style="font-size:16px;color:var(--muted);flex-shrink:0;margin-top:2px">info</span>
@@ -331,6 +368,17 @@
             </div>
           </div>
           {/if}
+          <!-- Always here, not only in the status banner, which shows nothing
+               until every setting is filled in (TraceApps/notetrace#18). -->
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <span class="setting-label">{$_('settings_trace.labels.test_connection')}</span>
+              <span class="setting-hint">{$_(envLocks.ai ? 'settings_trace.labels.test_connection_desc_locked' : 'settings_trace.labels.test_connection_desc')}</span>
+            </div>
+            <button type="button" class="btn btn-secondary" on:click={() => testConnection()} disabled={testing}>
+              {testing ? $_('settings_trace.labels.testing') : $_('settings_trace.labels.test')}
+            </button>
+          </div>
           <div class="setting-row">
             <span class="setting-label">{$_('settings_trace.labels.assistant_name')}</span>
             <input class="form-input-sm" type="text" bind:value={$aiAssistantName} placeholder={$_('settings_trace.labels.assistant_name_ph')} />
