@@ -4,7 +4,13 @@
 
 async function _json(res) {
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    // What the offline layer says went wrong, for the screen to say it.
+    if (data.storage) err.storage = true;
+    if (data.offline) err.offline = true;
+    throw err;
+  }
   return data;
 }
 

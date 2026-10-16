@@ -421,6 +421,7 @@
     "account_deleted":       "Account deleted",
     "errors": {
       "save_failed":            "Could not save profile",
+      "not_kept":               "This browser could not keep your profile to send later. Check that it has free space and allows this site to store data, then try again.",
       "upload_failed":          "Upload failed",
       "password_change_failed": "Could not change password",
       "unlink_failed":          "Unlink failed",

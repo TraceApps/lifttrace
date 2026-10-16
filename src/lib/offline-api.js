@@ -66,8 +66,18 @@ function _dbName() {
   } catch { /* private mode */ }
   return `lifttrace-offline-${user || 'single'}`;
 }
+/**
+ * The browser's IndexedDB, or null. A browser refusing this site storage can
+ * throw just for asking (a SecurityError), and that has to read as "no
+ * database" like every other way of not having one.
+ */
+function _idb() {
+  try { return typeof indexedDB === 'undefined' ? null : indexedDB; } catch { return null; }
+}
+
 function _db() {
-  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  const idb = _idb();
+  if (!idb) return Promise.resolve(null);
   const name = _dbName();
   if (_dbPromise && _dbPromise.name === name) return _dbPromise;
   // The first reads of a page happen before the app knows who is signed in,
@@ -76,7 +86,11 @@ function _db() {
   const leaving = _dbPromise?.name && _dbPromise.name !== name ? _dbPromise.name : null;
   const p = new Promise((resolve) => {
     // 4: coaching conversations kept on the device (lib/coach-messages.js).
-    const req = indexedDB.open(name, 4);
+    // Opening throws outright when the browser refuses this site storage.
+    // Thrown here it rejected every read and write of this layer, so a
+    // Profile save failed before any request was made (TraceApps/nutritrace#269).
+    let req;
+    try { req = idb.open(name, 4); } catch { resolve(null); return; }
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('coach_messages')) db.createObjectStore('coach_messages', { keyPath: 'uuid' });
@@ -109,7 +123,9 @@ function _db() {
 async function _absorb(oldName, db) {
   if (!db) return;
   const old = await new Promise((resolve) => {
-    const req = indexedDB.open(oldName);
+    let req;
+    try { req = _idb()?.open(oldName); } catch { req = null; }
+    if (!req) return resolve(null);
     req.onsuccess = () => resolve(req.result);
     req.onerror = req.onblocked = () => resolve(null);
   });
@@ -376,6 +392,45 @@ const _json = (status, body) => new Response(JSON.stringify(body), {
   status,
   headers: { 'Content-Type': 'application/json' },
 });
+// This browser would not keep a change to send later (storage full, blocked
+// or broken). Not "offline": the screen says what actually went wrong.
+const _storageReply = () => _json(507, { error: 'This browser could not keep the change to send later.', storage: true });
+
+// Names a row made here that the server has never had.
+const _namesTempId = (path, body) => /\/-\d/.test(String(path)) || /"(id|[a-z_]+_id|tempId)":-\d/.test(JSON.stringify(body ?? null));
+
+/**
+ * Send a request that supersedes queued ones with the same key (a profile
+ * save carries the whole profile), and drop those once it lands. Held under
+ * the flush's lock, so a flush in this or another tab can't send an older
+ * one after it.
+ */
+function _superseding(key, send) {
+  const run = async () => {
+    const res = await send();
+    if (res.ok) {
+      const stale = (await _all('outbox')).filter(op => op.key === key).map(op => op.seq);
+      if (stale.length) {
+        await _tx('outbox', 'readwrite', s => { for (const seq of stale) s.delete(seq); });
+        _channel?.postMessage({ type: 'outbox' });
+      }
+      _ops = null;
+      await _loadOps();
+      _publish();
+    }
+    return res;
+  };
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request('lifttrace-offline-flush', run);
+  }
+  // No Web Locks (a page on plain http): stand in for the flush, so one
+  // that starts meanwhile waits for this rather than sending the older one.
+  const mine = (_flushing || Promise.resolve()).catch(() => {}).then(run);
+  const held = mine.then(() => false, () => false).finally(() => { if (_flushing === held) { _flushing = null; _scheduleFlush(0); } });
+  _flushing = held;
+  return mine;
+}
+
 const _offlineReply = (url) => {
   // Shows up in Settings, Diagnostics: which call had no copy to answer with.
   if (url) console.debug('[offline] no copy held for', String(url));
@@ -776,24 +831,34 @@ export async function offlineFetch(url, init, origFetch) {
 
   _changedSomething = true;
   const queued = await _loadOps();
-  if (_online() && !queued.length) {
+  const direct = async () => {
+    const sentAt = Date.now();
+    const res = await send(target, init);
+    _noteClock(res, sentAt);
+    if (res.ok) {
+      // What the route just answered is the freshest copy there is.
+      let answered = null;
+      try { answered = (await res.clone().json())?.workout ?? null; } catch { /* not json */ }
+      // Whatever this change makes stale goes, the same as after a
+      // replay. Without this, something deleted while online was still in
+      // the copy held here, and came back the moment the connection did
+      // not: the lists are read from that copy, and nothing had told them.
+      await _forgetTouched([{ ...op, path: target, body }]);
+      if (op.kind === 'workout' && answered) await _refileWorkouts([{ path: pathOf(target), workout: answered }]);
+      _publish({ online: true, error: null });
+    }
+    return res;
+  };
+  // Your profile carries the whole profile and nothing else in the queue
+  // depends on it, so only an earlier save of it still waiting holds it
+  // back (that one is dropped once this lands). Anything else waits behind
+  // what is queued, so changes go up in the order they were made
+  // (TraceApps/nutritrace#269).
+  const isProfile = op.kind === 'profile';
+  const tried = _online() && (isProfile || !queued.length);
+  if (tried) {
     try {
-      const sentAt = Date.now();
-      const res = await send(target, init);
-      _noteClock(res, sentAt);
-      if (res.ok) {
-        // What the route just answered is the freshest copy there is.
-        let answered = null;
-        try { answered = (await res.clone().json())?.workout ?? null; } catch { /* not json */ }
-        // Whatever this change makes stale goes, the same as after a
-        // replay. Without this, something deleted while online was still in
-        // the copy held here, and came back the moment the connection did
-        // not: the lists are read from that copy, and nothing had told them.
-        await _forgetTouched([{ ...op, path: target, body }]);
-        if (op.kind === 'workout' && answered) await _refileWorkouts([{ path: pathOf(target), workout: answered }]);
-        _publish({ online: true, error: null });
-      }
-      return res;
+      return isProfile && queued.some(o => o.key === 'profile') ? await _superseding('profile', direct) : await direct();
     } catch (err) {
       if (!isOfflineError(err)) throw err;
       _publish({ online: false });
@@ -837,7 +902,17 @@ export async function offlineFetch(url, init, origFetch) {
       : op.kind === 'workout' ? { tempId, key: `workout:${date}#${tempId}` }
       : { tempId, id: tempId, key: `${op.kind.replace('-create', '')}:${tempId}` }),
   });
-  if (!stored) return _offlineReply();
+  if (!stored) {
+    // Nowhere to keep it. With a connection, and nothing waiting that can be
+    // read back (the store broke after the page loaded), nothing will go up
+    // ahead of it either, so it goes straight to the server. Not when it was
+    // just tried that way (it may have landed), nor when it names something
+    // only this browser has.
+    if (!tried && _online() && !_namesTempId(target, body) && !(await _all('outbox')).length) {
+      try { return await direct(); } catch (err) { if (!isOfflineError(err)) throw err; _publish({ online: false }); }
+    }
+    return _storageReply();
+  }
 
   // Answer in the shape the route would have, so the screen carries on.
   if (op.kind === 'workout') {
