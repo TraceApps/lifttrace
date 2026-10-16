@@ -38,6 +38,7 @@
   import SmartLogModal from '../components/diary/SmartLogModal.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
   import { portal } from '../lib/portal.js';
+  import { wideContent } from '../lib/wide.js';
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
@@ -717,6 +718,7 @@
 
   let showCoachInbox = false;
   let inboxRows = [];
+  $: showCoachInboxButton = !!$currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0;
   let inboxLoading = false;
   async function openCoachInbox() {
     showCoachInbox = true;
@@ -2291,9 +2293,24 @@
 
 <div class="page">
   <!-- Action icons — fixed at top-right, same level as hamburger (NutriTrace pattern).
-       Mobile-only: hidden at ≥1280px because the desktop rail owns Gym Tools,
-       Body Stats, and the More menu; see .diary-topbar-actions display:none rule. -->
+       Hidden at html.wide-content, where the page header carries the
+       header actions instead; see .diary-topbar-actions display:none rule. -->
   <div use:portal class="diary-topbar-actions">
+    <!-- Coach Feedback joins this strip wherever the strip is up: in the
+         page header it sat under the strip's buttons. The header copy
+         below takes over at wide widths, where the strip is hidden. -->
+    {#if showCoachInboxButton}
+      <button class="btn-icon accent diary-topbar-coach"
+              on:click={openCoachInbox}
+              aria-label={$_('coaching.sheets.coach_feedback')} title={$_('coaching.sheets.coach_feedback')}>
+        <span class="material-symbols-rounded">
+          {unreadFeedbackCount > 0 ? 'mark_email_unread' : 'forum'}
+        </span>
+        {#if unreadFeedbackCount > 0}
+          <span class="diary-topbar-badge">{unreadFeedbackCount}</span>
+        {/if}
+      </button>
+    {/if}
     <button class="btn-icon accent" on:click={() => showGymTools = true} aria-label={$_('diary.actions.gym_tools')} title={$_('diary.actions.gym_tools_long')}>
       <span class="material-symbols-rounded">calculate</span>
     </button>
@@ -2314,20 +2331,20 @@
   <!-- Page header — same pattern as Exercises/Programs/Statistics/Settings -->
   <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.diary.title')}</h1>
-    <!-- Desktop-only Add-exercise header action — sits in the same
+    <!-- Wide-content Add-exercise header action. It sits in the same
          header slot the Coach Feedback button uses so it reads with
-         the app's canonical header-action styling. The mobile FAB
-         (position:fixed bottom-right) is the primary affordance
-         below 1280px; hidden here on narrow viewports so mobile
-         users see one clear affordance, not two. -->
-    {#if _wideViewport && exercises.length > 0}
+         the app's canonical header-action styling. The FAB
+         (position:fixed bottom-right) is the affordance everywhere
+         else and hides at html.wide-content, so this follows the same
+         class: one Add at every width, never none and never two. -->
+    {#if $wideContent && exercises.length > 0}
       <button class="diary-header-action diary-header-add"
               on:click={handleAddFabClick}
               title="Add" aria-label="Add">
         <span class="material-symbols-rounded">add</span>
       </button>
     {/if}
-    {#if $currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0}
+    {#if showCoachInboxButton}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}
               on:click={openCoachInbox}
               title={$_('coaching.sheets.coach_feedback')} aria-label={$_('coaching.sheets.coach_feedback')}>
@@ -4049,10 +4066,31 @@
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 6px 10px;
+    min-height: 40px;  /* the row's 40px tap target, same as the hamburger and the strip */
     color: var(--text-2); cursor: pointer;
     display: flex; align-items: center; gap: 4px;
   }
   .diary-header-action:hover { color: var(--accent); border-color: var(--accent); }
+  /* The fixed .diary-topbar-actions strip owns the header's right corner
+     wherever it shows (everywhere but html.wide-content, see its
+     display:none rule), so the header carries no actions there: Coach
+     Feedback moves into the strip and Add is the FAB, which also shows
+     everywhere but html.wide-content. */
+  :global(html:not(.wide-content)) .diary-header-action { display: none; }
+  /* Full strength like its neighbors, not dimmed as in the header: a dim
+     icon in this row reads as disabled. The icon and badge carry unread. */
+  .diary-topbar-coach { position: relative; }
+  .diary-topbar-badge {
+    position: absolute; top: -6px; right: -2px;  /* stays inside the 2px gap */
+    min-width: 18px; height: 18px; padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: var(--radius-full);
+    border: 2px solid var(--bg);
+    background: var(--accent); color: white;
+    font-size: 10px; font-weight: 700; line-height: 14px;
+    text-align: center;
+    pointer-events: none;
+  }
   /* Only the first .diary-header-action needs the margin-left:auto to
      push the button group to the right; subsequent siblings sit next
      to it with a small gap. */
