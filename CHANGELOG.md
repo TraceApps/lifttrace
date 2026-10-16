@@ -24,6 +24,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Settings tests OpenAI Compatible without an API key.** Settings never tested a server that needs no key (Ollama, LM Studio), so its status stayed blank. **Test Connection** now has its own row; the setting filled in last tests on its own once everything it needs is there, and a test only counts for the settings it tested.
 - **When Trace gets no answer from your provider, it says what to check** instead of "Failed to fetch": the Base URL, or a server that has to allow this site on every answer, errors included, or an https:// address for a page on HTTPS. A reverse proxy that adds CORS headers only to successful answers hid the provider's real error, such as a model that can't use tools.
 
+### Translations
+
+- **Simplified Chinese is in the language picker**, translated by tinyarrow on Weblate. A phone set to Simplified Chinese opens the app in it; Traditional Chinese stays on English.
+
 ---
 
 ## [1.4.0-dev06] - 2026-10-14 (pre-release)
