@@ -21,7 +21,7 @@ test('the book rules cover every fixed surface', () => {
 });
 
 test('the tabletop rules cover every fixed surface', () => {
-  for (const sel of ['.dialog-backdrop', '.sheet-panel', '.as-panel', '.lb-panel']) {
+  for (const sel of ['.dialog-backdrop', '.sheet-panel', '.as-panel', '.lb-panel', '.diary-right-rail-overlay', '.rail-edge-tab']) {
     assert.match(css, new RegExp(`html\\.fold-tabletop [^{]*\\${sel}`), `tabletop: ${sel}`);
   }
 });

@@ -323,18 +323,42 @@
     _persistRailMode();
   }
   function railToggleOverlay() {
-    if (_railMode !== 'hidden') return;
+    if (_railPinnedShown) return;
     _railOverlay = !_railOverlay;
   }
 
-  // Viewport-width tracker so the edge tab + overlay only show
-  // where the desktop grid actually rendered. Same media query
-  // the .diary-body layout uses.
-  let _wideViewport = false;
-  function _syncWideViewport() {
-    if (typeof window === 'undefined') return;
-    _wideViewport = window.matchMedia('(min-width: 1280px)').matches;
-  }
+  // Room for the three-column desktop grid: session column, an exercise
+  // column at least 720px wide and the 340px Overview rail, with the gaps
+  // and page padding (the grid rule below). Measured from .diary-body
+  // itself, so a pinned sidebar and the scrollbar count. A 1280px viewport
+  // was the old gate: with less width than this the rail sat over the
+  // exercise list (100px of it in a 1280px window, more beside a sidebar).
+  const HUD_COL = 280, CENTER_MIN = 720, RAIL_COL = 340, GRID_GAP = 24;
+  const _pagePx = () => {
+    if (typeof document === 'undefined') return 16;
+    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--page-px')) || 16;
+  };
+  // A first guess from the window and the pinned sidebar, so the first
+  // frame is already right; _measureRail replaces it with the real width.
+  let _bodyW = typeof window === 'undefined' ? 0
+    : window.innerWidth - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')) || 0);
+  $: _railRoom = _bodyW >= HUD_COL + CENTER_MIN + RAIL_COL + 2 * GRID_GAP + 2 * _pagePx();
+  // Two columns (no rail): is the exercise column still 720px wide? Below
+  // that its cards stay linear (history above the sets, not beside them).
+  $: _centerRoom = _bodyW >= HUD_COL + CENTER_MIN + 20 + 2 * _pagePx();  // the two-column gap is 20px
+  // The pinned Overview rail is on screen: wide-content, room for its
+  // column, and the rail pinned. It carries Load Workout, Body Stats, Gym
+  // Tools and Workout Actions inline, so the page header holds only Add and
+  // Coach Feedback. Everywhere else (phones, tablets, phone landscape, an
+  // open foldable, a narrow desktop window, a hidden rail) the top-right
+  // strip carries every tool instead.
+  $: _railPinnedShown = $wideContent && _railRoom && _railMode === 'pinned';
+  // Wherever the pinned rail is not up at a wide-content width (rail hidden,
+  // or no room for its column), the edge tab opens the same widgets as an
+  // overlay, so This Week, Recent and the program card stay one tap away.
+  // An overlay left open closes when the pinned rail takes over, or when the
+  // window gets too narrow for it.
+  $: if ((_railPinnedShown || !$wideContent) && _railOverlay) _railOverlay = false;
 
   // Rail measurement — the pinned rail is portaled to document.body
   // so position:fixed resolves against the viewport (not against
@@ -351,6 +375,7 @@
   function _measureRail() {
     if (!_diaryBodyEl) return;
     const gridRect = _diaryBodyEl.getBoundingClientRect();
+    if (Math.round(gridRect.width) !== _bodyW) _bodyW = Math.round(gridRect.width);
     const colWidth = _railFixedWidthPx;
     const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
     const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
@@ -1397,13 +1422,13 @@
   // Rail measurement + viewport-width tracking. Kept in its own
   // onMount/onDestroy pair so the whole port stays self-contained.
   onMount(() => {
-    _syncWideViewport();
+    _measureRail();
     requestAnimationFrame(() => requestAnimationFrame(_measureRail));
     try {
       _railResizeObs = new ResizeObserver(_measureRail);
       if (_diaryBodyEl) _railResizeObs.observe(_diaryBodyEl);
     } catch { /* ResizeObserver unavailable — one-shot measurement stands */ }
-    const onResize = () => { _syncWideViewport(); _measureRail(); };
+    const onResize = () => { _measureRail(); };
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
@@ -2293,12 +2318,25 @@
 
 <div class="page">
   <!-- Action icons — fixed at top-right, same level as hamburger (NutriTrace pattern).
-       Hidden at html.wide-content, where the page header carries the
-       header actions instead; see .diary-topbar-actions display:none rule. -->
+       Up wherever the pinned Overview rail is not on screen, so every
+       Diary tool is a visible control at every width; where the rail
+       shows, it carries these tools and the page header has Add and
+       Coach Feedback (see _railPinnedShown). -->
+  {#if !_railPinnedShown}
   <div use:portal class="diary-topbar-actions">
+    <!-- Add: the FAB hides at html.wide-content, so from there up to the
+         pinned rail Add lives here; one Add at every width. It opens the
+         menu itself: handleAddFabClick skips the click that ends a FAB
+         drag, and keeps skipping until the FAB is touched again. -->
+    {#if $wideContent && exercises.length > 0}
+      <button class="btn-icon accent" on:click={() => showAddMenu = true}
+              aria-label={$_('diary_extra.add_menu_title')} title={$_('diary_extra.add_menu_title')}>
+        <span class="material-symbols-rounded">add</span>
+      </button>
+    {/if}
     <!-- Coach Feedback joins this strip wherever the strip is up: in the
          page header it sat under the strip's buttons. The header copy
-         below takes over at wide widths, where the strip is hidden. -->
+         below takes over where the pinned rail shows. -->
     {#if showCoachInboxButton}
       <button class="btn-icon accent diary-topbar-coach"
               on:click={openCoachInbox}
@@ -2321,6 +2359,7 @@
       <span class="material-symbols-rounded">more_vert</span>
     </button>
   </div>
+  {/if}
 
 
   <!-- Sticky-top container — keeps the page header AND the date sub-bar
@@ -2331,20 +2370,18 @@
   <!-- Page header — same pattern as Exercises/Programs/Statistics/Settings -->
   <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.diary.title')}</h1>
-    <!-- Wide-content Add-exercise header action. It sits in the same
-         header slot the Coach Feedback button uses so it reads with
-         the app's canonical header-action styling. The FAB
-         (position:fixed bottom-right) is the affordance everywhere
-         else and hides at html.wide-content, so this follows the same
-         class: one Add at every width, never none and never two. -->
-    {#if $wideContent && exercises.length > 0}
+    <!-- Header actions only where the pinned rail shows; everywhere else
+         the top-right strip owns this corner and carries them. The
+         FAB is Add below html.wide-content, the strip's Add from there
+         to the rail, this one with the rail: never none and never two. -->
+    {#if _railPinnedShown && exercises.length > 0}
       <button class="diary-header-action diary-header-add"
-              on:click={handleAddFabClick}
-              title="Add" aria-label="Add">
+              on:click={() => showAddMenu = true}
+              title={$_('diary_extra.add_menu_title')} aria-label={$_('diary_extra.add_menu_title')}>
         <span class="material-symbols-rounded">add</span>
       </button>
     {/if}
-    {#if showCoachInboxButton}
+    {#if _railPinnedShown && showCoachInboxButton}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}
               on:click={openCoachInbox}
               title={$_('coaching.sheets.coach_feedback')} aria-label={$_('coaching.sheets.coach_feedback')}>
@@ -2399,7 +2436,7 @@
        .diary-right-rail is display:none. Gated by
        html:not(.force-mobile-layout) so the desktop opt-out toggle
        still delivers the mobile flow at any width. -->
-  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'} bind:this={_diaryBodyEl}>
+  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'} class:rail-room={_railRoom} class:center-room={_centerRoom} bind:this={_diaryBodyEl}>
 
   <!-- Left column wrapper (desktop only via grid; mobile just stacks).
        Groups the session HUD (summary-bar + now-strip) into one grid
@@ -2973,15 +3010,15 @@
 
   </div><!-- /.diary-main-col -->
 
-  <!-- Right rail — program context. Only renders visibly at >=1280px
-       (mobile CSS sets display:none). NT-parity: pinned mode portals
+  <!-- Right rail, program context. Only renders where the grid has room
+       for its column and it is pinned (_railPinnedShown). NT-parity: pinned mode portals
        to document.body so position:fixed resolves against the viewport
        (not against .page-transition, which has will-change:transform
        and breaks fixed positioning for descendants). Hidden+overlay
        mode renders the same {@render railWidgets()} snippet as a
        fixed overlay outside .diary-body. The snippet itself is
        defined at outer scope below so both call sites can reach it. -->
-  {#if _railMode === 'pinned'}
+  {#if _railPinnedShown}
     <aside
       use:portal
       class="diary-right-rail"
@@ -2994,10 +3031,10 @@
 
   </div><!-- /.diary-body -->
 
-  <!-- Portaled edge tab: only visible on wide viewports when the rail
-       is hidden. Tap toggles the overlay open/closed. Chevron flips
+  <!-- Portaled edge tab: at wide-content widths wherever the pinned rail
+       is not up (hidden, or no room for its column). Tap toggles the overlay open/closed. Chevron flips
        to signal which action the tab performs next. -->
-  {#if _railMode === 'hidden' && _wideViewport}
+  {#if $wideContent && !_railPinnedShown}
     <button
       use:portal
       type="button"
@@ -3016,7 +3053,7 @@
   <!-- Hidden+overlay: portaled fixed slide-in that reuses the same
        widget snippet. Only mounts when the overlay is actually open
        so widgets don't double-instantiate under the pinned aside. -->
-  {#if _railMode === 'hidden' && _railOverlay && _wideViewport}
+  {#if _railOverlay && $wideContent && !_railPinnedShown}
     <aside use:portal class="diary-right-rail diary-right-rail-overlay" use:closeOnBack={() => _railOverlay = false} aria-label="Program context">
       {@render railWidgets()}
     </aside>
@@ -3030,7 +3067,7 @@
   <header class="rail-title">
     <span class="rail-title-text">Overview</span>
     <div class="rail-title-actions">
-      {#if _railMode === 'pinned'}
+      {#if _railPinnedShown}
         <button
           type="button"
           class="rail-ctrl-btn"
@@ -3041,6 +3078,8 @@
           <span class="material-symbols-rounded">right_panel_close</span>
         </button>
       {:else}
+        <!-- Pin only where the grid has room for the rail's column. -->
+        {#if _railRoom}
         <button
           type="button"
           class="rail-ctrl-btn"
@@ -3050,6 +3089,7 @@
         >
           <span class="material-symbols-rounded">push_pin</span>
         </button>
+        {/if}
         <button
           type="button"
           class="rail-ctrl-btn"
@@ -3144,6 +3184,9 @@
          column already owns session progress; two Session displays
          on one screen was redundant. Live stats stay in the summary
          bar over there.) -->
+    <!-- The tools below only in the pinned rail: wherever the overlay opens
+         instead, the top-right strip already has every one of them. -->
+    {#if _railPinnedShown}
     <button class="rail-action" on:click={openLoadWorkout}>
       <span class="material-symbols-rounded">library_books</span>
       Load Workout
@@ -3183,6 +3226,7 @@
         {/each}
       </div>
     </div>
+    {/if}
 {/snippet}
 
   <!-- Add FAB (visible only mid-workout — empty state has its own buttons).
@@ -4071,12 +4115,6 @@
     display: flex; align-items: center; gap: 4px;
   }
   .diary-header-action:hover { color: var(--accent); border-color: var(--accent); }
-  /* The fixed .diary-topbar-actions strip owns the header's right corner
-     wherever it shows (everywhere but html.wide-content, see its
-     display:none rule), so the header carries no actions there: Coach
-     Feedback moves into the strip and Add is the FAB, which also shows
-     everywhere but html.wide-content. */
-  :global(html:not(.wide-content)) .diary-header-action { display: none; }
   /* Full strength like its neighbors, not dimmed as in the header: a dim
      icon in this row reads as disabled. The icon and badge carry unread. */
   .diary-topbar-coach { position: relative; }
@@ -4955,7 +4993,9 @@
     :global(html.wide-content) .diary-right-rail-overlay {
       top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
       right: 12px;
-      bottom: 12px;
+      /* As tall as its cards, and never into the bottom nav or the rest
+         and hold timers (the pinned rail's max-height leaves the same room). */
+      bottom: auto;
       left: auto;
       width: 380px;
       max-width: calc(100vw - 24px);
@@ -4966,7 +5006,8 @@
       box-shadow: 0 20px 50px -20px rgba(0,0,0,0.35);
       padding: 12px;
       overflow-y: auto;
-      max-height: none;
+      max-height: calc(100dvh - var(--page-top, var(--safe-top)) - 60px - var(--hamburger-row, 0px)
+        - 12px - var(--nav-bar-h, 0px) - var(--safe-bottom, 0px) - var(--bottom-overlays, 0px));
       align-self: auto;
       animation: rail-slide-in 200ms ease-out;
     }
@@ -5020,6 +5061,12 @@
       border-color: var(--border);
     }
     :global(html.wide-content) .rail-ctrl-btn .material-symbols-rounded { font-size: 16px; }
+    /* On a touch screen (a tablet, an open foldable) the overlay's Close and
+       Pin get a full 40px target. */
+    @media (pointer: coarse) {
+      :global(html.wide-content) .rail-ctrl-btn { width: 40px; height: 40px; }
+      :global(html.wide-content) .rail-ctrl-btn .material-symbols-rounded { font-size: 20px; }
+    }
     /* Desktop empty-state card in the left HUD column. */
     :global(html.wide-content) .diary-body > .diary-hud-col > .hud-empty-card {
       display: flex;
@@ -5143,17 +5190,11 @@
       margin-top: -2px;
     }
 
-    /* Hide the portaled top-right icon strip at wide widths — the
-       right rail's Tools group now carries these three actions
-       (Gym Tools / Body Stats / More). Mirrors NT's diary pattern
-       of dropping mobile top surfaces when the rail owns them. */
-    :global(html.wide-content) :global(.diary-topbar-actions) {
-      display: none;
-    }
     /* Hide the bottom-right FAB stack on wide viewports — the Add
-       button now lives inline in the page header (.diary-header-add),
-       and the FAB overlaps the pinned rail column (and gets covered
-       outright by the overlay, which sits at z-index 40). */
+       button now lives in the top-right strip, or in the page header
+       (.diary-header-add) where the pinned rail shows, and the FAB
+       overlaps the pinned rail column (and gets covered outright by
+       the overlay, which sits at z-index 40). */
     :global(html.wide-content) .fab-group {
       display: none;
     }
@@ -5333,26 +5374,30 @@
   }
 
 
-  /* Two of the three columns below the desktop tier: desktop wants
-     280 + 720 + 340 = 1388px and a foldable open flat has 820. The session
-     column is what is in use while training, so it keeps its place beside the
-     exercise list, and the Overview rail stays a phone-style overlay. */
+  /* Two of the three columns wherever the grid has no room for the rail:
+     desktop wants 280 + 720 + 340 plus gaps and padding (1420px of
+     .diary-body, see _railRoom), and a foldable open flat has 820. The
+     session column is what is in use while training, so it keeps its place
+     beside the exercise list; the top-right strip carries the rail's tools.
+     A 1280px viewport used to be the gate, so a 1280px window, or any window
+     beside a pinned sidebar up to 1700px, put the rail over the exercises.
+     The pinned rail itself is not rendered without room (_railPinnedShown). */
+  :global(html.wide-content) .diary-body:not(.rail-room) {
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 20px;
+  }
+  /* The exercise card's own two-column split (history beside the sets) needs
+     the desktop center column. Below 1280px the center is about 520px on a
+     foldable, so the sets were left roughly 210px and the weight and reps
+     boxes clipped their own numbers; beside a pinned sidebar a desktop window
+     can have as little. The card stays linear and the inputs get the full
+     width. */
   @media (max-width: 1279px) {
-    :global(html.wide-content) .diary-body {
-      grid-template-columns: 280px minmax(0, 1fr);
-      gap: 20px;
-    }
-    /* The pinned rail is portaled to document.body, so a child selector on
-       .diary-body never reaches it. The overlay variant stays, since that is
-       the one the edge tab opens on purpose. */
-    :global(html.wide-content .diary-right-rail:not(.diary-right-rail-overlay)) { display: none; }
-
-    /* The exercise card's own two-column split (history beside the sets) needs
-       the desktop centre column. Here the centre is about 520px, so the sets
-       were left roughly 210px and the weight and reps boxes clipped their own
-       numbers. The card stays linear and the inputs get the full width. */
     :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone) {
       display: block;
     }
+  }
+  :global(html.wide-content) .diary-body:not(.center-room) .exercise-list :global(.ex-card.standalone) {
+    display: block;
   }
 </style>
