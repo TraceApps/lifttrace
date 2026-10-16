@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Trace's model lists are current.** Claude Haiku 5.5 and Gemini 3.8 Flash are the new defaults, Claude Sonnet 5.5 and Opus 5.5, GPT-6 Luna, GPT-5.6 Sol, and Gemini 3.1 Flash Lite are added, Gemini 3.1 Pro is listed as the preview it is, and Gemini 2.5 leaves the list (open to existing Google users only). A model you already chose keeps working; shut-down Gemini models switch to the default. The same lists as NutriTrace.
+
 ### Fixed
 
 - **Saving your Profile in the browser no longer depends on the browser's storage** (found with [nutritrace#269](https://github.com/TraceApps/nutritrace/issues/269)). When the browser refused this site storage, every save failed before reaching the server; when something else was waiting to go up, a profile save waited behind it, and failed if storage then stopped working. With a connection it now goes straight up, an earlier profile save still waiting is replaced rather than sent after it, and with neither a connection nor storage Profile says which. A save kept for later no longer makes the app forget who is signed in. Thanks @jsapede.

@@ -5,7 +5,7 @@
   import ConnectionStatus from './ConnectionStatus.svelte';
   import { aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, aiKeyVerified, quickLogEnabled, smartLogVoiceLang, envLocks as envLocksStore } from '../../stores/settings.js';
   import { isNative, getServerUrl } from '../../lib/platform.js';
-  import { AI_MODELS, AI_DEFAULT_MODELS, callAI, callAIProxy } from '../../lib/aiChat.js';
+  import { AI_MODELS, AI_DEFAULT_MODELS, renamedModel, callAI, callAIProxy } from '../../lib/aiChat.js';
   import { showSuccess, showError } from '../../stores/toast.js';
 
   export let expanded = false;
@@ -45,6 +45,12 @@
   let aiModelSelectVal;
   let aiCustomModelVal = '';
   {
+    // A model saved under a name that has since changed shows (and is kept)
+    // under its new name. Not for OpenAI Compatible: its names are the
+    // server's own.
+    if ($aiProvider !== 'oai-compat' && $aiModel && renamedModel($aiModel) !== $aiModel) {
+      aiModel.set(renamedModel($aiModel));
+    }
     const saved = $aiModel;
     const isPreset = AI_MODELS[$aiProvider]?.some(m => m.value === saved && m.value !== '__custom__');
     if (saved && !isPreset && $aiProvider !== 'oai-compat') {
@@ -128,6 +134,9 @@
     _shownModel = model;
     _shownProvider = provider;
     if (provider === 'oai-compat') return;
+    // A renamed model that arrives later (a sync, the startup load) shows
+    // under its new name too; chat sends it under that name either way.
+    model = renamedModel(model);
     const isPreset = AI_MODELS[provider]?.some(m => m.value === model && m.value !== '__custom__');
     if (model && !isPreset) {
       aiModelSelectVal = '__custom__';
@@ -320,7 +329,7 @@
               <div class="setting-row">
                 <span class="setting-label">{$_('settings_trace.labels.custom_model_id')}</span>
                 <input class="form-input-sm" type="text"
-                  placeholder={$aiProvider === 'gemini' ? 'gemini-3.5-flash' : $aiProvider === 'claude' ? 'claude-sonnet-5' : 'gpt-4o'}
+                  placeholder={$aiProvider === 'gemini' ? 'gemini-3.8-flash' : $aiProvider === 'claude' ? 'claude-sonnet-5-5' : 'gpt-5.6-terra'}
                   bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} on:change={_autoTest} disabled={envLocks.ai} />
               </div>
               <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:flex-start">
