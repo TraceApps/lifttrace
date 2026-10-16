@@ -7,288 +7,76 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0] - 2026-10-16
+
+Minor release. Big themes: LiftTrace on your watch, offline mode for gyms with no signal, coaching that asks first and talks back (with a conversation and set videos), layouts made for foldables and tablets, and an Android sync rebuilt so accounts, offline edits and deletes stay right. Plus a large security round.
+
+> **Upgrade note.** Update the Android app too: it carries a critical security fix, and coaching requests, the coach conversation and prescribed workouts that ask first need the 1.4.0 app (an older app shows none of them; answer on the web meanwhile). Coaching set up before this update stays as it is, with nothing to accept. Update checks are now off on a fresh install until you turn them on; existing installs keep checking, and `UPDATE_CHECK=off` keeps them off for good. If you sign in at a plain `http://` address, `INSECURE_COOKIES=1` now works from `.env` with the sample `docker-compose.yml`.
+
+### Added
+
+- **LiftTrace on your wrist.** A Wear OS app for watches running Wear OS 3 and up. It opens on the set in front of you, weight and reps already filled in, so logging one is a tap; edit sets, mark them done and add one from the watch. The session and rest timers are the same ones the phone keeps, the rest timer buzzes on your wrist, and a set logged on either shows on the other at once. Supersets alternate the way you train them, holds count down and log themselves, and what you lifted last time sits under the exercise name. Installed from GitHub, the watch app updates itself to the phone's release, on its charger. [Wear OS](https://traceapps.github.io/docs/lifttrace/wear/)
+- **Offline mode** (the same idea as [nutritrace#211](https://github.com/TraceApps/nutritrace/issues/211)). In a gym with no signal the web app still opens, today's workout is there, and you keep logging: sets, notes, body stats, cardio, your own exercises, progress photos and settings. Changes go up on their own when the connection returns, merged set by set rather than one device overwriting the other, and the menu button shows an amber cloud while anything waits. What needs a connection (Trace, exercise videos, catalog imports, editing programs, admin) says so, and a change your server refuses is named in plain words and logged in Settings, Diagnostics. [Train without a connection](https://traceapps.github.io/docs/lifttrace/features/#offline)
+- **Coaching asks first.** A coach (a Trainer, or an admin) sends a request with an optional note, and nothing of yours is shared until you accept it on the new Coach tab in Programs. You have one coach at a time, and you can leave yours from their name on the Coach tab; the programs and prescriptions they gave you go with them. An admin's trainer picker, and choosing a coach when creating or inviting a member, send a request too.
+- **A conversation between coach and client**, beside the notes on workouts and exercises. Text and a photo per message, read receipts, unread counts, and deleting your own message. It opens offline, and a message written with no connection is sent once when it returns. Photos are served only to the two of you, and Trace never reads it.
+- **A prescribed workout asks before it loads.** On the Diary, a workout your coach prescribes shows Accept and Decline; once accepted, Load works as before. Your coach sees Waiting for an Answer, Accepted or Declined, and a declined workout is never reported as missed. Prescriptions from before this update count as accepted.
+- **Film a set and have your coach review it** ([#57](https://github.com/TraceApps/lifttrace/issues/57), requested by @backmind). Film a set in the app or pick a clip you have. Your coach pauses where the problem is and leaves a note stamped at that moment, so tapping "0:04" jumps straight there, and you can reply from the player. Only you and your own coach can open a clip; an admin is nobody's exception. [Set videos](https://traceapps.github.io/docs/lifttrace/set-videos/)
+- **Coaching notifications**, in Settings, Notifications, Coaching: New Message (with an optional email, at most one per conversation every 30 minutes), New Recommendation and Client's Answer. They say who, never what was written.
+- **Preliminary foldable support.** Half open like a book, Settings puts its section list on one side of the crease; dialogs, sheets, the rest timer and Trace stay off the fold; menus open on the roomier side. Programs and Exercises split into a list and a preview on an opened foldable or a tablet, and the Diary, Add Exercise and Progress Photos use the extra width. Diagnostics reports the hinge. The Diary, charts and photos still cross the fold.
+- **Reading your training over a date range, for AI clients and scripts** ([#93](https://github.com/TraceApps/lifttrace/pull/93), by @kgenerozov). New `get_workouts` and `get_body_stats` MCP reads answer a whole range at once, recent workouts, records and per-exercise progress take the same bounds, and the REST API has the same filters. [MCP tools](https://traceapps.github.io/docs/reference/mcp-tools/)
+- **Settings has a Support page**, next to About: Ko-fi and GitHub Sponsors, plus free ways to help.
+
 ### Changed
 
-- **Trace's model lists are current.** Claude Haiku 5.5 and Gemini 3.8 Flash are the new defaults, Claude Sonnet 5.5 and Opus 5.5, GPT-6 Luna, GPT-5.6 Sol, and Gemini 3.1 Flash Lite are added, Gemini 3.1 Pro is listed as the preview it is, and Gemini 2.5 leaves the list (open to existing Google users only). A model you already chose keeps working; shut-down Gemini models switch to the default. The same lists as NutriTrace.
+- **Update checks are off until you turn them on, and your server does the asking.** Every browser and phone used to ask GitHub every 4 hours. Setup now asks, and a fresh install contacts nothing on its own. Reported on r/selfhosted.
+- **Fonts are served by your own instance.** The app loaded Inter and its icon font from Google on every page load, so Google saw the address of everyone who opened it. Reported on r/selfhosted.
+- **Trace's model lists are current.** Claude Haiku 5.5 and Gemini 3.8 Flash are the new defaults; Claude Sonnet 5.5 and Opus 5.5, GPT-6 Luna, GPT-5.6 Sol and Gemini 3.1 Flash Lite are added; Gemini 3.1 Pro is listed as the preview it is; Gemini 2.5 leaves the list (open to existing Google users only). A model you already chose keeps working, and shut-down Gemini models switch to the default.
+- **"Client" is the word for the person a coach coaches** (it was "member" or "coachee"), and a program your coach assigned opens read-only: follow it, and your coach changes it. The Android app without a server says Coaching Needs a Server instead of showing empty lists.
+- **Trace's attach button offers Camera or Gallery on phones**, the same as the other Trace apps.
+- **The in-app updater reuses an update it already downloaded**, so coming back to Updates goes straight to Install. Older downloads are cleared.
+- **A program's preview can open a workout directly**, with the same actions as the program's own page.
+- **Importing workouts from other apps is no longer marked Experimental.**
 
 ### Fixed
 
-- **The Diary compares an exercise with your previous session, not the one you're logging.** Once a set was ticked, the card's Last line read "Last (today)" with your own sets, its volume change compared today with itself, and loading a workout or adding the exercise again copied today's sets; an earlier day compared itself with later ones. It now uses the last day before the one you're on, like the watch's Last time.
-- **The Coach Feedback button no longer hides under the Diary's top-bar buttons on phones.** For a member with a coach, it sat under Body Stats and More, so a tap on it opened More. It's now the first button in that row, with its unread count on its corner.
-- **The Diary's Overview column no longer covers your sets in a smaller desktop window.** In a window under about 1420px wide, or under about 1700px with the sidebar pinned, it sat over the right side of the exercise list, check buttons included. It now shows only where it fits; narrower windows get the tablet layout, with the Diary's tools in the top bar and the Overview behind the tab on the right edge.
-- **The Diary's Add button in the page header works after you've moved the round + button.** Once the + had been dragged on a phone, that Add did nothing on a wider screen until the Diary was reopened.
-- **Saving your Profile in the browser no longer depends on the browser's storage** (found with [nutritrace#269](https://github.com/TraceApps/nutritrace/issues/269)). When the browser refused this site storage, every save failed before reaching the server; when something else was waiting to go up, a profile save waited behind it, and failed if storage then stopped working. With a connection it now goes straight up, an earlier profile save still waiting is replaced rather than sent after it, and with neither a connection nor storage Profile says which. A save kept for later no longer makes the app forget who is signed in. Thanks @jsapede.
-- **Finishing first-run setup no longer clears your name and email** (found with [nutritrace#269](https://github.com/TraceApps/nutritrace/issues/269)). Setup saved your gender and birthday to the account in a way that emptied every other profile field, so the full name and email entered when creating the admin account were gone. A profile save now leaves alone any field it doesn't include. Thanks @jsapede.
-- **Reminders set just after midnight fire.** The server read the hour after midnight as 24, so a workout reminder, streak alert or weekly summary set between 00:00 and 00:59 never came. One set just before midnight still comes when the check runs just after it, and counts for the day it was set on: a weekly summary set for 23:30 or later no longer goes out that morning instead.
-- **The current streak in Statistics counts the right days around midnight.** On a server not set to UTC, it started from tomorrow or from yesterday for part of every night, so a streak could read 0, or leave out the workout just logged.
-- **Trace logs and looks up dates in New Zealand, Tonga, Samoa and Kiritimati.** At UTC+13 and +14 every date failed Trace's date check, so a dated workout, cardio session or body stat was refused and the dates of a question were ignored.
-- **Cardio minutes by week count in the right week.** In Statistics > Cardio, when the server's time zone (or the phone's, offline or without a server) was west of UTC, such as anywhere in the Americas, a Monday session counted in the week before and each week was labeled with a Tuesday.
-- **Signing in with SSO finishes on phones with an older Android System WebView.** On older WebView versions (seen on 124), the app didn't recognize the sign-in return from the browser, so the sign-in page closed and the app stayed signed out.
-- **OpenAI Compatible accepts a Base URL with or without `/v1`**, or the whole `/v1/chat/completions` address, in Settings and in `AI_BASE_URL` (found with [notetrace#18](https://github.com/TraceApps/notetrace/issues/18)). Given with `/v1`, every request went to `/v1/v1/chat/completions`.
-- **Settings tests OpenAI Compatible without an API key.** Settings never tested a server that needs no key (Ollama, LM Studio), so its status stayed blank. **Test Connection** now has its own row; the setting filled in last tests on its own once everything it needs is there, and a test only counts for the settings it tested.
-- **When Trace gets no answer from your provider, it says what to check** instead of "Failed to fetch": the Base URL, or a server that has to allow this site on every answer, errors included, or an https:// address for a page on HTTPS. A reverse proxy that adds CORS headers only to successful answers hid the provider's real error, such as a model that can't use tools.
+- **The Android app's sync is rebuilt** ([#139](https://github.com/TraceApps/lifttrace/issues/139), reported by @surfingbytes). Programs, exercises, workouts and body stats deleted on the web leave the phone, and starter programs you deleted stay gone. Signing in as another account keeps each account's data, settings and offline changes apart. An offline edit no longer overwrites a newer one made elsewhere, or stops later changes from arriving, and a change the server refuses is named instead of dropped. What only the phone has is never overwritten by a sync, Upload sends each workout as its own session (body stats and cardio included), Disconnect and Replace with Server ask before dropping anything unsent, and a sync with nothing new no longer reloads the page every few seconds.
+- **Several workouts on one day stay apart** ([#142](https://github.com/TraceApps/lifttrace/issues/142), reported by @surfingbytes). The Android app no longer jumps back to the day's first workout while you log a later one. Trace, Copy From Yesterday and a workout logged offline or before the first sync go into the workout you mean, and saving no longer puts back a name, notes or finished mark changed on another device.
+- **Pictures and videos uploaded to an exercise show in the Android app** ([#141](https://github.com/TraceApps/lifttrace/issues/141), reported by @rgpag1), connected or local, and on the web under a subpath. Behind a login proxy (basic auth, Authelia, VoidAuth) they are no longer kept broken for offline use.
+- **The installed app works when LiftTrace is served from a subpath** ([#129](https://github.com/TraceApps/lifttrace/pull/129), by @kgenerozov). With `BASE_URL` set, every visit after the first sent requests to the site root.
+- **The Android app's local mode can import the exercise library from Settings** ([#133](https://github.com/TraceApps/lifttrace/issues/133), reported by @daniel-bernardino747), instead of only in the setup wizard.
+- **Statistics counts the right days.** The heatmap no longer marks a day you didn't train ([#124](https://github.com/TraceApps/lifttrace/issues/124)) and the date picker's dots follow the month ([#125](https://github.com/TraceApps/lifttrace/issues/125)), both reported by @Scorch-Light. Clearing a workout clears the day ([#120](https://github.com/TraceApps/lifttrace/pull/120), by @backmind), a cardio-only day counts toward your streak ([#115](https://github.com/TraceApps/lifttrace/pull/115), by @benniemosher), the current streak and cardio weeks hold around midnight and west of UTC, and the Last Workout card and Recent Workouts appear.
+- **The Body Measurements chart puts each reading on its own day** ([#131](https://github.com/TraceApps/lifttrace/issues/131), reported by @Scorch-Light).
+- **The body map counts each exercise's own muscles** ([#110](https://github.com/TraceApps/lifttrace/issues/110), reported by @kavemang). Nine of wger's Latin muscle names were not recognized, so lunges read as a generic leg day.
+- **Search ignores accents**, in the library, the exercise picker, Statistics, Settings search, Trace, the MCP tools and imports: "elevacion" finds "Elevación lateral".
+- **SSO is sturdier.** An email that already has an account no longer creates a second one when the provider doesn't mark it verified (Authentik's default); Authelia 4.39 and later works out of the box; the callback works at the address older docs gave; `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings; and sign-in finishes on older Android WebViews.
+- **Signing in at a plain `http://` address says what's wrong** instead of looping back to the login page, and links to the fix.
+- **Trace works with more providers.** OpenAI-compatible endpoints that stream unless told not to ([nutritrace#258](https://github.com/TraceApps/nutritrace/issues/258)), that check every field, or that have no tool support ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259)) all work, thanks @jsapede for the reports. A Base URL with `/api` ([#118](https://github.com/TraceApps/lifttrace/issues/118), reported by @kgenerozov), with or without `/v1`, and servers that need no key all work; no answer says what to check. Trace opens on your newest messages and handles dates at UTC+13 and +14.
+- **The Diary does what you tapped.** The week strip and Recent load the day ([#111](https://github.com/TraceApps/lifttrace/pull/111), by @benniemosher), moving an exercise keeps its superset together, a coach's note stays on its exercise after a reorder, the Load Type chooser opens next to its exercise ([#116](https://github.com/TraceApps/lifttrace/issues/116), reported by @kgenerozov), and the Trace button no longer covers sheets and dialogs.
+- **The Diary compares an exercise with your previous session, not the one you're logging.** Once a set was ticked, the Last line showed your own sets from today, its change compared today with itself, and loading a workout copied today's sets. It now uses the last day before the one you're on, like the watch and the PR badges.
+- **The Diary's buttons stay where you can reach them.** On phones the Coach Feedback button sat under the top-bar buttons, so tapping it opened More; in a desktop window under about 1420px wide the Overview column covered the right side of your sets; and Add in the page header did nothing after the round + button had been dragged.
+- **Importing a FitNotes export works in kilos and with day-first dates**, and the language picker shows the language the app is actually in. Both reported on r/selfhosted.
+- **The bottom nav's active tab follows your accent color** ([#114](https://github.com/TraceApps/lifttrace/pull/114), by @benniemosher).
+- **Saving your Profile no longer depends on the browser's storage, and first-run setup keeps your name and email** (found with [nutritrace#269](https://github.com/TraceApps/nutritrace/issues/269), thanks @jsapede).
+- **Reminders set between midnight and 1 AM fire.**
+- **A file of the wrong type, or over the size limit, is turned away with a clear message**, and the web's "A New Version Is Available" banner means what it says and Reload works.
 
 ### Translations
 
-- **Simplified Chinese is in the language picker**, translated by tinyarrow on Weblate. A phone set to Simplified Chinese opens the app in it; Traditional Chinese stays on English.
-
----
-
-## [1.4.0-dev06] - 2026-10-14 (pre-release)
-
-A dev pre-release of the 1.4.0 minor. Coaching that asks the client first, with a conversation between coach and client; the watch app updating itself; the phone and watch keeping each other's sets; and Trace and the Diary saving into the workout you mean, online and offline.
-
-### Added
-
-- **Coaching asks first.** A coach (a Trainer, or an admin) sends a request with an optional note, and nothing of yours is shared until you accept it on the new Coach tab in Programs. You have one coach at a time: to accept another, leave yours first. A coach can take a request back and sees declines and departures from the last week. An admin's trainer picker in Settings, Users sends a request too, instead of pairing outright, and so does choosing a coach when creating or inviting a member; an account created or invited with no coach chosen gets no request. Coaching set up before this update stays as it is, with nothing to accept. An Android app from before this update shows no requests; answer them on the web or after updating.
-- **You can leave your coach**, from their name on the Coach tab in Programs (Leave Coach). Only the coach or an admin could end it before. As when a coach ends it, the prescriptions and programs that coach gave you are removed.
-- **A conversation between a coach and their client**, beside the notes on workouts and exercises, which stay where they are. Text up to 4,000 characters and a photo per message, with read receipts, unread counts on the Coach and Coaching tabs and a dot on Programs, and deleting your own message ("Message deleted"). The client finds it on the Coach tab, the coach on the client's page in Coaching. It is kept on the device and opens with no connection; a message written offline shows as waiting and is sent once when the connection returns. Photos are served only to the two people. When coaching ends, the client can still read it and nobody can write. Trace never reads it.
-- **A prescribed workout asks before it loads.** On the Diary, a workout your coach prescribes shows Accept and Decline, on its day and under Waiting for Your Answer on any day; once accepted, Load works as before, and a declined one goes away. Your coach sees Waiting for an Answer, Accepted or Declined; a declined workout is never reported as missed, and giving it again (or changing which workout it is) asks again. Answering works offline and goes when the connection returns. Prescriptions from before this update count as accepted, so nothing asks again. An Android app from before this update still shows Load, without asking.
-- **Notifications for coaching requests and answers**, in Settings, Notifications, Coaching, on by default and only for people in coaching: New Message (with Email Me Too, off by default, at most one email per conversation every 30 minutes), New Recommendation (a coach asks to coach you, or prescribes a workout) and Client's Answer (someone accepts or declines your request or a workout you prescribed, or leaves). They say who, never what was written.
-- **The watch app updates itself to the phone's release.** Installed from GitHub, it used to stay on whatever version it was put on with adb. Now, when the phone updates, the watch fetches the same release's watch app and installs it. The first time, the watch asks you to allow LiftTrace to install apps; after that it updates without a tap, while the watch is on its charger.
-
-### Changed
-
-- **Importing workouts from other apps is no longer marked Experimental.**
-- **"Client" is the word for the person a coach coaches**, in Coaching, the notifications and the program menu (it was "member" or "coachee"). The Member role keeps its name. The Coaching tab, its sheet titles and its lists can now be translated.
-- **The Android app without a server says Coaching Needs a Server** on Coaching and Coach, with a button to connect one, instead of showing empty lists.
-
-### Fixed
-
-- **The workout timer shows the right time with a watch paired.** Started or paused on the phone, it reached the watch as having started in 1970, so both showed hundreds of thousands of hours. A timer already stuck like that clears itself.
-- **A set marked done on the watch stays done.** Saving anything on the phone while it still showed that set as not done put it back. A save now changes only the sets and exercises it changed, which also covers two phones, or a phone and a browser, on the same workout.
-- **The phone and the watch show each other's sets at once.** A set logged on one shows on the other right away while it's open, rather than at its next refresh, up to 45 seconds later. Neither checks while its screen is off.
-- **The Android app no longer syncs every few seconds on the Diary, Programs and Statistics.** Each sync told the open page to reload, and the reload's reads started the next sync, even when nothing had changed. A sync that brings nothing now leaves the page alone (the coach's feedback still refreshes), and a read right after a sync doesn't start another. Without user accounts, the program being followed no longer counts as a change on every sync.
-- **Trace answers with models that can't use tools** ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259)). With an OpenAI-compatible model that has no tool support, every chat failed with `tool use is not supported`. Trace now asks again without tools and says once that the model can't log workouts or look things up. Thanks @jsapede for the report.
-- **Messages show on phones while Trace is open.** They were hidden behind it. Long messages wrap instead of running off the screen.
-- **Pictures, GIFs and videos uploaded to an exercise show in the Android app**, connected to a server or not ([#141](https://github.com/TraceApps/lifttrace/issues/141), reported by @rgpag1). They were blank wherever exercises show their picture, while the built-in libraries' pictures showed. They also show on the web when LiftTrace is served from a subpath (`BASE_URL`).
-- **The Android app stays on the workout you're logging when you have more than one that day** ([#142](https://github.com/TraceApps/lifttrace/issues/142), reported by @surfingbytes). Logging a set in a later workout switched the Diary back to the day's first one a few seconds later.
-- **Copy From Yesterday fills the workout you're on.** On the day's second or later workout, it replaced the day's first one instead (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **`INSECURE_COOKIES` set in `.env` reaches the app with the sample `docker-compose.yml`.** It was ignored there; only uncommenting the compose file's `INSECURE_COOKIES=1` line worked. The README, DEPLOY.md, `.env.example` and `docker-compose.yml` now explain it the same way as the other Trace apps: what it does, why signing in at a plain `http://` address loops without it, and to leave it off behind HTTPS. When the browser drops the sign-in cookie on an HTTPS address, "How to fix it" on the sign-in screen opens the part of the reverse proxy guide about it.
-- **Trace logs into the workout it means.** On a day with more than one workout, Trace saved sets, exercises and templates into the day's first workout, which took the other's name and exercises. It now uses the workout open in the Diary or the one it names, keeps its notes, finished mark and program week, shows what it adds in the Diary at once, and loads a template as a new workout when the open one already has exercises (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **Switching to another workout of the day sticks in the Android app.** A sync finishing at that moment could switch the Diary back (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **A workout started offline in the Android app keeps its tab when it reaches the server.** The tab disappeared for a few seconds (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **On the web, workouts started or changed offline stay apart.** A new workout started offline, or while changes waited to sync, opened as the day's first workout, so what you logged next went there and could replace a change waiting to sync. Offline, switching to a workout not opened before showed another one, and a deleted workout's tab stayed until a reload (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **A workout logged before the app has that day's workouts stays a workout of its own.** Logged on the phone before its first sync finished, offline while another device logged the same day, or on the web on a day not opened before, it went into the day's first workout, which took its name and lost its notes (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **Saving a workout no longer puts back details changed elsewhere.** A save from a Diary opened before the workout's name, notes, finished mark or program changed on another device, or through Trace, put the old ones back (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **An exercise or set Trace adds with no connection is no longer saved twice** once the Diary saves that workout (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **On the web, workouts stay readable offline after a save made online.** Any online save dropped the browser's copy of every workout, so going offline right after showed an empty Diary, and anything logged then went into the day's first workout, wiping its name and notes (found while fixing [#142](https://github.com/TraceApps/lifttrace/issues/142)).
-- **Pictures and videos on your exercises no longer stay broken behind a login proxy.** Pre-cache media for offline fetched them without the browser's sign-in. Behind basic auth they were never kept for offline use; behind a proxy that signs you in on another address (Authelia, VoidAuth), its sign-in page was kept in their place, and they showed broken, online too, for up to 90 days. The same happened once a proxy's session ran out with its sign-in page on the same address, and for a picture whose file was gone. Pictures broken that way show again (found while fixing [notetrace#22](https://github.com/TraceApps/notetrace/issues/22)).
-- **Uploaded pictures and videos are kept for offline use when LiftTrace is served from a subpath** (`BASE_URL`). Only an install at the root kept them, so with no connection your exercises' and profile pictures showed broken, even after Pre-cache media for offline.
+- **Simplified Chinese is in the language picker**, translated by tinyarrow on Weblate. A phone set to Simplified Chinese opens the app in it.
+- **Spanish** updated by Hernan Lopez on Weblate.
 
 ### Security
 
-- **A coach no longer receives every unpaired member's account record.** The list for adding a client carried each member's email, birthday, gender and the rest; it now carries only an id and a name.
-- **An admin no longer sees every coach's activity, or a client's workouts, prescriptions and set videos, without being their coach.** Each coach's activity feed shows their own clients' events, and only while coaching them. Admins keep the pairing controls in Settings, Users. Every coach route now checks for an active pairing the client accepted, and refuses another coach's client, a request still waiting and coaching that ended alike.
+- **Programs and their workouts stay with the account that made them.** Any signed-in account could open, rename or delete someone else's program and its workouts, and a logged workout could point at another account's program; every phone also received every account's program workouts.
+- **Coaching data reaches only an active coach the client accepted.** A coach received every unpaired member's account record, and an admin saw every coach's activity and a client's workouts and set videos without coaching them.
+- **The Android app no longer answers as the previous account after switching.** A leftover sign-in cookie took priority over the app's own session; the server now reads the app's session first and the app clears the cookie on an account change. SSO on Android also no longer passes the session token through the `lifttrace://` link.
+- **The radio and music server proxies pass only audio and music data, and require signing in.** A station link to a web page ran that page as LiftTrace, station redirects could reach inside your network, and the music proxy passed any path through. Push notifications and the NutriTrace link never reach cloud-metadata addresses.
+- **Password reset, invite and coach emails link to `PUBLIC_URL`** (or an address an admin uses), never the request's host, and everything an email shows is escaped.
+- **Uploaded files get unguessable names.**
+- **Dependency updates:** @capacitor/android, @capacitor/ios and @capacitor/core 8.5.3 close [GHSA-rvm3-566m-v7fv](https://github.com/advisories/GHSA-rvm3-566m-v7fv) (critical; the Android app was exposed through links in Trace replies, so update it). proxy-addr 2.0.8 closes [GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h) (critical; not exposed, `trust proxy` is unset). @modelcontextprotocol/sdk 1.32.1 closes [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h) (high; not exposed, LiftTrace runs no MCP client). brace-expansion 5.0.12 ([GHSA-q2hr-2g5m-vwhr](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr), high) and source-map-js 1.2.2 ([GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q), high) are build tooling only. nodemailer 10.0.12 closes [GHSA-prgh-xp8r-p3m5](https://github.com/advisories/GHSA-prgh-xp8r-p3m5) and [GHSA-v53p-9fqp-m79j](https://github.com/advisories/GHSA-v53p-9fqp-m79j) (high: slow parsing of crafted addresses; the addresses LiftTrace sends to come from signed-in accounts) and three moderate ones ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v), [GHSA-8vvx-rff5-p5rq](https://github.com/advisories/GHSA-8vvx-rff5-p5rq), [GHSA-g57g-f23g-4646](https://github.com/advisories/GHSA-g57g-f23g-4646)). undici 6.29.0 closes [GHSA-rfgv-xxqx-mfg5](https://github.com/advisories/GHSA-rfgv-xxqx-mfg5) (high) and [GHSA-3wwx-pv8p-q78v](https://github.com/advisories/GHSA-3wwx-pv8p-q78v) (moderate), both WebSocket-only; LiftTrace opens no WebSocket. Moderate: fast-uri 3.1.8 ([GHSA-hrr3-gc8f-f4qj](https://github.com/advisories/GHSA-hrr3-gc8f-f4qj)), ip-address 10.7.2 ([GHSA-j6r3-76f7-8jcv](https://github.com/advisories/GHSA-j6r3-76f7-8jcv)), multer 2.4.0 ([GHSA-3pph-fpjx-jg34](https://github.com/advisories/GHSA-3pph-fpjx-jg34)) and markdown-it 15.0.2 ([GHSA-253c-mchw-3w2r](https://github.com/advisories/GHSA-253c-mchw-3w2r); not exposed, Trace renders with links off).
 - `npm audit` reports 0 vulnerabilities for the app and the server.
-
----
-
-## [1.4.0-dev05] - 2026-10-09 (pre-release)
-
-A dev pre-release of the 1.4.0 minor. Android sync rebuilt so accounts, offline edits and deletes stay right, programs that stay with the account that made them, SSO fixes, and security updates, a critical one in the Android app among them.
-
-### Changed
-
-- **A program your coach assigned opens read-only.** Its workouts can be followed but not changed; your coach changes them.
-- **Trace's attach button offers Camera or Gallery on phones and in the Android app**, the same as the other Trace apps. Each choice goes straight to the camera or the photo picker; on a computer the button opens the file picker. You can still pick several photos at once.
-
-### Fixed
-
-- **A program deleted on the web disappears from the Android app too** ([#139](https://github.com/TraceApps/lifttrace/issues/139), reported by @surfingbytes). The app kept showing deleted programs, the starter ones included, because its sync never heard of a deletion. Programs deleted before this update leave the phone on its next sync, with no app update needed. The same goes for a deleted custom exercise, and for workouts, body stats and a Trace chat cleared on the web. The starter programs also no longer come back after a server restart once you've deleted them all.
-- **The Android app's local mode can import the exercise library from Settings** ([#133](https://github.com/TraceApps/lifttrace/issues/133), reported by @daniel-bernardino747). Settings, Exercise Catalog was hidden there, so a library skipped or failed in the setup wizard could only come back by wiping the app. Switching a source off now hides it on the phone too, Clear and Delete all say how many, the JSON template downloads on Android, and an empty library's Go to Settings button opens the catalog.
-- **The installed app works when LiftTrace is served from a subpath** ([#129](https://github.com/TraceApps/lifttrace/pull/129), by @kgenerozov). With `BASE_URL` set (say `/lifttrace`), every visit after the first sent the app's requests to the site root instead, online and offline.
-- **The Body Measurements chart puts each reading on its own day** ([#131](https://github.com/TraceApps/lifttrace/issues/131), reported by @Scorch-Light). Body fat and the other overlays drifted off their dates, and with none picked the chart had no key and no numbers. The chart now runs by date, so a long break between weigh-ins shows as one. Dots on every line chart are round again.
-- **Signing in through SSO with an email that already has an account no longer creates a second account.** When the identity provider doesn't mark the email verified (Authentik's default since 2025.10), the sign-in is refused with a pointer to link the provider from your profile, instead of landing you in a new, empty account.
-- **SSO works with Authelia 4.39 and later out of the box.** Email, username and groups are read from the provider's userinfo when the ID token leaves them out.
-- **The SSO callback also works without the provider number, and at `/api/oidc/callback`**, the address older docs gave. Both used to end on a blank page.
-- **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.** It was ignored unless a provider was also defined through env vars.
-- **Signing in on a plain-HTTP address says what's wrong instead of looping.** The sign-in cookie only works over HTTPS unless `INSECURE_COOKIES=1` is set, so signing in from an `http://` address dropped you back on the login page with no error. The sign-in and setup screens now explain it and link to the fix, the app no longer flashes before sending you back, and the server log says so too.
-- **The app no longer loads behind the sign-in screen.** Opened signed out, it asked the server for your data and was refused before the sign-in screen replaced it. It now waits to learn who is signed in.
-- **Trace set up through the server's environment variables shows as set up in the Android app.** The app asked without its sign-in, so the server refused and Trace looked unconfigured.
-- **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([nutritrace#258](https://github.com/TraceApps/nutritrace/issues/258), reported by @jsapede). Chat answers failed with "Unexpected non-whitespace character after JSON"; every request now asks for a single answer.
-- **Trace's tools work with OpenAI-compatible endpoints that check every field** ([nutritrace#259](https://github.com/TraceApps/nutritrace/issues/259), reported by @jsapede). With AI set up on the server, a chat that used a tool could fail with `"name" is not supported by this endpoint`.
-- **Programs, program workouts, exercises and cardio made offline in the Android app reach the server as made.** A program workout added to a program made offline, or a logged workout using an exercise made offline, could arrive pointing at another account's, and a program made on the web meanwhile could stay missing from the phone. This also holds for changes made right after reconnecting, before the app had synced, and for anything made while the answer was lost on the way back, online or offline, which used to be made twice (on the phone too, when it was edited before the answer came). One deleted on the web in between isn't made again. Programs, program workouts and exercises an earlier version made offline are no longer duplicated after updating, and an edit queued by it never goes to another row with the same name.
-- **An offline edit in the Android app no longer stops later changes from reaching it.** A program, program workout, exercise or body stat edited offline ignored every later change made on the web.
-- **Settings reset on the web, and programs a coach unassigns, leave the Android app too.** So do other accounts' program workouts that older versions sent to every phone, and what's deleted on the server reaches a phone that pulls everything again.
-- **What only the Android app has is never written over or deleted by a sync:** programs, program workouts, exercises, logged workouts and body stats made before it was connected, kept after Disconnect, or left by an upload that failed. Body stats on a day the server also has are merged. Changing one of these rows sends it to the server first. A change made offline also survives the row being deleted on the web before it goes up.
-- **The Android app says when the server refuses a change made offline**, and shows the server's version again. It used to drop the change without a word and keep showing it. Deleting something the web already deleted is done quietly.
-- **A sync in the Android app waits for the one before it, and a request that never answers no longer holds it up**, along with sign-in. A program you started offline no longer flips back. The first sync of a long history finishes on a slow connection: the server compresses it, and a sync no longer starts a second download beside one still running.
-- **Signing in to the Android app as another account keeps each account's data apart.** The first account's data stayed on screen with only the second's recent changes on top, a sync still running landed in the second account's data, and changes it made offline were sent as the second account's. Settings the app held for the first account (notification tokens, the radio password, favorites, rest times) carried over and could be saved as the second's. Now the phone shows the second account's data, fetched fresh. If the first account left changes that haven't gone up, you're asked first: cancel to keep them for that account, or sign in anyway and they're discarded. The same account at another address of the same server is still the same account; when a server can't say whether it's the same one (an older server, or one that doesn't answer), you're asked, instead of the phone's data going to the same account number on another server. Data kept by an earlier version belongs to the account last signed in. If the app can't tell whose data the phone holds, it shows none of it and offers Retry or Sign Out. **Signing out** saves a setting changed just before, ends the session (the app went on syncing that account in the background, and opened it again on the next launch), and clears the account's settings from the app; reminders on the phone follow the account signed in.
-- **An edit made offline no longer overwrites a later one made elsewhere**, in the Android app and the web app. A program renamed offline replaced a rename made on the web a minute later, once it went up. Now the newer edit of each field stays, for programs, program workouts, exercises, workouts (their exercises and sets still merge one by one), body stats and settings, and the app shows what stayed. A delete made offline doesn't remove something changed elsewhere after it, a program whose workout was edited after it included: that stays, comes back, and the refused delete is reported.
-- **Signing out of the Android app with no connection goes straight to the sign-in screen**, also when the app is opened again offline. It showed a blank screen, then the account's data, and changes still waiting (and the sign-out itself) went up later with no one signed in. They now wait for that account's next sign-in.
-- **The first-run welcome screen no longer comes back after Disconnect.**
-- **A workout your coach prescribes opens in the Android app**, online or offline, even from a program you don't follow, and logging it keeps its program and week.
-- **The Android app shows your active program for every account**, not only the first one made on the server. On a server without user accounts, the program you follow now syncs both ways.
-- **A program or exercise made offline in the Android app is yours right away.** For any account but the server's first, a new program showed as someone else's, without Rename, Delete or editing its workouts, until it synced. Rest times, load types and favorites set for a new exercise offline stay with it.
-- **On a server without user accounts, your programs offer Rename, Duration and Delete.** Only the starter programs stay read-only.
-- **On a server without user accounts, Delete all custom exercises works.** It was refused as "auth required" on the web, and in the Android app, done offline, it signed the app out and held every change made after it.
-- **Connecting the Android app to a server: Upload sends each logged workout as its own session**, so two on one day stay two and a workout already on the server keeps its own name, notes and time. Body stats now go up (they never did), plans keep their length, the program being followed stays started, uploaded workouts and settings keep their exercises and programs instead of pointing at the server's rows with the same number, and the phone ends up with one copy of each. Uploading again sends nothing twice, and the counts shown before an Upload are what it sends. Upload now also sends cardio; progress photos and Trace chat aren't uploaded. A program workout that fails to upload goes up with the next sync. **Replace with Server**, and **Download Server to Phone** in Settings, now delete the phone's data as they say; changes that never reached a server are asked about first, never dropped silently. **Disconnect** sends changes still waiting first, and asks before dropping any it can't send, instead of leaving them to go up later under the next account. Everything else the account had on the phone stays: an Upload to another server sends all of it, and connecting back to the same account puts it back in place, with what changed meanwhile sent as changes and only what's new created (if the server can't say whether it's the one you disconnected from, you're asked). Disconnect is all or nothing (stopped part way, the phone stays connected with its data as it was), takes moments on a big history, and no sync runs while it happens.
-- **Trace shows your newest messages when you open it**, on the web and in the Android app, also offline. It loaded the oldest ones, so once a chat passed 100 messages the latest never appeared.
-- **Exercise pictures and progress photos sent inline to the sync API are stored as files.** The server kept them inline, and a progress photo sent that way didn't open. Pictures already stored inline are converted when the server starts.
-
-### Security
-
-- **The server reads the session from a request's sign-in header before its cookie, when the header carries one of its own sessions.** On Android a cookie left from an earlier sign-in went with every request, and answered it as that account: after one account signed out and another signed in, the phone showed and synced the first account's programs, workouts and exercises. The Android app also deletes that cookie whenever the account changes, leaving other cookies (a sign-in gate's) alone. A reverse proxy's own Authorization header still leaves web sign-in to the cookie.
-- **A logged workout only points at a program, program workout and exercises its account has access to.** Any account could save one naming another account's program and read that program's length back.
-- **Programs and their workouts stay with the account that made them.** Any signed-in account could open, rename or delete someone else's program and add, change or delete its workouts, and every phone received every account's workouts. Now only the maker changes a program; athletes see the ones assigned to them, and a workout a coach prescribes to them.
-- **A radio link can't run script as LiftTrace.** The radio proxy passed a station's content through as-is, so a link to a web page instead of a stream ran that page as the app for whoever opened it. It now passes audio only, and the music server proxy can't serve a page either.
-- **A password reset link can no longer be pointed at someone else's site.** The link took its address from the request, so anyone could ask for another person's reset with a forged host and have the real email, token included, send them to it. Reset, invite and coach feedback emails now link to `PUBLIC_URL` when it's set, or to an address an admin uses. Links also keep the `BASE_URL` subpath now.
-- **Names in emails can no longer carry markup.** A name, or a title someone shared, went into the email as-is, so HTML or a link typed into it became real markup in the recipient's inbox. Affected the SMTP test, invite and password reset emails, and the reps of a PR in the weekly summary. Everything an email shows is escaped now.
-- **The radio proxy requires signing in.** Anyone who could reach the server could use it, with a station address that redirected inside your network, to read pages there.
-- **Station addresses are checked on every redirect.** An admin can now play stations on your own network without `ALLOW_PRIVATE_RADIO_URLS`; other accounts, and a single-user install (which has no sign-in), still need it set.
-- **The music server proxy forwards only the Subsonic, Jellyfin, Plex and Emby requests the app makes, and passes back only music data** (JSON, XML, audio, images), never a web page. It follows no redirect to another server and no longer sends this app's sign-in token on to the music server. It used to pass any path through to the address an account saved.
-- **Push notifications and the NutriTrace link never reach cloud-metadata addresses** and follow a redirect only on the same server. A failed push test or link check no longer shows the other server's raw reply, and the open `/api/proxy` checks every redirect.
-- **fast-uri** bumped 3.1.7 to 3.1.8, closes [GHSA-hrr3-gc8f-f4qj](https://github.com/advisories/GHSA-hrr3-gc8f-f4qj) (moderate: inconsistent host normalization). It comes in through the MCP library's schema checks.
-- **ip-address** bumped 10.7.0 to 10.7.2, closes [GHSA-j6r3-76f7-8jcv](https://github.com/advisories/GHSA-j6r3-76f7-8jcv) and [GHSA-h3mg-xc3c-68pw](https://github.com/advisories/GHSA-h3mg-xc3c-68pw) (moderate: a subnet check across address families, and a slow parse of a long address). It comes in through the MCP library, which LiftTrace doesn't use it for.
-- **brace-expansion** bumped 5.0.9 to 5.0.12, closes [GHSA-q2hr-2g5m-vwhr](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr), [GHSA-qhr7-859c-m2p7](https://github.com/advisories/GHSA-qhr7-859c-m2p7) and [GHSA-6j4f-fj2g-mc7p](https://github.com/advisories/GHSA-6j4f-fj2g-mc7p) (high: slow or crashing expansion of crafted patterns). Build tooling only; nothing in the app uses it.
-- **@capacitor/android, @capacitor/ios and @capacitor/core** bumped 8.3.4 to 8.5.3, closes [GHSA-rvm3-566m-v7fv](https://github.com/advisories/GHSA-rvm3-566m-v7fv) (critical: a link to the app's internal HTTP proxy path loads any remote page at the app's own origin, with its storage and native plugins). The Android app was exposed: it renders links in Trace replies, so a crafted link tapped there could have used it. Update the Android app.
-- **source-map-js** bumped 1.2.1 to 1.2.2, closes [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q) (high: a crafted indexed source map stalls the process). Build tooling only; LiftTrace never parses a source map it didn't build.
-- **@modelcontextprotocol/sdk** bumped 1.30.0 to 1.32.1, closes [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h) (high: the OAuth client could send credentials to an authorization server the MCP server picks). Not exposed: LiftTrace only runs an MCP server, never the client.
-- **proxy-addr** bumped 2.0.7 to 2.0.8, closes [GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h) (critical: a client can spoof its IP through an IPv4-mapped IPv6 trusted subnet). Not exposed: the server doesn't set `trust proxy`, so Express never reads forwarded addresses.
-- **The Android app's SSO sign-in no longer passes the session token through the `lifttrace://` link**, which another app could intercept. The link carries a single-use code that only the app that started the sign-in can redeem.
-- **Uploaded files get unguessable names.** The random part of the name was made with `Math.random()`, which can be predicted from its own output.
-- `npm audit` reports 0 vulnerabilities for the app and the server.
-
----
-
-## [1.4.0-dev04] - 2026-09-29 (pre-release)
-
-A dev pre-release of the 1.4.0 minor. A Support page in Settings, uploads that say what went wrong, and security updates.
-
-### Added
-
-- **Settings has a Support page**, next to About: Ko-fi and GitHub Sponsors, plus free ways to help (star the repo, report a bug, translate). It replaces the support row that used to sit in About.
-
-### Changed
-
-- **The in-app updater reuses an update it already downloaded.** Coming back to Updates goes straight to installing instead of downloading the whole APK again, and the button says Install. Older downloads are cleared so they stop piling up on the phone.
-- **About links to the TraceApps family** instead of naming one sister app.
-
-### Fixed
-
-- **A file of the wrong type, or over the size limit, is turned away with a clear message.** Uploading one answered with a server error instead of saying what was wrong. A file that is too large now says what the limit is.
-- **Settings pages line up with the section list** on desktop and foldables. Every page started 12px below the list beside it.
-- **The Settings section list keeps its place** on desktop and foldables. Opening a section from the Settings page scrolled the list beside it back to Profile.
-
-### Security
-
-- **multer** bumped 2.3.0 to 2.4.0, closes [GHSA-3pph-fpjx-jg34](https://github.com/advisories/GHSA-3pph-fpjx-jg34) (moderate: an upload cut off at just the wrong moment could leave its file behind on disk). Every upload route requires signing in.
-- **undici** bumped 6.28.0 to 6.29.0, closes [GHSA-3wwx-pv8p-q78v](https://github.com/advisories/GHSA-3wwx-pv8p-q78v) (moderate: a WebSocket server could crash the process). LiftTrace opens no WebSocket connections.
-- **nodemailer** bumped 9.1.1 to 10.0.12, closes [GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v) (moderate: separate mail transports could share one TLS server name).
-- **markdown-it** bumped 15.0.0 to 15.0.1, closes [GHSA-253c-mchw-3w2r](https://github.com/advisories/GHSA-253c-mchw-3w2r) (moderate: slow parsing of large input with links turned on). Trace renders with links off.
-- `npm audit` reports 0 vulnerabilities for the app and the server.
-
----
-
-## [1.4.0-dev03] - 2026-09-27 (pre-release)
-
-Third dev pre-release of 1.4.0. Preliminary foldable support, search that ignores accents, and a round of Diary and Statistics fixes, mostly from issues.
-
-### Added
-
-- **Preliminary foldable support.** It covers these areas:
-  - **Settings:** half open like a book, the section list sits on one side of the crease and the section on the other.
-  - **Dialogs, sheets, the rest timer and Trace** stay off the fold. In laptop posture, Trace sits on the half lying flat.
-  - **Menus** opened near the crease open on its roomier side. The load type, RPE and rep pickers also flip above their row when there's no room below, on any phone.
-  - **Programs and Exercises** split into a list and a preview pane on an opened foldable or a tablet, not only on a desktop-sized window.
-  - **Diary, Add Exercise and Progress Photos** use the extra width: the session column sits beside the exercises, the search and preview stay in place while the list scrolls, and photos fit three across.
-  - **Diagnostics** reports the hinge and whether the device is half open or flat.
-
-  The Diary, charts and photos still cross the fold freely.
-
-### Changed
-
-- **A program's preview can open a workout directly**, and it has the same actions as the program's own page.
-- **The health check says what kind of failure it hit** and how long it took.
-
-### Fixed
-
-- **Search ignores accents.** Typing "elevacion" finds "Elevación lateral", "predicateur" finds "Prédicateur". This holds for the exercise library, the exercise picker, the statistics filter, Settings search, Trace and the MCP tools, and an imported workout matches a library exercise the same way. Text without accents matches exactly as before.
-- **The body map counts each exercise's own muscles** ([#110](https://github.com/TraceApps/lifttrace/issues/110), reported by @kavemang). wger names its muscles in Latin and nine of those names were not recognized, so a set of lunges read as a generic leg day and a curl credited the triceps as much as the biceps. The fatigue view and Muscle Balance recognize the same names now, and hip abduction counts toward the glutes rather than the core.
-- **The Statistics heatmap no longer marks a day you didn't train** ([#124](https://github.com/TraceApps/lifttrace/issues/124), reported by @Scorch-Light).
-- **The Diary's Last Workout card and the desktop sidebar's Recent Workouts now show up.** Neither had ever appeared.
-- **Clearing a workout clears the day** ([#120](https://github.com/TraceApps/lifttrace/pull/120), by @backmind). A cleared day stayed lit on the heatmap, the streak dots and the weekly goal ring, and stayed marked as finished.
-- **Offline, the Diary's dots and the heatmap keep up** with a workout logged, cleared or deleted with no connection.
-- **The date picker's workout dots follow the month** ([#125](https://github.com/TraceApps/lifttrace/issues/125), reported by @Scorch-Light).
-- **A long exercise name no longer pushes list rows past the edge of the pane.**
-
-### Security
-
-- **Includes both fixes from 1.3.2:** only the owner can change an exercise, and only an admin can import into or clear the shared exercise library. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
-
----
-
-## [1.4.0-dev02] - 2026-09-25 (pre-release)
-
-Second dev pre-release of 1.4.0. Almost all fixes: most came from testing dev01 on set videos, the rest from issues and a Reddit thread. Cardio-only days now count toward your streak.
-
-### Fixed
-
-- **The updater can no longer offer a phone the watch build.** Both APKs ship in one release under the same package id, and the updater took whichever was listed first. It now picks the phone's build by name.
-- **An OpenAI-compatible provider with `/api` in its address works in the Android app** ([#118](https://github.com/TraceApps/lifttrace/issues/118), reported by @kgenerozov). The app claimed every request beginning `/api/` as its own, so a base URL like `https://openrouter.ai/api` went to your LiftTrace server and came back 404. It also caught shared exercise links and music served from an `/api/` path.
-- **A cardio-only day counts toward your streak and week strip** ([#115](https://github.com/TraceApps/lifttrace/pull/115), found and fixed by @benniemosher), for anyone with cardio turned on. A run with no lifting that day used to look like nothing at all, and the dot now appears as soon as the session is saved.
-- **A FitNotes export in kilos no longer comes in as pounds.** The unit is now read per row, so a file mixing the two imports both correctly. Reported on r/selfhosted.
-- **A FitNotes export from a phone not set to English imports its workouts.** Day-first dates were skipped, turning a whole history into an empty import. Both orders are read now, decided across the file.
-- **The language picker shows the language the app is actually in**, rather than claiming English on a phone set to something else. Reported on r/selfhosted.
-- **The Load Type chooser opens next to the exercise you tapped** ([#116](https://github.com/TraceApps/lifttrace/issues/116), reported by @kgenerozov). Far down a long workout it could open thousands of pixels off screen. The Diary and the editor now share one chooser, so the Diary's options are translated too.
-- **A Load Type or Tracked By choice made in the workout editor survives saving.** The chip changed and the save sent the old value.
-- **Filming a set in the app works again.** The recording's content type carries an unquoted comma, which the server's parser could not read, so the upload was refused as "Videos only". Picking an existing clip was never affected. Found by @backmind while testing [#57](https://github.com/TraceApps/lifttrace/issues/57).
-- **A coach sees every set you filmed on an exercise, not just one.** Each clip has its own button now, named for the set. Found by @backmind.
-- **The set count sits at the right of an exercise again in Coaching**, on exercises with no clip. Found by @backmind.
-- **"Replied just now" no longer says hours ago.** Server times are UTC and were read as local. Found by @backmind.
-- **A clip picked from the phone records how long it runs**, the same as one filmed in the app. Found by @backmind.
-- **The play marker on an exercise card is a small chip again**, rather than a bar across the card. Found by @backmind.
-
-### Security
-
-- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
-
----
-
-## [1.4.0-dev01] - 2026-09-22 (pre-release)
-
-First dev pre-release of the 1.4.0 minor. Two headlines: LiftTrace on a watch, and offline mode, so a gym with no signal stops being a problem. Also in: filming a set for your coach to review, reading your training over a date range from AI clients and scripts, update checks that are off until you ask for them, and fonts served by your own instance instead of Google.
-
-### Added
-
-- **LiftTrace on your wrist.** A Wear OS app for watches running Wear OS 3 and up. It opens on the set you are in front of, weight and reps already filled in, so logging one is a tap, and you can edit sets, mark them done and add one from the watch. The session timer and the rest timer are the same ones the phone keeps, so either device starts, pauses or stops them, and the rest timer buzzes on your wrist. Supersets alternate the way you train them, holds count down and log themselves, and what you lifted last time sits under the exercise name. [Wear OS](https://traceapps.github.io/docs/lifttrace/wear/).
-- **Film a set and have your coach review it** ([#57](https://github.com/TraceApps/lifttrace/issues/57), requested by @backmind). A set can now carry a clip: film it in the app, or pick one you already have. Your coach watches it, pauses where the problem is, and leaves a note stamped at that moment, so tapping "0:04" in your Diary jumps the video straight there, and you can reply without leaving the player. Clips are never readable by URL: only you and your own coach can open one, and an admin is nobody's exception. Attaching one needs a connection. [Set videos](https://traceapps.github.io/docs/lifttrace/set-videos/).
-- **Reading your training over a date range, for AI clients and scripts** ([#93](https://github.com/TraceApps/lifttrace/pull/93), by @kgenerozov). New `get_workouts` and `get_body_stats` reads answer a whole range at once, and recent workouts, records and per-exercise progress take the same bounds. Full-detail reads answer the most recent 30 sessions and say when there were more, and a record read over a range is the best lift within those dates rather than an all-time one. The same filters are on the REST API. [MCP tools](https://traceapps.github.io/docs/reference/mcp-tools/).
-- **Offline mode** ([#211](https://github.com/TraceApps/nutritrace/issues/211) in NutriTrace, the same idea here). In a gym with no signal the app still opens, today's workout is there, and you can keep logging: sets, reps, weight, notes, body stats, cardio, your own exercises and settings. What you change goes up on its own when the connection returns, merged set by set rather than one device overwriting the other. The menu button shows an amber cloud while anything is waiting. [Train without a connection](https://traceapps.github.io/docs/lifttrace/features/#offline).
-- **What else works in offline mode.** Starting a program or moving its week, coaching notes, replies and prescribing work, progress photos, your profile and picture, and pictures on your own exercises. Programs, templates, your catalogue, recent workouts and Statistics all read from what this browser has already seen.
-- **Offline mode says what it cannot reach.** Exercise videos and catalogue imports, creating or editing a program or template, Trace, adding or removing a member, and anything admin need a connection. A change your server refuses is set aside, named in plain words and written to Settings, Diagnostics, while a server that is merely busy is retried instead.
-
-### Changed
-
-- **Update checks are off until you turn them on, and your server does the asking.** Every browser and phone used to ask GitHub directly every 4 hours. Setup now asks, skipping the question leaves checks off, and a fresh install contacts nothing on its own. Existing installs keep checking as before. `UPDATE_CHECK=off` keeps them off for good. Reported on r/selfhosted.
-
-### Fixed
-
-- **A brand new install starts up again.** Set videos added two database migrations above the table they change, which an existing instance already had and a fresh one did not, so a first run stopped with "no such table" and the server never came up. Only ever affected installs made from the dev builds of this cycle.
-- **A filmed set shows a still, not a giant play symbol.** The review screen and the coach's player handed Android a video with no poster, so it drew its own play glyph blown up to the size of the box until you pressed play. Both now show a frame from the clip itself: the moment you stopped filming, or a frame decoded from the file you picked. Exercise videos use the exercise's own picture.
-- **"A New Version Is Available" on the web now says what it means, and Reload works.** The browser banner used the Android wording and its Reload button could do nothing at all, and a tab left open never noticed a new version. Same fix in all four Trace apps.
-- **The bottom nav's active-tab pill now follows your accent colour** ([#114](https://github.com/TraceApps/lifttrace/pull/114), found and fixed by @benniemosher). Half its gradient was a hardcoded orange, so any other accent left an orange highlight behind.
-- **Tapping a day in the Diary's "This Week" strip, or a row in "Recent", now loads that day** ([#111](https://github.com/TraceApps/lifttrace/pull/111), found and fixed by @benniemosher). Both moved the date header without fetching the workout behind it.
-- **The hold timer's "open this hold's date" button now loads that day too.** Same cause as the week strip, and the last place in the Diary it happened.
-- **Moving an exercise past a superset no longer breaks the superset up.** The arrows swapped single rows, so an exercise below a pairing pulled its second lift out of the group. They move whole blocks now.
-- **A coach's note stays on the exercise it was written about**, even when the member reorders or removes exercises afterwards. Notes were pinned to a position in the session; they follow the exercise itself now.
-- **The Trace button no longer covers what's on top of it.** It floated above every sheet and dialog, so wherever you had dragged it, it could sit over a title or a button. Same fix as NutriTrace [#233](https://github.com/TraceApps/nutritrace/issues/233).
-- **The installed app survives a reload with no connection.** It kept only a fallback page, so its own code came from the network and reopening it in a dead zone left a blank screen.
-- **Something deleted while online stays deleted when the connection goes.** A deleted progress photo could reappear the moment you were offline again. Reported in testing.
-- **A progress photo added with no connection shows straight away and is never refused for its size.** It was kept at full size and turned away on arrival, and it did not appear on the timeline while it waited.
-- **Adding a progress photo with no connection no longer says "Could not save photo".** The photo was saved and did arrive; the screen was told in the wrong shape and reported a failure that never happened.
-- **Adding a photo with no connection no longer fails on an installed app.** The part of the app that keeps a photo was fetched from your server at the exact moment there was nothing to fetch from.
-- **A picture kept offline holds its transparency, and an unusual camera format is converted rather than lost.** A drawing could come back with a black background, and an iPhone's HEIC would have been refused on arrival without saying so.
-- **The copy this browser keeps now has a ceiling**, and if storage runs out, what you have changed is kept and the copy makes way for it.
-- **A sync no longer empties the copy this browser keeps.** Everything was cleared once the queue went up, so losing signal again left you with nothing to look at.
-- **Work changed while a sync was running no longer waits for you to do something else** before it goes up.
-- **What a row created offline became is now remembered on disk**, not just while the page stays open, so a sync that stopped halfway can't leave work queued against an id your server never had.
-- **Fonts are served by your own instance.** The app loaded Inter and the icon font from Google on every page load, so Google saw the address of everyone who opened it, whatever your settings said. Reported on r/selfhosted.
-
-### Security
-
-- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts. The privacy changes above (fonts, update checks) came out of a review on r/selfhosted.
 
 ---
 
