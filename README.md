@@ -160,11 +160,19 @@ Part of the **TraceApps** family. Sister apps: [CookTrace](https://github.com/tr
 
 ---
 
+## Translations
+
+LiftTrace is translated with [Weblate](https://weblate.org/), a free web platform for libre translation projects. No coding required: pick your language, translate the strings, submit. Missing strings fall back to English, so a partial translation is safe to use.
+
+Start translating at [hosted.weblate.org/projects/lifttrace/](https://hosted.weblate.org/projects/lifttrace/). See [CONTRIBUTING.md](CONTRIBUTING.md#translations) for guidance (lifting terms, proper nouns, tone).
+
+---
+
 ## Roadmap, changelog, contributing, license
 
 - [ROADMAP.md](ROADMAP.md) for what's next.
 - [CHANGELOG.md](CHANGELOG.md) for release history.
-- [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request guidance. Translations: see [Contributing → Translations](https://traceapps.github.io/docs/reference/contribute/translations/).
+- [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request guidance.
 - AGPL-3.0: see [LICENSE](LICENSE). By contributing you agree your contributions are licensed under the same.
 
 ## Support
