@@ -186,6 +186,54 @@ exact alarm carrying a deadline, never something counting; anything repeating
 on screen is inside `repeatOnLifecycle(RESUMED)`. Both rules exist because
 breaking either one was measurable in the battery stats.
 
+### The web app works offline
+
+`src/lib/offline-api.js` and `offline-edits.js` hang off `apiFetch.js`, so no
+screen needed changing. Online, every call goes to the server and the answer
+is kept in an IndexedDB mirror. With no server, the mirror answers reads, and
+writes go into an outbox that shows at once and is replayed later against the
+same routes the Android app replays its queue against, so the server merges a
+browser's edits exactly as it merges a phone's. New rows get temporary ids
+mapped to real ones after they go up. A Web Lock stops two tabs sending at
+once, and a BroadcastChannel keeps them in step. Not built on Background Sync
+(Safari lacks it): the page flushes on a backoff, on `online`, and when the
+tab comes to the front.
+
+### Coaching is consent first
+
+`server/lib/coaching.js` holds who coaches whom (`coach_clients`, the same
+table NutriTrace uses; the active pairing is mirrored to `users.trainer_id`
+for older readers) and the one guard every coach route uses: an active
+pairing the client accepted. A request still waiting, an ended pairing and
+another coach's client are refused alike, admins included. Roles are read
+from the database on every request, not from the token. The conversation
+(`server/lib/coaching-messages.js`) is one thread per pairing; its photos sit
+under `UPLOADS_PATH/coaching`, outside the public `/uploads` mount, and are
+served only to the two people. No Trace tool, MCP tool or token route reads it.
+
+### Private media is never under /uploads
+
+`/uploads` is mounted ahead of the auth check so an Android WebView `<img>`
+can load it without a header, which makes anything there readable by URL.
+Set videos (`server/lib/set-media.js`) and coaching photos therefore live in
+directories kept out of that mount and are streamed through routes that check
+the owner (and, for clips, the owner's active coach).
+
+### Links in emails come from PUBLIC_URL
+
+`server/lib/public-url.js` (identical in all four Trace apps) builds the
+address in reset, invite, coaching and weekly summary emails from
+`PUBLIC_URL`, or else from an address a signed-in admin has used, never from
+the request's Host headers, which the sender controls.
+
+### Update checks are off until asked for
+
+`server/lib/update-check.js`: a fresh database asks in the setup wizard and
+checks nothing until someone says yes; a database that already had accounts
+keeps checking, as it did before. `UPDATE_CHECK=off` wins over the setting.
+Browsers ask the server, which asks GitHub (cached 24 hours); the Android app
+asks GitHub itself, only once it was told yes on that phone.
+
 ### Security posture
 
 - bcrypt cost 12
