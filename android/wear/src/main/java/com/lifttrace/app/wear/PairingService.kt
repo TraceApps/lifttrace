@@ -1,0 +1,72 @@
+package com.lifttrace.app.wear
+
+import com.google.android.gms.wearable.DataEvent
+import com.google.android.gms.wearable.DataEventBuffer
+import com.google.android.gms.wearable.DataMapItem
+import com.google.android.gms.wearable.MessageEvent
+import com.google.android.gms.wearable.WearableListenerService
+
+/**
+ * The phone's half of pairing arriving on the watch.
+ *
+ * The phone app writes /lifttrace/pairing into the Data Layer with the server
+ * address and a token for the signed-in account, and deletes it on sign-out.
+ * Nothing is typed on the watch.
+ */
+class PairingService : WearableListenerService() {
+
+    override fun onDataChanged(events: DataEventBuffer) {
+        for (event in events) {
+            val path = event.dataItem.uri.path ?: continue
+            if (path.startsWith(TIMER_PATH)) {
+                // A stopped timer arrives as a dated record saying so, never
+                // as a deletion, so a deletion here is the Data Layer tidying
+                // up after a device rather than anyone stopping anything.
+                // Acting on it would throw away a timer the other device is
+                // still running.
+                if (event.type != DataEvent.TYPE_DELETED) {
+                    Pairing.putSession(this, DataMapItem.fromDataItem(event.dataItem).dataMap)
+                }
+                continue
+            }
+            if (path.startsWith(REST_PATH)) {
+                // Same again: a skipped rest arrives as a record saying so.
+                if (event.type != DataEvent.TYPE_DELETED) {
+                    Pairing.adoptRest(this, DataMapItem.fromDataItem(event.dataItem).dataMap)
+                }
+                continue
+            }
+            if (!path.startsWith(PATH)) continue
+            if (event.type == DataEvent.TYPE_DELETED) {
+                Pairing.clear(this)
+                continue
+            }
+            val map = DataMapItem.fromDataItem(event.dataItem).dataMap
+            val url = map.getString("serverUrl").orEmpty()
+            val token = map.getString("token").orEmpty()
+            if (url.isNotBlank() && token.isNotBlank()) {
+                Pairing.save(this, url, token, map.getString("appVersion").orEmpty())
+                // The phone may be on a newer release than this watch.
+                WatchUpdate.check(this)
+            } else Pairing.clear(this)
+        }
+    }
+
+    /** A nudge from the phone: the account signed out, forget everything. */
+    override fun onMessageReceived(event: MessageEvent) {
+        if (event.path == "$PATH/signout") Pairing.clear(this)
+        // The phone saved the day: an open app reads it again at once.
+        if (event.path == DAY_PATH) Pairing.noteDaySaved(this)
+    }
+
+    companion object {
+        const val PATH = "/lifttrace/pairing"
+        /** How long the session has been running, as the phone counts it. */
+        const val TIMER_PATH = "/lifttrace/timer"
+        /** A rest started on the phone, and the watch saying it is awake. */
+        const val REST_PATH = "/lifttrace/rest"
+        const val AWAKE_PATH = "/lifttrace/awake"
+        /** "I just saved the day", either way: the other reads it again. */
+        const val DAY_PATH = "/lifttrace/day"
+    }
+}

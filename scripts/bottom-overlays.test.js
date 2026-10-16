@@ -29,7 +29,11 @@ test('every side column sized to the window leaves room for them', () => {
       assert.match(m[0], /- var\(--bottom-overlays, 0px\)/, `${f}: ${m[0].replace(/\s+/g, ' ')}`);
     }
   }
-  assert.ok(rails >= 9, `found ${rails} side columns`);
+  // 8 since ProgramDetail's preview pane stopped sizing itself to the window:
+  // its two-pane region fills the page instead, and the page leaves room for
+  // the overlays with padding-bottom. The tripwire still catches a column
+  // that quietly drops the allowance.
+  assert.ok(rails >= 8, `found ${rails} side columns`);
 });
 
 test('each overlay sets its height back to 0px when it goes away', () => {

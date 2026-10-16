@@ -29,9 +29,18 @@ export function getWorkoutCore(userId, { date } = {}) {
   ).get(day, userId);
   if (!row) return { date: day, logged: false, exercises: [] };
 
+  return formatWorkoutRow(row);
+}
+
+/**
+ * One shape for a logged session, used by this tool and by get_workouts.
+ * Kept in one place so a field added for one (set_type and duration_sec
+ * were, for issue #89) can never be missing from the other.
+ */
+export function formatWorkoutRow(row) {
   const exercises = JSON.parse(row.exercises || '[]');
   return {
-    date: day,
+    date: row.date,
     logged: true,
     name: row.name || null,
     completed: !!row.completed,

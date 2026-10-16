@@ -10,6 +10,8 @@
   import { validatePassword } from '../../lib/validation.js';
   import { DB } from '../../lib/db.js';
   import { envLocks } from '../../stores/settings.js';
+  import { coachingFetch, refreshCoaching } from '../../stores/coaching.js';
+  import { coachingErrorText } from '../../lib/coaching-view.js';
   import Toggle from './Toggle.svelte';
 
 
@@ -20,6 +22,10 @@
   let userList = [];
   let inviteEmail = '';
   let inviteRole = 'member';
+  // A coach chosen for the new account ('' = none): only then does it get a
+  // coaching request, from that coach. Nothing is chosen for it otherwise.
+  let inviteCoach = '';
+  let addCoach = '';
   let inviteResult = null;
   let inviting = false;
   let pendingInvites = []; // { token, email, role, expires_at }
@@ -58,6 +64,25 @@
   // "My Profile" shortcut, so skip the fetch for them.
   $: if (expanded && $userMgmtActive && $currentUser?.role === 'admin') loadUsers();
   $: trainers = userList.filter(u => u.role === 'trainer' || u.role === 'admin');
+
+  // Coaching requests waiting for a member's answer come with the users
+  // list (u.coaching_requests): the trainer picker sends a request now (it
+  // used to pair them outright).
+  async function cancelPending(u, r) {
+    if (!await confirmDialog({
+      title: $_('settings.users.coaching_cancel_title'),
+      message: $_('settings.users.coaching_cancel_message', { values: { coach: r.coach.name, name: u.full_name || u.username } }),
+      confirmText: $_('settings.users.coaching_cancel'),
+      cancelText: $_('common.cancel'),
+      dangerous: true,
+    })) return;
+    try {
+      await coachingFetch('POST', `/api/coaching/pairings/${r.id}/end`, { expect: 'pending' });
+      showSuccess($_('settings.users.coaching_cancelled'));
+    } catch (e) { showError(coachingErrorText(e, $_)); }
+    await loadUsers();
+    refreshCoaching();
+  }
 
   async function loadUsers() {
     try { userList = await fetch('/api/auth/users', { credentials: 'include' }).then(r => r.json()); } catch {}
@@ -132,14 +157,23 @@
     } catch(e) { showError(e.message); }
   }
 
-  async function changeUserTrainer(u, newTrainerId) {
+  async function changeUserTrainer(u, newTrainerId, selectEl) {
     const val = newTrainerId === '' ? null : parseInt(newTrainerId);
     if (val === (u.trainer_id ?? null)) return;
+    // The picker shows the member's trainer, which a request doesn't change
+    // until they accept it: back to what it was, with the request below.
+    if (selectEl) selectEl.value = u.trainer_id || '';
     try {
-      await LtApi.setUserTrainer(u.id, val);
-      showSuccess(val ? $_('settings.users.trainer_assigned') : $_('settings.users.trainer_removed'));
+      const r = await LtApi.setUserTrainer(u.id, val);
+      // A server with consent sends that trainer's request; the member
+      // answers it. An older one pairs them at once.
+      const name = u.full_name || u.username;
+      showSuccess(!val ? $_('settings.users.trainer_removed')
+        : r?.status === 'pending' ? $_('settings.users.trainer_requested', { values: { name } })
+        : $_('settings.users.trainer_assigned'));
       await loadUsers();
-    } catch(e) { showError(e.message); }
+      refreshCoaching();
+    } catch(e) { showError(e.message); await loadUsers(); }
   }
 
   async function inviteUser() {
@@ -152,13 +186,14 @@
       const res = await fetch('/api/auth/invite', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole }),
+        body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole, ...(inviteRole === 'member' && inviteCoach !== '' ? { coach_id: Number(inviteCoach) } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { showError(data.error || $_('settings.users.err_failed_create_invite')); return; }
       inviteResult = data;
       if (data.sent) showSuccess($_('settings.users.invite_sent_to', { values: { email: _inviteEmailTrimmed } }));
       inviteEmail = '';
+      inviteCoach = '';
       await loadPendingInvites();
     } catch(e) {
       showError(e.message || $_('settings.users.err_could_not_create_invite'));
@@ -176,11 +211,11 @@
       const res = await fetch('/api/auth/register', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: addUsername, password: addPassword, full_name: addFullName, role: addRole }),
+        body: JSON.stringify({ username: addUsername, password: addPassword, full_name: addFullName, role: addRole, ...(addRole === 'member' && addCoach !== '' ? { coach_id: Number(addCoach) } : {}) }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
       showSuccess($_('settings.users.user_created'));
-      addUsername = ''; addPassword = ''; addFullName = ''; addRole = 'member';
+      addUsername = ''; addPassword = ''; addFullName = ''; addRole = 'member'; addCoach = '';
       showAddUser = false;
       await loadUsers();
     } catch(e) { showError(e.message); }
@@ -375,7 +410,7 @@
                       </select>
                     {/if}
                     {#if u.role === 'member' && u.id !== $currentUser.id}
-                      <select class="form-select-xs" value={u.trainer_id || ''} on:change={e => changeUserTrainer(u, e.target.value)} title="Assigned trainer">
+                      <select class="form-select-xs" value={u.trainer_id || ''} on:change={e => changeUserTrainer(u, e.target.value, e.target)} title="Assigned trainer">
                         <option value="">{$_('settings.users.no_trainer')}</option>
                         {#each trainers as t (t.id)}
                           <option value={t.id}>{$_('settings.users.coach_option', { values: { name: t.full_name || t.username } })}</option>
@@ -383,6 +418,12 @@
                       </select>
                     {/if}
                   </div>
+                  {#each u.coaching_requests || [] as r (r.id)}
+                    <div class="user-row-pending">
+                      <span>{$_('settings.users.coaching_pending', { values: { coach: r.coach.name } })}</span>
+                      <button class="btn-link" on:click={() => cancelPending(u, r)}>{$_('settings.users.coaching_cancel')}</button>
+                    </div>
+                  {/each}
                 </div>
                 {#if u.id !== $currentUser.id}
                   <button class="btn-icon-danger" on:click={() => resetUserPassword(u)} title={$_('settings.users.reset_password')} style="color:var(--text-3)">
@@ -419,6 +460,21 @@
                 <span class="material-symbols-rounded um-role-chev">expand_more</span>
               </div>
             </div>
+            {#if inviteRole === 'member' && trainers.length}
+              <div class="um-role-pair">
+                <label class="um-role-label" for="invite-coach-sel">{$_('settings.users.new_coach')}</label>
+                <div class="um-role-select-wrap">
+                  <select id="invite-coach-sel" class="um-role-styled-select" bind:value={inviteCoach}>
+                    <option value="">{$_('settings.users.new_coach_none')}</option>
+                    {#each trainers as t (t.id)}
+                      <option value={String(t.id)}>{t.full_name || t.username}</option>
+                    {/each}
+                  </select>
+                  <span class="material-symbols-rounded um-role-chev">expand_more</span>
+                </div>
+              </div>
+              {#if inviteCoach !== ''}<p class="setting-hint um-coach-hint">{$_('settings.users.new_coach_hint')}</p>{/if}
+            {/if}
             <button class="btn btn-primary" style="height:36px;font-size:13px" on:click={inviteUser} disabled={!_inviteCanSubmit}>
               {inviting ? $_('settings.users.sending') : (_inviteEmailTrimmed ? $_('settings.users.send_invite') : $_('settings.users.generate_invite_link'))}
             </button>
@@ -432,6 +488,9 @@
                       <span class="pending-invite-meta">
                         {inv.role === 'admin' ? 'Admin' : (inv.role === 'trainer' ? 'Trainer' : 'Member')} ·
                         expires {new Date(inv.expires_at).toLocaleDateString()}
+                        {#if inv.coach_id && trainers.find(t => t.id === inv.coach_id)}
+                          · {$_('settings.users.new_coach_meta', { values: { name: trainers.find(t => t.id === inv.coach_id).full_name || trainers.find(t => t.id === inv.coach_id).username } })}
+                        {/if}
                       </span>
                     </div>
                     <button class="pending-invite-revoke" on:click={() => revokeInvite(inv.token)}
@@ -491,6 +550,21 @@
                   <span class="material-symbols-rounded um-role-chev">expand_more</span>
                 </div>
               </div>
+            {#if addRole === 'member' && trainers.length}
+              <div class="um-role-pair">
+                <label class="um-role-label" for="add-coach-sel">{$_('settings.users.new_coach')}</label>
+                <div class="um-role-select-wrap">
+                  <select id="add-coach-sel" class="um-role-styled-select" bind:value={addCoach}>
+                    <option value="">{$_('settings.users.new_coach_none')}</option>
+                    {#each trainers as t (t.id)}
+                      <option value={String(t.id)}>{t.full_name || t.username}</option>
+                    {/each}
+                  </select>
+                  <span class="material-symbols-rounded um-role-chev">expand_more</span>
+                </div>
+              </div>
+              {#if addCoach !== ''}<p class="setting-hint um-coach-hint">{$_('settings.users.new_coach_hint')}</p>{/if}
+            {/if}
               <button class="btn btn-secondary" style="width:100%;height:36px;font-size:13px" on:click={addUser} disabled={adding || !addUsername || !addPassword}>
                 {adding ? $_('settings.users.creating') : $_('settings.users.create_directly')}
               </button>
@@ -658,6 +732,10 @@
   .user-row-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
   .user-row-meta { font-size: 12px; color: var(--text-3); }
   .user-row-selects { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+  .um-coach-hint { margin: 0; font-size: 12px; }
+  .user-row-pending { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-3); margin-top: 4px; }
+  .user-row-pending .btn-link { background: none; border: none; padding: 2px 6px; border-radius: var(--radius-sm); color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .user-row-pending .btn-link:hover { background: var(--accent-dim); }
   .user-role-badge {
     font-size: 11px; font-weight: 600; color: var(--text-3);
     background: var(--surface-2); padding: 3px 8px; border-radius: var(--radius-sm);

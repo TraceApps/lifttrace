@@ -7,6 +7,8 @@ import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { unlinkMediaFile, resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
+import { localizeDataUrl } from '../lib/image-localizer.js';
+import { applyToBody } from '../lib/newer-wins.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -48,7 +50,13 @@ router.get('/photos', wrap((req, res) => {
 // body-stats and reusable.
 router.post('/photos', wrap((req, res) => {
   try {
-    res.status(201).json(addProgressPhotoCore(uid(req), { date: req.body?.date, url: req.body?.url }));
+    // A photo taken with no connection has nowhere to upload to, so it
+    // arrives embedded in this request instead. It becomes a file here,
+    // under the same directory the upload route writes to, and the row
+    // still holds an ordinary path: addProgressPhotoCore rightly refuses
+    // to store a data: value, and that stays true.
+    const url = localizeDataUrl(req.body?.url, { subdir: 'body-stats' });
+    res.status(201).json(addProgressPhotoCore(uid(req), { date: req.body?.date, url }));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -123,13 +131,20 @@ router.put('/:date', wrap((req, res) => {
     ? db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(date, userId)
     : db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id IS NULL').get(date);
   const serverStats = existing ? JSON.parse(existing.stats || '{}') : {};
-  const merged = mergeStatsObject(serverStats, stats);
+  // The newer edit of each measurement stays (lib/newer-wins.js).
+  const incoming = stats && typeof stats === 'object' && !Array.isArray(stats) ? { ...stats } : stats;
+  let times = null;
+  if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
+    times = applyToBody(req, existing, incoming, { fields: Object.keys(incoming), current: f => serverStats[f] });
+    for (const k of Object.keys(incoming)) if (incoming[k] === undefined) delete incoming[k];
+  }
+  const merged = mergeStatsObject(serverStats, incoming);
   const mergedJson = JSON.stringify(merged);
 
   if (existing) {
-    db.prepare('UPDATE body_stats_log SET stats = ? WHERE id = ?').run(mergedJson, existing.id);
+    db.prepare('UPDATE body_stats_log SET stats = ?, field_times = COALESCE(?, field_times) WHERE id = ?').run(mergedJson, times, existing.id);
   } else {
-    db.prepare('INSERT INTO body_stats_log (user_id, date, stats) VALUES (?, ?, ?)').run(userId, date, mergedJson);
+    db.prepare('INSERT INTO body_stats_log (user_id, date, stats, field_times) VALUES (?, ?, ?, ?)').run(userId, date, mergedJson, times);
   }
 
   const row = userId != null

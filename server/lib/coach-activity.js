@@ -55,7 +55,8 @@ export function onWorkoutCompleted(workout) {
     SELECT * FROM coach_prescriptions
      WHERE member_id = ? AND date = ?
        AND (template_id IS NULL OR template_id = ?)
-     ORDER BY (template_id IS NOT NULL) DESC, created_at DESC
+       AND status != 'declined'
+     ORDER BY (template_id IS NOT NULL) DESC, (status = 'accepted') DESC, created_at DESC
      LIMIT 1
   `).get(workout.user_id, workout.date, workout.template_id || null);
 
@@ -103,6 +104,7 @@ export function checkMissedPrescriptions() {
     SELECT cp.* FROM coach_prescriptions cp
      WHERE cp.date IS NOT NULL
        AND cp.date <= ?
+       AND cp.status != 'declined'
        AND NOT EXISTS (
          SELECT 1 FROM coach_activity ca
           WHERE ca.prescription_id = cp.id

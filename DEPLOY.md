@@ -85,20 +85,19 @@ is a discoverability mirror. Both are first-class; pick whichever fits.
 - **`ghcr.io/traceapps/lifttrace`** (primary)
 - **`traceapps/lifttrace`** on [Docker Hub](https://hub.docker.com/r/traceapps/lifttrace) (mirror)
 
-Pin to whatever risk level fits (examples below use GHCR; swap the prefix
-for Docker Hub if preferred):
+Two tags are published (examples below use GHCR; swap the prefix for
+Docker Hub if preferred):
 
 | Tag | Updates when | Use case |
 |-----|--------------|----------|
-| `ghcr.io/traceapps/lifttrace:1.0.0` | Never (pinned exact) | Reproducible pin to a specific version |
-| `ghcr.io/traceapps/lifttrace:1.0` | Any 1.0.x patch release | Auto-receive bug fixes, no new features |
-| `ghcr.io/traceapps/lifttrace:1` | Any 1.x.y minor release | Auto-minor within a major, no breaking |
-| `ghcr.io/traceapps/lifttrace:latest` | Every stable release | Absolute latest stable |
+| `ghcr.io/traceapps/lifttrace:latest` | Every stable release | Running the app |
 | `ghcr.io/traceapps/lifttrace:dev` | Every push to `dev` branch | Leading edge, not for production |
 
-Legacy `1.0.0-rc.N` tags from before the semver switch remain published
-indefinitely on GHCR; anyone pinned to a specific rc release is unaffected.
-Docker Hub mirroring started post-1.0, so it only carries stable-era tags.
+There are no version-number tags (`:1`, `:1.4`, `:1.4.0`); the ones published
+for the first releases stopped updating and were retired. To hold a server on
+one exact build, pin it by digest
+(`ghcr.io/traceapps/lifttrace@sha256:...`; `docker inspect --format
+'{{index .RepoDigests 0}}' ghcr.io/traceapps/lifttrace:latest` prints the one you run).
 
 ---
 
@@ -112,9 +111,9 @@ Every dev-worthy build refreshes the [`dev-latest`](https://github.com/traceapps
 
 ### Milestone `v<version>-devNN` (occasional, pinnable)
 
-When a specific feature or fix is worth its own tester milestone (a new AI coach tool, a Radio backend, a big program-engine change), a numbered pre-release gets cut: `v1.0.4-dev01`, `v1.1.0-dev01`, etc. These get their own permanent GH release, their own tester-facing notes, and their own Docker tag (`ghcr.io/traceapps/lifttrace:1.0.4-dev01`) alongside `:dev`. `dev-latest` is refreshed to point at the same commit.
+When a specific feature or fix is worth its own tester milestone (a new AI coach tool, a Radio backend, a big program-engine change), a numbered pre-release gets cut: `v1.0.4-dev01`, `v1.1.0-dev01`, etc. These get their own permanent GH release, their own tester-facing notes, but no Docker tag of their own: the server side of a milestone is the `:dev` image. `dev-latest` is refreshed to point at the same commit.
 
-Iteration numbers are zero-padded two digits for 1 through 9 (`dev01`, `dev02`, …, `dev09`) and natural two digits from 10 onward (`dev10`, `dev11`, …). No dot between `dev` and the number. That keeps the identifier inside SemVer 2.0.0 §9 and gives correct lex ordering everywhere (GitHub Tags, `gh release list`, Docker Hub).
+Iteration numbers are zero-padded two digits for 1 through 9 (`dev01`, `dev02`, …, `dev09`) and natural two digits from 10 onward (`dev10`, `dev11`, …). No dot between `dev` and the number. That keeps the identifier inside SemVer 2.0.0 §9 and gives correct lex ordering everywhere (GitHub Tags, `gh release list`).
 
 Use numbered dev builds when reporting bugs ("I saw this on `v1.1.0-dev02`") or if you want to install a specific milestone and stay on it. Everyone else, `dev-latest` covers you.
 
@@ -183,17 +182,19 @@ services:
 |---|---|---|---|
 | `DB_PATH` | Yes | `./lifttrace.db` | Path to SQLite database file |
 | `UPLOADS_PATH` | Yes | `./uploads` | Path for uploaded exercise images / GIFs / videos, avatars, and progress photos (`body-stats/` subdirectory) |
+| `UPDATE_CHECK` | No | unset | Set to `off` (or `0`, `false`, `no`) to stop the server asking GitHub about new releases for good, whatever Settings, Updates says; it also locks that setting. Unset, checks are off on a fresh install until setup or Settings, Updates turns them on. |
 | `JWT_SECRET` | Yes (prod) | `dev-secret` | Secret for signing JWT auth tokens — **change this**. Server refuses to start in production with the dev default. |
 | `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key (AES-GCM, HKDF) for OIDC client secrets. By default we derive a key from `JWT_SECRET`, which means rotating `JWT_SECRET` invalidates every stored secret too. Set `TOKEN_ENC_KEY` explicitly if you want to rotate session tokens without forcing admins to re-enter OIDC client secrets. Use a long random string (e.g. `openssl rand -base64 48`). |
 | `PORT` | No | `3002` | Internal Express port (map to host in docker-compose) |
 | `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. Use `debug` for verbose request and sync output. |
 | `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
-| `INSECURE_COOKIES` | No | `0` | Set `1` only for non-HTTPS deployments. Default uses `secure: true` cookies (HTTPS-only). |
+| `INSECURE_COOKIES` | No | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `BASE_URL` | No | — | Mount at a subpath instead of root (e.g. `/lifttrace`). See "Reverse Proxy with Subpath" below. |
+| `PUBLIC_URL` | No | unset | The full address people open the app at, subpath included (e.g. `https://lift.example.com` or `https://example.com/lifttrace`). Links in emails (password reset, invites, coaching, the weekly summary) use it. Unset, they use an address an admin has opened the app at; until an admin has opened it once, only an admin's own request sends an email. Never taken from request headers, so a forged Host can't point a reset link at someone else's site. |
 | `BACKUPS_PATH` | No | Inside uploads dir | Where full ZIP backups are stored |
-| `EXERCISE_SOURCES` | No | `wger,free-db` | Comma-separated list of exercise libraries to auto-seed on first boot. Options: `wger`, `free-db`, `exercisedb`. |
-| `ALLOW_PRIVATE_RADIO_URLS` | No | `0` | Allow Radio streaming proxy to fetch from RFC1918 / loopback / IPv6 ULA addresses. Off by default — only enable if you stream from inside your own LAN and accept the SSRF surface area. |
+| `EXERCISE_SOURCES` | No | `wger,free-db` | Comma-separated list of exercise libraries to auto-seed on first boot. Options: `wger`, `free-db`, `exercisedb`, `exercisedb-oss`. |
+| `ALLOW_PRIVATE_RADIO_URLS` | No | `0` | Set `1` to let every account, and a single-user install, play radio stations on your own network (loopback, RFC1918, IPv6 ULA). An admin always can. Your music server (Navidrome, Jellyfin, Plex, Emby) doesn't need it. Cloud-metadata addresses stay blocked either way. |
 | `SMTP_HOST` | No | — | SMTP server hostname |
 | `SMTP_PORT` | No | `587` | SMTP port |
 | `SMTP_SECURE` | No | `false` | `true` for TLS (port 465), `false` for STARTTLS |
@@ -202,15 +203,14 @@ services:
 | `SMTP_FROM` | No | — | From address, e.g. `"LiftTrace" <noreply@example.com>` |
 | `AI_PROVIDER` | No | — | `claude` \| `openai` \| `gemini` \| `oai-compat`. If set, AI calls are proxied server-side and the provider/model/key fields are locked in Settings for all users. |
 | `AI_API_KEY` | No | — | API key for the chosen provider. Server-only, never reaches the browser. Optional when `AI_PROVIDER=oai-compat`. |
-| `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-4-5-20251001`, `llama3.1:8b`). Required when `AI_PROVIDER=oai-compat`. |
-| `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`. Reached from the server container, not the browser — Docker Compose sidecars on internal networks work. |
+| `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-5-5`, `llama3.1:8b`). Required when `AI_PROVIDER=oai-compat`. |
+| `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`, with or without `/v1` (the whole `/v1/chat/completions` address works too). Reached from the server container, not the browser, so Docker Compose sidecars on internal networks work. |
 | `AI_ENABLED` | No | — | If `true`, auto-enables Trace for all users. |
-| `OIDC_*` | No | — | Single-provider OIDC shorthand. See `.env.example` and Settings → User Management → OIDC providers for the full multi-provider syntax. |
+| `OIDC_*` | No | — | Single-provider OIDC shorthand. See `.env.example` for the full multi-provider syntax; providers can also be added in Settings → Authentication. |
 | `MCP_ENABLED` | No | `0` | Set to `1` to expose the Model Context Protocol endpoint at `/api/mcp`. Off by default. See [the MCP setup guide](https://traceapps.github.io/docs/lifttrace/mcp/) for Claude Desktop / Cursor / Codex config. |
-| `MCP_WRITE_ENABLED` | No | `0` | Set to `1` to allow MCP write tools (`log_set`, `log_body_stat`) to be registered. Also requires the calling token to hold `mcp:write`. |
+| `MCP_WRITE_ENABLED` | No | `0` | Set to `1` to allow MCP write tools (`log_set`, `log_body_stat`, `add_progress_photo`) to be registered. Also requires the calling token to hold `mcp:write`. |
 | `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow the MCP destructive tool (`delete_workout`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
 | `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
-
 | `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the versioned REST API at `/api/v1`, for scripts and automations that don't speak MCP. Uses the same tokens and `mcp:read`/`mcp:write` scopes as MCP. See `docs/public-api.md`. |
 | `PUBLIC_API_WRITE_ENABLED` | No | `0` | Set to `1` to allow the REST API's write routes (log a set, log body stats, attach a progress photo). Also requires the calling token to hold `mcp:write`. Independent of `PUBLIC_API_ENABLED` so read-only external access can be exposed without ever opening a write surface. |
 | `WEBHOOKS_ENABLED` | No | `0` | Set to `1` to allow outgoing webhooks (workout completed, PR set, program advanced, body stat logged) configured in Settings, Webhooks. |
@@ -225,6 +225,8 @@ services:
 1. **Open the app** — you'll be prompted with a setup wizard on first visit.
 2. **Create your account** — the first account created is automatically admin.
 3. **Single-user mode** — if you never create a second user account, the app runs without authentication (no login required). Add users in Settings → User Management to enable multi-user mode.
+
+Opening the app from another device at a plain `http://` address (a LAN IP, an Unraid WebUI link)? Signing in only sticks over HTTPS, or with `INSECURE_COOKIES=1` on a trusted LAN; the sign-in and setup screens say so. `http://localhost` on the server itself works in Chrome and Firefox either way. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/).
 
 ---
 
@@ -282,7 +284,7 @@ labels:
 
 ### OIDC callback URLs at a subpath
 
-When you configure an OIDC provider, register the callback URL with the IdP **including the prefix**, for example `https://example.com/lifttrace/api/auth/oidc/callback/1`. Enter the same URL in Settings → User Management → OIDC providers. The provider redirects back through your reverse proxy to the prefixed path, the app handles it, and the OIDC flow completes.
+When you configure an OIDC provider, register the callback URL with the IdP **including the prefix**, for example `https://example.com/lifttrace/api/auth/oidc/callback/1`. Enter the same URL in `OIDC_REDIRECT_URIS`, or in the provider's Redirect URIs under Settings → Authentication. The provider redirects back through your reverse proxy to the prefixed path, the app handles it, and the OIDC flow completes.
 
 ### Service worker and PWA install
 

@@ -1,38 +1,39 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
-import { requireAuth, requireTrainerOrAdmin, userMgmtActive } from '../middleware/auth.js';
+import { requireAuth, requireTrainerOrAdmin, uid } from '../middleware/auth.js';
+import { templateFor, toId } from '../lib/program-access.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { setVolume } from '../lib/volume.js';
 import { sendCoachFeedback, isEmailConfigured } from '../email.js';
+import { guardClient, activePairing, requireCoachRole, requestClient, endPairing, person, notifyPrescription } from '../lib/coaching.js';
 
 const router = Router();
 router.use(requireAuth);
 router.use(requireTrainerOrAdmin);
+// The role in the database decides, not the one in the sign-in token: a
+// coach an admin made a Member stops at once.
+router.use(requireCoachRole);
 
-function safeUser(u) {
+// What a coach is told about a client: who they are, not their account
+// (no email, birthday, gender or sign-in details).
+function clientOut(u) {
   if (!u) return null;
-  const { password_hash, ...rest } = u;
-  return rest;
+  return { id: u.id, username: u.username, full_name: u.full_name, nickname: u.nickname, avatar_url: u.avatar_url, role: u.role };
 }
 
-/** Trainer owns member iff user.trainer_id === trainerId. Admins always pass. */
-function ownsMember(requester, memberId) {
-  if (!userMgmtActive()) return true;
-  if (requester?.role === 'admin') return true;
-  const m = db.prepare('SELECT trainer_id FROM users WHERE id = ?').get(memberId);
-  return m && m.trainer_id === requester.id;
-}
+// Every route about one client goes through guardClient (lib/coaching.js):
+// an active pairing between this coach and this client, accepted by the
+// client. Another coach's client, a request still waiting, coaching that
+// ended, and an admin who isn't the coach all get the same 404.
 
-// GET /api/trainer/members — list members where THIS user is the trainer.
-// Previously admins saw every member regardless of trainer_id, but that meant
-// releasing a coachee left them on the admin's coaching list ("My Members"
-// implied coaches-me, not all-users). Admins can still see / manage every
-// user from Settings → User Management; the /coaching tab is specifically
-// for the coach role.
+// GET /api/trainer/members: this coach's clients, each one who accepted.
 router.get('/members', wrap((req, res) => {
   const rows = db.prepare(
-    "SELECT * FROM users WHERE role = 'member' AND trainer_id = ? ORDER BY COALESCE(nickname, full_name, username)"
+    `SELECT u.*, cc.id AS pairing_id, cc.responded_at AS coached_since FROM users u
+       JOIN coach_clients cc ON cc.client_id = u.id AND cc.coach_id = ? AND cc.status = 'active'
+      ORDER BY COALESCE(u.nickname, u.full_name, u.username)`
   ).all(req.user.id);
 
   // Light-weight annotations per member: active program name, last workout date, 7-day workout count
@@ -48,7 +49,11 @@ router.get('/members', wrap((req, res) => {
     const weekCount = db.prepare(
       `SELECT COUNT(*) as c FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL AND date >= date('now', '-7 days')`
     ).get(u.id)?.c || 0;
-    return { ...safeUser(u), active_program: active?.name || null, last_workout_date: last?.date || null, week_count: weekCount };
+    // Messages from this client the coach hasn't read (the conversation).
+    const unread = db.prepare(
+      `SELECT COUNT(*) AS c FROM coach_messages WHERE pairing_id = ? AND sender_id != ? AND read_at IS NULL AND deleted_at IS NULL`
+    ).get(u.pairing_id, req.user.id).c;
+    return { ...clientOut(u), pairing_id: u.pairing_id, coached_since: u.coached_since, active_program: active?.name || null, last_workout_date: last?.date || null, week_count: weekCount, unread };
   });
   res.json(out);
 }));
@@ -56,7 +61,8 @@ router.get('/members', wrap((req, res) => {
 // GET /api/trainer/members/:id — overview of a single member
 router.get('/members/:id', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
-  if (!ownsMember(req.user, memberId)) return res.status(403).json({ error: 'Not your member' });
+  const pairing = guardClient(req, res, memberId);
+  if (!pairing) return;
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(memberId);
   if (!user) return res.status(404).json({ error: 'Member not found' });
@@ -146,7 +152,9 @@ router.get('/members/:id', wrap((req, res) => {
   }
 
   res.json({
-    user: safeUser(user),
+    user: clientOut(user),
+    pairing_id: pairing.id,
+    coached_since: pairing.responded_at || null,
     active_program: activeProgram,
     assigned_programs: assignedPrograms,
     recent_workouts: recentWorkouts,
@@ -159,14 +167,14 @@ router.get('/members/:id', wrap((req, res) => {
 // member workout (read-only) with any coach feedback they've left on it.
 router.get('/members/:id/workout/:date', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
-  if (!ownsMember(req.user, memberId)) return res.status(403).json({ error: 'Not your member' });
+  if (!guardClient(req, res, memberId)) return;
   const row = db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(memberId, req.params.date);
   if (!row) return res.json(null);
   row.exercises = JSON.parse(row.exercises || '[]');
   // Join in feedback rows for this workout from any trainer (so the
   // current trainer sees a previous coach's notes if there was a handoff).
   row.feedback = db.prepare(`
-    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.note, cf.updated_at,
+    SELECT cf.id, cf.trainer_id, cf.exercise_idx, cf.exercise_uuid, cf.note, cf.updated_at,
            cf.member_reply, cf.member_replied_at, cf.seen_by_member_at,
            COALESCE(u.nickname, u.full_name, u.username) AS trainer_name,
            u.avatar_url AS trainer_avatar_url
@@ -185,37 +193,69 @@ router.get('/members/:id/workout/:date', wrap((req, res) => {
 // slots are distinct surfaces). Null exercise_idx = workout-level note.
 // Empty note deletes. Upserts on (workout_id, exercise_idx, trainer_id).
 router.post('/feedback', wrap((req, res) => {
-  const { workout_id, exercise_idx, note } = req.body || {};
+  const { workout_id, exercise_idx, exercise_uuid, note, media_id, media_time_sec } = req.body || {};
   if (!workout_id) return res.status(400).json({ error: 'workout_id required' });
 
   const workout = db.prepare('SELECT id, user_id, date, name FROM workout_log WHERE id = ? AND deleted_at IS NULL').get(workout_id);
   if (!workout) return res.status(404).json({ error: 'Workout not found' });
-  if (!ownsMember(req.user, workout.user_id)) return res.status(403).json({ error: 'Not your member' });
+  if (!activePairing(req.user.id, workout.user_id)) return res.status(404).json({ error: 'Workout not found' });
 
   const idx = exercise_idx ?? null;
 
+  // A note can hang off one of the member's clips and name the moment it is
+  // about (issue #57), so tapping the timestamp seeks the player. The clip
+  // has to be on this very workout: a coach pointing a note at any other row
+  // would hand themselves a readable id for footage from a different member.
+  let clipId = null;
+  let clipTime = null;
+  if (media_id != null) {
+    const clip = db.prepare(
+      'SELECT id FROM set_media WHERE id = ? AND workout_id = ? AND user_id = ? AND deleted_at IS NULL'
+    ).get(media_id, workout.id, workout.user_id);
+    if (!clip) return res.status(400).json({ error: 'That clip is not on this workout' });
+    clipId = clip.id;
+    clipTime = Number.isFinite(Number(media_time_sec)) && Number(media_time_sec) >= 0
+      ? Number(media_time_sec)
+      : null;
+  }
+
   if (!note || !String(note).trim()) {
-    db.prepare(
-      `DELETE FROM coach_feedback
-        WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?`
-    ).run(workout_id, idx, req.user.id);
+    if (exercise_uuid) {
+      db.prepare(
+        `DELETE FROM coach_feedback WHERE workout_id = ? AND exercise_uuid = ? AND trainer_id = ?`
+      ).run(workout_id, exercise_uuid, req.user.id);
+    } else {
+      db.prepare(
+        `DELETE FROM coach_feedback
+          WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?`
+      ).run(workout_id, idx, req.user.id);
+    }
     return res.json({ ok: true, deleted: true });
   }
 
-  const existing = db.prepare(
-    `SELECT id FROM coach_feedback
-      WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?`
-  ).get(workout_id, idx, req.user.id);
+  // The uuid is the exercise itself; the index is only where it happened to
+  // sit when the note was written. Match on the uuid when there is one, so a
+  // reordered session keeps each note on its own lift.
+  const uuid = exercise_uuid || null;
+  const existing = (uuid && db.prepare(
+    `SELECT id FROM coach_feedback WHERE workout_id = ? AND exercise_uuid = ? AND trainer_id = ?`
+  ).get(workout_id, uuid, req.user.id))
+    || db.prepare(
+      `SELECT id FROM coach_feedback
+        WHERE workout_id = ? AND COALESCE(exercise_idx, -1) = COALESCE(?, -1) AND trainer_id = ?
+          AND exercise_uuid IS NULL`
+    ).get(workout_id, idx, req.user.id);
 
   if (existing) {
     db.prepare(
-      `UPDATE coach_feedback SET note = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(String(note).trim(), existing.id);
+      `UPDATE coach_feedback SET note = ?, exercise_uuid = COALESCE(?, exercise_uuid), exercise_idx = ?,
+              media_id = ?, media_time_sec = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(String(note).trim(), uuid, idx, clipId, clipTime, existing.id);
   } else {
     db.prepare(
-      `INSERT INTO coach_feedback (trainer_id, member_id, workout_id, exercise_idx, note)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(req.user.id, workout.user_id, workout_id, idx, String(note).trim());
+      `INSERT INTO coach_feedback (trainer_id, member_id, workout_id, exercise_idx, exercise_uuid, note, media_id, media_time_sec)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(req.user.id, workout.user_id, workout_id, idx, uuid, String(note).trim(), clipId, clipTime);
   }
 
   if (!existing) {
@@ -247,11 +287,11 @@ router.post('/feedback', wrap((req, res) => {
           const workoutLabel = workout.name
             ? `${workout.name} (${workout.date})`
             : `your workout on ${workout.date}`;
-          const proto = req.headers['x-forwarded-proto'] || req.protocol;
-          const host  = req.headers['x-forwarded-host']  || req.get('host');
-          const viewUrl = `${proto}://${host}/#/`;
-          sendCoachFeedback(trainee.email, workoutLabel, trainerName, noteText, viewUrl)
-            .catch(() => {});
+          const base = linkBase(req);
+          if (base) {
+            sendCoachFeedback(trainee.email, workoutLabel, trainerName, noteText, `${base}/#/`)
+              .catch(() => {});
+          }
         }
       }
     }
@@ -269,7 +309,7 @@ function parsePrescription(row) {
 // GET /api/trainer/members/:id/prescriptions — list prescriptions the trainer has given this member
 router.get('/members/:id/prescriptions', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
-  if (!ownsMember(req.user, memberId)) return res.status(403).json({ error: 'Not your member' });
+  if (!guardClient(req, res, memberId)) return;
   const rows = db.prepare(
     `SELECT cp.*, wt.name as template_name, p.name as program_name,
             -- For dated prescriptions, check if the member logged a workout that day
@@ -297,14 +337,23 @@ router.get('/members/:id/prescriptions', wrap((req, res) => {
 // POST /api/trainer/members/:id/prescriptions — create prescription
 router.post('/members/:id/prescriptions', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
-  if (!ownsMember(req.user, memberId)) return res.status(403).json({ error: 'Not your member' });
-  const { date, template_id, name, exercises, notes } = req.body || {};
+  if (!guardClient(req, res, memberId)) return;
+  const { date, name, exercises, notes } = req.body || {};
+  const template_id = req.body?.template_id == null || req.body.template_id === '' ? null : toId(req.body.template_id);
+  if (req.body?.template_id != null && req.body.template_id !== '' && !template_id) {
+    return res.status(400).json({ error: 'Invalid template_id' });
+  }
   if (!template_id && (!name || !Array.isArray(exercises))) {
     return res.status(400).json({ error: 'Provide either template_id or name + exercises[]' });
   }
+  // A day the coach can see; prescribing hands it to the athlete.
+  if (template_id && !templateFor(template_id, uid(req)).canSee) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
+  // Waiting for the client's answer (Accept, then Load).
   const result = db.prepare(
-    `INSERT INTO coach_prescriptions (trainer_id, member_id, date, template_id, name, exercises, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO coach_prescriptions (trainer_id, member_id, date, template_id, name, exercises, notes, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`
   ).run(
     req.user.id, memberId,
     date || null,
@@ -314,33 +363,34 @@ router.post('/members/:id/prescriptions', wrap((req, res) => {
     notes || null
   );
   const row = db.prepare('SELECT * FROM coach_prescriptions WHERE id = ?').get(result.lastInsertRowid);
+  notifyPrescription(req.user.id, memberId);
   res.json(parsePrescription(row));
 }));
 
-// GET /api/trainer/unassigned-members — members with no coach yet, so the
-// trainer can pick them up directly from /coaching. Admin sees the same
-// pool. Members already coached by someone else are excluded.
+// GET /api/trainer/unassigned-members: people with no coach, for the coach
+// to ask. Id and name only, like any picker of people: the whole account
+// record (email, birthday and the rest) went to every coach before.
+// `full_name` carries the same name for the released apps, which read it.
 router.get('/unassigned-members', wrap((req, res) => {
   const rows = db.prepare(
-    "SELECT * FROM users WHERE role = 'member' AND trainer_id IS NULL ORDER BY COALESCE(nickname, full_name, username)"
-  ).all();
-  res.json(rows.map(safeUser));
+    `SELECT id, full_name, nickname, username FROM users
+      WHERE role = 'member' AND id != ?
+        AND NOT EXISTS (SELECT 1 FROM coach_clients cc WHERE cc.client_id = users.id AND cc.status = 'active')
+        AND id NOT IN (SELECT client_id FROM coach_clients WHERE coach_id = ? AND status = 'pending')
+      ORDER BY COALESCE(nickname, full_name, username)`
+  ).all(req.user.id, req.user.id);
+  res.json(rows.map(u => { const p = person(u.id, u); return { ...p, full_name: p.name }; }));
 }));
 
-// POST /api/trainer/members/:id — claim an unassigned member as a coachee.
-// Trainer becomes the user's trainer_id. Idempotent if already claimed by
-// this same trainer; refuses if claimed by someone else (admins can
-// reassign via Settings → User Management).
+// POST /api/trainer/members/:id: ask someone to be your client. Body:
+// { note? }. Nothing is shared until they accept (lib/coaching.js).
 router.post('/members/:id', wrap((req, res) => {
-  const memberId = parseInt(req.params.id);
-  const user = db.prepare("SELECT id, role, trainer_id FROM users WHERE id = ?").get(memberId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  if (user.role !== 'member') return res.status(400).json({ error: 'Only members can be coached' });
-  if (user.trainer_id && user.trainer_id !== req.user.id && req.user.role !== 'admin') {
-    return res.status(409).json({ error: 'Member is already coached by someone else' });
+  try {
+    const { row } = requestClient(req.user.id, parseInt(req.params.id), req.body?.note);
+    res.json({ ok: true, status: row.status, id: row.id });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
   }
-  db.prepare('UPDATE users SET trainer_id = ? WHERE id = ?').run(req.user.id, memberId);
-  res.json({ ok: true });
 }));
 
 // PUT /api/trainer/prescriptions/:id — edit an existing prescription
@@ -349,19 +399,26 @@ router.post('/members/:id', wrap((req, res) => {
 router.put('/prescriptions/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
   const row = db.prepare('SELECT * FROM coach_prescriptions WHERE id = ?').get(id);
-  if (!row) return res.status(404).json({ error: 'Prescription not found' });
-  if (req.user?.role !== 'admin' && row.trainer_id !== req.user.id) {
-    return res.status(403).json({ error: 'Not your prescription' });
+  // The coach who prescribed it, while still coaching that client.
+  if (!row || row.trainer_id !== req.user.id || !activePairing(req.user.id, row.member_id)) {
+    return res.status(404).json({ error: 'Prescription not found' });
   }
   const body = req.body || {};
   // null vs undefined matters: undefined leaves the field alone, null
   // clears it (e.g. promote/demote the date).
   const next = {
     date:        body.date         === undefined ? row.date         : body.date,
-    template_id: body.template_id  === undefined ? row.template_id  : body.template_id,
+    template_id: body.template_id  === undefined ? row.template_id
+               : (body.template_id == null || body.template_id === '') ? null : toId(body.template_id),
     name:        body.name         === undefined ? row.name         : body.name,
     notes:       body.notes        === undefined ? row.notes        : body.notes,
   };
+  if (body.template_id != null && body.template_id !== '' && !next.template_id) {
+    return res.status(400).json({ error: 'Invalid template_id' });
+  }
+  if (next.template_id && next.template_id !== row.template_id && !templateFor(next.template_id, uid(req)).canSee) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
   // Re-set or clear the prescription_completed activity flag if the date
   // changed — a missed-day flag that fires for the old date shouldn't
   // linger when the trainer reschedules. Cheap to just clear; the
@@ -369,44 +426,38 @@ router.put('/prescriptions/:id', wrap((req, res) => {
   if (next.date !== row.date) {
     db.prepare(`DELETE FROM coach_activity WHERE prescription_id = ?`).run(id);
   }
+  // A different workout, or one the client declined given again: it asks
+  // again (only a new date or notes keep an accepted one accepted).
+  const reask = row.status === 'declined'
+    || (next.template_id || null) !== (row.template_id || null) || (next.name || null) !== (row.name || null);
   db.prepare(
-    `UPDATE coach_prescriptions SET date = ?, template_id = ?, name = ?, notes = ? WHERE id = ?`
+    `UPDATE coach_prescriptions SET date = ?, template_id = ?, name = ?, notes = ?${reask ? `, status = 'pending', responded_at = NULL` : ''} WHERE id = ?`
   ).run(next.date || null, next.template_id || null, next.name || null, next.notes || null, id);
+  if (reask && row.status !== 'pending') notifyPrescription(req.user.id, row.member_id);
   res.json({ ok: true });
 }));
 
-// DELETE /api/trainer/members/:id — trainer releases a coachee (clears the
-// user's trainer_id back to NULL). Also wipes any prescriptions and program
-// assignments that came from this trainer so the now-detached member's view
-// doesn't keep dangling references to a coach they no longer have.
-// Trainer can only release their own members; admins can release anyone.
+// DELETE /api/trainer/members/:id: the coach ends coaching (End Coaching).
+// The client no longer has a trainer, and the prescriptions and program
+// assignments this coach gave them go (lib/coaching.js endPairing).
 router.delete('/members/:id', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
-  if (!ownsMember(req.user, memberId)) return res.status(403).json({ error: 'Not your member' });
-  const member = db.prepare('SELECT id, trainer_id FROM users WHERE id = ?').get(memberId);
-  if (!member) return res.status(404).json({ error: 'Member not found' });
-  const trainerId = member.trainer_id;
-  db.transaction(() => {
-    db.prepare('UPDATE users SET trainer_id = NULL WHERE id = ?').run(memberId);
-    if (trainerId) {
-      db.prepare('DELETE FROM coach_prescriptions WHERE trainer_id = ? AND member_id = ?').run(trainerId, memberId);
-      db.prepare(`DELETE FROM program_assignments
-                   WHERE assigned_to = ? AND assigned_by = ?`).run(memberId, trainerId);
-    }
-  })();
+  const pairing = guardClient(req, res, memberId);
+  if (!pairing) return;
+  endPairing(pairing.id, req.user.id, { purge: true });
   res.json({ ok: true });
 }));
 
-// GET /api/trainer/activity — recent activity feed for the current trainer.
-// Admins see activity across all trainers (so a single-coach admin still
-// gets a useful feed). Returns up to ?limit=50 rows newest-first with the
-// member's display name and the prescription's template/program/date so the
-// UI doesn't need follow-up requests to render the feed.
+// GET /api/trainer/activity: this coach's own feed (an admin's too: an
+// admin used to see every coach's events), for clients still coached by
+// this coach. Up to ?limit=50 rows newest-first with the client's display
+// name and the prescription's template/program/date so the UI doesn't need
+// follow-up requests to render the feed.
 router.get('/activity', wrap((req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-  const isAdmin = req.user?.role === 'admin';
-  const params = isAdmin ? [limit] : [req.user.id, limit];
-  const where = isAdmin ? '' : 'WHERE ca.trainer_id = ?';
+  const params = [req.user.id, req.user.id, limit];
+  const where = `WHERE ca.trainer_id = ?
+       AND EXISTS (SELECT 1 FROM coach_clients cc WHERE cc.coach_id = ? AND cc.client_id = ca.member_id AND cc.status = 'active')`;
   const rows = db.prepare(`
     SELECT ca.id, ca.trainer_id, ca.member_id, ca.kind, ca.prescription_id,
            ca.workout_id, ca.feedback_id, ca.occurred_at, ca.seen_at,
@@ -448,10 +499,9 @@ router.post('/activity/seen', wrap((req, res) => {
 router.delete('/prescriptions/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
   const row = db.prepare('SELECT * FROM coach_prescriptions WHERE id = ?').get(id);
-  if (!row) return res.status(404).json({ error: 'Prescription not found' });
-  // Only the creating trainer or an admin can retract
-  if (req.user?.role !== 'admin' && row.trainer_id !== req.user.id) {
-    return res.status(403).json({ error: 'Not your prescription' });
+  // Only the coach who prescribed it, while still coaching that client.
+  if (!row || row.trainer_id !== req.user.id || !activePairing(req.user.id, row.member_id)) {
+    return res.status(404).json({ error: 'Prescription not found' });
   }
   db.prepare('DELETE FROM coach_prescriptions WHERE id = ?').run(id);
   res.json({ ok: true });

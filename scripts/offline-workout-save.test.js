@@ -29,9 +29,10 @@ test('a save reply without a workout never blanks the Diary', () => {
 
 test('online saves update the device copy; replayed offline saves bring the date back to the server copy', () => {
   assert.match(apiFetch, /if \(isWrite && res\.ok\) \{\s*\n\s*const copy = res\.clone\(\);/);
-  assert.match(sync, /export async function mirrorSavedWorkout\(date, workout\)/);
-  assert.match(sync, /export async function reconcileWorkoutDate\(date\)/);
-  assert.match(sync, /for \(const d of workoutDates\) \{\s*\n\s*try \{ await reconcileWorkoutDate\(d\); \}/);
+  assert.match(sync, /export async function mirrorSavedWorkout\(date, workout, gen = accountGen\(\)\)/);
+  // `drop`: this device's rows the replay replaced or the server refused.
+  assert.match(sync, /export async function reconcileWorkoutDate\(date, drop = \[\], acct = _roundGen \?\? accountGen\(\)\)/);
+  assert.match(sync, /for \(const d of workoutDates\) \{\s*\n\s*try \{ await reconcileWorkoutDate\(d, dropWorkouts\); \}/);
   // Nothing is overwritten while offline edits for that date are still waiting.
   assert.equal((sync.match(/\(await _queuedWorkoutDates\(\)\)\.has\(date\)/g) || []).length, 4, 'mirror, forget-deleted, reconcile twice');
 });
@@ -55,11 +56,15 @@ test('updated_at compares as a time, whichever format it arrives in', () => {
 });
 
 test('a workout created offline keeps its own edits: device ids are swapped for server ids on replay', () => {
+  // The whole replay is exercised for real in android-sync.test.js; these
+  // keep the workout-specific pieces in place.
   assert.match(apiFetch, /await noteQueuedLocalId\(queueId, created\)/);
   assert.match(sync, /export async function noteQueuedLocalId\(queueId, localId\)/);
-  assert.match(sync, /if \(bodyId != null && idMap\.has\(bodyId\)\) \{\s*\n\s*_retargetWorkout\(payload, idMap\.get\(bodyId\)\);/);
-  assert.match(sync, /waitingIds\.has\(bodyId\) && payload\.localId !== bodyId\) \{\s*\n\s*result\.retained\+\+;/, 'held back until its session exists');
-  assert.match(sync, /if \(bodyId != null && refusedIds\.has\(bodyId\)\) \{/, 'dropped if the server refused the session');
+  assert.match(sync, /if \(isTempId\(id\)\) return _idOf\(map, id\);/, 'known server ids swapped in');
+  assert.match(sync, /legacy\.has\(bodyId\) && swapped\.has\(bodyId\)\) \{\s*\n\s*_retargetWorkout\(payload, swapped\.get\(bodyId\)\);/, 'ids from earlier versions too');
+  assert.match(sync, /if \(\[\.\.\.deviceTargets, \.\.\.deviceRefs\]\.some\(id => waiting\.has\(id\)\)\) \{\s*\n\s*result\.retained\+\+;/, 'held back until its session exists');
+  assert.match(sync, /const unsendable = deviceTargets\.filter\(id => isTempId\(id\) \|\| refusedLegacy\.has\(id\)\);/, 'dropped only if the server refused the session');
+  assert.match(sync, /if \(unsendable\.length \|\| orphanDay\) \{/);
   assert.match(sync, /new CustomEvent\('lt:workout-ids'/);
   assert.match(store, /window\.addEventListener\('lt:workout-ids'/, 'the Diary follows the new id');
 });
@@ -77,21 +82,22 @@ test('a write kept for retry holds later writes to the same thing, and only thos
 });
 
 test('the device-copy update runs behind the save reply, and device reads wait for it', () => {
-  assert.match(apiFetch, /_localWrites = _localWrites\s*\n\s*\.then\(\(\) => Promise\.race\(\[_mirrorWorkoutWrite\(url, method, copy\)/);
+  assert.match(apiFetch, /_localWrites = _localWrites\s*\n\s*\.then\(\(\) => Promise\.race\(\[_mirrorWorkoutWrite\(url, method, copy, gen\)/);
   assert.doesNotMatch(apiFetch, /if \(isWrite && res\.ok\) await _mirrorWorkoutWrite/);
   assert.equal((apiFetch.match(/await _localWrites;\s*\n\s*(const cached = )?(await|return) _dispatchLocal/g) || []).length, 2);
 });
 
-test('the id swap only touches workout writes, and covers a delete\'s ?id=', () => {
-  assert.match(sync, /const isWorkoutWrite = !!workoutDateOf\(payload\.path\);\s*\n\s*const bodyId = !isWorkoutWrite \? null : _targetWorkoutId\(payload\);/);
+test('the id swap takes device ids (below zero) anywhere, earlier versions\' ids only on workout writes, and covers a delete\'s ?id=', () => {
+  assert.match(sync, /const deviceTargets = targets\.filter\(id => id !== own && \(isTempId\(id\) \|\| \(isWorkout && legacy\.has\(id\)\)\)\);/);
   assert.match(sync, /function _targetWorkoutId\(payload\) \{[\s\S]*?new URLSearchParams\(q\)\.get\('id'\)/);
   assert.match(sync, /function _retargetWorkout\(payload, serverId\) \{[\s\S]*?params\.set\('id', String\(serverId\)\)/);
+  assert.match(sync, /if \(params\.has\('id'\) && _isWorkoutWrite\(payload\)\) \{/);
 });
 
 test('after an online delete, reads never wait on the network', () => {
-  assert.match(apiFetch, /await forgetDeletedWorkout\(date, id != null && id !== '' \? Number\(id\) : null\);\s*\n\s*reconcileWorkoutDate\(date\)\.catch\(\(\) => \{\}\);/);
-  assert.match(apiFetch, /Promise\.race\(\[_mirrorWorkoutWrite\(url, method, copy\), new Promise\(r => setTimeout\(r, 3000\)\)\]\)/);
-  assert.match(sync, /export async function forgetDeletedWorkout\(date, id\)/);
+  assert.match(apiFetch, /await forgetDeletedWorkout\(date, id != null && id !== '' \? Number\(id\) : null, gen\);\s*\n\s*reconcileWorkoutDate\(date, \[\], gen\)\.catch\(\(\) => \{\}\);/);
+  assert.match(apiFetch, /Promise\.race\(\[_mirrorWorkoutWrite\(url, method, copy, gen\), new Promise\(r => setTimeout\(r, 3000\)\)\]\)/);
+  assert.match(sync, /export async function forgetDeletedWorkout\(date, id, gen = accountGen\(\)\)/);
 });
 
 test('a server refresh of a day asks again if this device wrote to that day meanwhile', () => {

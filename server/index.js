@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { rememberAdminOrigin } from './lib/public-url.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
 // HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
@@ -33,12 +34,14 @@ import exerciseImport    from './routes/exercise-import.js';
 import notifyRoutes      from './routes/notify.js';
 import ntFederation      from './routes/nt-federation.js';
 import trainerRoutes     from './routes/trainer.js';
+import coachingRoutes    from './routes/coaching.js';
 import prescriptionRoutes from './routes/prescriptions.js';
 import coachFeedbackRoutes from './routes/coach-feedback.js';
 import syncRoutes         from './routes/sync.js';
 import oidcRoutes        from './routes/oidc.js';
 import oidcAdminRoutes   from './routes/oidc-admin.js';
 import apiTokensRoutes   from './routes/api-tokens.js';
+import setMediaRoutes    from './routes/set-media.js';
 import mcpRoutes         from './routes/mcp.js';
 import publicApiRoutes   from './routes/public-api.js';
 import webhooksRoutes    from './routes/webhooks.js';
@@ -47,10 +50,12 @@ import { authenticate }  from './middleware/auth.js';
 import { isPrivateUploadPath, UPLOAD_RESPONSE_HEADERS } from './lib/upload-paths.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv }   from './ai.js';
+import { initUpdateCheckSetting } from './lib/update-check.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { autoSeed }        from './exercise-sources/index.js';
 import { seedPrograms }    from './seed-templates.js';
 import { startScheduler }  from './lib/scheduler.js';
+import { adoptExistingPairings } from './lib/coaching.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -60,6 +65,10 @@ seedSmtpFromEnv();
 seedAiFromEnv();
 seedOidcFromEnv();
 
+// Coaching from before consent stays as it was: a client who already has a
+// trainer keeps them, accepted, with nothing to answer.
+try { adoptExistingPairings(); } catch (e) { logger.warn(`[coaching] keeping existing pairings failed: ${e?.message || e}`); }
+
 // Seed built-in programs (Monumental Valley, Shredville) on first startup
 seedPrograms();
 
@@ -68,6 +77,9 @@ autoSeed().catch(e => logger.warn('[seed] Auto-seed failed:', e.message));
 
 // Start notification scheduler (15-min tick)
 startScheduler();
+
+// Update checks: existing instances keep checking, fresh ones wait for setup to ask.
+initUpdateCheckSetting();
 
 const app  = express();
 const PORT = process.env.PORT || 3002;
@@ -90,8 +102,23 @@ const router = express.Router();
 // legitimately accept large bodies (full-backup restore, exercise import)
 // use multer's multipart/file uploads with their own per-route caps, so
 // they don't need the global JSON limit relaxed.
+//
+// The exception is a picture taken with no connection: there is nowhere to
+// upload it to, so it travels inside the row it belongs to and is turned
+// into a file on arrival. The web app keeps those well under a megabyte,
+// and these few routes allow enough headroom that one is never refused for
+// its size after the person has already been told it was saved.
+const EMBEDDED_PHOTO_LIMIT = '6mb';
+for (const path of ['/api/body-stats/photos', '/api/exercises', '/api/auth/profile']) {
+  router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
+}
+// A coaching message can carry one photo (scaled down by the app first).
+router.use('/api/coaching', express.json({ limit: '5mb' }));
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
+// The server's clock on every answer: an app offline puts the time of each
+// edit it queues on this clock, so the newer edit wins (lib/newer-wins.js).
+router.use((req, res, next) => { res.set('X-Server-Time', new Date().toISOString()); next(); });
 
 // CORS — allow same-host + Capacitor origins.
 // Capacitor WebView origins:
@@ -112,6 +139,8 @@ router.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      // The Android app reads this from an answer (another origin).
+      res.setHeader('Access-Control-Expose-Headers', 'X-LT-Coaching');
     }
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -119,19 +148,13 @@ router.use((req, res, next) => {
 });
 
 router.use(authenticate);
-
-// Auto-capture public URL from first request (for email logos, invite links)
+// Remember the address an admin uses, so emailed links (password reset,
+// invite, sharing) go there instead of to whatever Host a request claims.
 router.use((req, res, next) => {
-  if (!db.prepare("SELECT 1 FROM app_config WHERE key='app_url'").get()) {
-    const proto = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.headers['x-forwarded-host'] || req.get('host');
-    if (host && !host.includes('localhost')) {
-      db.prepare("INSERT OR REPLACE INTO app_config (key, value) VALUES ('app_url', ?)").run(`${proto}://${host}`);
-      logger.info(`[app] Auto-detected public URL: ${proto}://${host}`);
-    }
-  }
+  if (req.user?.role === 'admin') rememberAdminOrigin(req);
   next();
 });
+
 
 // Request logging
 router.use((req, res, next) => {
@@ -173,6 +196,15 @@ router.use('/uploads', express.static(uploadsPath, {
 // No-cache API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
+// Older docs gave the OIDC callback as /api/oidc/callback. An IdP set up from
+// them sends people here; forward to the real callback (which finds the
+// provider from the sign-in state) instead of letting the SPA fallback show
+// a blank page. Before the setup gate so OIDC-first installs work too.
+router.get('/api/oidc/callback', (req, res) => {
+  const q = req.originalUrl.indexOf('?');
+  res.redirect(307, `${BASE_URL}/api/auth/oidc/callback${q >= 0 ? req.originalUrl.slice(q) : ''}`);
+});
+
 // API routes
 router.use('/api/auth/oidc',    oidcRoutes);
 router.use('/api/admin/oidc',   oidcAdminRoutes);
@@ -198,10 +230,12 @@ router.use('/api/exercise-import', exerciseImport);
 router.use('/api/notify',       notifyRoutes);
 router.use('/api/nt',           ntFederation);
 router.use('/api/trainer',      trainerRoutes);
+router.use('/api/coaching',     coachingRoutes);
 router.use('/api/prescriptions', prescriptionRoutes);
 router.use('/api/coach-feedback', coachFeedbackRoutes);
 router.use('/api/sync',          syncRoutes);
 router.use('/api/admin/api-tokens', apiTokensRoutes);
+router.use('/api/set-media', setMediaRoutes);
 router.use('/api/webhooks', webhooksRoutes);
 // Model Context Protocol endpoint — Bearer-token auth, scope 'mcp:read'.
 // 404s (not just an empty tool list) when the endpoint isn't reachable
@@ -275,6 +309,12 @@ process.on('uncaughtException', (err) => {
 
 app.listen(PORT, async () => {
   logger.info(`LiftTrace running on port ${PORT}`);
+
+  // Pictures stored inline as data URLs become files (lib/img-url-migration.js).
+  // Not awaited: it runs alongside requests, and retries what fails next startup.
+  import('./lib/img-url-migration.js').then(({ migrateDataUrlImages }) => migrateDataUrlImages()).catch(e => {
+    logger.warn(`[img-url-migration] failed to start: ${e.message}`);
+  });
 
   // One-time repair for instances that enabled user management on a build
   // where the handover was incomplete (TraceApps/docs#2). No-op once clean.

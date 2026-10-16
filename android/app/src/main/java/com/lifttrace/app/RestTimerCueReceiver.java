@@ -1,5 +1,8 @@
 package com.lifttrace.app;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -12,6 +15,9 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
 import android.util.Log;
+
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 
 /**
  * Fires audio + vibration for one rest-timer countdown beep WITHOUT
@@ -30,6 +36,8 @@ import android.util.Log;
  */
 public class RestTimerCueReceiver extends BroadcastReceiver {
     private static final String TAG = "RestTimerCue";
+    private static final String CHANNEL_ID = "rest-timer-finish";
+    private static final int NOTE_ID = 9001;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -44,6 +52,14 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
 
         if (vibrate) doVibrate(context, isFinale);
 
+        if (isFinale) {
+            postFinish(
+                context,
+                intent.getStringExtra("title"),
+                intent.getStringExtra("body"),
+                intent.getBooleanExtra("localOnly", false));
+        }
+
         if (sound != null && !sound.isEmpty()) {
             playSound(context, sound, () -> {
                 if (wl.isHeld()) try { wl.release(); } catch (Exception ignored) {}
@@ -52,6 +68,52 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
             // No sound — release wake lock quickly. Vibration's already
             // fired (async by the OS), so nothing else to wait for.
             if (wl.isHeld()) try { wl.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * "Rest complete", in the phone's own shade and nowhere else.
+     *
+     * Local-only when the watch has the rest itself. Wear OS mirrors a
+     * phone's notifications to a paired watch by default, and a watch that is
+     * already running the same rest will ring with its own alarm and its own
+     * words; a second unlabelled copy arriving from the phone is a buzz the
+     * wearer cannot account for. With no watch in the picture the mirror is
+     * the only thing that would reach a wrist, so it is left alone.
+     */
+    private void postFinish(Context context, String title, String body, boolean localOnly) {
+        if (title == null || title.isEmpty()) return;
+        try {
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
+                NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID, "Rest timer", NotificationManager.IMPORTANCE_DEFAULT);
+                channel.setDescription("When a rest between sets is over");
+                channel.enableVibration(false);
+                channel.setSound(null, null);
+                nm.createNotificationChannel(channel);
+            }
+            Intent open = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+            PendingIntent tap = null;
+            if (open != null) {
+                open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+                tap = PendingIntent.getActivity(context, NOTE_ID, open, flags);
+            }
+            NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_rest)
+                .setContentTitle(title)
+                .setContentText(body == null ? "" : body)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setLocalOnly(localOnly)
+                .setSilent(true)
+                .setAutoCancel(true);
+            if (tap != null) b.setContentIntent(tap);
+            NotificationManagerCompat.from(context).notify(NOTE_ID, b.build());
+        } catch (Exception e) {
+            Log.w(TAG, "could not post the rest-complete notice: " + e.getMessage());
         }
     }
 

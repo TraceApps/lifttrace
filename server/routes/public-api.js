@@ -45,6 +45,8 @@ import { searchExercisesCore } from '../lib/mcp/tools/search-exercises.js';
 import { listProgramsCore } from '../lib/mcp/tools/list-programs.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 import { getBodyStatCore } from '../lib/mcp/tools/get-body-stat.js';
+import { getWorkoutsCore } from '../lib/mcp/tools/get-workouts.js';
+import { getBodyStatsCore } from '../lib/mcp/tools/get-body-stats.js';
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 import { logSetCore } from '../lib/mcp/tools/log-set.js';
@@ -95,7 +97,21 @@ function core(fn) {
 }
 
 router.get('/workouts/recent', requireScope('mcp:read'), core(req =>
-  listRecentWorkoutsCore(req.apiUser.id, { limit: req.query.limit ? Number(req.query.limit) : undefined })
+  listRecentWorkoutsCore(req.apiUser.id, {
+    limit: req.query.limit ? Number(req.query.limit) : undefined,
+    start: req.query.start,
+    end: req.query.end,
+  })
+));
+
+// Sessions across a range, in full detail. Declared before /workouts/:date so
+// the date route keeps matching only an actual date.
+router.get('/workouts', requireScope('mcp:read'), core(req =>
+  getWorkoutsCore(req.apiUser.id, {
+    start: req.query.start,
+    end: req.query.end,
+    limit: req.query.limit ? Number(req.query.limit) : undefined,
+  })
 ));
 
 router.get('/workouts/:date', requireScope('mcp:read'), core(req =>
@@ -103,7 +119,11 @@ router.get('/workouts/:date', requireScope('mcp:read'), core(req =>
 ));
 
 router.get('/records', requireScope('mcp:read'), core(req =>
-  getRecordsCore(req.apiUser.id, { exercise_name: req.query.exercise_name })
+  getRecordsCore(req.apiUser.id, {
+    exercise_name: req.query.exercise_name,
+    start: req.query.start,
+    end: req.query.end,
+  })
 ));
 
 router.get('/exercises', requireScope('mcp:read'), core(req =>
@@ -146,6 +166,10 @@ router.get('/body-stats/photos/:id/file', requireScope('mcp:read'), wrap((req, r
     if (err && !res.headersSent) res.status(404).json({ error: 'File missing' });
   });
 }));
+
+router.get('/body-stats', requireScope('mcp:read'), core(req =>
+  getBodyStatsCore(req.apiUser.id, { start: req.query.start, end: req.query.end })
+));
 
 router.get('/body-stats/:date', requireScope('mcp:read'), core(req =>
   getBodyStatCore(req.apiUser.id, { date: req.params.date })

@@ -8,13 +8,18 @@
   // Manual entry only. See feedback_lifttrace_cardio_scope.md for the
   // hard line against device sync in LT.
 
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../../lib/api.js';
   import { currentDate } from '../../stores/workout.js';
   import { weightUnit } from '../../stores/settings.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
+
+  // Fired whenever this day gains or loses a session. The Diary's streak,
+  // week strip and calendar dots read a set of dates that includes cardio,
+  // so they'd otherwise stay stale until the page was left and came back.
+  const dispatch = createEventDispatcher();
 
   let sessions = [];
   let templates = [];
@@ -72,6 +77,7 @@
         notes: t.notes,
       });
       sessions = [created, ...sessions];
+      dispatch('change');
       showSuccess($_('diary.cardio.toast.logged'));
     } catch (e) {
       showError(e?.message || $_('diary.cardio.toast.log_failed'));
@@ -142,6 +148,7 @@
       } else {
         const created = await LtApi.createCardio(payload);
         sessions = [created, ...sessions];
+        dispatch('change');
         showSuccess($_('diary.cardio.toast.logged'));
       }
       showForm = false;
@@ -164,6 +171,7 @@
     try {
       await LtApi.deleteCardio(session.id);
       sessions = sessions.filter(s => s.id !== session.id);
+      dispatch('change');
     } catch (e) {
       showError(e?.message || $_('common.errors.delete_failed'));
     }

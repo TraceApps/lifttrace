@@ -1,12 +1,14 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { wideContent } from '../lib/wide.js';
   import { fmtSetDuration, parseDuration } from '../lib/workout.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { duplicateProgram as duplicate } from '../lib/program-actions.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
-  import { currentUser } from '../stores/auth.js';
+  import { currentUser, userMgmtActive } from '../stores/auth.js';
   import Sheet from '../components/ui/Sheet.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
@@ -53,7 +55,15 @@
   let assignMembers = [];
   let assigning = false;
   $: isCoach = $currentUser?.role === 'trainer' || $currentUser?.role === 'admin';
-  $: isOwner = $currentUser && program && program.created_by === $currentUser.id;
+  // On a server without accounts nothing has a maker: your programs are the
+  // ones that aren't starters, as the server sees it (lib/program-access.js).
+  $: isOwner = !!($currentUser && program && (program.created_by === $currentUser.id
+    || (!$userMgmtActive && program.created_by == null && program.visibility !== 'shared')));
+  // Someone else's program (a coach's, assigned to you): its workouts open
+  // but don't change, as on the server (lib/program-access.js). Only when
+  // the maker is known to be another account, so nothing of your own
+  // ever loses its controls.
+  $: othersProgram = !!($userMgmtActive && $currentUser && program?.created_by != null && program.created_by !== $currentUser.id);
 
   async function openAssign() {
     try { assignMembers = await LtApi.getMyMembers(); }
@@ -67,7 +77,7 @@
     try {
       await LtApi.assignProgram(params.id, { user_id: memberId });
       const m = assignMembers.find(x => x.id === memberId);
-      showSuccess($_('program_detail.toast.assigned_to', { values: { name: m?.full_name || m?.username || $_('program_detail.toast.member_fallback') } }));
+      showSuccess($_('program_detail.toast.assigned_to', { values: { name: m?.full_name || m?.username || $_('program_detail.toast.client_fallback') } }));
       showAssign = false;
     } catch(e) { showError(e.message); }
     assigning = false;
@@ -102,18 +112,10 @@
   // of route-pushing to the workout editor. Editing / adding sets
   // still routes through the pane's "Edit" button.
   let _wideMode = false;
-  let _wideMq;
-  function _syncWide() {
-    if (typeof document === 'undefined') return;
-    _wideMode = !!_wideMq?.matches
-      && !document.documentElement.classList.contains('force-mobile-layout');
-  }
-  if (typeof window !== 'undefined') {
-    _wideMq = window.matchMedia('(min-width: 1280px)');
-    _syncWide();
-    _wideMq.addEventListener?.('change', _syncWide);
-  }
-  onDestroy(() => { _wideMq?.removeEventListener?.('change', _syncWide); });
+  // Room for the second pane is the content width minus any pinned sidebar,
+  // which html.wide-content tracks. A 1280px media query never matched on a
+  // foldable open flat (about 852px). The class already excludes Force Mobile.
+  $: _wideMode = $wideContent;
 
   let _previewTemplateId = null;
   $: _previewTemplate = program?.templates?.find(t => t.id === _previewTemplateId) || null;
@@ -191,6 +193,7 @@
   }
   function onTplDragEnd() { draggedTplIdx = -1; dragOverTplIdx = -1; }
   async function onTplDrop(e, i) {
+    if (othersProgram) return;
     e.preventDefault();
     const from = draggedTplIdx;
     draggedTplIdx = -1; dragOverTplIdx = -1;
@@ -214,39 +217,11 @@
    *  Then picks the lowest unused `(Copy)` / `(Copy N)` given the current
    *  program library, so bulk-duplicating a base program produces
    *  `X (Copy)`, `X (Copy 2)`, `X (Copy 3)`, etc. */
-  function _nextCopyName(sourceName, existingNames) {
-    const base = String(sourceName || '').replace(/\s*\(Copy(?:\s+\d+)?\)\s*$/, '').trim() || 'Program';
-    const taken = new Set(existingNames);
-    if (!taken.has(`${base} (Copy)`)) return `${base} (Copy)`;
-    let n = 2;
-    while (taken.has(`${base} (Copy ${n})`)) n++;
-    return `${base} (Copy ${n})`;
-  }
-
   async function duplicateProgram() {
     try {
-      // Fetch the library so the new name doesn't collide.
-      let existingNames = [];
-      try { existingNames = (await LtApi.getPrograms()).map(p => p.name); } catch {}
-      const p = await LtApi.createProgram({
-        name: _nextCopyName(program.name, existingNames),
-        description: program.description,
-        goal: program.goal,
-        duration_weeks: program.duration_weeks,
-        advance_mode: program.advance_mode,
-        on_complete: program.on_complete,
-      });
-      // Copy all templates
-      for (const t of program.templates || []) {
-        await LtApi.createTemplate({
-          program_id: p.id,
-          name: t.name,
-          day_label: t.day_label,
-          exercises: t.exercises,
-        });
-      }
+      const copy = await duplicate(program);
       showSuccess($_('program_detail.toast.duplicated'));
-      push(`/programs/${p.id}`);
+      push(`/programs/${copy.id}`);
     } catch(e) { showError(e.message); }
   }
 
@@ -298,7 +273,7 @@
     /* Duplicate is available to anyone viewing the program (matches
        the previous unconditional Duplicate icon behaviour). */
                                 items.push({ label: 'Duplicate',        icon: 'content_copy',   value: 'duplicate' });
-    if (isCoach && isOwner)     items.push({ label: 'Assign to Member', icon: 'person_add',     value: 'assign' });
+    if (isCoach && isOwner)     items.push({ label: $_('program_detail.assign_to_client'), icon: 'person_add', value: 'assign' });
     if (isOwner)                items.push({ label: 'Delete Program',   icon: 'delete',         value: 'delete',    danger: true });
     return items;
   })();
@@ -382,10 +357,12 @@
       <div class="section">
         <div class="section-header">
           <h3 class="section-title">{$_('program_detail.workouts')}</h3>
+          {#if !othersProgram}
           <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>
             <span class="material-symbols-rounded">add</span>
             Add
           </button>
+          {/if}
         </div>
 
         <!-- .pd-body — plain block on mobile; at >=1280px becomes a
@@ -400,7 +377,7 @@
               <div class="tpl-drag"
                 class:dragging={draggedTplIdx === idx}
                 class:drag-over={dragOverTplIdx === idx && draggedTplIdx !== idx}
-                draggable="true"
+                draggable={!othersProgram}
                 on:dragstart={e => onTplDragStart(e, idx)}
                 on:dragover={e => onTplDragOver(e, idx)}
                 on:drop={e => onTplDrop(e, idx)}
@@ -413,7 +390,7 @@
                      role="button"
                      tabindex="0">
                   <div class="tpl-left">
-                    <span class="material-symbols-rounded tpl-drag-handle" title="Drag to reorder">drag_indicator</span>
+                    {#if !othersProgram}<span class="material-symbols-rounded tpl-drag-handle" title="Drag to reorder">drag_indicator</span>{/if}
                     <span class="tpl-num">{idx + 1}</span>
                     <div class="tpl-info">
                       <span class="tpl-name">{t.name}</span>
@@ -421,9 +398,11 @@
                     </div>
                   </div>
                   <div class="tpl-right">
+                    {#if !othersProgram}
                     <button class="btn-icon-sm" on:click={e => deleteTemplate(e, t.id)} title="Delete">
                       <span class="material-symbols-rounded">close</span>
                     </button>
+                    {/if}
                     <span class="material-symbols-rounded tpl-arrow">chevron_right</span>
                   </div>
                 </div>
@@ -434,7 +413,7 @@
           <div class="empty-templates">
             <span class="material-symbols-rounded">playlist_add</span>
             <p>No workouts in this program yet.</p>
-            <button class="btn-primary-sm" on:click={() => showAddTemplate = true}>{$_('program_detail.add_workout')}</button>
+            {#if !othersProgram}<button class="btn-primary-sm" on:click={() => showAddTemplate = true}>{$_('program_detail.add_workout')}</button>{/if}
           </div>
         {/if}
 
@@ -473,7 +452,7 @@
             {/if}
             <button class="btn btn-primary ptp-edit-btn" on:click={() => openTemplate(t.id)}>
               <span class="material-symbols-rounded">edit</span>
-              Edit workout
+              Edit Workout
             </button>
           {:else}
             <div class="ptp-empty">
@@ -490,13 +469,13 @@
   {/if}
 </div>
 
-<!-- Assign to Member Sheet -->
-<Sheet open={showAssign} on:close={() => showAssign = false} title="Assign to Member">
+<!-- Assign to Client Sheet -->
+<Sheet open={showAssign} on:close={() => showAssign = false} title={$_('program_detail.assign_to_client')}>
   <div class="assign-sheet">
     {#if assignMembers.length === 0}
       <div class="empty-inline">
-        <p>You don't have any members assigned yet.</p>
-        <p class="hint">An admin can assign members to you from Settings → User Management.</p>
+        <p>{$_('program_detail.no_clients')}</p>
+        <p class="hint">{$_('program_detail.no_clients_hint')}</p>
       </div>
     {:else}
       <p class="hint">{@html $_('program_detail.assign_hint', { values: { name: `<strong>${program?.name ?? ''}</strong>` } })}</p>
@@ -736,21 +715,52 @@
      wrapper becomes a 2-col grid at >=1280px on non-forced-mobile
      viewports so a lifter can scan the whole program's day-by-day
      structure without opening WorkoutEditor for each day. */
-  @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .pd-body {
+  /* Gated on the room available rather than a 1280px viewport, so a
+     foldable open flat (about 852px) gets the two-pane layout too. */
+  @media all {
+    /* The program header and description stay put, and the workouts and the
+       selected workout scroll independently underneath them. The chain of
+       min-height: 0 is what lets a flex child actually shrink; without it
+       each one sizes to its content and the page scrolls as a whole. */
+    :global(html.wide-content) .page {
+      height: 100dvh;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      /* The region fills the page, so the page is what has to leave room for
+         the nav and for the mini player and timer bars. --bottom-overlays
+         already includes the mini player, so it replaces it here rather than
+         being added on top. */
+      padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + var(--bottom-overlays, 0px) + 16px);
+    }
+    :global(html.wide-content) .page > .content,
+    :global(html.wide-content) .content > .section {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    :global(html.wide-content) .pd-body {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 400px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 20px;
-      align-items: start;
+      align-items: stretch;
+      flex: 1;
+      min-height: 0;
     }
-    :global(html:not(.force-mobile-layout)) .pd-body > .template-list {
+    :global(html.wide-content) .pd-body > .template-list {
       min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
     }
-    :global(html:not(.force-mobile-layout)) .pd-body :global(.template-card.selected-for-preview) {
+    :global(html.wide-content) .pd-body :global(.template-card.selected-for-preview) {
       border-color: var(--accent);
       box-shadow: 0 0 0 1px var(--accent);
     }
-    :global(html:not(.force-mobile-layout)) .pd-body > .pd-template-pane {
+    :global(html.wide-content) .pd-body > .pd-template-pane {
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -758,19 +768,15 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       padding: 14px;
-      position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 130px + var(--hamburger-row, 0px));
-      align-self: start;
-      max-height: calc(100vh
-        - var(--page-top, var(--safe-top))
-        - 150px
-        - var(--hamburger-row, 0px)
-        - var(--nav-h, 0px)
-        - var(--bottom-overlays, 0px)
-        - var(--safe-bottom, 0px));
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: var(--border) transparent;
+      /* Neither sticky nor fixed. The two-pane region below fills whatever
+         the header and description leave, so the card simply fills its own
+         column and never moves. Sticky could only travel the height of its
+         grid area, so on a long program it detached and rode down with the
+         list; a fixed top needed a magic number that went stale the moment
+         anything above it scrolled away. */
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
     }
     .ptp-head {
       display: flex;
@@ -794,6 +800,12 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
+      /* This is the part that scrolls, so the card's heading stays visible. */
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
     }
     .ptp-exercise {
       display: flex;
@@ -851,5 +863,13 @@
     .ptp-empty-icon { font-size: 32px; opacity: 0.6; }
     .ptp-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
     .ptp-empty-desc { margin: 0; font-size: 12px; line-height: 1.5; max-width: 260px; }
+  }
+
+  /* Desktop keeps its fixed-width pane. The half-and-half split above is for
+     the in-between widths a foldable lands in. */
+  @media (min-width: 1280px) {
+    :global(html.wide-content) .pd-body {
+      grid-template-columns: minmax(0, 1fr) 400px;
+    }
   }
 </style>

@@ -30,6 +30,7 @@
  * semantics, different table list.
  */
 import { Router } from 'express';
+import zlib from 'node:zlib';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -37,6 +38,9 @@ import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
+import { localizeDataUrl } from '../lib/image-localizer.js';
+import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
+import { readablePairingIds, messageOut } from '../lib/coaching-messages.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
 // Same shape as workout.js — duplicated here to keep both routes
@@ -76,6 +80,21 @@ const router = Router();
 router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user?.id : null;
+
+// A picture embedded in a pushed row becomes a file, as on the REST routes,
+// so no row stores a data URL. One that can't be stored (not an image, too
+// large) is left out rather than failing the whole batch, which the client
+// would otherwise resend forever: `fallback` goes in instead.
+function localizeOr(value, fallback, opts) {
+  try {
+    const out = localizeDataUrl(value, opts);
+    if (typeof out === 'string' && /^data:/i.test(out)) throw new Error('not a supported image type');
+    return out;
+  } catch (e) {
+    logger.warn(`[sync] push: an embedded image was not stored: ${e.message}`);
+    return fallback;
+  }
+}
 
 // ── Settings keys that should never be pushed to the client ─────────────
 // Mirrors the SERVER_SETTINGS / DEVICE_PREFS split in NT but LT doesn't
@@ -127,23 +146,29 @@ router.get('/pull', wrap((req, res) => {
         `SELECT * FROM exercises WHERE updated_at >= ? ORDER BY updated_at`
       ).all(sinceSql).map(parseRow);
 
-  // programs has created_by, not user_id. Include programs the user
-  // created OR has been assigned (server-side join with program_assignments
-  // is overkill here — assignments are pulled separately).
-  const programs = u != null
-    ? db.prepare(
-        `SELECT DISTINCT p.* FROM programs p
-         LEFT JOIN program_assignments a ON a.program_id = p.id AND a.assigned_to = ?
-         WHERE p.updated_at >= ? AND (p.created_by = ? OR p.created_by IS NULL OR a.id IS NOT NULL)
-         ORDER BY p.updated_at`
-      ).all(u, sinceSql, u).map(parseRow)
-    : db.prepare(
-        `SELECT * FROM programs WHERE updated_at >= ? ORDER BY updated_at`
-      ).all(sinceSql).map(parseRow);
+  // programs has created_by, not user_id. The programs this account may
+  // see (program-access.js): its own, ones assigned to it, and the
+  // starters. A deleted account's programs have no maker either, but stay
+  // private. Their workout days follow the same rule; every account's
+  // days used to go to every device.
+  const visible = visibleProgramsSql(u);
+  const programs = db.prepare(
+    `SELECT p.* FROM programs p
+      WHERE p.updated_at >= ? AND ${visible.sql}
+      ORDER BY p.updated_at`
+  ).all(sinceSql, ...visible.args).map(parseRow);
 
+  // Days also go to the athlete a coach prescribed one to, and arrive
+  // when they are prescribed: the day itself may not have changed in months.
+  const visibleDays = visibleTemplatesSql(u);
+  const prescribedSince = u != null
+    ? 'OR EXISTS (SELECT 1 FROM coach_prescriptions cp WHERE cp.template_id = t.id AND cp.member_id = ? AND cp.created_at >= ?)'
+    : '';
   const workout_templates = db.prepare(
-    `SELECT * FROM workout_templates WHERE updated_at >= ? ORDER BY updated_at`
-  ).all(sinceSql).map(parseRow);
+    `SELECT t.* FROM workout_templates t JOIN programs p ON p.id = t.program_id
+      WHERE (t.updated_at >= ? ${prescribedSince}) AND ${visibleDays.sql}
+      ORDER BY t.updated_at`
+  ).all(sinceSql, ...(u != null ? [u, sinceSql] : []), ...visibleDays.args).map(parseRow);
 
   const program_assignments = u != null
     ? db.prepare(
@@ -179,6 +204,13 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM body_stat_media WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(sinceSql, ...userParams).map(parseRow);
 
+  // Set videos (issue #57). The rows travel; the files do not, they are
+  // fetched on demand from /api/set-media/:id/file, which is also why a clip
+  // is the one piece of the diary that needs a connection to watch.
+  const set_media = db.prepare(
+    `SELECT * FROM set_media WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
+  ).all(sinceSql, ...userParams).map(parseRow);
+
   // user_settings — only the current user's keys; never push admin-only
   // keys (none yet, but the filter is a hook for future).
   const settings = u != null
@@ -202,9 +234,76 @@ router.get('/pull', wrap((req, res) => {
   // were deleted on another device. See lib/workout-merge.js.
   const workout_tombstones = _loadTombstonesSince(u, sinceSql);
 
+  // Rows deleted on the server since the cursor, as { id, deleted_at } rows
+  // the app removes locally (#139): this user's own, and shared ones (whose
+  // owner is NULL). Ids only: a device that never had the row deletes
+  // nothing. A first, full pull skips them, as the device holds nothing yet;
+  // a full pull asked for by a device that holds data (held=1: its copy was
+  // reset to be pulled again) gets them, so what's gone leaves it too.
+  const fullPull = sinceSql <= '1970-01-01 00:00:00' && req.query.held !== '1';
+  const deletedSince = db.prepare(
+    `SELECT row_id AS id, deleted_at FROM sync_deletions
+      WHERE tbl = ? AND deleted_at >= ? ${u != null ? 'AND (user_id IS NULL OR user_id = ?)' : ''}`
+  );
+  const gone = (tbl) => (fullPull ? [] : deletedSince.all(tbl, sinceSql, ...userParams));
+  programs.push(...gone('programs'));
+  workout_templates.push(...gone('workout_templates'));
+  program_assignments.push(...gone('program_assignments'));
+  exercises.push(...gone('exercises'));
+  workout_log.push(...gone('workout_log'));
+  body_stats_log.push(...gone('body_stats_log'));
+  ai_chat_history.push(...gone('ai_chat_history'));
+  // A setting deleted: { key, deleted_at } in the settings list (db.js keeps
+  // the key with the record).
+  if (u != null && !fullPull) {
+    settings.push(...db.prepare(
+      `SELECT row_key AS key, deleted_at FROM sync_deletions WHERE tbl = 'user_settings' AND user_id = ? AND deleted_at >= ? AND row_key IS NOT NULL`
+    ).all(u, sinceSql));
+  }
+
+  // Every program and workout day this account may keep, in full: a phone
+  // drops any it holds that are not listed. That covers ones deleted, a
+  // program unassigned from an athlete, and the days of every account that
+  // older servers sent to every phone.
+  const keep = {
+    programs: db.prepare(`SELECT p.id FROM programs p WHERE ${visible.sql}`)
+      .all(...visible.args).map(r => r.id),
+    workout_templates: db.prepare(
+      `SELECT t.id FROM workout_templates t JOIN programs p ON p.id = t.program_id WHERE ${visibleDays.sql}`
+    ).all(...visibleDays.args).map(r => r.id),
+  };
+
+  // Without user accounts the program being followed lives in app_config,
+  // not in program_assignments, so it went nowhere and a phone never learned
+  // of a change made on the web. Sent in full every pull: it's one row.
+  let solo_active;
+  if (u == null) {
+    const cfg = (k) => db.prepare('SELECT value FROM app_config WHERE key = ?').get(k)?.value ?? null;
+    const pid = toId(cfg('active_program'));
+    let cursor = {};
+    try { cursor = JSON.parse(cfg('active_program_cursor') || '{}') || {}; } catch { /* none */ }
+    solo_active = pid && db.prepare('SELECT 1 FROM programs WHERE id = ?').get(pid)
+      ? { program_id: pid, week_cursor: cursor.week ?? null, week_cursor_session_base: cursor.base ?? null, week_cursor_pinned_at: cursor.pinnedAt ?? null }
+      : null;
+  }
+
+  // Coaching conversations, only for an app that asks (?coaching=1): an
+  // Android app from before them gets exactly the answer it always did.
+  // `coaching.pairings` lists every conversation this person may still read,
+  // so the phone drops one a coach no longer has.
+  const coachingOut = {};
+  if (req.query.coaching === '1' && u != null) {
+    const pairings = readablePairingIds(u);
+    const msgs = pairings.length
+      ? db.prepare(`SELECT * FROM coach_messages WHERE updated_at >= ? AND pairing_id IN (${pairings.map(() => '?').join(',')}) ORDER BY updated_at, id`).all(sinceSql, ...pairings)
+      : [];
+    coachingOut.coach_messages = msgs.map(messageOut);
+    coachingOut.coaching = { pairings };
+  }
+
   logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
 
-  res.json({
+  sendMaybeGzipped(req, res, {
     exercises,
     programs,
     workout_templates,
@@ -212,12 +311,33 @@ router.get('/pull', wrap((req, res) => {
     workout_log,
     body_stats_log,
     body_stat_media,
+    set_media,
     workout_tombstones,
     user_settings: settings,
     ai_chat_history,
+    keep,
+    ...(u == null ? { solo_active } : {}),
+    ...coachingOut,
     server_time: serverTime,
   });
 }));
+
+// A full pull of a long history is several hundred kilobytes of JSON that
+// shrinks about twentyfold; on a phone's slow link that was the difference
+// between finishing and timing out on every try. Compressed when the client
+// takes it (Android's HTTP stack asks for gzip and unpacks it itself).
+function sendMaybeGzipped(req, res, payload) {
+  const body = JSON.stringify(payload);
+  if (body.length < 2048 || !/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+    res.type('application/json').send(body);
+    return;
+  }
+  zlib.gzip(body, (err, gz) => {
+    if (err) { res.type('application/json').send(body); return; }
+    res.set({ 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+    res.send(gz);
+  });
+}
 
 // ── POST /push ───────────────────────────────────────────────────────────
 // Receives changed rows from the client. Each row carries:
@@ -237,7 +357,7 @@ router.post('/push', wrap((req, res) => {
   const body = req.body || {};
   const result = {
     exercises: [], programs: [], workout_templates: [], program_assignments: [],
-    workout_log: [], body_stats_log: [], body_stat_media: [], user_settings: [], ai_chat_history: [],
+    workout_log: [], body_stats_log: [], body_stat_media: [], set_media: [], user_settings: [], ai_chat_history: [],
   };
 
   const norm = ts => ts ? toSqlTime(ts) : '';
@@ -247,7 +367,7 @@ router.post('/push', wrap((req, res) => {
     // ── exercises ──────────────────────────────────────────────────────
     for (const e of (body.exercises || [])) {
       const existing = e.server_id
-        ? db.prepare('SELECT updated_at, is_global, created_by FROM exercises WHERE id = ?').get(e.server_id)
+        ? db.prepare('SELECT updated_at, is_global, created_by, img_url, gif_url FROM exercises WHERE id = ?').get(e.server_id)
         : null;
       if (e.server_id && existing) {
         // Only a row this user owns is written. A library exercise, or
@@ -267,7 +387,7 @@ router.post('/push', wrap((req, res) => {
               JSON.stringify(e.secondary_muscles || []),
               JSON.stringify(e.equipment || []),
               e.instructions || null, e.tips || null,
-              e.img_url || null, e.gif_url || null, e.video_url || null,
+              localizeOr(e.img_url, existing.img_url) || null, localizeOr(e.gif_url, existing.gif_url) || null, e.video_url || null,
               e.server_id
             );
           }
@@ -283,7 +403,7 @@ router.post('/push', wrap((req, res) => {
           JSON.stringify(e.secondary_muscles || []),
           JSON.stringify(e.equipment || []),
           e.instructions || null, e.tips || null,
-          e.img_url || null, e.gif_url || null, e.video_url || null,
+          localizeOr(e.img_url, null) || null, localizeOr(e.gif_url, null) || null, e.video_url || null,
           u
         );
         result.exercises.push({ client_id: e.client_id, server_id: r.lastInsertRowid });
@@ -293,10 +413,12 @@ router.post('/push', wrap((req, res) => {
     // ── programs ──────────────────────────────────────────────────────
     for (const p of (body.programs || [])) {
       const existing = p.server_id
-        ? db.prepare('SELECT updated_at FROM programs WHERE id = ?').get(p.server_id)
+        ? db.prepare('SELECT id, updated_at, created_by FROM programs WHERE id = ?').get(p.server_id)
         : null;
       if (p.server_id && existing) {
-        if (wins(p.updated_at, existing.updated_at)) {
+        // Only the program's maker changes it (program-access.js); anyone
+        // else is answered as if they lost the timestamp race.
+        if (canChangeProgram(existing, u) && wins(p.updated_at, existing.updated_at)) {
           if (p.deleted_at) {
             db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
           } else {
@@ -326,8 +448,9 @@ router.post('/push', wrap((req, res) => {
       const delExUuids = Array.isArray(dr?.exercises) ? dr.exercises : (Array.isArray(dr) ? dr : []);
       const delSetsByEx = (dr && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
 
+      const canChangeDay = id => toId(id) != null && programFor(toId(id), u).canChange;
       if (t.server_id && existing) {
-        if (wins(t.updated_at, existing.updated_at)) {
+        if (canChangeDay(existing.program_id) && wins(t.updated_at, existing.updated_at)) {
           if (t.deleted_at) {
             db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
           } else {
@@ -363,13 +486,13 @@ router.post('/push', wrap((req, res) => {
           }
         }
         result.workout_templates.push({ client_id: t.client_id, server_id: t.server_id });
-      } else if (!t.deleted_at && t.program_id) {
+      } else if (!t.deleted_at && t.program_id && canChangeDay(t.program_id)) {
         // Fresh insert: uuids ensured up-front so subsequent merges have identity.
         const exs = ensureExerciseUuids(t.exercises || []);
         const r = db.prepare(
           `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, updated_at)
            VALUES (?, ?, ?, ?, ?, datetime('now'))`
-        ).run(t.program_id, t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs));
+        ).run(toId(t.program_id), t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs));
         result.workout_templates.push({ client_id: t.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -392,8 +515,11 @@ router.post('/push', wrap((req, res) => {
     // session_seq/id — reproducing exactly what that client already
     // believes is "the" workout for that date.
     for (const w of (body.workout_log || [])) {
+      // This account's own workout only: someone else's id falls through
+      // to the date lookup below, as an id that doesn't resolve does.
       let existing = w.server_id
-        ? db.prepare('SELECT * FROM workout_log WHERE id = ?').get(w.server_id)
+        ? db.prepare(`SELECT * FROM workout_log WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+            .get(w.server_id, ...(u != null ? [u] : []))
         : null;
       // Issue #87: a server_id that does NOT resolve (stale device-
       // cached id, a row that no longer exists) falls back to the same
@@ -410,6 +536,9 @@ router.post('/push', wrap((req, res) => {
           `SELECT * FROM workout_log WHERE user_id ${u != null ? '= ?' : 'IS NULL'} AND date = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1`
         ).get(...(u != null ? [u, w.date] : [w.date]));
       }
+
+      // Only a program, day and exercises this account may see.
+      Object.assign(w, cleanWorkoutRefs(u, { ...w, exercises: w.exercises || [] }, existing));
 
       const dr = w.deleted_uuids;
       const delExUuids = Array.isArray(dr?.exercises) ? dr.exercises : (Array.isArray(dr) ? dr : []);
@@ -510,11 +639,33 @@ router.post('/push', wrap((req, res) => {
         }
         result.body_stat_media.push({ client_id: p.client_id, server_id: existing.id });
       } else if (!p.deleted_at && p.url && p.date) {
+        // Into body-stats/, served only to its owner, like the REST route.
+        const url = localizeOr(p.url, null, { subdir: 'body-stats' });
+        if (!url) continue;
         const r = db.prepare(
           `INSERT INTO body_stat_media (user_id, date, kind, url, created_at, updated_at) VALUES (?, ?, 'photo', ?, datetime('now'), datetime('now'))`
-        ).run(u, p.date, p.url);
+        ).run(u, p.date, url);
         result.body_stat_media.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
+    }
+
+    // ── set_media (set videos) ───────────────────────────
+    //
+    // Same shape as progress photos above: keyed by server_id, immutable
+    // once written, so the only update that can arrive is a soft-delete.
+    // A clip is only ever created by the upload route (the file has to exist
+    // before a row can point at it), so this never inserts: it carries
+    // deletions between devices and nothing else.
+    for (const m of (body.set_media || [])) {
+      if (!m.server_id) continue;
+      const existing = db.prepare(`SELECT * FROM set_media WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+        .get(...(u != null ? [m.server_id, u] : [m.server_id]));
+      if (!existing) continue;
+      if (m.deleted_at && !existing.deleted_at && wins(m.updated_at, existing.updated_at)) {
+        db.prepare(`UPDATE set_media SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+        db.prepare('UPDATE coach_feedback SET media_id = NULL, media_time_sec = NULL WHERE media_id = ?').run(existing.id);
+      }
+      result.set_media.push({ client_id: m.client_id, server_id: existing.id });
     }
 
     // ── user_settings — keyed by (user_id, key), no surrogate id ───────
@@ -540,7 +691,8 @@ router.post('/push', wrap((req, res) => {
     // ── ai_chat_history — append-only on push ──────────────────────────
     for (const c of (body.ai_chat_history || [])) {
       if (c.deleted_at && c.server_id) {
-        db.prepare(`UPDATE ai_chat_history SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(c.server_id);
+        db.prepare(`UPDATE ai_chat_history SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
+          .run(c.server_id, ...(u != null ? [u] : []));
         result.ai_chat_history.push({ client_id: c.client_id, server_id: c.server_id });
       } else if (!c.server_id && !c.deleted_at && c.role && c.content) {
         const r = db.prepare(

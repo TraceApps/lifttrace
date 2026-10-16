@@ -164,7 +164,17 @@ const _webviewOrigin = typeof window !== 'undefined' ? window.location.origin : 
 
 export function resolveAssetUrl(path) {
   if (!path) return path;
-  if (path.startsWith('data:') || path.startsWith('file:')) return path;
+  if (path.startsWith('data:')) return path;
+  // Media uploaded with no server is a file:// URI in the app's Data dir
+  // (local-uploads.js). The WebView can't load file:// from its https
+  // origin; convertFileSrc() gives the address it serves those files at.
+  if (path.startsWith('file:')) {
+    return isNative && Capacitor?.convertFileSrc ? Capacitor.convertFileSrc(path) : path;
+  }
+  // The same file with its file:// prefix dropped.
+  if (isNative && path.startsWith('/data/') && Capacitor?.convertFileSrc) {
+    return Capacitor.convertFileSrc('file://' + path);
+  }
   if (_webviewOrigin && path.startsWith(_webviewOrigin)) return path;
   if (isNative) {
     // Always check local image cache first (fastest, works offline + disconnected)

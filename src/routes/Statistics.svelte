@@ -19,6 +19,8 @@
   import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
   import { showError } from '../stores/toast.js';
+  import { foldText } from '../lib/search-text.js';
+
 
   // ── Metric + range state ─────────────────────────────────────────────
   // Base metric pills — cardio conditionally appended when the user
@@ -95,6 +97,10 @@
   let cardioSessions = []; // individual sessions in range, newest first, for the session list under the chart
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
+  const _hasCompletedSet = w => {
+    const exs = typeof w.exercises === 'string' ? JSON.parse(w.exercises || '[]') : (w.exercises || []);
+    return exs.some(e => (e.sets || []).some(s => s.completed));
+  };
   let exercises = [];
   let loading = true;
 
@@ -197,7 +203,17 @@
     // pass, because its start date is the earliest workout just fetched.
     if (range === 'All') await loadData();
 
-    _onSyncComplete = () => { loadData(); };
+    // After a sync that brought nothing, every few minutes: the totals come
+    // from the server, and cardio logged on the web or the watch isn't in
+    // the pull to say so.
+    let _quietAt = 0;
+    _onSyncComplete = (e) => {
+      if (e?.detail?.changed === false) {
+        if (Date.now() - _quietAt < 5 * 60 * 1000) return;
+        _quietAt = Date.now();
+      }
+      loadData();
+    };
     window.addEventListener('lt:sync-complete', _onSyncComplete);
   });
 
@@ -249,8 +265,15 @@
       try {
         const recent = await fetch('/api/workout/recent?limit=365', { credentials: 'include' });
         if (recent.ok) {
-          const logs = await recent.json();
-          workoutDates = new Set(logs.map(l => l.date));
+          // A day counts only if it has at least one completed set, the same
+          // rule as the Diary's dots and /api/stats/streaks. Clearing a day,
+          // or removing its last exercise, leaves an empty workout behind,
+          // which lit that day here while the Diary showed nothing (issue
+          // #124, PR #120). Empty workouts are dropped from the cached
+          // records too; the phone's standalone mode already leaves them out.
+          const logs = (await recent.json()).filter(l =>
+            (typeof l.exercises === 'string' ? JSON.parse(l.exercises || '[]') : (l.exercises || [])).length > 0);
+          workoutDates = new Set(logs.filter(_hasCompletedSet).map(l => l.date));
           recentWorkouts = logs;
         }
       } catch {}
@@ -339,7 +362,7 @@
     const startStr = localDateStr(start);
     const todayStr = localDateStr();
     const count = recentWorkouts.filter(w =>
-      w.completed && w.date >= startStr && w.date <= todayStr
+      w.completed && _hasCompletedSet(w) && w.date >= startStr && w.date <= todayStr
     ).length;
     const pct = Math.min(100, Math.round((count / goal) * 100));
     return { count, goal, pct };
@@ -481,7 +504,7 @@
   let showExPicker = false;
   let exSearch = '';
   $: filteredExs = exSearch
-    ? exercises.filter(e => e.name.toLowerCase().includes(exSearch.toLowerCase())).slice(0, 50)
+    ? exercises.filter(e => foldText(e.name).includes(foldText(exSearch))).slice(0, 50)
     : exercises.slice(0, 50);
 
   // ── Chart helpers (Svelte @const has template-scope restrictions) ────
@@ -528,29 +551,44 @@
     };
   })();
 
-  function _bwPoints(data) {
-    if (!data.length) return [];
-    const weights = data.map(b => b.weight);
-    const min = Math.min(...weights);
-    const max = Math.max(...weights);
-    const rng = Math.max(1, max - min + 4);
-    return data.map((b, i) => `${i * 20 + 10},${110 - ((b.weight - min + 2) / rng * 90 + 10)}`);
+  // Weight and the overlay share one time axis, so a body-fat reading sits
+  // over the day it was taken (issue #131). Each used to be spread evenly
+  // by its own count, and the two rarely have the same days, so the overlay
+  // drifted off its dates; a long break between weigh-ins also read as one
+  // step. Days are counted in UTC so a DST change can't shift a point.
+  const _dayNum = (d) => Date.parse(d + 'T00:00:00Z') / 86400000;
+  // The line charts stretch to fill their box, which squashed every <circle>
+  // into an oval. A dot is drawn as a round-capped stroke that keeps its
+  // screen size instead, so it stays round at any width (issue #131).
+  const _dotPath = (pts) => pts.map(p => `M${p.x} ${p.y}h0.01`).join('');
+  const _validDay = (p) => Number.isFinite(_dayNum(p.date));
+  function _bwDomain(...series) {
+    const days = series.flat().map(p => _dayNum(p.date)).filter(Number.isFinite);
+    if (!days.length) return null;
+    return { from: Math.min(...days), to: Math.max(...days) };
   }
-  function _bwPointObjs(data) {
+  // plot: { width, left, right } in viewBox units; left and right keep the
+  // points clear of the value labels at each edge.
+  function _bwX(date, domain, plot) {
+    const { width, left = 10, right = 10 } = plot;
+    if (!domain || domain.to === domain.from) return (left + width - right) / 2;
+    return left + (_dayNum(date) - domain.from) / (domain.to - domain.from) * (width - left - right);
+  }
+  function _bwPointObjs(data, domain, plot) {
+    data = data.filter(_validDay);
     if (!data.length) return [];
     const weights = data.map(b => b.weight);
     const min = Math.min(...weights);
     const max = Math.max(...weights);
     const rng = Math.max(1, max - min + 4);
-    return data.map((b, i) => ({ x: i * 20 + 10, y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
+    return data.map(b => ({ x: _bwX(b.date, domain, plot), y: 110 - ((b.weight - min + 2) / rng * 90 + 10) }));
   }
 
   // Overlay series: proportional 5% padding so any metric fills the band
-  // the same way, while the weight line keeps its own absolute padding; the
-  // x positions spread by index fraction over the weight chart's width — the
-  // two series can have different row counts and the chart is index-spaced,
-  // not time-scaled.
-  function _overlayPointObjs(data, width) {
+  // the same way, while the weight line keeps its own absolute padding. x
+  // comes from the date, on the axis the weight line uses.
+  function _overlayPointObjs(data, domain, plot) {
+    data = data.filter(_validDay);
     if (!data.length) return [];
     const vals = data.map(p => p.v);
     const min = Math.min(...vals);
@@ -558,9 +596,8 @@
     const d = max - min;
     const pad = d > 0 ? d * 0.05 : 2;
     const rng = d + 2 * pad;
-    const n = data.length;
-    return data.map((p, i) => ({
-      x: n === 1 ? width / 2 : 10 + i * (width - 20) / (n - 1),
+    return data.map(p => ({
+      x: _bwX(p.date, domain, plot),
       y: 110 - ((p.v - min + pad) / rng * 90 + 10),
     }));
   }
@@ -571,10 +608,25 @@
     const max = Math.max(...vals);
     return { min, max };
   }
-  $: overlayPts = _overlayPointObjs(overlayData, bwChartW);
+  $: bwDomain = _bwDomain(bodyWeights, overlayData);
+  $: bwDates = [...bodyWeights, ...overlayData].filter(_validDay).map(p => p.date).sort();
+  // The value labels sit at the chart's edges; measure them, and keep the
+  // first and last points out from under them.
+  let bwWrapW = 0, wMaxLabelW = 0, wMinLabelW = 0, oMaxLabelW = 0, oMinLabelW = 0, oSoloLabelW = 0;
+  $: showWeightMin = !!weightMarks && weightMarks.yMin - weightMarks.yMax >= 12;
+  $: leftLabelPx = weightMarks ? Math.max(wMaxLabelW, showWeightMin ? wMinLabelW : 0) : 0;
+  $: rightLabelPx = !overlayBounds ? 0
+    : overlayBounds.max !== overlayBounds.min ? Math.max(oMaxLabelW, oMinLabelW) : oSoloLabelW;
+  $: bwPlot = {
+    width: bwChartW,
+    left: bwWrapW && leftLabelPx ? Math.max(10, (leftLabelPx + 8) * bwChartW / bwWrapW) : 10,
+    right: bwWrapW && rightLabelPx ? Math.max(10, (rightLabelPx + 8) * bwChartW / bwWrapW) : 10,
+  };
+  $: bwPts = _bwPointObjs(bodyWeights, bwDomain, bwPlot);
+  $: overlayPts = _overlayPointObjs(overlayData, bwDomain, bwPlot);
   $: overlayBounds = _overlayBounds(overlayData);
   $: weightMarks = (() => {
-    if (!overlayMetric || !bodyWeights.length) return null;
+    if (!bodyWeights.length) return null;
     const ws = bodyWeights.map(b => b.weight);
     const min = Math.min(...ws);
     const max = Math.max(...ws);
@@ -816,18 +868,14 @@
             </div>
             <svg class="line-chart" viewBox="0 0 {Math.max(chartData.length * 20, 200)} 120" preserveAspectRatio="none">
               <polyline fill="none" stroke="var(--accent)" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"
+                stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"
                 points={_progressPoints(chartData).join(' ')} />
-              {#each _progressPointObjs(chartData) as pt}
-                <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
-              {/each}
+              <path class="chart-dots" d={_dotPath(_progressPointObjs(chartData))} stroke="var(--accent)" stroke-width="7" />
               {#if hasRpe}
                 <polyline fill="none" stroke="var(--warning, #FFB020)" stroke-width="1.5"
-                  stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3"
+                  stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"
                   points={rpePointObjs.map(p => `${p.x},${p.y}`).join(' ')} />
-                {#each rpePointObjs as pt}
-                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="var(--warning, #FFB020)" />
-                {/each}
+                <path class="chart-dots" d={_dotPath(rpePointObjs)} stroke="var(--warning, #FFB020)" stroke-width="6" />
               {/if}
             </svg>
             <div class="chart-footer">
@@ -1094,12 +1142,12 @@
           <div class="chart-card">
             <div class="chart-title-row">
               <h3 class="chart-title">{$_('statistics.body_weight_trend')}</h3>
-              {#if overlayMetric}
-                <div class="chart-legend">
-                  <span class="legend-item"><span class="legend-swatch accent"></span>{$_('settings_workout.body_stats.weight')} ({$weightUnit})</span>
+              <div class="chart-legend">
+                <span class="legend-item"><span class="legend-swatch accent"></span>{$_('settings_workout.body_stats.weight')} ({$weightUnit})</span>
+                {#if overlayMetric}
                   <span class="legend-item"><span class="legend-swatch overlay"></span>{$_(overlayMetric.labelKey)}{overlayMetric.kind === 'length' ? ` (${overlayLengthUnit})` : ''}</span>
-                </div>
-              {/if}
+                {/if}
+              </div>
             </div>
             {#if overlayChoices.length}
               <div class="overlay-chips">
@@ -1109,43 +1157,37 @@
                 {/each}
               </div>
             {/if}
-            <div class="chart-wrap">
+            <div class="chart-wrap" bind:clientWidth={bwWrapW}>
               <svg class="line-chart" viewBox="0 0 {bwChartW} 120" preserveAspectRatio="none">
                 <polyline fill="none" stroke="var(--accent)" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round"
-                  points={_bwPoints(bodyWeights).join(' ')} />
-                {#each _bwPointObjs(bodyWeights) as pt}
-                  <circle cx={pt.x} cy={pt.y} r="3" fill="var(--accent)" />
-                {/each}
+                  stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"
+                  points={bwPts.map(p => `${p.x},${p.y}`).join(' ')} />
+                <path class="chart-dots" d={_dotPath(bwPts)} stroke="var(--accent)" stroke-width="7" />
                 {#if overlayPts.length >= 2}
                   <polyline fill="none" stroke="var(--warning, #FFB020)" stroke-width="1.5"
-                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3"
+                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"
                     points={overlayPts.map(p => `${p.x},${p.y}`).join(' ')} />
                 {/if}
-                {#each overlayPts as pt}
-                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="var(--warning, #FFB020)" />
-                {/each}
+                <path class="chart-dots" d={_dotPath(overlayPts)} stroke="var(--warning, #FFB020)" stroke-width="6" />
               </svg>
-              {#if overlayBounds}
+              {#if weightMarks}
                 <div class="overlay-axis" aria-hidden="true">
-                  {#if weightMarks}
-                    <span class="w" style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
-                    {#if weightMarks.yMin - weightMarks.yMax >= 12}
-                      <span class="w" style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
-                    {/if}
+                  <span class="w" bind:clientWidth={wMaxLabelW} style="top: {weightMarks.yMax / 120 * 100}%">{parseFloat(weightMarks.max.toFixed(1))} {$weightUnit}</span>
+                  {#if showWeightMin}
+                    <span class="w" bind:clientWidth={wMinLabelW} style="top: {weightMarks.yMin / 120 * 100}%">{parseFloat(weightMarks.min.toFixed(1))} {$weightUnit}</span>
                   {/if}
-                  {#if overlayBounds.max !== overlayBounds.min}
-                    <span class="mark-max">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
-                    <span class="mark-min">{parseFloat(overlayBounds.min.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
-                  {:else}
-                    <span class="mark-solo">{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                  {#if overlayBounds && overlayBounds.max !== overlayBounds.min}
+                    <span class="mark-max" bind:clientWidth={oMaxLabelW}>{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                    <span class="mark-min" bind:clientWidth={oMinLabelW}>{parseFloat(overlayBounds.min.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
+                  {:else if overlayBounds}
+                    <span class="mark-solo" bind:clientWidth={oSoloLabelW}>{parseFloat(overlayBounds.max.toFixed(1))}{overlayMetric.kind === 'percent' ? '%' : ` ${overlayLengthUnit}`}</span>
                   {/if}
                 </div>
               {/if}
             </div>
             <div class="chart-footer">
-              <span>{bodyWeights[0]?.date}</span>
-              <span>{bodyWeights[bodyWeights.length - 1]?.date}</span>
+              <span>{bwDates[0]}</span>
+              <span>{bwDates[bwDates.length - 1]}</span>
             </div>
           </div>
 
@@ -1518,6 +1560,7 @@
 
   /* Line chart */
   .line-chart { width: 100%; height: 140px; display: block; }
+  .chart-dots { fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
   /* Heatmap */
   .heatmap { display: grid; grid-template-columns: repeat(13, 1fr); gap: 3px; margin: 8px 0; }

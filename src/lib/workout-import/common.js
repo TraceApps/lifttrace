@@ -19,6 +19,8 @@
  *     ]
  *   }
  */
+import { foldText } from '../search-text.js';
+
 
 /** Quoted-safe CSV line splitter. Handles "a,b"" c",d style escapes. */
 export function splitCsvLine(line, delim) {
@@ -87,20 +89,22 @@ export function cleanExerciseName(raw) {
  *  token-overlap). Returns the best library match or null. */
 export function matchExercise(sourceName, library) {
   if (!sourceName) return null;
-  const cleaned = cleanExerciseName(sourceName).toLowerCase();
+  // Folded, so an exported "Prédicateur" row still lands on the library's
+  // own spelling of the exercise.
+  const cleaned = foldText(cleanExerciseName(sourceName));
   if (!cleaned) return null;
 
   // 1. Exact (against both cleaned + raw library names)
-  let hit = library.find(e => e.name.toLowerCase() === cleaned);
+  let hit = library.find(e => foldText(e.name) === cleaned);
   if (hit) return hit;
 
   // 2. Starts-with
-  hit = library.find(e => e.name.toLowerCase().startsWith(cleaned));
+  hit = library.find(e => foldText(e.name).startsWith(cleaned));
   if (hit) return hit;
 
   // 3. Substring either way
   hit = library.find(e => {
-    const lib = e.name.toLowerCase();
+    const lib = foldText(e.name);
     return lib.includes(cleaned) || cleaned.includes(lib);
   });
   if (hit) return hit;
@@ -110,7 +114,7 @@ export function matchExercise(sourceName, library) {
   if (tokens.size === 0) return null;
   let best = { match: null, overlap: 0 };
   for (const e of library) {
-    const libTokens = new Set(e.name.toLowerCase().split(/\s+/).filter(t => t.length > 1));
+    const libTokens = new Set(foldText(e.name).split(/\s+/).filter(t => t.length > 1));
     let overlap = 0;
     for (const t of tokens) if (libTokens.has(t)) overlap++;
     const threshold = Math.max(2, Math.ceil(tokens.size / 2));

@@ -1,0 +1,327 @@
+package com.lifttrace.app;
+
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+import android.util.Log;
+
+import com.google.android.gms.wearable.DataClient;
+import com.google.android.gms.wearable.MessageClient;
+import com.google.android.gms.wearable.Node;
+import java.nio.charset.StandardCharsets;
+import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
+
+/**
+ * Hands the watch what it needs to reach the server: the address and the
+ * signed-in account's token, written once into the Wearable Data Layer. The
+ * watch app (android/wear) picks it up and talks to the server itself, so it
+ * logs sets in a gym with the phone in a locker.
+ *
+ * Nothing is typed on the watch, and signing out on the phone takes the
+ * credentials away again.
+ */
+@CapacitorPlugin(name = "WearPairing")
+public class WearPairingPlugin extends Plugin {
+
+    private static final String PATH = "/lifttrace/pairing";
+    private static final String TIMER_PATH = "/lifttrace/timer";
+    /** A rest between sets, and the watch saying its app has been opened. */
+    private static final String REST_PATH = "/lifttrace/rest";
+    private static final String AWAKE_PATH = "/lifttrace/awake";
+    /** "I just saved the day": the other device reads it again at once. */
+    private static final String DAY_PATH = "/lifttrace/day";
+    private static final String TAG = "WearPairing";
+
+    /** A number from the call, whatever size it arrived as (see JsNumber). */
+    private static double num(PluginCall call, String name) {
+        return JsNumber.num(call.getData().opt(name));
+    }
+
+    private static long whole(PluginCall call, String name) {
+        return JsNumber.whole(call.getData().opt(name));
+    }
+
+    /**
+     * The watch saved the day it is showing. Without this the phone found out
+     * at its next sync, up to half a minute later, and a set logged on the
+     * wrist wasn't on the phone when you looked.
+     */
+    private final MessageClient.OnMessageReceivedListener dayListener = event -> {
+        if (!DAY_PATH.equals(event.getPath())) return;
+        JSObject data = new JSObject();
+        data.put("date", new String(event.getData(), StandardCharsets.UTF_8));
+        notifyListeners("dayChanged", data);
+    };
+
+    @Override
+    public void load() {
+        try {
+            Wearable.getMessageClient(getContext()).addListener(dayListener);
+        } catch (Exception e) {
+            Log.w(TAG, "no watch messages here: " + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        try {
+            Wearable.getMessageClient(getContext()).removeListener(dayListener);
+        } catch (Exception e) {
+            Log.w(TAG, "couldn't stop listening: " + e.getMessage());
+        }
+    }
+
+    /** This phone saved the day: the watch reads it again at once. */
+    @PluginMethod
+    public void dayChanged(PluginCall call) {
+        byte[] payload = call.getString("date", "").getBytes(StandardCharsets.UTF_8);
+        Wearable.getNodeClient(getContext()).getConnectedNodes()
+            .addOnSuccessListener(nodes -> {
+                for (Node node : nodes) {
+                    Wearable.getMessageClient(getContext()).sendMessage(node.getId(), DAY_PATH, payload);
+                }
+                JSObject ret = new JSObject();
+                ret.put("sent", nodes.size());
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    /** True when a watch is paired with this phone, so the UI can say so. */
+    @PluginMethod
+    public void hasWatch(PluginCall call) {
+        Wearable.getNodeClient(getContext()).getConnectedNodes()
+            .addOnSuccessListener(nodes -> {
+                Log.i(TAG, "connected nodes: " + (nodes == null ? 0 : nodes.size()));
+                JSObject ret = new JSObject();
+                ret.put("paired", nodes != null && !nodes.isEmpty());
+                ret.put("count", nodes == null ? 0 : nodes.size());
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> {
+                Log.w(TAG, "couldn't list nodes: " + e.getMessage());
+                JSObject ret = new JSObject();
+                ret.put("paired", false);
+                ret.put("count", 0);
+                call.resolve(ret);
+            });
+    }
+
+    /** Send the server address and token to the watch. */
+    @PluginMethod
+    public void pair(PluginCall call) {
+        String serverUrl = call.getString("serverUrl", "");
+        String token = call.getString("token", "");
+        if (serverUrl == null || serverUrl.isEmpty() || token == null || token.isEmpty()) {
+            call.reject("serverUrl and token are required");
+            return;
+        }
+        PutDataMapRequest req = PutDataMapRequest.create(PATH);
+        req.getDataMap().putString("serverUrl", serverUrl);
+        req.getDataMap().putString("token", token);
+        // The release this phone runs: a watch on an older one updates itself
+        // to it (installed from GitHub; the Play Store keeps its own current).
+        req.getDataMap().putString("appVersion", call.getString("appVersion", ""));
+        // The timestamp makes every write distinct, so re-pairing after a token
+        // refresh still reaches the watch instead of being seen as unchanged.
+        req.getDataMap().putLong("at", System.currentTimeMillis());
+        PutDataRequest put = req.asPutDataRequest().setUrgent();
+
+        DataClient client = Wearable.getDataClient(getContext());
+        client.putDataItem(put)
+            .addOnSuccessListener(item -> {
+                Log.i(TAG, "sent the link to the watch");
+                JSObject ret = new JSObject();
+                ret.put("sent", true);
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    /**
+     * How long this session has been running. Sent as a start time and a
+     * running total rather than a count, so the watch keeps counting on its
+     * own with the phone out of range.
+     */
+    @PluginMethod
+    public void timer(PluginCall call) {
+        PutDataMapRequest req = PutDataMapRequest.create(TIMER_PATH);
+        req.getDataMap().putString("date", call.getString("date", ""));
+        req.getDataMap().putLong("startTime", whole(call, "startTime"));
+        req.getDataMap().putDouble("baseElapsed", num(call, "baseElapsed"));
+        req.getDataMap().putBoolean("paused", Boolean.TRUE.equals(call.getBoolean("paused", false)));
+        req.getDataMap().putDouble("pausedElapsed", num(call, "pausedElapsed"));
+        req.getDataMap().putBoolean("cleared", false);
+        // The stamp comes from whoever made the change, so both devices are
+        // judging by the same reading rather than by when a write happened.
+        req.getDataMap().putLong("at", stampOf(call));
+        Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
+            .addOnSuccessListener(item -> call.resolve())
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    private long stampOf(PluginCall call) {
+        long stamp = whole(call, "at");
+        return stamp > 0 ? stamp : System.currentTimeMillis();
+    }
+
+    /**
+     * What the watch says the session timer is doing. The phone reads this
+     * when it comes back to the front and takes it if it is the later word,
+     * so starting the timer on the wrist reaches the phone that writes the
+     * session's length down.
+     */
+    @PluginMethod
+    public void readTimer(PluginCall call) {
+        Wearable.getDataClient(getContext()).getDataItems()
+            .addOnSuccessListener(items -> {
+                JSObject ret = new JSObject();
+                ret.put("found", false);
+                // Each device keeps its own record at this path, so this has
+                // to be the NEWEST of them rather than whichever the loop
+                // happens to reach last.
+                long newest = 0L;
+                for (com.google.android.gms.wearable.DataItem item : items) {
+                    String path = item.getUri().getPath();
+                    if (path == null || !path.startsWith(TIMER_PATH)) continue;
+                    com.google.android.gms.wearable.DataMap map =
+                        DataMapItem.fromDataItem(item).getDataMap();
+                    long at = map.getLong("at", 0L);
+                    if (at < newest) continue;
+                    newest = at;
+                    ret.put("found", true);
+                    ret.put("date", map.getString("date", ""));
+                    ret.put("startTime", map.getLong("startTime", 0L));
+                    ret.put("baseElapsed", map.getDouble("baseElapsed", 0d));
+                    ret.put("paused", map.getBoolean("paused", false));
+                    ret.put("pausedElapsed", map.getDouble("pausedElapsed", 0d));
+                    ret.put("at", at);
+                    ret.put("cleared", map.getBoolean("cleared", false));
+                }
+                items.release();
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> {
+                JSObject ret = new JSObject();
+                ret.put("found", false);
+                call.resolve(ret);
+            });
+    }
+
+    /**
+     * The session timer was stopped. Published as a stopped marker rather than
+     * deleted, so both sides can tell "stopped a moment ago" from "nothing has
+     * been said yet" and the later word still wins.
+     */
+    @PluginMethod
+    public void clearTimer(PluginCall call) {
+        PutDataMapRequest req = PutDataMapRequest.create(TIMER_PATH);
+        req.getDataMap().putBoolean("cleared", true);
+        req.getDataMap().putLong("at", stampOf(call));
+        Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
+            .addOnSuccessListener(item -> call.resolve())
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    /**
+     * The rest between sets, for the watch to hold and ring.
+     *
+     * A deadline rather than a count, so a slow delivery is late rather than
+     * wrong, and the watch schedules its own alarm from it: that is the point
+     * of sending it at all, since between sets the watch is back on its face.
+     */
+    @PluginMethod
+    public void rest(PluginCall call) {
+        PutDataMapRequest req = PutDataMapRequest.create(REST_PATH);
+        boolean cleared = Boolean.TRUE.equals(call.getBoolean("cleared", false));
+        req.getDataMap().putBoolean("cleared", cleared);
+        if (!cleared) {
+            req.getDataMap().putString("label", call.getString("label", ""));
+            req.getDataMap().putInt("total", (int) whole(call, "total"));
+            req.getDataMap().putLong("endsAt", whole(call, "endsAt"));
+        }
+        req.getDataMap().putLong("at", stampOf(call));
+        Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
+            .addOnSuccessListener(item -> call.resolve())
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+
+    /** What the watch says about the rest, newest record wins. */
+    @PluginMethod
+    public void readRest(PluginCall call) {
+        Wearable.getDataClient(getContext()).getDataItems()
+            .addOnSuccessListener(items -> {
+                JSObject ret = new JSObject();
+                ret.put("found", false);
+                long newest = 0L;
+                for (com.google.android.gms.wearable.DataItem item : items) {
+                    String path = item.getUri().getPath();
+                    if (path == null || !path.startsWith(REST_PATH)) continue;
+                    com.google.android.gms.wearable.DataMap map = DataMapItem.fromDataItem(item).getDataMap();
+                    long at = map.getLong("at", 0L);
+                    if (at < newest) continue;
+                    newest = at;
+                    ret.put("found", true);
+                    ret.put("at", at);
+                    ret.put("cleared", map.getBoolean("cleared", false));
+                    ret.put("label", map.getString("label", ""));
+                    ret.put("total", map.getInt("total", 0));
+                    ret.put("endsAt", map.getLong("endsAt", 0L));
+                }
+                items.release();
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> {
+                JSObject ret = new JSObject();
+                ret.put("found", false);
+                call.resolve(ret);
+            });
+    }
+
+    /**
+     * When the watch app was last opened. The phone sends a rest over only
+     * when that is recent: a watch on a charger in another room should not be
+     * woken for one, and should certainly not buzz about it.
+     */
+    @PluginMethod
+    public void watchAwake(PluginCall call) {
+        Wearable.getDataClient(getContext()).getDataItems()
+            .addOnSuccessListener(items -> {
+                long newest = 0L;
+                for (com.google.android.gms.wearable.DataItem item : items) {
+                    String path = item.getUri().getPath();
+                    if (path == null || !path.startsWith(AWAKE_PATH)) continue;
+                    long at = DataMapItem.fromDataItem(item).getDataMap().getLong("at", 0L);
+                    if (at > newest) newest = at;
+                }
+                items.release();
+                JSObject ret = new JSObject();
+                ret.put("at", newest);
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> {
+                JSObject ret = new JSObject();
+                ret.put("at", 0);
+                call.resolve(ret);
+            });
+    }
+
+    /** Signed out on the phone: take the credentials off the watch. */
+    @PluginMethod
+    public void unpair(PluginCall call) {
+        Wearable.getDataClient(getContext())
+            .deleteDataItems(new android.net.Uri.Builder().scheme("wear").path(PATH).build())
+            .addOnSuccessListener(count -> {
+                JSObject ret = new JSObject();
+                ret.put("cleared", true);
+                call.resolve(ret);
+            })
+            .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Couldn't reach the watch" : e.getMessage()));
+    }
+}

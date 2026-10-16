@@ -1,5 +1,4 @@
 <script>
-  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher, onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
   import SetRow from './SetRow.svelte';
@@ -8,7 +7,7 @@
   import { generateWarmupSets, exerciseVolume, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
   import { exerciseLoadTypes, exerciseSetTypes } from '../../stores/settings.js';
   import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
-  import { portal } from '../../lib/portal.js';
+  import LoadTypeMenu from '../ui/LoadTypeMenu.svelte';
 
   export let exercise;
   export let idx;
@@ -20,6 +19,13 @@
   // Set indices flagged as PRs for this exercise's current logging.
   // Diary computes this once per save based on cached previous bests.
   export let prSetIndices = null;
+  /** set uuid to clip row, for the play chip on a filmed set (issue #57). */
+  export let mediaBySet = null;
+  // A collapsed card would otherwise hide the fact that a set was filmed, so
+  // the header carries the same play affordance the set row does.
+  $: exerciseMedia = mediaBySet
+    ? (exercise?.sets || []).map(st => mediaBySet.get(st.uuid)).filter(Boolean)
+    : [];
 
   // Per-card collapse key: stable per workout-day + position. Reorders will
   // shift collapse state with the position rather than with the exercise
@@ -36,19 +42,23 @@
   $: inSuperset = exercise.superset_id != null && exercise.superset_size > 1;
 
   // "Last time" ghost row — previous completed session for this exercise.
+  // Looked up again when the day changes too: a card stays mounted across
+  // days and sessions when the same exercise sits in the same place.
   let lastSession = null;
   let _lastSessionFetched = null;
-  $: if (exercise.exercise_id && exercise.exercise_id !== _lastSessionFetched) {
-    _lastSessionFetched = exercise.exercise_id;
-    loadLastSession();
+  $: if (exercise.exercise_id && `${exercise.exercise_id}|${date}` !== _lastSessionFetched) {
+    _lastSessionFetched = `${exercise.exercise_id}|${date}`;
+    loadLastSession(exercise.exercise_id, date);
   }
-  async function loadLastSession() {
+  async function loadLastSession(exerciseId, day) {
+    const key = `${exerciseId}|${day}`;
     lastSession = null;
     try {
       // Same pick as auto-fill (lastCompletedSession, issue #103), so the row
-      // and the pre-filled sets always come from the same session.
-      const recent = lastCompletedSession(await LtApi.getWorkoutHistory(exercise.exercise_id));
-      if (!recent) return;
+      // and the pre-filled sets always come from the same session. Days
+      // before this one only: today's own sets are not "last time".
+      const recent = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId), { before: day });
+      if (!recent || key !== _lastSessionFetched) return;
       lastSession = { date: recent.date, sets: recent.completed, set_type: recent.set_type };
     } catch {}
   }
@@ -77,25 +87,22 @@
     $exerciseSetTypes,
   );
   $: timed = setType === 'time';
-  $: loadTypeLabel = loadType === 'paired' ? 'Per side'
-                   : loadType === 'unilateral' ? 'Alternating'
-                   : 'Bilateral';
+  // The chip's own label, from the same keys the chooser uses.
+  $: loadTypeLabel = loadType === 'paired' ? $_('workout_editor.load_paired')
+                   : loadType === 'unilateral' ? $_('workout_editor.load_unilateral')
+                   : $_('workout_editor.load_bilateral');
 
   let loadMenuOpen = false;
-  let loadMenuTriggerEl;
-  let loadMenuPos = { top: 0, left: 0, width: 260 };
+  let loadMenuAnchor = null;
   let rememberLoad = false;
 
-  function openLoadMenu() {
-    if (!loadMenuTriggerEl) { loadMenuOpen = true; return; }
-    // Portal-based positioning: compute viewport coords from the load-chip
-    // trigger's rect. Fixes the collapsed-card bug where the menu was
-    // clipped by .ex-card { overflow: hidden } when the card's height
-    // shrank below the menu's top offset.
-    const r = loadMenuTriggerEl.getBoundingClientRect();
-    const width = Math.min(320, Math.max(240, window.innerWidth - 28));
-    const maxLeft = Math.max(14, window.innerWidth - width - 14);
-    loadMenuPos = { top: r.bottom + 6, left: Math.min(r.left, maxLeft), width };
+  // The chooser itself lives in LoadTypeMenu, shared with the workout
+  // editor. All this side owns is the chip's rect: the menu is portaled to
+  // <body> and positioned from it, which is what keeps it clear of
+  // .ex-card { overflow: hidden } on a collapsed card.
+  function toggleLoadMenu(e) {
+    if (loadMenuOpen) { loadMenuOpen = false; return; }
+    loadMenuAnchor = e.currentTarget.getBoundingClientRect();
     loadMenuOpen = true;
   }
 
@@ -319,47 +326,14 @@
 
 <div class="ex-card" class:all-done={completedCount === workingSets.length && workingSets.length > 0} class:standalone={!inSuperset} data-progress={progress}>
   {#if loadMenuOpen}
-    <!-- Load-type chooser. Portaled to <body> so it renders regardless
-         of the exercise card's collapsed state and its overflow: hidden. -->
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div use:portal class="load-menu-backdrop" on:click={() => loadMenuOpen = false} use:closeOnBack={() => loadMenuOpen = false}></div>
-    <div use:portal class="load-menu" role="menu" on:click|stopPropagation
-         style="top:{loadMenuPos.top}px; left:{loadMenuPos.left}px; width:{loadMenuPos.width}px">
-      <div class="load-menu-head">{$_('exercise_card.load_type')}</div>
-      {#each [['bilateral','Bilateral','single load: barbell, machine, both arms move one thing'],
-              ['paired','Per side','both arms work together with separate equal loads: dumbbells, paired cables'],
-              ['unilateral','Alternating','one side at a time: single-arm cable row, single-arm DB row']] as [val, label, hint]}
-        <button class="load-menu-item" class:active={loadType === val} role="menuitem"
-                on:click={() => pickLoadType(val)}>
-          <div class="lm-text">
-            <span class="lm-label">{label}</span>
-            <span class="lm-hint">{hint}</span>
-          </div>
-          {#if loadType === val}
-            <span class="material-symbols-rounded lm-check">check</span>
-          {/if}
-        </button>
-      {/each}
-      <div class="load-menu-head">{$_('exercise_card.tracked_by')}</div>
-      {#each [['reps', $_('exercise_card.set_type_reps'), $_('exercise_card.set_type_reps_hint')],
-              ['time', $_('exercise_card.set_type_time'), $_('exercise_card.set_type_time_hint')]] as [val, label, hint]}
-        <button class="load-menu-item" class:active={setType === val} role="menuitem"
-                on:click={() => pickSetType(val)}>
-          <div class="lm-text">
-            <span class="lm-label">{label}</span>
-            <span class="lm-hint">{hint}</span>
-          </div>
-          {#if setType === val}
-            <span class="material-symbols-rounded lm-check">check</span>
-          {/if}
-        </button>
-      {/each}
-      <label class="load-menu-remember">
-        <input type="checkbox" bind:checked={rememberLoad} />
-        <span>{$_('exercise_card.remember_for_exercise')}</span>
-      </label>
-    </div>
+    <LoadTypeMenu
+      anchor={loadMenuAnchor}
+      {loadType}
+      {setType}
+      bind:remember={rememberLoad}
+      on:pickLoad={(e) => pickLoadType(e.detail)}
+      on:pickSetType={(e) => pickSetType(e.detail)}
+      on:close={() => loadMenuOpen = false} />
   {/if}
   <div class="ex-header"
     on:click={() => _setExpanded(!expanded)}
@@ -368,8 +342,7 @@
       <div class="ex-name-row">
         <span class="ex-name">{exercise.exercise_name}</span>
         <button class="load-chip" class:non-default={loadType !== 'bilateral' || timed}
-                bind:this={loadMenuTriggerEl}
-                on:click|stopPropagation={() => loadMenuOpen ? (loadMenuOpen = false) : openLoadMenu()}
+                on:click|stopPropagation={toggleLoadMenu}
                 title="Load type">
           {#if loadType === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{loadTypeLabel}
           {:else if loadType === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{loadTypeLabel}
@@ -377,7 +350,16 @@
           {#if timed}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
         </button>
       </div>
-      <span class="ex-meta">{completedCount}/{workingSets.length} sets</span>
+      <div class="ex-meta-row">
+        <span class="ex-meta">{completedCount}/{workingSets.length} sets</span>
+        {#if exerciseMedia.length}
+          <button type="button" class="ex-clip" on:click|stopPropagation={() => dispatch('openMedia', exerciseMedia[0])}
+            title="Watch this set" aria-label="Watch this set">
+            <span class="material-symbols-rounded">play_circle</span>
+            {#if exerciseMedia.length > 1}<span class="ex-clip-n">{exerciseMedia.length}</span>{/if}
+          </button>
+        {/if}
+      </div>
     </div>
     <div class="ex-actions">
       {#if canMoveUp}
@@ -438,6 +420,8 @@
       {#each sets as set, setIdx (setIdx)}
         <SetRow
           {set}
+          media={mediaBySet?.get(set.uuid) || null}
+          on:openMedia
           setNum={_workingSetNum(setIdx)}
           showAsWarmup={!!set.warmup}
           isNext={setIdx === nextSetIdx}
@@ -551,47 +535,21 @@
     border-style: solid;
   }
 
-  /* Load-type menu — portaled to document.body, positioned in viewport
-     coordinates computed from the load-chip trigger's bounding rect.
-     z-index sits above the sticky diary header (z:10) and the rest bar
-     (z:100), matching the SetRow picker portal treatment. */
-  :global(.load-menu-backdrop) {
-    position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.2);
+  /* Filmed-set marker on the card header, so a collapsed card still shows
+     there is footage under it. */
+  /* The chip sits beside the set count. On its own it was a direct child of
+     the column flex .ex-info, where align-items: stretch pulled a pill with
+     one icon in it across the whole card (found by @backmind). */
+  .ex-meta-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .ex-clip {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 2px 6px;
+    border-radius: 999px; background: var(--accent-dim); color: var(--accent);
+    font-size: 11px; font-weight: 700;
   }
-  :global(.load-menu) {
-    position: fixed;
-    z-index: 201;
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
-    padding: 8px;
-    display: flex; flex-direction: column; gap: 2px;
-  }
-  .load-menu-head {
-    font-size: 11px; font-weight: 800; letter-spacing: 0.06em;
-    text-transform: uppercase; color: var(--text-3);
-    padding: 4px 6px 6px;
-  }
-  .load-menu-item {
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 8px; padding: 8px 10px;
-    background: none; border: none; cursor: pointer;
-    text-align: left; font-family: inherit;
-    color: var(--text-1); border-radius: var(--radius-md);
-  }
-  .load-menu-item:hover { background: var(--surface-2); }
-  .load-menu-item.active { background: var(--accent-dim); }
-  .lm-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-  .lm-label { font-size: 14px; font-weight: 700; color: var(--text-1); }
-  .lm-hint  { font-size: 11px; color: var(--text-3); line-height: 1.35; }
-  .lm-check { font-size: 18px; color: var(--accent); flex-shrink: 0; margin-top: 2px; }
-  .load-menu-remember {
-    display: flex; align-items: center; gap: 6px;
-    padding: 8px 10px;
-    font-size: 12px; color: var(--text-2); cursor: pointer;
-    border-top: 1px solid var(--border);
-    margin-top: 4px;
-  }
-  .load-menu-remember input { accent-color: var(--accent); }
+  .ex-clip .material-symbols-rounded { font-size: 15px; }
+  .ex-clip:active { transform: scale(0.94); }
 
   .ex-actions { display: flex; align-items: center; gap: 4px; }
   .btn-icon {

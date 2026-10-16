@@ -11,8 +11,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * These are standard training splits that any lifter can use as a starting point.
  */
 export function seedPrograms() {
+  // Once, on a new database. Seeding whenever the table was empty brought
+  // the starters back on the next restart (every update is one) for anyone
+  // who had deleted all their programs (#139).
+  const SEEDED = 'starter_programs_seeded';
+  if (db.prepare('SELECT 1 FROM app_config WHERE key = ?').get(SEEDED)) return;
+  const markSeeded = () => db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)')
+    .run(SEEDED, new Date().toISOString());
   const count = db.prepare('SELECT COUNT(*) as c FROM programs').get().c;
-  if (count > 0) return; // already have programs
+  const inUse = db.prepare('SELECT (SELECT COUNT(*) FROM users) + (SELECT COUNT(*) FROM workout_log) AS n').get().n > 0;
+  if (count > 0 || inUse) { markSeeded(); return; }
 
   const STARTER_PROGRAMS = [
     {
@@ -100,6 +108,7 @@ export function seedPrograms() {
   }
 
   logger.info(`[seed] Seeded ${STARTER_PROGRAMS.length} starter program templates`);
+  markSeeded();
   return;
 
   let data;

@@ -51,7 +51,7 @@ test('timed sets count as completed working sets too', () => {
 test('auto-fill and the Last Time row both use it; template precedence is untouched', () => {
   const diary = read('../src/routes/Diary.svelte');
   const fn = diary.slice(diary.indexOf('async function getLastSets'), diary.indexOf('let pickerTargetSupersetId'));
-  assert.match(fn, /lastCompletedSession\(await LtApi\.getWorkoutHistory\(exerciseId\)\)/);
+  assert.match(fn, /lastCompletedSession\(await LtApi\.getWorkoutHistory\(exerciseId\), \{ before: \$currentDate \}\)/);
   assert.match(fn, /return withWarmups \? last\.completed : last\.working;/);
   // Adding one exercise brings warm-ups back as warm-ups; template and quick
   // load fill working-set slots, so they take working sets only.
@@ -71,7 +71,7 @@ test('auto-fill and the Last Time row both use it; template precedence is untouc
   assert.match(quick, /sets = \[\.\.\.warmups, \.\.\.sets\];/);
   assert.doesNotMatch(fn, /history\[0\]/);
   const card = read('../src/components/diary/ExerciseCard.svelte');
-  assert.match(card, /lastCompletedSession\(await LtApi\.getWorkoutHistory\(exercise\.exercise_id\)\)/);
+  assert.match(card, /lastCompletedSession\(await LtApi\.getWorkoutHistory\(exerciseId\), \{ before: day \}\)/);
   // Per-set specs and an active periodized week still win over history.
   assert.match(diary, /if \(ex\.set_specs && ex\.set_specs\.length > 0\) \{/);
   assert.match(diary, /const planWins = !!\(planWeek && ex\.weeks\?\.length\);/);

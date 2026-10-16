@@ -26,6 +26,7 @@ The important reads:
 - `server/routes/`, Express handlers, one file per entity
 - `src/routes/`, top-level Svelte page components
 - `src/components/settings/`, one file per settings section
+- `android/wear/src/main/java/com/lifttrace/app/wear/`, the Wear OS app: `Session.kt` (every decision the watch makes on its own, pure data in and out, unit-tested), `WearStore.kt` (state plus the outbox), `Pairing.kt` (prefs, cache and the Wearable Data Layer), `LiftApi.kt` (the same day read and written as everywhere else)
 
 Everything else is discoverable with `grep` and `ls`.
 
@@ -160,6 +161,79 @@ Similar-exercise scoring is in `src/lib/exerciseSimilarity.js`,
 at least one primary overlap. Rendered on ExerciseDetail as a
 responsive grid of thumbnails.
 
+### The watch is a client, not a satellite
+
+`android/wear` is a standalone Wear OS app that talks to the server itself
+over the same REST routes the phone and browser use: it reads one day and
+writes one day, so the merge on the server is the one already in use. The
+phone hands over the address and a token through the Wearable Data Layer and
+nothing is typed on the watch. Both APKs must carry the same package name and
+signing certificate or the Data Layer silently carries nothing.
+
+Four paths cross the Data Layer, each one record per device, each stamped by
+the clock of whoever wrote it, newest wins, and a deletion is the Data Layer
+tidying up after a device rather than a signal to act on:
+
+- `/lifttrace/pairing`, the server address and token
+- `/lifttrace/timer`, the session stopwatch
+- `/lifttrace/rest`, the rest between sets
+- `/lifttrace/awake`, written by the watch whenever its app opens, and the
+  gate the phone reads before sending a rest: a watch on a charger in another
+  room should not be woken for one, let alone buzz
+
+Anything that has to happen with the app off the screen is an AlarmManager
+exact alarm carrying a deadline, never something counting; anything repeating
+on screen is inside `repeatOnLifecycle(RESUMED)`. Both rules exist because
+breaking either one was measurable in the battery stats.
+
+### The web app works offline
+
+`src/lib/offline-api.js` and `offline-edits.js` hang off `apiFetch.js`, so no
+screen needed changing. Online, every call goes to the server and the answer
+is kept in an IndexedDB mirror. With no server, the mirror answers reads, and
+writes go into an outbox that shows at once and is replayed later against the
+same routes the Android app replays its queue against, so the server merges a
+browser's edits exactly as it merges a phone's. New rows get temporary ids
+mapped to real ones after they go up. A Web Lock stops two tabs sending at
+once, and a BroadcastChannel keeps them in step. Not built on Background Sync
+(Safari lacks it): the page flushes on a backoff, on `online`, and when the
+tab comes to the front.
+
+### Coaching is consent first
+
+`server/lib/coaching.js` holds who coaches whom (`coach_clients`, the same
+table NutriTrace uses; the active pairing is mirrored to `users.trainer_id`
+for older readers) and the one guard every coach route uses: an active
+pairing the client accepted. A request still waiting, an ended pairing and
+another coach's client are refused alike, admins included. Roles are read
+from the database on every request, not from the token. The conversation
+(`server/lib/coaching-messages.js`) is one thread per pairing; its photos sit
+under `UPLOADS_PATH/coaching`, outside the public `/uploads` mount, and are
+served only to the two people. No Trace tool, MCP tool or token route reads it.
+
+### Private media is never under /uploads
+
+`/uploads` is mounted ahead of the auth check so an Android WebView `<img>`
+can load it without a header, which makes anything there readable by URL.
+Set videos (`server/lib/set-media.js`) and coaching photos therefore live in
+directories kept out of that mount and are streamed through routes that check
+the owner (and, for clips, the owner's active coach).
+
+### Links in emails come from PUBLIC_URL
+
+`server/lib/public-url.js` (identical in all four Trace apps) builds the
+address in reset, invite, coaching and weekly summary emails from
+`PUBLIC_URL`, or else from an address a signed-in admin has used, never from
+the request's Host headers, which the sender controls.
+
+### Update checks are off until asked for
+
+`server/lib/update-check.js`: a fresh database asks in the setup wizard and
+checks nothing until someone says yes; a database that already had accounts
+keeps checking, as it did before. `UPDATE_CHECK=off` wins over the setting.
+Browsers ask the server, which asks GitHub (cached 24 hours); the Android app
+asks GitHub itself, only once it was told yes on that phone.
+
 ### Security posture
 
 - bcrypt cost 12
@@ -193,7 +267,53 @@ changes it later.
 - **Local SQLite:** `src/lib/db-native.js` mirrors all 13 server
   tables plus `sync_meta` + `sync_queue`. Each mutable table has
   `updated_at` / `deleted_at` / `sync_state` columns
-- **Differential sync:** `src/lib/sync.js` handles push/pull cycles
+- **Differential sync:** `src/lib/sync.js` handles push/pull cycles,
+  one at a time, each request with a deadline. Offline writes are
+  queued requests replayed in order; a write that names a row the
+  server doesn't have yet joins the queue even when online. A row made
+  offline has an id below zero until its create goes up, then it and
+  every queued write naming it take the server's id; creates carry a
+  `client_key` the server dedupes on (`server/lib/create-keys.js`).
+  Every row only this device has has an id below zero: made offline,
+  made standalone (renumbered when the copy becomes an account's, or
+  before an Upload), or everything the account had here after Disconnect
+  (`renumberLocalRows`, which also records each row's origin in
+  `row_origin` so connecting back to that account puts it back:
+  `adoptLocalCopy`); a copy from an earlier version is sorted out once,
+  against the server's list (queued creates linked to their rows only on
+  an exact match). Moving rows to new ids is one transaction of a few
+  dozen statements (`id_remap`), and no sync runs while Disconnect does
+  it. So an id above zero always means the server's row. A pull writes over it, or deletes
+  it when the server did, except while a queued write is about to change
+  it (it asks for those again next time, for up to an hour; after that,
+  once the queue has gone up, it pulls everything). Rows below zero are
+  never touched by a pull (body stats on a day the server also has are
+  merged), and are created on the server, under a key, the first time a
+  write names them. The server also sends rows deleted outright
+  (`sync_deletions`), the full list of programs and program workouts the
+  account may keep, and, without user accounts, the program being
+  followed; the pull is gzipped. The local copy, its queue included,
+  belongs to one account on one server (`src/lib/local-account.js`,
+  tagged with the server's `instance_id` from `/api/auth/status`, its
+  address and the user id; a copy from before tags is tagged at startup
+  as the account last signed in). App.svelte checks it before showing
+  anything: another account clears it (asking first if the previous one
+  left changes waiting), the same user id at another address with an
+  instance id unknown is asked about, and a sync refuses while it is
+  another account's (or might be). Claiming a copy is one at a time. Each sync reads the session once. Before the copy changes
+  hands (another account, Connect, Disconnect, sign-out), a running sync
+  is stopped and waited for (`src/lib/account-gen.js`: every sync checks
+  the number before it writes), and what the app holds in memory for the
+  account is reset (`src/lib/user-state.js`). A queued edit carries the
+  time it was made (on the server's clock, from the last pull) and the
+  fields it changed (`X-Edited-At`, `X-Changed-Fields`); the server keeps
+  the newer edit of each field, or group of fields, from each row's
+  `field_times` (`server/lib/newer-wins.js`; a create is stamped with its
+  own edit time, and updated_at, which housekeeping moves, never counts); a
+  delete loses (409) to a later edit of the row. The web app's outbox sends the same headers,
+  on the clock from `X-Server-Time`. Sessions come from the
+  `Authorization` header before the cookie when it is one of this server's
+  (`req.authVia`). Signed out, no sync runs.
 - **Image cache:** `src/lib/image-cache.js` downloads exercise media
   via Filesystem to `Directory.Data/lifttrace-images/`,
   `resolveAssetUrl()` swaps in local `file://` URIs synchronously

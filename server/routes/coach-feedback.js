@@ -21,6 +21,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { pushNotify } from '../lib/push-notify.js';
+import { coachingSignature, coachesClient } from '../lib/coaching.js';
 
 // Truncate a message to keep push-notification bodies readable on lock
 // screens. Pro apps (Slack, iMessage) show the actual text with an
@@ -39,8 +40,8 @@ router.get('/inbox', wrap((req, res) => {
   const userId = uid(req);
   if (userId == null) return res.json([]);
   const rows = db.prepare(`
-    SELECT cf.id, cf.exercise_idx, cf.note, cf.updated_at, cf.seen_by_member_at,
-           cf.member_reply, cf.member_replied_at,
+    SELECT cf.id, cf.exercise_idx, cf.exercise_uuid, cf.note, cf.updated_at, cf.seen_by_member_at,
+           cf.member_reply, cf.member_replied_at, cf.media_id, cf.media_time_sec,
            wl.date AS workout_date, wl.name AS workout_name, wl.exercises,
            COALESCE(u.nickname, u.full_name, u.username) AS trainer_name
       FROM coach_feedback cf
@@ -110,7 +111,9 @@ router.put('/:id/reply', wrap((req, res) => {
   // trainer. INSERT into coach_activity so the trainer's /coaching feed
   // surfaces the reply alongside other events; coach taps to jump to
   // the workout. Idempotent via the wasEmpty guard.
-  if (wasEmpty) {
+  // Only to a coach still coaching this client: one they left hears nothing,
+  // and nothing waits in their feed for a later pairing.
+  if (wasEmpty && coachesClient(fb.trainer_id, userId)) {
     db.prepare(`
       INSERT INTO coach_activity
         (trainer_id, member_id, kind, feedback_id, workout_id)
@@ -139,6 +142,11 @@ router.get('/unread-dates', wrap((req, res) => {
       JOIN workout_log wl ON wl.id = cf.workout_id
      WHERE cf.member_id = ? AND cf.seen_by_member_at IS NULL
   `).all(userId);
+  // Where this person stands in coaching, as a short fingerprint: the Diary
+  // asks for this on opening, on coming back to the front and after a sync,
+  // so a new request or an ended pairing shows up without a request (or a
+  // timer) of its own for people not in coaching.
+  try { res.set('X-LT-Coaching', coachingSignature(userId)); } catch { /* never in the way */ }
   res.json(rows.map(r => r.date));
 }));
 

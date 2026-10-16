@@ -11,7 +11,51 @@
     caloriesBurnedEnabled,
   } from '../../stores/settings.js';
   import { REST_TONES } from '../../lib/restTones.js';
+  import { LtApi } from '../../lib/api.js';
+  import { showError, showSuccess } from '../../stores/toast.js';
+  import { confirmDialog } from '../../stores/confirmDialog.js';
   import { previewRestTone } from '../../stores/restTimer.js';
+
+  // Set videos (issue #57): nothing expires on its own, so the only honest
+  // thing to do is show what they cost and make the clear-out one action.
+  let clipUsage = null;
+  let clearing = false;
+  $: if (expanded && visible && clipUsage === null) loadClipUsage();
+
+  async function loadClipUsage() {
+    clipUsage = undefined;                       // in flight
+    try { clipUsage = await LtApi.getSetMediaUsage(); }
+    catch { clipUsage = { clips: 0, bytes: 0, oldest: null }; }
+  }
+
+  const fmtSize = (b) => {
+    if (b >= 1024 * 1024 * 1024) return `${(b / 1024 / 1024 / 1024).toFixed(1)} GB`;
+    if (b >= 1024 * 1024) return `${Math.round(b / 1024 / 1024)} MB`;
+    // Anything under a megabyte still deserves a real number rather than "0 MB".
+    return `${Math.max(1, Math.round(b / 1024))} KB`;
+  };
+
+  async function clearOldClips(months) {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    const before = cutoff.toISOString().slice(0, 10);
+    if (!await confirmDialog({
+      title: $_('settings_workout.clips.confirm_title'),
+      message: $_('settings_workout.clips.confirm_msg', { values: { date: before } }),
+      confirmText: $_('common.delete'),
+      dangerous: true,
+    })) return;
+    clearing = true;
+    try {
+      const r = await LtApi.cleanupSetMedia(before);
+      showSuccess($_('settings_workout.clips.cleared', { values: { count: r.deleted } }));
+      await loadClipUsage();
+    } catch (e) {
+      showError(e?.message || $_('settings_workout.clips.clear_failed'));
+    } finally {
+      clearing = false;
+    }
+  }
 
   export let expanded = false;
   export let visible = true;
@@ -260,11 +304,42 @@
           </div>
         {/each}
       </div>
+
+      <p class="sub-label">{$_('settings_workout.sections.clips')}</p>
+      <div class="card">
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <span class="setting-label">{$_('settings_workout.clips.label')}</span>
+            <span class="setting-hint">
+              {#if clipUsage === undefined}
+                {$_('common.loading')}
+              {:else if clipUsage?.clips}
+                {$_('settings_workout.clips.usage', { values: { count: clipUsage.clips, size: fmtSize(clipUsage.bytes) } })}
+                {#if clipUsage.oldest} · {$_('settings_workout.clips.oldest', { values: { date: clipUsage.oldest } })}{/if}
+              {:else}
+                {$_('settings_workout.clips.none')}
+              {/if}
+            </span>
+          </div>
+        </div>
+        {#if clipUsage?.clips}
+          <div class="setting-row clip-actions">
+            <button class="btn btn-secondary" disabled={clearing} on:click={() => clearOldClips(6)}>
+              {$_('settings_workout.clips.clear_6m')}
+            </button>
+            <button class="btn btn-secondary" disabled={clearing} on:click={() => clearOldClips(1)}>
+              {$_('settings_workout.clips.clear_1m')}
+            </button>
+          </div>
+        {/if}
+      </div>
     </div>
   {/if}
 {/if}
 
 <style>
+  /* Clear-out buttons sit side by side and wrap on a narrow phone. */
+  .clip-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .tone-list { display: flex; flex-direction: column; gap: 4px; }
   .tone-row {
     display: flex; align-items: stretch;

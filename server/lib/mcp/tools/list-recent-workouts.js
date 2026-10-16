@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { exerciseVolume } from '../../volume.js';
-import { toolResult } from '../_util.js';
+import { DATE_RE, toolResult, toolError, validateDateRange } from '../_util.js';
 
 const MAX_LIMIT = 50;
 
@@ -19,11 +19,23 @@ const MAX_LIMIT = 50;
  * to zod's schema validation, which only runs on the MCP path) so both
  * callers get identical behavior for an out-of-range value.
  */
-export function listRecentWorkoutsCore(userId, { limit } = {}) {
+export function listRecentWorkoutsCore(userId, { limit, start, end } = {}) {
   const n = Math.min(Math.max(1, limit || 10), MAX_LIMIT);
+  const rangeError = validateDateRange(start, end);
+  if (rangeError) throw new Error(rangeError);
+  const conditions = ['user_id = ?'];
+  const params = [userId];
+  if (start != null) {
+    conditions.push('date >= ?');
+    params.push(start);
+  }
+  if (end != null) {
+    conditions.push('date <= ?');
+    params.push(end);
+  }
   const rows = db.prepare(
-    'SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT ?'
-  ).all(userId, n);
+    `SELECT * FROM workout_log WHERE deleted_at IS NULL AND ${conditions.join(' AND ')} ORDER BY date DESC LIMIT ?`
+  ).all(...params, n);
 
   const workouts = rows.map(r => {
     const exercises = JSON.parse(r.exercises || '[]');
@@ -47,11 +59,20 @@ export function registerListRecentWorkouts(server, { userId }) {
       description:
         'List the most recent logged workouts (most recent first), each with ' +
         'its date, name, exercise count, and total volume. Use get_workout ' +
-        'for the full per-set detail of one specific day.',
+        'for the full per-set detail of one specific day. Optional inclusive ' +
+        'start/end YYYY-MM-DD bounds filter the history; omitted bounds are open.',
       inputSchema: {
         limit: z.number().int().positive().max(MAX_LIMIT).optional(),
+        start: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
+        end: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
       },
     },
-    async ({ limit }) => toolResult(listRecentWorkoutsCore(userId, { limit }))
+    async ({ limit, start, end }) => {
+      try {
+        return toolResult(listRecentWorkoutsCore(userId, { limit, start, end }));
+      } catch (e) {
+        return toolError(e.message);
+      }
+    }
   );
 }

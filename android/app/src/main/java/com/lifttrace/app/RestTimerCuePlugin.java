@@ -74,6 +74,14 @@ public class RestTimerCuePlugin extends Plugin {
                 intent.putExtra("sound", sound);
                 intent.putExtra("vibrate", vibrate);
                 intent.putExtra("finale", finale);
+                // The words that go with the finale, posted by the receiver
+                // rather than by LocalNotifications, so they can be marked
+                // local-only: a paired watch runs its own rest timer, and a
+                // second copy of this arriving from the phone is a buzz the
+                // wearer cannot account for.
+                intent.putExtra("title", c.optString("title", ""));
+                intent.putExtra("body", c.optString("body", ""));
+                intent.putExtra("localOnly", c.optBoolean("localOnly", false));
 
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
@@ -102,6 +110,11 @@ public class RestTimerCuePlugin extends Plugin {
 
     private void cancelAll() {
         Context ctx = getContext();
+        // The message the finale posts goes with the alarms that would have
+        // posted it: skipping a rest should not leave "Rest complete" behind.
+        try {
+            androidx.core.app.NotificationManagerCompat.from(ctx).cancel(9001);
+        } catch (Exception ignored) {}
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
         for (int id : CUE_IDS) {

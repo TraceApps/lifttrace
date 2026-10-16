@@ -23,24 +23,69 @@
  * response (no tool schemas ever sent), keeping behaviour identical
  * for legacy callers.
  */
-import { getOpenAIChatParams } from './openai-chat-params.js';
+import { get } from 'svelte/store';
+import { _ } from 'svelte-i18n';
+import { getOpenAIChatParams, openAIBase } from './openai-chat-params.js';
+import { createToolSupportMemory, sendWithToolFallback } from './tool-support.js';
 
-export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolResult, baseUrl }) {
+// onToolsUnsupported runs when the model can't use tools and answered
+// without them (TraceApps/nutritrace#259).
+/**
+ * fetch() to a provider from this browser. Its "Failed to fetch" says
+ * nothing: the browser gives it when the address can't be reached, and when
+ * the answer doesn't allow this site to read it (CORS), which is what a proxy
+ * that adds CORS headers only to successful answers does to every error,
+ * such as a model refusing tools (TraceApps/notetrace#18). Say what to check.
+ */
+export async function fetchProvider(url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    // Only a network failure is reworded (Chrome: "Failed to fetch", Firefox:
+    // "NetworkError when attempting to fetch resource.", Safari: "Load
+    // failed"). A cancelled request, or one fetch refused to send (a header
+    // it can't carry, say), stays as it was.
+    if (!(err instanceof TypeError) || !/failed to fetch|networkerror|load failed/i.test(err.message || '')) throw err;
+    let host = '';
+    try { host = new URL(url).host; } catch { /* not a URL */ }
+    host = host || String(url);
+    const page = typeof location !== 'undefined' ? location : null;
+    const official = /(^|\.)(openai\.com|anthropic\.com|googleapis\.com)$/i.test(host);
+    // An https page can't call a plain-http address (localhost aside). The
+    // Android app can (allowMixedContent), so there it's the usual advice.
+    const native = !!globalThis.Capacitor?.isNativePlatform?.();
+    const insecure = !native && page?.protocol === 'https:' && /^http:/i.test(String(url)) && !/^(localhost|127\.|\[::1\])/i.test(host);
+    const key = official ? 'unreachable_official' : insecure ? 'unreachable_insecure' : 'unreachable';
+    let message = `Couldn't get an answer from ${host}.`;
+    try {
+      const t = get(_);
+      if (typeof t === 'function') message = t(`trace_ai.${key}`, { values: { host, origin: page?.origin || 'this site' } });
+    } catch { /* i18n not ready: the plain line above */ }
+    const e = new Error(message);
+    e.cause = err;
+    // Not "you're offline": this says what it is.
+    e.offline = false;
+    throw e;
+  }
+}
+
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolResult, onToolsUnsupported, baseUrl }) {
   // The 'oai-compat' provider points at any /v1/chat/completions endpoint.
   // Local endpoints (Ollama default) don't need an API key; cloud ones do.
   // Other providers still require a key.
   if (!apiKey && provider !== 'oai-compat') {
     throw new Error('No API key configured. Add one in Settings → AI Assistant.');
   }
-  const cb = { onToolCall, onToolResult };
+  const cb = { onToolCall, onToolResult, onToolsUnsupported };
   switch (provider) {
     case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, cb);
-    case 'openai':     return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, cb, 'https://api.openai.com');
+    case 'openai':     return _callOpenAIWithTools(apiKey, renamedModel(model), messages, systemPrompt, tools, cb, 'https://api.openai.com');
     case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, cb);
     case 'oai-compat': {
-      if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
-      if (!model)   throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
-      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, cb, baseUrl.replace(/\/+$/, ''));
+      const base = openAIBase(baseUrl);
+      if (!base)  throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
+      if (!model) throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
+      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, cb, base);
     }
     default: throw new Error(`Unknown AI provider: ${provider}`);
   }
@@ -64,7 +109,7 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
  * (cookies don't survive Android WebView reloads). Without the Bearer
  * header, env-locked AI calls from Android return 401.
  */
-export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, onToolResult }) {
+export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, onToolResult, onToolsUnsupported }) {
   const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
 
   // Server proxy expects OpenAI wire shape regardless of the env-locked
@@ -97,6 +142,8 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, o
     }
 
     // No tools fired — final reply, return it.
+    // The server's model can't use tools and answered without them.
+    if (data.toolsUnsupported) onToolsUnsupported?.({ routed: !!data.toolsRouted });
     if (!data.toolCalls || data.toolCalls.length === 0) {
       return data.text || '';
     }
@@ -132,40 +179,62 @@ export const AI_PROVIDERS = [
   { value: 'oai-compat', label: 'OpenAI Compatible' },
 ];
 
+// Checked against the vendors' model and deprecation pages on 2026-10-09
+// (platform.claude.com, developers.openai.com, ai.google.dev), the same
+// lists as NutriTrace. Labels compare list prices within each provider. A
+// saved model that is no longer listed (Gemini 2.5 is open to existing users
+// only) keeps working: the picker shows it as a custom model.
 export const AI_MODELS = {
   claude: [
-    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
-    { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 (balanced)' },
-    { value: 'claude-opus-5',             label: 'Claude Opus 5'              },
-    { value: 'claude-fable-5-1',          label: 'Claude Fable 5.1 (most capable)' },
-    { value: 'claude-fable-5',            label: 'Claude Fable 5 (previous)' },
-    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8 (previous)' },
-    { value: '__custom__',                label: 'Custom…'                    },
+    { value: 'claude-haiku-5-5',  label: 'Claude Haiku 5.5 (fast, cheapest)'  },
+    { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (balanced)'       },
+    { value: 'claude-opus-5-5',   label: 'Claude Opus 5.5 (smarter)'          },
+    { value: 'claude-fable-5-1',  label: 'Claude Fable 5.1 (most capable)'    },
+    { value: 'claude-sonnet-5',   label: 'Claude Sonnet 5 (previous)'         },
+    { value: 'claude-opus-5',     label: 'Claude Opus 5 (previous)'           },
+    { value: 'claude-fable-5',    label: 'Claude Fable 5 (previous)'          },
+    { value: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (previous)'         },
+    { value: '__custom__',        label: 'Custom…'                            },
   ],
+  // GPT-6.1 Sol and GPT-6 Astra are left out: Trace calls tools through
+  // Chat Completions, which those two don't support (only the Responses
+  // API does, per their model pages).
   openai: [
-    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (fast, cheap)' },
-    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'   },
-    { value: 'gpt-5.6',       label: 'GPT-5.6 (smarter)'          },
-    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'     },
-    { value: 'gpt-4o',        label: 'GPT-4o (previous)'          },
-    { value: '__custom__',    label: 'Custom…'                    },
+    { value: 'gpt-6-luna',    label: 'GPT-6 Luna (fast, cheapest)'   },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'      },
+    { value: 'gpt-5.6-sol',   label: 'GPT-5.6 Sol (most capable)'    },
+    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (previous)'       },
+    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'        },
+    { value: 'gpt-4o',        label: 'GPT-4o (previous)'             },
+    { value: '__custom__',    label: 'Custom…'                       },
   ],
   gemini: [
-    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (cheapest)' },
-    { value: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash (fast, cheap)'   },
-    { value: 'gemini-3.1-pro',        label: 'Gemini 3.1 Pro (smarter)'         },
-    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (previous)' },
-    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (previous)'      },
-    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (previous)'        },
-    { value: '__custom__',            label: 'Custom…'                          },
+    { value: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (cheapest)'      },
+    { value: 'gemini-3.5-flash-lite',  label: 'Gemini 3.5 Flash Lite (cheap)'         },
+    { value: 'gemini-3.8-flash',       label: 'Gemini 3.8 Flash (fast)'               },
+    { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (most capable)' },
+    { value: 'gemini-3.6-flash',       label: 'Gemini 3.6 Flash (previous)'           },
+    { value: '__custom__',             label: 'Custom…'                               },
   ],
 };
 
+// Used when no model is chosen. Someone who picked a model keeps it.
 export const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-4-5-20251001',
+  claude: 'claude-haiku-5-5',
   openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.6-flash',
+  gemini: 'gemini-3.8-flash',
 };
+
+// Model IDs that changed name: a saved old name is sent as the new one.
+// gemini-3.1-pro never existed (only the preview does), and Google points
+// the shut-down gemini-3-pro-preview at it. gpt-5.6 is the alias of
+// gpt-5.6-sol, which the picker now names.
+export const AI_MODEL_RENAMES = {
+  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+  'gpt-5.6': 'gpt-5.6-sol',
+};
+export const renamedModel = (model) => AI_MODEL_RENAMES[model] || model;
 
 // ── Helpers for multimodal content ───────────────────────────────────────────
 // Internal message content shape: string | [{type:'text',text}, {type:'image',dataUrl}, ...]
@@ -227,7 +296,7 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
     };
     if (claudeTools.length) body.tools = claudeTools;
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetchProvider('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -266,8 +335,11 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
 // `baseUrl` defaults to api.openai.com but can be any /v1/chat/completions
 // endpoint (Ollama, LM Studio, DeepSeek, Groq, etc.) — see callAI's
 // 'oai-compat' branch.
+// Models found unable to use tools, by base URL and model (TraceApps/nutritrace#259).
+const toolSupport = createToolSupportMemory();
+
 async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, cb, baseUrl = 'https://api.openai.com') {
-  const { onToolCall, onToolResult } = cb || {};
+  const { onToolCall, onToolResult, onToolsUnsupported } = cb || {};
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -295,16 +367,21 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     // Some self-hosted endpoints (Ollama in particular) reject the
     // Authorization header when it carries a placeholder key. Only send
     // it when we have a real one.
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
 
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || `AI API error ${res.status}`);
+    const send = async (b) => {
+      const res = await fetchProvider(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(b),
+      });
+      return { ok: res.ok, status: res.status, data: await res.json() };
+    };
+    // A model that can't use tools gets the request again without them.
+    const { ok, status, data, toolsDropped, toolsRouted } = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+    if (!ok) throw new Error(data.error?.message || `AI API error ${status}`);
+    if (toolsDropped) onToolsUnsupported?.({ routed: toolsRouted });
 
     const msg = data.choices?.[0]?.message || {};
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
@@ -326,18 +403,27 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
 }
 
 // ── Google Gemini (with function calling) ────────────────────────────────────
-// Models Google has shut down or scheduled for shutdown. Saved selections
-// pointing at any of these are quietly remapped to the current default so
-// users who never opened Settings after a bump don't suddenly hit 404s.
-const GEMINI_RETIRED = new Set([
+// Models Google has shut down. Saved selections pointing at any of these
+// are quietly remapped to the current default so users who never opened
+// Settings after a bump don't suddenly hit 404s.
+// Shut down per ai.google.dev/gemini-api/docs/deprecations (2026-10-09).
+export const GEMINI_RETIRED = new Set([
   'gemini-1.5-flash', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash-lite-preview', 'gemini-2.0-flash-lite-preview-02-05',
+  'gemini-2.5-pro-preview-03-25', 'gemini-2.5-pro-preview-05-06', 'gemini-2.5-pro-preview-06-05',
+  'gemini-2.5-flash-preview-05-20', 'gemini-2.5-flash-preview-09-25', 'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-3.1-flash-lite-preview',
 ]);
+/** The Gemini model to call for a saved one: renamed ones by their new name, shut-down ones by the default. */
+export function geminiModelFor(model) {
+  const m = renamedModel(model || AI_DEFAULT_MODELS.gemini);
+  return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
+}
 
 async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, cb) {
   const { onToolCall, onToolResult } = cb || {};
-  let m = model || AI_DEFAULT_MODELS.gemini;
-  if (GEMINI_RETIRED.has(m)) m = AI_DEFAULT_MODELS.gemini;
+  const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
   const geminiTools = (tools || []).length ? [{
@@ -362,7 +448,7 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     };
     if (geminiTools) body.tools = geminiTools;
 
-    const res = await fetch(url, {
+    const res = await fetchProvider(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

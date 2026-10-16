@@ -45,15 +45,19 @@ function _normalizeMuscle(m) {
   const s = (m || '').toLowerCase().trim();
   if (s.includes('chest') || s.includes('pec')) return 'chest';
   if (s.includes('back') || s.includes('lat') || s.includes('trap') || s.includes('rhomboid')) return 'back';
-  if (s.includes('shoulder') || s.includes('delt')) return 'shoulders';
-  if (s.includes('bicep')) return 'biceps';
+  if (s.includes('shoulder') || s.includes('delt') || s.includes('rotator cuff')) return 'shoulders';
+  if (s.includes('bicep') || s.includes('brachialis')) return 'biceps';
   if (s.includes('tricep')) return 'triceps';
-  if (s.includes('forearm')) return 'forearms';
-  if (s.includes('ab') || s.includes('core') || s.includes('oblique')) return 'core';
+  if (s.includes('forearm') || s.includes('wrist') || s.includes('grip')) return 'forearms';
+  // Before the 'ab' test below, which filed hip abduction under core. The
+  // abductors are hip muscles, and the body map already counts them as glutes.
+  if (s.includes('abductor')) return 'glutes';
+  // 'obliqu' so wger's Latin "Obliquus externus" is caught too (issue #110).
+  if (s.includes('ab') || s.includes('core') || s.includes('obliqu')) return 'core';
   if (s.includes('quad')) return 'quads';
   if (s.includes('hamstring')) return 'hamstrings';
   if (s.includes('glute')) return 'glutes';
-  if (s.includes('calf') || s.includes('calve')) return 'calves';
+  if (s.includes('calf') || s.includes('calve') || s.includes('gastroc') || s.includes('soleus')) return 'calves';
   if (s.includes('leg')) return null;  // ambiguous fallback — skip
   if (s.includes('arm')) return null;  // ambiguous fallback — skip
   return null;

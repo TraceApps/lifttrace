@@ -97,6 +97,7 @@ console.log(`\n\x1b[1mMCP smoke test\x1b[0m  ${URL_}\n`);
 // --- tools/list ---
 const READ_TOOLS = [
   'get_workout',
+  'get_workouts',
   'list_recent_workouts',
   'get_records',
   'get_exercise_progress',
@@ -104,6 +105,7 @@ const READ_TOOLS = [
   'list_programs',
   'get_active_program',
   'get_body_stat',
+  'get_body_stats',
 ];
 const WRITE_TOOLS = ['log_set', 'log_body_stat'];
 const DESTROY_TOOLS = ['delete_workout'];
@@ -172,13 +174,17 @@ async function checkToolOrCleanError(name, args, resultKey, note) {
 }
 
 await checkTool('get_workout',           {},                          'date',    '(today)');
+await checkTool('get_workouts',          { start: '2000-01-01', end: '2000-01-02' }, 'workouts', '(explicit range)');
 await checkTool('list_recent_workouts',  { limit: 3 },                'workouts');
+await checkTool('list_recent_workouts',  { start: '2000-01-01', end: '2000-01-02' }, 'workouts', '(explicit range)');
 await checkTool('get_records',           {},                          'records');
+await checkTool('get_records',           { start: '2000-01-01', end: '2000-01-02' }, 'records', '(explicit range)');
 await checkToolOrCleanError('get_exercise_progress', { exercise_name: 'Bench Press' }, 'progress', '(Bench Press)');
 await checkTool('search_exercises',      { query: 'press', limit: 3 }, 'exercises', '(q=press)');
 await checkTool('list_programs',         {},                          'programs');
 await checkTool('get_active_program',    {},                          'active');
 await checkTool('get_body_stat',         {},                          'date',    '(today)');
+await checkTool('get_body_stats',        { start: '2000-01-01', end: '2000-01-02' }, 'stats', '(explicit range)');
 
 // --- Write tools (opt-in with --writes) ---
 let _writeExerciseId = null;

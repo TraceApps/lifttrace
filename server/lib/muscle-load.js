@@ -46,6 +46,20 @@ const _ALIAS = {
   obliques: 'obliques',
   'hip flexors': 'hip-flexors',
   shins: 'tibialis', tibialis: 'tibialis',
+  // wger names its muscles in Latin (see MUSCLE_MAP in
+  // src/lib/exercise-sources/wger.js), and nine of its fifteen were missing
+  // here. Every wger exercise using them lost those muscles, and when none
+  // were left fell back to a guess from its category: a set of lunges read
+  // as a generic leg day, a curl credited the triceps (issue #110).
+  'biceps brachii': 'biceps', 'triceps brachii': 'triceps',
+  'anterior deltoid': 'deltoids', 'pectoralis major': 'chest',
+  'rectus abdominis': 'abs',
+  'obliquus externus': 'obliques', 'obliquus externus abdominis': 'obliques',
+  'quadriceps femoris': 'quadriceps', 'gluteus maximus': 'gluteal',
+  gastrocnemius: 'calves',
+  // Free Exercise DB's name for the rhomboids and mid traps.
+  'middle back': 'upper-back',
+  neck: null,
   'cardiovascular system': null, cardio: null,
   ankles: null, feet: null, hands: null,
   'ankle stabilizers': null, sternocleidomastoid: null,

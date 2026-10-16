@@ -32,6 +32,18 @@ function _hex(buf, off, len) {
   return buf.slice(off, off + len).toString('hex');
 }
 
+/** The mime type of bytes already in memory (their first 32 are enough). */
+export function detectMimeFromBuffer(buf) {
+  if (!buf || buf.length === 0) return null;
+  for (const sig of SIGS) {
+    const [mime, hex1, off1 = 0, hex2, off2] = sig;
+    if (_hex(buf, off1, hex1.length / 2) !== hex1) continue;
+    if (hex2 != null && _hex(buf, off2, hex2.length / 2) !== hex2) continue;
+    return mime;
+  }
+  return null;
+}
+
 /** Returns the detected mime type, or null if no known signature matches. */
 export function detectMime(filePath) {
   let fd;
@@ -39,13 +51,7 @@ export function detectMime(filePath) {
     fd = fs.openSync(filePath, 'r');
     const buf = Buffer.alloc(32);
     fs.readSync(fd, buf, 0, 32, 0);
-    for (const sig of SIGS) {
-      const [mime, hex1, off1 = 0, hex2, off2] = sig;
-      if (_hex(buf, off1, hex1.length / 2) !== hex1) continue;
-      if (hex2 != null && _hex(buf, off2, hex2.length / 2) !== hex2) continue;
-      return mime;
-    }
-    return null;
+    return detectMimeFromBuffer(buf);
   } finally {
     if (fd != null) try { fs.closeSync(fd); } catch {}
   }

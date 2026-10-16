@@ -25,11 +25,13 @@ LiftTrace is a self-hosted weightlifting and training tracker. Your data is stor
 - We do not serve advertisements
 - We do not sell, share, or transmit your data to third parties
 - We do not use tracking cookies or fingerprinting
+- We do not load fonts, scripts, or styles from a CDN; the page is served entirely by your instance
 
 ## Third-Party Services
 
 LiftTrace connects to the following external services **only when you explicitly enable them**:
 
+- **GitHub.** Update checks, off until you turn them on: setup asks, and Settings, Updates can change it at any time. When on, your server asks github.com for the latest release every few hours, and the Android app asks for the latest app version, so you hear about new features, fixes and security updates. Nothing about you, your instance or your data is sent. Set `UPDATE_CHECK=off` to keep it off whatever the setting says.
 - **wger / free-exercise-db / exercisedb** — Exercise library data, fetched once at server startup to seed the local exercise table. Subject to each project's respective terms.
 - **Radio Browser** ([radio-browser.info](https://www.radio-browser.info/)) — Internet radio station discovery, queried when you browse stations in the Radio tab.
 - **Subsonic / Jellyfin / Plex / Emby** — Music library sources for the Radio player. You connect to your own self-hosted server with your own credentials; LiftTrace stores those credentials encrypted on your server.

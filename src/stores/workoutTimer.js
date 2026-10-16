@@ -2,13 +2,82 @@ import { writable, get } from 'svelte/store';
 
 const KEY = 'lt:workoutTimer';
 
-function _load() {
+function _raw() {
   try { return JSON.parse(localStorage.getItem(KEY) || 'null'); }
   catch { return null; }
 }
+function _load() {
+  return sane(_raw());
+}
+
+/**
+ * A timer that can't be right is no timer. The watch was once told a start
+ * time of 0 (the phone's plugin dropped any number in milliseconds), so the
+ * phone and the watch both counted from 1970: 497712 hours. One already kept
+ * like that goes, rather than showing that until it's reset by hand.
+ */
+export function sane(state) {
+  if (!state || typeof state !== 'object') return null;
+  // Seconds: a run of more than about 115 days is no workout, which is also
+  // what a pause or resume of one counting from 1970 carries forward.
+  const seconds = (v) => Number(v) >= 0 && Number(v) < 1e7;
+  if (state.paused) return seconds(state.pausedElapsed) ? state : null;
+  return Number(state.startTime) > 1e12 && seconds(state.baseElapsed || 0) ? state : null;
+}
+const AT_KEY = 'lt:workoutTimerAt';
+
 function _save(state) {
+  // Stamped, so that when the phone and the watch have both had a say, the
+  // later one is the one that counts. The stamp is kept even when the timer
+  // is stopped, or a stop would look older than the running state it ended
+  // and the watch would hand it straight back.
+  const at = Date.now();
+  const stamped = state ? { ...state, at } : null;
+  localStorage.setItem(AT_KEY, String(at));
+  if (stamped) localStorage.setItem(KEY, JSON.stringify(stamped));
+  else localStorage.removeItem(KEY);
+  // A paired watch shows how long you have been training and can start, pause
+  // and stop it itself. It is told whenever the timer changes here and counts
+  // on its own from there, so the phone can go back in a locker.
+  publishTimer(stamped, at);
+}
+
+/** When the timer here was last changed, for settling that against the watch. */
+export function timerStampedAt() {
+  try {
+    // The stamp used to live inside the timer itself. A timer already
+    // running when this app updated has one there and not in its own key,
+    // and reading that as nought would let the watch's word beat it: the
+    // phone would adopt whatever the watch last said, and finishing the
+    // workout would then write its length down as zero.
+    // As kept: a timer that can't be right (see sane) still said something, when.
+    return Number(localStorage.getItem(AT_KEY)) || Number(_raw()?.at) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The watch started, paused or stopped the timer. Take its word for it
+ * without telling it back what it just told us.
+ */
+export function adoptTimer(state, at = 0) {
+  state = sane(state);
+  localStorage.setItem(AT_KEY, String(at || state?.at || Date.now()));
   if (state) localStorage.setItem(KEY, JSON.stringify(state));
   else localStorage.removeItem(KEY);
+  timerState.set(state);
+  timerMs.set(_computeMs(state));
+  if (state && !state.paused) _startTicking();
+  else _stopTicking();
+}
+
+function publishTimer(state, at) {
+  try {
+    import('../lib/wear-pairing.js')
+      .then(({ publishWorkoutTimer }) => publishWorkoutTimer(state, at))
+      .catch(() => {});
+  } catch { /* no watch, or no bundler support here */ }
 }
 
 // State shape:

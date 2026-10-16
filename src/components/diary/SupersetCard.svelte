@@ -151,8 +151,9 @@
                 on:moveDown={() => dispatch('moveWithinSuperset', { supersetId, fromIdx: i, toIdx: i + 1 })}
               />
               <!-- Per-exercise coach feedback for THIS superset member,
-                   keyed by position in the workout's exercises array. -->
-              {#each (feedback || []).filter(f => f.exercise_idx === startIdx + i) as f (f.id)}
+                   matched by the exercise's uuid, falling back to its
+                   position for notes written before notes carried one. -->
+              {#each (feedback || []).filter(f => (f.exercise_uuid ? f.exercise_uuid === ex.uuid : f.exercise_idx === startIdx + i)) as f (f.id)}
                 <div class="ss-ex-feedback" in:fade={{ duration: 180 }}>
                   <div class="avatar-chip coach sm">
                     {#if f.trainer_avatar_url}

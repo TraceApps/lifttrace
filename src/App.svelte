@@ -8,8 +8,10 @@
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
+  import AccountCheckError from './components/AccountCheckError.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
+  import { initFold } from './lib/fold.js';
   import { isPullSyncExempt } from './lib/pull-sync.js';
   import { handleBack } from './lib/back-stack.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
@@ -21,8 +23,11 @@
   // Drive svelte-i18n's active locale from the user's saved language setting.
   $: if ($language) locale.set($language);
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
-  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
-  import { syncState } from './lib/sync.js';
+  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
+  import { syncState, forgetRefused } from './lib/sync.js';
+  import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
+  import { get as getStore } from 'svelte/store';
+  import { offlineState } from './lib/offline-api.js';
   import NativeSetup from './routes/NativeSetup.svelte';
 
   // Native-server connection state for the hamburger offline badge.
@@ -37,6 +42,24 @@
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
   // The server answers but the sync is failing, as opposed to no network at all.
   $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
+  // The same badge for the web app, which keeps working offline in the
+  // browser: amber while anything is waiting, red if the server refuses it.
+  $: _webOffline = !isNative && ($offlineState.online === false || $offlineState.pending > 0);
+  $: _webFailing = !isNative && (!!$offlineState.error || ($offlineState.refused || []).length > 0);
+  // Tell them once, in their own words, what the server would not take.
+  let _toldRefused = 0;
+  $: if (!isNative && ($offlineState.refused || []).length > _toldRefused) {
+    _toldRefused = $offlineState.refused.length;
+    const _say = $offlineState.refused.map(r => $_('sync.refused', { values: { what: r.what, reason: r.reason } }));
+    import('./stores/toast.js').then(({ showError }) => _say.forEach(m => showError(m)));
+    import('./lib/offline-api.js').then(m => m.forgetRefused());
+  }
+  // The same on Android, for changes queued offline there (lib/sync.js).
+  $: if (isNative && ($syncState.refused || []).length) {
+    const _sayNative = $syncState.refused.map(r => $_('sync.refused', { values: { what: r.what, reason: r.reason } }));
+    forgetRefused();
+    import('./stores/toast.js').then(({ showError }) => _sayNative.forEach(m => showError(m)));
+  }
   // Reactive copy build for the smart connection banner. Falls back to
   // the generic "Sync error" title when a non-connection error is
   // surfaced with showFailureBanner=true.
@@ -182,6 +205,7 @@
   import Radio           from './routes/Radio.svelte';
   import Settings        from './routes/Settings.svelte';
   import Coaching        from './routes/Coaching.svelte';
+  import Coach           from './routes/Coach.svelte';
   import MiniPlayer      from './components/radio/MiniPlayer.svelte';
   import RestTimer       from './components/diary/RestTimer.svelte';
   import FullPlayer      from './components/radio/FullPlayer.svelte';
@@ -209,6 +233,7 @@
     '/radio':                 Radio,
     '/settings':              Settings,
     '/settings/:section':     Settings,
+    '/coach':                 Coach,
     '/coaching':              Coaching,
     '/coaching/:memberId':    Coaching,
     '/wizard':                Wizard,
@@ -307,6 +332,14 @@
   // exactly so shared debug tooling recognizes the same class.
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('force-mobile-layout', !!$forceMobileLayout);
+    // Room for two panes beside whatever sidebar is pinned, rather than a
+    // desktop-sized viewport. A foldable's inner display is around 840px
+    // open flat, so a 1024px gate left it on the phone layout on the one
+    // screen with the most room. Matches NoteTrace.
+    document.documentElement.classList.toggle(
+      'wide-content',
+      !$forceMobileLayout && _viewportW - (sidebarPinned ? 280 : 0) >= 720,
+    );
   }
   // Mirror NutriTrace's banner-gradient global class so portaled top-bar
   // action buttons (.diary-topbar-actions) outside the .page-header still
@@ -332,6 +365,11 @@
   }
 
   onMount(async () => {
+    initFold();
+    // Update checks: a device that was already using the app keeps checking,
+    // a fresh one stays quiet until setup asks. Runs first so nothing above
+    // can skip it (see lib/updates.js).
+    import('./lib/updates.js').then(({ migrateAutoCheck }) => migrateAutoCheck()).catch(() => {});
     // Local-mode scheduled backup tick — JS-side scheduler that fires
     // buildBackup() when due. TraceApps parity with NT + CT.
     if (isNative && getNativeMode() === 'local') {
@@ -355,29 +393,83 @@
       try {
         const sync = await import('./lib/sync.js');
         sync.startBackgroundSync();
-        // Periodic differential pull every 30s while the app is active.
-        // The handler is silent so users don't see a blinking sync bar
-        // unless something actually changed (Settings UI subscribes to
-        // syncState and can show its own activity indicator).
-        // Cheap enough now that pullSnapshot() is differential (steady
-        // state returns 0-5 rows); the heavy snapshot path is gone.
-        setInterval(() => sync.fullSync(true).catch(() => {}), 30000);
+        // Periodic differential pull every 30s while the app is actually in
+        // front of you. The handler is silent so users don't see a blinking
+        // sync bar unless something actually changed (Settings UI subscribes
+        // to syncState and can show its own activity indicator).
+        //
+        // This used to say "while the app is active" and nothing enforced it.
+        // A WebView keeps its timers running when the app is backgrounded and
+        // the screen is off, so it was a network round trip every thirty
+        // seconds, all night, waking the radio each time, for as long as the
+        // process lived. Stopping loses nothing: coming back fires a sync of
+        // its own (the resume listener below).
+        let poll = null;
+        // Only for an account that is signed in and whose data is shown: a
+        // signed-out phone (or one still being checked) has nothing to sync.
+        const startPolling = () => {
+          if (poll == null) poll = setInterval(() => {
+            const user = getStore(currentUser);
+            if (user?.id == null || !accountReadyFor(getStore(accountGate), user.id)) return;
+            sync.fullSync(true).catch(() => {});
+          }, 30000);
+        };
+        const stopPolling = () => {
+          if (poll != null) { clearInterval(poll); poll = null; }
+        };
+        startPolling();
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) stopPolling(); else startPolling();
+        });
+        // A set logged on the watch is on the phone when you look, not at
+        // the next poll: the watch says when it has saved.
+        import('./lib/wear-pairing.js').then(({ onWatchSaved }) => onWatchSaved(() => {
+          // Only on screen: in the background it waits, since coming back
+          // syncs anyway, and a sync per set logged would wake the radio
+          // with nobody looking.
+          if (document.hidden) return;
+          const user = getStore(currentUser);
+          if (user?.id == null || !accountReadyFor(getStore(accountGate), user.id)) return;
+          sync.fullSync(true).catch(() => {});
+        })).catch(() => {});
         // Resume from background → fire a visible sync (matches NT's
         // App.resume listener wiring).
         try {
           const { App: CapApp } = await import('@capacitor/app');
-          CapApp.addListener('resume', () => sync.fullSync().catch(() => {}));
+          CapApp.addListener('resume', () => {
+            startPolling();
+            sync.fullSync().catch(() => {});
+            // Coming back is a good moment to top up the watch's token, and it
+            // catches a watch paired after this app was last opened.
+            import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {});
+          });
           // Pause (app backgrounded) → flush any pending debounced workout
           // save so Android can't kill the process with unsynced work in
           // the 350ms window. Without this, a set/exercise added just
           // before the user swipes away is lost silently.
           CapApp.addListener('pause', async () => {
+            // Nothing to poll for while nobody is looking.
+            stopPolling();
             try {
               const { flushWorkoutSave } = await import('./stores/workout.js');
               await flushWorkoutSave();
             } catch {}
           });
         } catch {}
+        // And on launch, once auth has settled.
+        setTimeout(() => import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {}), 2500);
+        // A rest can be started, extended or skipped on either device, so
+        // coming back to the front is the moment to settle which of the two
+        // spoke last. Nothing is asked of the watch unless its app has been
+        // opened lately.
+        document.addEventListener('visibilitychange', async () => {
+          if (document.visibilityState !== 'visible') return;
+          try {
+            const { syncRest } = await import('./stores/restTimer.js');
+            await syncRest();
+          } catch {}
+        });
+        setTimeout(() => import('./stores/restTimer.js').then(({ syncRest }) => syncRest()).catch(() => {}), 3000);
         // Web/PWA fallbacks — same reason as above but for the browser
         // page lifecycle (tab hidden, page unload). Cheap idempotent
         // flush; no-op if nothing pending.
@@ -440,15 +532,32 @@
             await Browser.close().catch(() => {});
           } catch {}
           try {
-            const u = new URL(url);
-            const host = (u.hostname || u.host || '').toLowerCase();
-            const params = u.searchParams;
+            // Read by hand (lib/app-link.js): older WebViews leave new URL()'s
+            // host empty for this scheme, so SSO never finished there.
+            const { parseAppLink } = await import('./lib/app-link.js');
+            const link = parseAppLink(url);
+            if (!link) throw new Error('not an app link');
+            const host = link.host;
+            const params = link.params;
             if (host === 'oidc-callback') {
               const errMsg = params.get('error');
               const linked = params.get('linked');
-              const token = params.get('token');
-              const idTokenHint = params.get('id_token_hint');
-              const providerId  = params.get('provider_id');
+              let token = params.get('token');
+              let idTokenHint = params.get('id_token_hint');
+              let providerId  = params.get('provider_id');
+              const code = params.get('code');
+              if (code && !errMsg) {
+                try {
+                  const { redeemHandoff } = await import('./lib/oidc-app-handoff.js');
+                  const data = await redeemHandoff(code);
+                  token = data.token;
+                  idTokenHint = data.id_token_hint || null;
+                  providerId = data.provider_id != null ? String(data.provider_id) : null;
+                } catch (e) {
+                  import('./stores/toast.js').then(({ showError }) => showError(e?.message || 'Sign-in failed'));
+                  return;
+                }
+              }
               if (errMsg) {
                 const { showError } = await import('./stores/toast.js');
                 showError(decodeURIComponent(errMsg));
@@ -493,21 +602,18 @@
       }
     } catch {}
 
-    await loadAuthState();
+    // A copy an earlier version kept for a server is tagged as the account
+    // last signed in here, before anyone signs in (lib/local-account.js).
+    if (isNative && getNativeMode() === 'server') {
+      try { await (await import('./lib/local-account.js')).tagLegacyCopy(); } catch { /* no local database */ }
+    }
+    try { await loadAuthState(); } finally { authLoaded = true; }
 
     // Env-lock state for AI / SMTP / OIDC. Fetched globally so the Trace
     // FAB knows about env-set AI_ENABLED without waiting for Settings to
-    // load. Mirrors NutriTrace #36.
-    if (!isNative || getServerUrl()) {
-      fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .then(async d => {
-          if (!d) return;
-          const { envLocks } = await import('./stores/settings.js');
-          envLocks.set(d);
-        })
-        .catch(() => {});
-    }
+    // load. Mirrors NutriTrace #36. Signed out it would only be refused;
+    // signing in loads it (see _wasNeedsLogin below).
+    if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
 
     const _isNativeServer = isNative && getNativeMode() === 'server';
     const _isNativeLocal  = isNative && getNativeMode() === 'local';
@@ -585,8 +691,63 @@
     }
   });
 
+  /**
+   * Which sections the server holds by environment variable, Trace included.
+   * Sends the Android app's token: cookies alone were refused there, which
+   * left Trace looking unconfigured even with AI_* set on the server.
+   */
+  async function loadEnvLocks() {
+    if (isNative && !getServerUrl()) return;
+    try {
+      const headers = {};
+      const token = isNative ? getAuthToken() : null;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers });
+      if (!res.ok) return;
+      const { envLocks } = await import('./stores/settings.js');
+      envLocks.set(await res.json());
+    } catch { /* defaults stay: Trace waits for a key in Settings */ }
+  }
+
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
+  // The web app learns who is signed in from the server. Until it knows,
+  // nothing renders: the app used to load first and fire its requests
+  // signed out, before the sign-in screen replaced it. Android starts from
+  // the account it cached, so it never waits.
+  let authLoaded = isNative;
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
+
+  // Signing in loads what the sign-in screen left out. (Login.svelte loads
+  // the server settings itself.)
+  let _wasNeedsLogin = needsLogin;
+  $: {
+    if (_wasNeedsLogin && !needsLogin && $currentUser) {
+      _wasNeedsLogin = false;
+      loadEnvLocks();
+    } else if (needsLogin) {
+      _wasNeedsLogin = true;
+    }
+  }
+
+  // Android, server mode: the phone's copy of the data must be this
+  // account's before the app shows any of it (lib/local-account.js). A
+  // different account than last time clears the copy; if that account
+  // left changes that never went up, the person is asked first, and
+  // saying no signs them back out. Every sign-in path ends by setting
+  // $currentUser, so this is the one place that sees them all. Keyed on
+  // the id, so a refreshed user object doesn't ask again; the gate itself
+  // runs one check per account at a time.
+  $: _accountId = isNative && getNativeMode() === 'server' && $currentUser?.id != null ? $currentUser.id : null;
+  $: if (_accountId != null) _checkAccount();
+  $: accountReady = _accountId == null || accountReadyFor($accountGate, _accountId);
+  async function _checkAccount() {
+    const user = getStore(currentUser);
+    if (!user || user.id == null) return;
+    const ok = await ensureLocalAccount(user, {
+      signOut: async () => { const { logout } = await import('./stores/auth.js'); await logout(); },
+    });
+    if (ok) import('./lib/sync.js').then(m => m.fullSync()).catch(() => {});
+  }
 </script>
 
 <svelte:window
@@ -599,8 +760,17 @@
 {#if showNativeSetup}
   <NativeSetup />
   <Toast />
+{:else if !authLoaded}
+  <!-- Asking the server who is signed in: a blank page, never the app. -->
 {:else if needsLogin}
   <Login />
+{:else if !accountReady}
+  <!-- Checking the phone's copy is this account's: never another account's data. -->
+  {#if $accountGate.state === 'error'}
+    <AccountCheckError on:retry={_checkAccount} on:signout={async () => { const { logout } = await import('./stores/auth.js'); await logout(); }} />
+  {/if}
+  <Toast />
+  <ConfirmDialogMount />
 {:else}
 
 <Sidebar bind:open={sidebarOpen} persistent={sidebarPinned} on:close={() => { if (!sidebarPinned) sidebarOpen = false; }} />
@@ -613,12 +783,13 @@
       aria-label="Open menu"
     >
       <span class="material-symbols-rounded">menu</span>
-      {#if _syncModeActive && !_serverReachable}
+      {#if (_syncModeActive && !_serverReachable) || _webOffline || _webFailing}
         <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
              red when the server is reachable but the sync is failing. -->
-        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}
-          aria-label={_syncFailing ? $_('sync.sync_failing') : $_('sync.sync_offline')}>
-          <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
+        {@const failing = _syncFailing || _webFailing}
+        <span class="conn-badge" class:conn-failing={failing} class:conn-offline={!failing}
+          aria-label={failing ? $_('sync.sync_failing') : (_webOffline ? $_('sync.pending_web', { values: { count: $offlineState.pending } }) : $_('sync.sync_offline'))}>
+          <span class="material-symbols-rounded" style="font-size:10px">{failing ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
     </button>

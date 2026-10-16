@@ -1,4 +1,5 @@
 <script>
+  import { resolveAssetUrl } from '../lib/platform.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -205,11 +206,12 @@
           </div>
           <svg class="progress-svg" viewBox="0 0 {progressSvg.W} {progressSvg.H}" preserveAspectRatio="none">
             <polyline fill="none" stroke="var(--accent)" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"
+              stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"
               points={progressSvg.pts.map(p => `${p.x},${p.y}`).join(' ')} />
-            {#each progressSvg.pts as p}
-              <circle cx={p.x} cy={p.y} r="3" fill="var(--accent)" />
-            {/each}
+            <!-- Round-capped strokes, not circles: the chart stretches to its box,
+                 which squashed circles into ovals (issue #131). -->
+            <path d={progressSvg.pts.map(p => `M${p.x} ${p.y}h0.01`).join('')} fill="none"
+              stroke="var(--accent)" stroke-width="7" stroke-linecap="round" vector-effect="non-scaling-stroke" />
           </svg>
           <div class="progress-footer">
             <span>{progressSvg.pts[0].date} · {detailTimed ? fmtSetDuration(progressSvg.pts[0].weight) : `${progressSvg.pts[0].weight} ${$weightUnit}`}</span>
@@ -226,7 +228,7 @@
             {#each similar as s (s.id)}
               <button class="similar-card" on:click={() => push(`/exercise/${s.id}`)}>
                 {#if s.gif_url || s.img_url}
-                  <img class="similar-img" src={s.gif_url || s.img_url} alt="" loading="lazy" />
+                  <img class="similar-img" src={resolveAssetUrl(s.gif_url || s.img_url)} alt="" loading="lazy" />
                 {:else}
                   <span class="similar-img-fallback material-symbols-rounded">fitness_center</span>
                 {/if}

@@ -1,11 +1,14 @@
 <script context="module">
   // Survives the remount between /settings and /settings/<slug> (NutriTrace #227).
-  const _scrollMemo = { page: null, indexTop: 0 };
+  // railTop: the desktop rail is rebuilt by that remount too, so opening a
+  // section from the index would otherwise snap the rail back to Profile.
+  const _scrollMemo = { page: null, indexTop: 0, railTop: 0 };
 </script>
 
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
+  import { fold } from '../lib/fold.js';
   import { slide, fade } from 'svelte/transition';
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -13,6 +16,7 @@
   import { accentColor, applyAccentColor, pageBanners, bannerStyle, aiEnabled, appearance as appearanceStore, disableAnimations } from '../stores/settings.js';
   import { activeProgram, loadActiveProgram } from '../stores/workout.js';
   import { showSuccess, showError } from '../stores/toast.js';
+  import SettingsSupport from '../components/settings/SettingsSupport.svelte';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
   import SettingsUpdates from '../components/settings/SettingsUpdates.svelte';
   import SettingsAppearance from '../components/settings/SettingsAppearance.svelte';
@@ -39,6 +43,8 @@
   import Profile from './Profile.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
   import { portal } from '../lib/portal.js';
+  import { foldText } from '../lib/search-text.js';
+
   import {
     isNative, getNativeMode, setNativeMode, getServerUrl, setServerUrl,
     getAuthToken, setAuthToken, resolveAssetUrl, explainConnectError,
@@ -116,6 +122,8 @@
   let mergeProgressPct = 0;
   let mergeStage = '';
   let _pendingServerUrl = '';
+  let _pendingUserId = null;
+  let _connectMode = null;  // 'upload' | 'download' | 'merge' | null (no local data)
   let localCounts = null;   // counts from migrate.countLocalData()
   let migrationSummary = null;
 
@@ -154,10 +162,12 @@
       _pendingServerUrl = url;
       if (loginData.token) setAuthToken(loginData.token);
       if (loginData.user?.id) localStorage.setItem('wl:userId', String(loginData.user.id));
+      _pendingUserId = loginData.user?.id ?? null;
+      _connectMode = null;
 
       // Count local data so the merge dialog can show what's about to move
       const { countLocalData } = await import('../lib/migrate.js');
-      localCounts = await countLocalData();
+      localCounts = await countLocalData({ serverUrl: url, userId: _pendingUserId });
 
       if (localCounts.total > 0) {
         mergeStep = 'ask-settings';
@@ -172,6 +182,14 @@
   }
 
   async function _mergeAndConnect(mode) {
+    // Download replaces the phone's data. Changes from an earlier
+    // connection that never went up are part of it: asked about, never
+    // dropped without a word (lib/local-account.js).
+    if (mode === 'download') {
+      const { settleQueuedChanges } = await import('../lib/local-account.js');
+      if (!(await settleQueuedChanges('download', { send: false }))) return;
+    }
+    _connectMode = mode;
     mergeStep = 'syncing';
     mergeProgress = '';
     mergeProgressPct = 0;
@@ -195,6 +213,7 @@
           customExercises: 'custom exercises',
         };
         migrationSummary = await uploadLocalToServer({
+          userId: _pendingUserId,
           onProgress: (stage, current, total) => {
             mergeStage = stageLabels[stage] || stage;
             mergeProgress = `Uploading ${mergeStage} (${current + 1} / ${total})`;
@@ -218,7 +237,20 @@
     }
   }
 
-  function _finalizeConnect() {
+  async function _finalizeConnect() {
+    // The phone's data is this account's from now on, as chosen above:
+    // Download empties it so it fills from the server (the setup screen's
+    // Replace with Server does the same); otherwise it's kept and goes up.
+    // Signing in after the reload then neither asks nor clears.
+    if (_pendingUserId != null) {
+      try {
+        const { claimForServer } = await import('../lib/local-account.js');
+        await claimForServer(_pendingServerUrl, _pendingUserId, { clear: _connectMode === 'download' });
+      } catch (e) {
+        showError(e?.message || String(e));
+        return;
+      }
+    }
     setServerUrl(_pendingServerUrl);
     setNativeMode('server');
     serverMode = 'server';
@@ -234,12 +266,36 @@
     migrationSummary = null;
   }
 
+  // Disconnect is making the account's rows the phone's own (shown on the
+  // button; the app doesn't sync meanwhile).
+  let disconnecting = false;
   async function disconnectServer() {
+    if (disconnecting) return;
+    // Changes still queued for this server go up first; any that can't are
+    // asked about. Left queued, they'd go up later under whichever account
+    // the phone connects to next.
+    try {
+      const { settleQueuedChanges, setLocalOwner } = await import('../lib/local-account.js');
+      if (!(await settleQueuedChanges('disconnect'))) return;
+      // The phone's data is its own now, and goes to whichever account it's
+      // connected to next.
+      disconnecting = true;
+      await setLocalOwner();
+    } catch (e) {
+      // Not made the phone's own: still this account's, so stay connected
+      // rather than leave it to be cleared by the next sign-in.
+      disconnecting = false;
+      showError(e?.message || String(e));
+      return;
+    }
     setServerUrl(null);
     setAuthToken(null);
     setNativeMode('local');
 
-    localStorage.removeItem('wl:userId');
+    // The phone's own user from now on (standalone mode is user 1), set up
+    // already: it was in use. Removed, the first-run welcome came back.
+    localStorage.setItem('wl:userId', '1');
+    localStorage.setItem('wl_u1_setupComplete', 'true');
 
     currentUser.set(null);
     userMgmtActive.set(false);
@@ -370,29 +426,30 @@
 
   // ── Search ───────────────────────────────────────────────────────────────
   let settingsSearch = '';
-  $: settingsQuery = settingsSearch.toLowerCase().trim();
+  $: settingsQuery = foldText(settingsSearch).trim();
 
   const SECTION_KEYWORDS = {
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
     appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce','force mobile','mobile layout','mobile view','phone layout','narrow layout','desktop'],
-    workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill'],
+    workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill','video','videos','clip','clips','set video','film','filming','footage','form check','technique','storage','disk','space','delete clips'],
     units:          ['language','languages','units','measurement','measurement system','format','date','time','12h','24h','locale','region','regional','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
-    trace:          ['trace','ai','assistant','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image','voice language','voice input','language','environment','env','locked'],
+    trace:          ['trace','ai','assistant','test connection','connection','failed to fetch','cors','v1','without','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','fable','gpt','gpt-6','luna','sol','terra','gemini 3','flash','flash lite','pro preview','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image','voice language','voice input','language','environment','env','locked'],
     radio:          ['radio','music','player','subsonic','navidrome','jellyfin','streaming','audio','playlist'],
     federation:     ['federation','nutritrace','nt','sync','integration','calorie sync','log workouts','log calories','api','api token','access token','instance','wearable','double count'],
     catalog:        ['catalog','catalogue','exercise','exercises','source','sources','wger','free','db','exercisedb','rapidapi','import','sync','library','custom','custom exercise','custom exercises','my exercises','create exercise','offline','offline exercise library','image cache'],
     data:           ['data','export','import','backup','reset','json','defaults','local backup','full backup','restore','schedule'],
     workoutImport:  ['import','workout','strong','hevy','fitnotes','jefit','garmin','fit','fit file','garmin connect','watch','strength training','migration','csv'],
-    notifications:  ['notifications','reminders','workout reminder','rest day','streak','push','gotify','ntfy','apprise','celebration','pr','weekly summary','alert','permission','channel','sound','vibrate','vibration','battery','low battery','android'],
+    notifications:  ['notifications','reminders','workout reminder','rest day','streak','push','gotify','ntfy','apprise','celebration','pr','weekly summary','alert','permission','channel','sound','vibrate','vibration','battery','low battery','android','coaching','coach','client','request','coaching request','recommendation','new recommendation','prescription','answer','client answer','accepted','declined','left','message','messages','new message','conversation','chat','email me too','coaching email'],
     email:          ['email','smtp','mail','host','port','tls','password reset','invite','test','test email','send test','recipient','change password','stored password'],
-    users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
+    users:          ['users','user management','accounts','login','admin','trainer','member','client','clients','coach','coaching','request','coaching request','pairing','pairings','end coaching','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
     webhooks:       ['webhook','webhooks','outgoing webhook','automation','automations','home assistant','n8n','integration','integrations','event','events','signature','hmac','secret','payload','pr','personal record','workout completed','program advanced','test webhook'],
     serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
+    support:        ['support','donate','donation','sponsor','github sponsors','ko-fi','kofi','tip','star','report a bug','bug','translate','weblate','help'],
     about:          ['about','version','lifttrace','license','sister','nutritrace'],
   };
 
@@ -448,8 +505,13 @@
   onMount(() => {
     const page = _pageEl();
     // A different page element: Settings was opened fresh from elsewhere.
-    if (page && page === _scrollMemo.page) _placeScroll(currentSection);
-    else _scrollMemo.indexTop = 0;
+    if (page && page === _scrollMemo.page) {
+      _placeScroll(currentSection);
+      if (_railEl) _railEl.scrollTop = _scrollMemo.railTop;
+    } else {
+      _scrollMemo.indexTop = 0;
+      _scrollMemo.railTop = 0;
+    }
     _scrollMemo.page = page;
     window.addEventListener('scroll', _recordIndexScroll, { passive: true });
     _shownSection = currentSection;
@@ -486,6 +548,7 @@
     apiTokens:        { titleKey: 'settings.api_tokens.section',        icon: 'key' },
     webhooks:         { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
     email:            { titleKey: 'settings.email.section',             icon: 'mail' },
+    support:          { titleKey: 'settings.support.section',           icon: 'volunteer_activism' },
     about:            { titleKey: 'settings.about.section',             icon: 'info' },
   };
 
@@ -527,14 +590,14 @@
   async function _scheduleDeepLinkScroll(q) {
     await tick();
     await new Promise(r => setTimeout(r, 60));
-    const q_norm = q.toLowerCase().trim();
+    const q_norm = foldText(q).trim();
     if (!q_norm) return;
     const scope = document.querySelector('.subpage-view');
     if (!scope) return;
     const candidates = scope.querySelectorAll('.setting-label, .setting-desc, .sub-label, .setting-row');
     let hit = null;
     for (const el of candidates) {
-      if ((el.textContent || '').toLowerCase().includes(q_norm)) { hit = el; break; }
+      if (foldText(el.textContent).includes(q_norm)) { hit = el; break; }
     }
     if (!hit) return;
     const row = hit.closest('.setting-row') || hit;
@@ -565,6 +628,7 @@
     webhooks: false,
     updates: false,
     helpImprove: false,
+    support: false,
     about: false,
   };
   // Drill-in navigation replaces the old accordion toggle. On the index
@@ -716,6 +780,30 @@
     }
     return cards.filter(c => !_onboardingDismissed.has(c.key));
   })();
+  // Half open like a book, the section list fills the panel on the left of the
+  // crease and the section itself the panel on the right, with the crease as
+  // the divider. The page's own left edge is measured rather than worked out
+  // from the sidebar's width, since a pinned sidebar, a rail and an overlay
+  // are all different numbers and a centred page would be none of them.
+  let paneEl, paneLeft = 0, paneW = 0;
+  function measurePane() {
+    const box = paneEl?.getBoundingClientRect();
+    paneLeft = box?.left ?? 0;
+    paneW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measurePane();
+    const ro = new ResizeObserver(measurePane);
+    if (paneEl) ro.observe(paneEl);
+    return () => ro.disconnect();
+  });
+  // Folding moves the crease without resizing the page.
+  $: if ($fold !== undefined && paneEl) measurePane();
+  $: foldRailW = $fold?.posture === 'book' && paneW > 0 ? $fold.start - paneLeft : null;
+  // Only when both panels are left usable.
+  $: railSnap = foldRailW != null && foldRailW >= 200 && paneW - foldRailW >= 320;
+  $: hingeW = railSnap ? Math.max(0, $fold.end - $fold.start) : 0;
+
 </script>
 
 <!-- Rail + mobile-index section list. Same list markup rendered in two
@@ -853,6 +941,14 @@
     </button>
   {/if}
 
+  <!-- Support + About: the app's own group, so they don't read as
+       members of the Admin group above them. -->
+  <p class="settings-group-label">LiftTrace</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'support')} class:active={currentSection === 'support'} aria-current={currentSection === 'support' ? 'page' : undefined} on:click={() => toggleSection('support')}>
+    <span class="material-symbols-rounded si">volunteer_activism</span>
+    <span>{$_('settings.support.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'about')} class:active={currentSection === 'about'} aria-current={currentSection === 'about' ? 'page' : undefined} on:click={() => toggleSection('about')}>
     <span class="material-symbols-rounded si">info</span>
     <span>{$_('settings.about.section')}</span>
@@ -913,9 +1009,11 @@
          rail becomes a sticky 280px column with its own scroll and
          the pane takes the remaining space. Matches NutriTrace's
          shell 1:1 so the family stays visually uniform. -->
-    <div class="settings-two-pane">
+    <div class="settings-two-pane" bind:this={paneEl} class:fold-snap={railSnap}
+      style={railSnap ? `--rail-w:${foldRailW}px; --hinge:${hingeW}px` : ''}>
       <aside class="settings-nav-rail" aria-label="Settings sections"
-             bind:this={_railEl}>
+             bind:this={_railEl}
+             on:scroll={() => { _scrollMemo.railTop = _railEl.scrollTop; }}>
         <!-- Sliding highlight pill. Absolutely positioned; its
              translateY + height animate to the active rail button on
              every section change. Behind the button text (z-index:0). -->
@@ -1095,7 +1193,7 @@
           {:else if currentSection === 'statistics'}
             <SettingsStatistics visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'catalog'}
-            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} />
+            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} {localOnly} />
           {:else if currentSection === 'trace'}
             <SettingsTrace visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'radio'}
@@ -1140,6 +1238,8 @@
             </div>
           {:else if currentSection === 'email'}
             <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'support'}
+            <SettingsSupport visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'about'}
             <SettingsAbout visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'updates'}
@@ -1217,13 +1317,15 @@
     <!-- ═══ INTEGRATIONS ══════════════════════════════════════════════════ -->
     <p class="group-label">{$_('settings_main.group_integrations')}</p>
 
-    {#if !localOnly}
-      <SettingsCatalog
-        visible={sectionVisible(settingsQuery, 'catalog')}
-        expanded={expanded.catalog}
-        onToggle={() => toggleSection('catalog')}
-      />
-    {/if}
+    <!-- Shown in local mode too (issue #133): every call it makes is answered
+         on the phone, and the setup wizard promises the library can be
+         changed "any time from Settings". -->
+    <SettingsCatalog
+      visible={sectionVisible(settingsQuery, 'catalog')}
+      expanded={expanded.catalog}
+      onToggle={() => toggleSection('catalog')}
+      {localOnly}
+    />
 
     <SettingsTrace
       visible={sectionVisible(settingsQuery, 'trace')}
@@ -1287,9 +1389,9 @@
                 <span class="material-symbols-rounded" style="font-size:18px">logout</span>
                 Log Out
               </button>
-              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer}>
-                <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
-                Disconnect &amp; Use Locally
+              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer} disabled={disconnecting}>
+                <span class="material-symbols-rounded" style="font-size:18px">{disconnecting ? 'progress_activity' : 'link_off'}</span>
+                {#if disconnecting}{$_('sync.disconnecting')}{:else}Disconnect &amp; Use Locally{/if}
               </button>
             </div>
           {:else}
@@ -1448,7 +1550,15 @@
       />
     {/if}
 
-    <!-- ═══ ABOUT (standalone footer — always last) ════════════════════════ -->
+    <!-- ═══ LIFTTRACE (Support + About, always last) ══════════════════════ -->
+    <p class="group-label">LiftTrace</p>
+
+    <SettingsSupport
+      visible={sectionVisible(settingsQuery, 'support')}
+      expanded={expanded.support}
+      onToggle={() => toggleSection('support')}
+    />
+
     <SettingsAbout
       visible={sectionVisible(settingsQuery, 'about')}
       expanded={expanded.about}
@@ -1483,6 +1593,7 @@
             {#if localCounts.programs        > 0}<div><strong>{localCounts.programs}</strong> {localCounts.programs === 1 ? 'program' : 'programs'}</div>{/if}
             {#if localCounts.templates       > 0}<div><strong>{localCounts.templates}</strong> {localCounts.templates === 1 ? 'template' : 'templates'}</div>{/if}
             {#if localCounts.customExercises > 0}<div><strong>{localCounts.customExercises}</strong> custom {localCounts.customExercises === 1 ? 'exercise' : 'exercises'}</div>{/if}
+            {#if localCounts.cardio          > 0}<div>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</div>{/if}
             {#if localCounts.settings        > 0}<div><strong>{localCounts.settings}</strong> settings</div>{/if}
           </div>
         </div>
@@ -1933,12 +2044,6 @@
   .about-desc { font-size: 13px; color: var(--text-2); line-height: 1.5; padding: 12px 16px; }
   .about-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-size: 14px; color: var(--text-1); }
   .about-feat-icon { font-size: 20px; color: var(--accent); flex-shrink: 0; }
-  .exp-badge {
-    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-    background: var(--warning); color: #0A0B0F;
-    padding: 2px 6px; border-radius: var(--radius-full);
-    vertical-align: middle; margin-left: 6px;
-  }
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-label { font-size: 13px; font-weight: 600; color: var(--text-2); }
   .form-input {
@@ -2293,18 +2398,23 @@
     .settings-search-bar.mobile-hide-on-subpage { display: none; }
   }
 
-  @media (min-width: 1024px) {
-    :global(html:not(.force-mobile-layout)) .settings-two-pane {
+  @media all {
+    :global(html.wide-content) .settings-two-pane {
       display: grid;
       grid-template-columns: 280px minmax(0, 1fr);
       gap: 24px;
       align-items: start;
     }
+    /* The pane's first card starts level with the rail's top edge.
+       .section-body's 12px top padding (right for the phone's stacked
+       view) pushed every section 12px below the rail here. */
+    :global(html.wide-content) .settings-pane :global(.section-body) { padding-top: 0; }
+
 
     /* Left rail — sticky below the header + search bar, own scroll if
        the section list overflows the viewport. Same offset math NT uses
        (--page-top + header/search combined height). */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail {
+    :global(html.wide-content) .settings-nav-rail {
       display: flex;
       flex-direction: column;
       gap: 2px;
@@ -2330,7 +2440,7 @@
     /* Rail buttons — compact, no big icons, no chevron (that's the
        accordion affordance from the mobile stack). Focus-visible ring
        for keyboard nav. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn {
+    :global(html.wide-content) .settings-nav-rail .rail-btn {
       background: transparent;
       border: none;
       min-height: 36px;
@@ -2350,10 +2460,10 @@
       z-index: 1;
       transition: color 160ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:hover {
+    :global(html.wide-content) .settings-nav-rail .rail-btn:hover {
       background: var(--surface-2);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn.active {
+    :global(html.wide-content) .settings-nav-rail .rail-btn.active {
       /* Background comes from .rail-active-pill (slides in from prior
          active item). Only the text/icon color flips here. */
       background: transparent;
@@ -2361,7 +2471,7 @@
     }
     /* Sliding highlight pill — the shared background element that
        animates its transform + height to the active rail button. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill {
       position: absolute;
       left: 8px;
       right: 8px;
@@ -2373,21 +2483,21 @@
       z-index: 0;
       will-change: transform, height;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.visible {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill.visible {
       opacity: 1;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.ready {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill.ready {
       transition:
         transform 320ms cubic-bezier(0.32, 0.72, 0, 1),
         height 260ms cubic-bezier(0.32, 0.72, 0, 1),
         opacity 180ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn:focus-visible {
+    :global(html.wide-content) .settings-nav-rail .rail-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
       background: var(--surface-2);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .si {
+    :global(html.wide-content) .settings-nav-rail .rail-btn .si {
       width: 24px;
       height: 24px;
       font-size: 18px;
@@ -2398,11 +2508,11 @@
     }
     /* Rail buttons use a subtle "current page" indicator, not a chevron
        (the chevron is the accordion-drill affordance from mobile). */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-btn .chevron {
+    :global(html.wide-content) .settings-nav-rail .rail-btn .chevron {
       display: none;
     }
     /* Group labels inside the rail — smaller, tighter, all-caps. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label) {
+    :global(html.wide-content) .settings-nav-rail :global(.settings-group-label) {
       margin: 12px 4px 4px;
       font-size: 10px;
       letter-spacing: 0.1em;
@@ -2410,13 +2520,13 @@
       color: var(--text-3);
       font-weight: 700;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label:first-child) {
+    :global(html.wide-content) .settings-nav-rail :global(.settings-group-label:first-child) {
       margin-top: 2px;
     }
     /* Empty-search placeholder inside the rail — replaces the section
        list when every button matches nothing. Clear affordance so the
        user can escape without reaching for the search input. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -2425,16 +2535,16 @@
       text-align: center;
       color: var(--text-3);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
       font-size: 28px;
       opacity: 0.7;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty p {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty p {
       margin: 0;
       font-size: 12px;
       line-height: 1.4;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-clear {
       margin-top: 4px;
       background: var(--surface-2);
       color: var(--accent);
@@ -2445,7 +2555,7 @@
       font-weight: 600;
       cursor: pointer;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear:hover {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-clear:hover {
       background: var(--surface-3);
     }
 
@@ -2457,25 +2567,25 @@
        sub-pages; here we handle the desktop-index (no currentSection)
        case where nothing has been drilled into yet. Unit 2 replaces
        the resulting blank pane with a proper welcome hero. */
-    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.section-toggle),
-    :global(html:not(.force-mobile-layout)) .settings-content:not(.subpage-view) .settings-pane :global(.group-label) {
+    :global(html.wide-content) .settings-content:not(.subpage-view) .settings-pane :global(.section-toggle),
+    :global(html.wide-content) .settings-content:not(.subpage-view) .settings-pane :global(.group-label) {
       display: none;
     }
     /* Mobile profile-hero is hidden on desktop — the welcome hero above
      * owns that surface (with the inline expandable Profile editor). */
-    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-hero {
+    :global(html.wide-content) .settings-pane .mobile-profile-hero {
       display: none;
     }
     /* Mobile-only inline Profile fallback (for direct /settings/profile
        URL land). Desktop already shows Profile inside the welcome hero
        up above, so hide the mobile fallback here to avoid rendering it
        twice. */
-    :global(html:not(.force-mobile-layout)) .settings-pane .mobile-profile-inline {
+    :global(html.wide-content) .settings-pane .mobile-profile-inline {
       display: none;
     }
     /* On sub-pages, the desktop hero is hidden EXCEPT for /settings/profile
        where it IS the section body. */
-    :global(html:not(.force-mobile-layout)) .settings-content.subpage-view .settings-pane .settings-desktop-hero {
+    :global(html.wide-content) .settings-content.subpage-view .settings-pane .settings-desktop-hero {
       display: block;
     }
   }
@@ -2495,27 +2605,27 @@
      "Pick a section" prompt. Hidden below 1024px and when force-mobile
      is on; the mobile profile-hero above takes over there. */
   .settings-desktop-hero { display: none; }
-  @media (min-width: 1024px) {
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero {
+  @media all {
+    :global(html.wide-content) .settings-desktop-hero {
       display: block;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-expander {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-expander {
       cursor: pointer;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-toggle {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-chev-toggle {
       transition: transform 0.22s ease;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-chev-open {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-chev-open {
       transform: rotate(180deg);
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero .profile-hero-body {
+    :global(html.wide-content) .settings-desktop-hero .profile-hero-body {
       margin-top: 12px;
       background: var(--surface-1);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       overflow: hidden;
     }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-prompt {
+    :global(html.wide-content) .settings-desktop-prompt {
       margin: 20px 0 0;
       color: var(--text-3);
       font-size: 14px;
@@ -2532,10 +2642,10 @@
        label + one-line description. Dismiss button lives in the top-
        right corner, revealed on hover to keep the resting state
        clean. */
-    :global(html:not(.force-mobile-layout)) .settings-onboarding {
+    :global(html.wide-content) .settings-onboarding {
       margin-top: 24px;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-heading {
+    :global(html.wide-content) .settings-onboarding-heading {
       margin: 0 0 10px;
       font-size: 11px;
       letter-spacing: 0.1em;
@@ -2543,15 +2653,15 @@
       color: var(--text-3);
       font-weight: 700;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-grid {
+    :global(html.wide-content) .settings-onboarding-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
       gap: 10px;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap {
+    :global(html.wide-content) .settings-onboarding-card-wrap {
       position: relative;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card {
+    :global(html.wide-content) .settings-onboarding-card {
       display: flex;
       align-items: center;
       gap: 12px;
@@ -2565,37 +2675,37 @@
       text-align: left;
       transition: background var(--dur-fast, 120ms), border-color var(--dur-fast, 120ms);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:hover {
+    :global(html.wide-content) .settings-onboarding-card:hover {
       background: var(--surface-2);
       border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card:focus-visible {
+    :global(html.wide-content) .settings-onboarding-card:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card :global(.material-symbols-rounded) {
+    :global(html.wide-content) .settings-onboarding-card :global(.material-symbols-rounded) {
       font-size: 22px;
       color: var(--accent);
       flex-shrink: 0;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-copy {
+    :global(html.wide-content) .settings-onboarding-copy {
       display: flex;
       flex-direction: column;
       gap: 2px;
       min-width: 0;
       flex: 1;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-label {
+    :global(html.wide-content) .settings-onboarding-label {
       font-size: 14px;
       font-weight: 600;
       color: var(--text-1);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-desc {
+    :global(html.wide-content) .settings-onboarding-desc {
       font-size: 12px;
       color: var(--text-3);
       line-height: 1.35;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss {
+    :global(html.wide-content) .settings-onboarding-dismiss {
       position: absolute;
       top: 4px;
       right: 4px;
@@ -2608,16 +2718,44 @@
       opacity: 0;
       transition: opacity var(--dur-fast, 120ms), color var(--dur-fast, 120ms);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-card-wrap:hover .settings-onboarding-dismiss,
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:focus-visible {
+    :global(html.wide-content) .settings-onboarding-card-wrap:hover .settings-onboarding-dismiss,
+    :global(html.wide-content) .settings-onboarding-dismiss:focus-visible {
       opacity: 1;
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss:hover {
+    :global(html.wide-content) .settings-onboarding-dismiss:hover {
       color: var(--text-1);
       background: var(--surface-3);
     }
-    :global(html:not(.force-mobile-layout)) .settings-onboarding-dismiss :global(.material-symbols-rounded) {
+    :global(html.wide-content) .settings-onboarding-dismiss :global(.material-symbols-rounded) {
       font-size: 14px;
     }
+  }
+
+  /* Half open like a book, at any width. The two-pane layout above waits for
+     a desktop-sized viewport, which a foldable's inner display never reaches,
+     so this turns it on from the crease instead and brings the rail with it.
+     Same reasoning as the notes grid and the recipe layout. */
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap {
+    display: grid;
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    gap: var(--hinge);
+    align-items: start;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-nav-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: calc(var(--page-top, var(--safe-top)) + 12px);
+    max-height: calc(100dvh - var(--page-top, var(--safe-top)) - var(--nav-h, 0px) - var(--safe-bottom, 0px) - 24px);
+    overflow-y: auto;
+    padding: 10px 8px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-sizing: border-box;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-mobile-index {
+    display: none;
   }
 </style>

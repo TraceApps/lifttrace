@@ -53,6 +53,20 @@ Commercial. Each user brings their own RapidAPI subscription and API key; the ke
 
 Same exercise data as the RapidAPI source but reachable at `oss.exercisedb.dev` (or your own mirror via `EXERCISEDB_OSS_URL`). Self-hostable. Check the mirror project's own license before enabling it in a public-facing multi-user instance.
 
+## Bundled assets
+
+| Asset | License | Where |
+| ----- | ------- | ----- |
+| **Inter** (UI typeface) | [SIL Open Font License 1.1][ofl] | `public/fonts/inter-*.woff2` |
+| **Material Symbols Rounded** (icons) | [Apache License 2.0][apache] | `public/fonts/material-symbols-rounded.woff2` |
+
+Fonts are served by your own instance, never from a CDN. One file per script
+subset, so a browser downloads only the scripts a page needs. Regenerate them
+with `scripts/fetch-fonts.mjs`.
+
+[ofl]: https://openfontlicense.org/
+[apache]: https://www.apache.org/licenses/LICENSE-2.0
+
 ## Third-party code dependencies
 
 Bundled Node.js dependencies (Express, better-sqlite3, Svelte, Capacitor plugins, etc.) each carry their own permissive licenses (MIT / Apache-2.0 / BSD variants). See `package.json` and `server/package.json` for the full dependency lists; run `npm ls --long` or `npx license-checker` in either directory for machine-readable output.

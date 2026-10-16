@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LiftTrace</string>
+    <string name="tile_description">Today\'s session and the set you are on</string>
+    <string name="complication_label">LiftTrace sets</string>
+</resources>

@@ -1,12 +1,16 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
+  import Toggle from '../components/settings/Toggle.svelte';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { fade, slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { DB } from '../lib/db.js';
   import { applyAppearance, applyAccentColor, loadServerSettings, bulkSet } from '../stores/settings.js';
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { get } from 'svelte/store';
+  import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
+  import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { showError, showSuccess } from '../stores/toast.js';
   import { LtApi } from '../lib/api.js';
   import { validatePassword } from '../lib/validation.js';
@@ -15,6 +19,16 @@
 
   // When setup_required (PWA, no users exist), force account creation — can't skip
   const forceAccountCreation = $setupRequired;
+
+  // A new account signs straight in, so a plain-HTTP page with an HTTPS-only
+  // cookie would loop here too. Say so on the account step (cookie-check.js).
+  let _authStatus = null;
+  if (!isNative) {
+    fetch('/api/auth/status', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { _authStatus = d; if (cookieBlockedByHttp(d)) signInProblem.set('http'); })
+      .catch(() => {});
+  }
   // Native standalone mode: no auth, no server, single device. Replaces the
   // users step with a single optional name input so we can still personalize
   // the UI (Sidebar header, Trace greetings, Profile, etc.) without a full
@@ -23,7 +37,7 @@
   const _isNativeLocal = isNative && !getServerUrl();
   let localName = '';
 
-  const STEPS = ['welcome', 'users', 'units', 'profile', 'goals', 'library', 'appearance'];
+  const STEPS = ['welcome', 'users', 'units', 'profile', 'goals', 'library', 'appearance', 'updates'];
   let step = 0;
 
   // Step: profile (gender, dob, height, current weight) — feeds the
@@ -168,8 +182,15 @@
         setAuthToken(token);
       }
       localStorage.setItem('wl:userId', String(user.id));
-      currentUser.set(user);
+      if (isNative) currentUser.set(user);
       await loadAuthState();
+      // The account exists, but the browser didn't keep the sign-in cookie,
+      // so every later step would fail. Stop and say why.
+      if (!isNative && !get(currentUser)) {
+        signInProblem.set(droppedCookieReason(_authStatus));
+        umLoading = false;
+        return;
+      }
       step++;
     } catch(e) {
       umError = e.message;
@@ -183,7 +204,22 @@
   // diary. Skip path navigates immediately; finish path lingers ~1.8s.
   let wizardDone = false;
 
+  // ── Update checks ────────────────────────────────────────────────────────
+  // Off unless it's answered here, so a new install contacts nothing on its
+  // own. Skipping the wizard leaves it off too, and the app says so once.
+  // An instance that already existed keeps checking (server/lib/update-check.js).
+  let updateChecks = false;
+
+  async function _saveUpdateChoice() {
+    try {
+      const { setAutoCheck, setServerUpdateCheck } = await import('../lib/updates.js');
+      setAutoCheck(updateChecks);
+      await setServerUpdateCheck(updateChecks);
+    } catch { /* single-user or offline: the device answer still stands */ }
+  }
+
   async function finish() {
+    await _saveUpdateChoice();
     await _persistAndExit({ celebrate: true });
   }
 
@@ -355,6 +391,9 @@
 
         {#if enableUsers}
           <div class="um-form" transition:slide={{ duration: 180 }}>
+            {#if $signInProblem}
+              <CookieWarning reason={$signInProblem} />
+            {/if}
             <input class="wiz-input" type="text" bind:value={adminUser} placeholder={$_('wizard.users.username_placeholder')} />
             <input class="wiz-input" type="text" bind:value={adminName} placeholder={$_('wizard.users.fullname_placeholder')} />
             <input class="wiz-input" type="email" bind:value={adminEmail} placeholder={$_('wizard.users.email_placeholder')} />
@@ -565,6 +604,24 @@
         </div>
         <div class="wizard-nav">
           <button class="btn btn-secondary wizard-btn-sm" on:click={() => step = 5}>{$_('wizard.nav.back')}</button>
+          <button class="btn btn-primary wizard-btn-sm" on:click={() => step = 7}>{$_('wizard.nav.next')}</button>
+        </div>
+      </div>
+
+    {:else if step === 7}
+      <div class="wizard-step">
+        <h2 class="wizard-step-title">{$_('wizard.updates.title')}</h2>
+        <p class="wizard-step-desc">{$_('wizard.updates.desc')}</p>
+        <div class="upd-row">
+          <div class="upd-text">
+            <div class="upd-label">{$_('wizard.updates.toggle')}</div>
+            <div class="upd-sub">{$_('wizard.updates.toggle_sub')}</div>
+          </div>
+          <Toggle checked={updateChecks} on:change={e => updateChecks = e.detail} />
+        </div>
+        <p class="upd-note">{$_('wizard.updates.note')}</p>
+        <div class="wizard-nav">
+          <button class="btn btn-secondary wizard-btn-sm" on:click={() => step = 6}>{$_('wizard.nav.back')}</button>
           <button class="btn btn-primary wizard-btn-sm" on:click={finish}>{$_('wizard.nav.lets_go')}</button>
         </div>
       </div>
@@ -596,6 +653,12 @@
 {/if}
 
 <style>
+  .upd-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 14px 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .upd-text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+  .upd-label { font-size: 14px; font-weight: 600; color: var(--text-1); }
+  .upd-sub { font-size: 12px; color: var(--text-3); }
+  .upd-note { font-size: 12px; line-height: 1.5; color: var(--text-3); margin: 12px 2px 0; }
+
   /* Celebration screen shown briefly between finishing the wizard and
      landing in the diary. Mirrors the WorkoutSummary hero pattern at a
      smaller scale so the visual language stays consistent. */

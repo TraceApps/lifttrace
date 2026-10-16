@@ -9,6 +9,7 @@ import db, { dedupeExercisesOnce } from '../db.js';
 import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
+import { adoptExistingPairings } from '../lib/coaching.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -218,6 +219,7 @@ function restoreFromZip(zip) {
     db.prepare('DELETE FROM workout_log').run();
     db.prepare('DELETE FROM body_stats_log').run();
     db.prepare('DELETE FROM body_stat_media').run();
+    db.prepare('DELETE FROM set_media').run();
     db.prepare('DELETE FROM coach_prescriptions').run();
     db.prepare('DELETE FROM workout_templates').run();
     db.prepare('DELETE FROM program_assignments').run();
@@ -234,6 +236,24 @@ function restoreFromZip(zip) {
     for (const u of data.users || []) insUser.run(u);
     for (const u of data.users || []) if (u.trainer_id) linkTrainer.run(u.trainer_id, u.id);
 
+    // Coaching pairings (requests, answers, endings). Emptied with the users
+    // above (they cascade). A backup from before they existed has none: its
+    // trainers are kept as accepted pairings after the restore
+    // (adoptExistingPairings, below).
+    db.prepare('DELETE FROM coach_clients').run();
+    const insPairing = db.prepare(`INSERT OR IGNORE INTO coach_clients (id,coach_id,client_id,status,note,requested_at,responded_at,ended_at,ended_by,updated_at) VALUES (@id,@coach_id,@client_id,@status,@note,@requested_at,@responded_at,@ended_at,@ended_by,@updated_at)`);
+    for (const c of data.coach_clients || []) {
+      insPairing.run({ note: null, responded_at: null, ended_at: null, ended_by: null, ...c,
+        requested_at: c.requested_at || c.updated_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
+        updated_at: c.updated_at || c.requested_at || new Date().toISOString().replace('T', ' ').slice(0, 19) });
+    }
+    // Their conversations (the photos come back with the uploads folder).
+    db.prepare('DELETE FROM coach_messages').run();
+    const insMessage = db.prepare(`INSERT OR IGNORE INTO coach_messages (id,uuid,pairing_id,sender_id,body,image_url,recommendation_id,read_at,created_at,updated_at,deleted_at) VALUES (@id,@uuid,@pairing_id,@sender_id,@body,@image_url,@recommendation_id,@read_at,@created_at,@updated_at,@deleted_at)`);
+    for (const m of data.coach_messages || []) {
+      insMessage.run({ body: null, image_url: null, recommendation_id: null, read_at: null, deleted_at: null, ...m });
+    }
+
     // Restore custom exercises (user-created, not global seeds)
     const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type)`);
     for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, ...e });
@@ -247,8 +267,9 @@ function restoreFromZip(zip) {
     const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at,week_cursor,week_cursor_session_base,week_cursor_pinned_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at,@week_cursor,@week_cursor_session_base,@week_cursor_pinned_at)`);
     for (const a of data.program_assignments || []) insAssign.run(_withAssignDefaults(a));
 
-    const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at)`);
-    for (const cp of data.coach_prescriptions || []) insPrescription.run(cp);
+    // A backup from before the Accept step has no status: accepted, as at upgrade.
+    const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at,status,responded_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at,@status,@responded_at)`);
+    for (const cp of data.coach_prescriptions || []) insPrescription.run({ responded_at: null, ...cp, status: cp.status || 'accepted' });
 
     const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week)`);
     for (const w of data.workout_log || []) insWorkout.run(_withField(w, 'program_week'));
@@ -295,6 +316,18 @@ function restoreFromZip(zip) {
     const insPhoto = db.prepare(`INSERT OR IGNORE INTO body_stat_media (id,user_id,date,kind,url,created_at,updated_at,deleted_at) VALUES (@id,@user_id,@date,@kind,@url,@created_at,@updated_at,@deleted_at)`);
     for (const p of data.body_stat_media || []) {
       insPhoto.run({ kind: 'photo', created_at: null, updated_at: null, deleted_at: null, ...p });
+    }
+
+    // Set videos (issue #57), same shape of restore: the files themselves
+    // ride along in the archive because it zips all of UPLOADS_DIR, so only
+    // the rows need writing back. Without this a restore would leave the
+    // clips on disk with nothing pointing at them.
+    const insClip = db.prepare(`INSERT OR IGNORE INTO set_media (id,user_id,workout_id,date,exercise_uuid,set_uuid,url,mime,duration_sec,size_bytes,created_at,updated_at,deleted_at) VALUES (@id,@user_id,@workout_id,@date,@exercise_uuid,@set_uuid,@url,@mime,@duration_sec,@size_bytes,@created_at,@updated_at,@deleted_at)`);
+    for (const m of data.set_media || []) {
+      insClip.run({
+        workout_id: null, exercise_uuid: null, set_uuid: null, mime: null,
+        duration_sec: null, size_bytes: null, created_at: null, updated_at: null, deleted_at: null, ...m,
+      });
     }
 
     // Cardio sessions. Legacy backups (pre-v1.1.0) have no cardio_log key
@@ -370,6 +403,9 @@ function restoreFromZip(zip) {
   }
   seedSmtpFromEnv();
   seedAiFromEnv();
+  // A backup from before coaching asked for consent: its trainers stay, as
+  // accepted pairings with nothing to answer.
+  try { adoptExistingPairings(); } catch { /* the next start-up does it */ }
 }
 
 function dumpDatabase() {
@@ -385,9 +421,12 @@ function dumpDatabase() {
     coach_prescriptions: db.prepare('SELECT * FROM coach_prescriptions').all(),
     coach_feedback:      safe('SELECT * FROM coach_feedback'),
     coach_activity:      safe('SELECT * FROM coach_activity'),
+    coach_clients:       safe('SELECT * FROM coach_clients'),
+    coach_messages:      safe('SELECT * FROM coach_messages'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
     body_stat_media:     safe('SELECT * FROM body_stat_media'),
+    set_media:           safe('SELECT * FROM set_media'),
     cardio_log:          safe('SELECT * FROM cardio_log'),
     user_settings:       db.prepare('SELECT * FROM user_settings').all(),
     app_config:          db.prepare('SELECT * FROM app_config').all(),

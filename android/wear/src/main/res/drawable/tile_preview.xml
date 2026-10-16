@@ -1,0 +1,7 @@
+<!-- Shown when picking tiles, before LiftTrace has a session to draw. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+  <path android:fillColor="#3DDC97"
+      android:pathData="M20.6,9.4h-1.2V7.6c0,-0.6 -0.4,-1 -1,-1h-1.2c-0.6,0 -1,0.4 -1,1v1.8H7.8V7.6c0,-0.6 -0.4,-1 -1,-1H5.6c-0.6,0 -1,0.4 -1,1v1.8H3.4c-0.6,0 -1,0.4 -1,1v4c0,0.6 0.4,1 1,1h1.2v1.8c0,0.6 0.4,1 1,1h1.2c0.6,0 1,-0.4 1,-1v-1.8h8.4v1.8c0,0.6 0.4,1 1,1h1.2c0.6,0 1,-0.4 1,-1v-1.8h1.2c0.6,0 1,-0.4 1,-1v-4C21.6,9.8 21.2,9.4 20.6,9.4z"/>
+</vector>

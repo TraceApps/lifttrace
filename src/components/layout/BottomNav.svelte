@@ -3,6 +3,7 @@
   import { _ } from 'svelte-i18n';
   import { radioEnabled, radioUrl, radioStationsEnabled } from '../../stores/settings.js';
   import { updateAvailable } from '../../lib/updates.js';
+  import { coachingBadge } from '../../stores/coaching.js';
   import { pwaUpdateReady } from '../../lib/pwa-update.js';
 
   $: BASE_TABS = [
@@ -26,7 +27,7 @@
     // otherwise the fallback below lights up Diary for pages that have
     // nothing to do with it.
     let normalized = base;
-    if (base.startsWith('/coaching')) normalized = '/programs';
+    if (base.startsWith('/coach')) normalized = '/programs';
     else if (base.startsWith('/progress')) normalized = '/statistics';
     // exact match first
     const exact = TABS.findIndex(t => t.path === normalized);
@@ -60,6 +61,9 @@
         {#if tab.path === '/settings' && ($updateAvailable.available || $pwaUpdateReady)}
           <span class="nav-update-dot" aria-label="Update available"></span>
         {/if}
+        {#if tab.path === '/programs' && $coachingBadge}
+          <span class="nav-update-dot" aria-label={$_('coaching.badge_aria')}></span>
+        {/if}
       </span>
       <span class="nav-label">{tab.label}</span>
     </button>
@@ -87,7 +91,11 @@
     position: absolute;
     top: 6px;
     height: calc(100% - 12px - var(--safe-bottom));
-    background: linear-gradient(135deg, var(--accent-dim), rgba(255,116,51,0.22));
+    /* The second stop used to be a hardcoded #FF7433 at 22%, which is the
+       default accent's own colour, so every other accent showed an orange
+       pill (#114). Reading --accent keeps the default theme identical and
+       lets the rest follow their own colour. */
+    background: linear-gradient(135deg, var(--accent-dim), color-mix(in srgb, var(--accent) 22%, transparent));
     border-radius: var(--radius-md);
     box-shadow: 0 0 16px var(--accent-dim);
     transition: left var(--dur-base) var(--ease-inout);
