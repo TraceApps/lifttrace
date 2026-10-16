@@ -783,7 +783,6 @@
     "total": "Totale",
     "muscle_balance_desc": "Ombreggiato da serie efficaci, relative ai muscoli più sollecitati in questa gamma.",
     "effective_sets_one": "{n} serie effettive sul muscolo {m}.",
-    "effective_sets_many": "",
     "effective_sets_other": "{n} serie efficaci sui muscoli {m}.",
     "no_volume_range": "Nessun volume registrato in questo intervallo.",
     "most_active": "Più attivo: {day}",
