@@ -42,19 +42,23 @@
   $: inSuperset = exercise.superset_id != null && exercise.superset_size > 1;
 
   // "Last time" ghost row — previous completed session for this exercise.
+  // Looked up again when the day changes too: a card stays mounted across
+  // days and sessions when the same exercise sits in the same place.
   let lastSession = null;
   let _lastSessionFetched = null;
-  $: if (exercise.exercise_id && exercise.exercise_id !== _lastSessionFetched) {
-    _lastSessionFetched = exercise.exercise_id;
-    loadLastSession();
+  $: if (exercise.exercise_id && `${exercise.exercise_id}|${date}` !== _lastSessionFetched) {
+    _lastSessionFetched = `${exercise.exercise_id}|${date}`;
+    loadLastSession(exercise.exercise_id, date);
   }
-  async function loadLastSession() {
+  async function loadLastSession(exerciseId, day) {
+    const key = `${exerciseId}|${day}`;
     lastSession = null;
     try {
       // Same pick as auto-fill (lastCompletedSession, issue #103), so the row
-      // and the pre-filled sets always come from the same session.
-      const recent = lastCompletedSession(await LtApi.getWorkoutHistory(exercise.exercise_id));
-      if (!recent) return;
+      // and the pre-filled sets always come from the same session. Days
+      // before this one only: today's own sets are not "last time".
+      const recent = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId), { before: day });
+      if (!recent || key !== _lastSessionFetched) return;
       lastSession = { date: recent.date, sets: recent.completed, set_type: recent.set_type };
     } catch {}
   }

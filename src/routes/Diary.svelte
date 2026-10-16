@@ -1456,7 +1456,8 @@
     try {
       // The last session with completed working sets, as the Last Time row
       // uses, not just the newest entry (issue #103); warm-ups aren't copied.
-      const last = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId));
+      // Days before the one being logged only, as the row.
+      const last = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId), { before: $currentDate });
       if (last) return withWarmups ? last.completed : last.working;
     } catch {}
     return null;
