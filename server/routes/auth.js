@@ -230,12 +230,23 @@ router.post('/register', wrap((req, res) => {
 }));
 
 router.put('/profile', requireAuth, wrap((req, res) => {
-  const { full_name, nickname, birthday, gender, email } = req.body;
+  const body = req.body || {};
+  const before = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id) || {};
+  // A field the request leaves out stays as it is. Profile always sends all
+  // of them (an empty one clears it); the first-run setup sends only gender
+  // and birthday, and used to wipe the name and email just registered
+  // (TraceApps/nutritrace#269).
+  const given = (k) => Object.prototype.hasOwnProperty.call(body, k) && body[k] !== undefined;
+  const full_name = given('full_name') ? body.full_name : before.full_name;
+  const nickname = given('nickname') ? body.nickname : before.nickname;
+  const birthday = given('birthday') ? body.birthday : before.birthday;
+  const gender = given('gender') ? body.gender : before.gender;
+  const email = given('email') ? body.email : before.email;
   // A picture chosen with no connection arrives embedded in this request,
   // since there was nowhere to upload it to. It becomes a file here.
-  const avatar_url = localizeDataUrl(req.body?.avatar_url);
+  const avatar_url = given('avatar_url') ? localizeDataUrl(body.avatar_url) : before.avatar_url;
   db.prepare('UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?')
-    .run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null, email ? email.trim().toLowerCase() : null, req.user.id);
+    .run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null, email ? String(email).trim().toLowerCase() : null, req.user.id);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: safeUser(user) });
 }));

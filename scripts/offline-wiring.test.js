@@ -174,7 +174,7 @@ test('your profile and its picture work the same way here as in the sibling apps
   const localizer = readFileSync(new URL('../server/lib/image-localizer.js', import.meta.url), 'utf8');
   assert.match(localizer, /export function localizeDataUrl/);
   const auth = readFileSync(new URL('../server/routes/auth.js', import.meta.url), 'utf8');
-  assert.match(auth, /localizeDataUrl\(req\.body\?\.avatar_url\)/);
+  assert.match(auth, /localizeDataUrl\(body\.avatar_url\)/);
   // Progress photos use the same helper, into their own directory.
   const bodyStats = readFileSync(new URL('../server/routes/body-stats.js', import.meta.url), 'utf8');
   assert.match(bodyStats, /localizeDataUrl\(req\.body\?\.url, \{ subdir: 'body-stats' \}\)/);
