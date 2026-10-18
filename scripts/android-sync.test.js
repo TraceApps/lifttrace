@@ -142,6 +142,15 @@ async function scenario(name, opts = {}) {
   } finally { srv.stop(); second?.stop(); }
 }
 
+test("Trace through the server is never queued to be asked again later, and a slow reply is said as that (notetrace#23)", { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('traceNotQueued');
+  assert.equal(out.queuedMore, 0, 'nothing put in the queue');
+  assert.equal(out.historyQueued, 1, "Trace's saved history still waits for a connection");
+  assert.match(out.slow, /didn't get an answer in time/);
+  assert.match(out.gone, /needs a connection/);
+  assert.deepEqual(out.deadlines, { trace: 300000, history: 20000, save: 30000, read: 20000 }, 'Trace has room for a long reply; the rest as before');
+});
+
 test('rows made offline go up under the server\'s ids, and point at each other there', { skip, timeout: SCENARIO_MS }, async () => {
   const { srv, out } = await scenario('offlineIds');
   assert.ok(out.deviceIds.every(id => id < 0), 'made offline with ids below zero');

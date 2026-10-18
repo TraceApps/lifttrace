@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { getAiConfig, isAiEnvLocked } from '../ai.js';
 import { getOpenAIChatParams, openAIBase } from '../lib/openai-chat-params.js';
+import { REPLY_MAX_TOKENS, sendWithLengthFallback, stoppedShort, stoppedShortError } from '../lib/trace-reply.js';
 import { toolMessagesForOpenAI, toolNameFor, rememberToolCalls } from '../lib/tool-messages.js';
 import { createToolSupportMemory, sendWithToolFallback } from '../lib/tool-support.js';
 
@@ -195,12 +196,19 @@ router.post('/chat', _aiRateLimit, wrap(async (req, res) => {
   }
 
   let result;
-  switch (provider) {
-    case 'claude':     result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr); break;
-    case 'openai':     result = await _callOpenAI(apiKey, renamedModel(model), messages, systemPrompt, toolsArr, 'https://api.openai.com'); break;
-    case 'gemini':     result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr); break;
-    case 'oai-compat': result = await _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, toolsArr, baseUrl.replace(/\/+$/, '')); break;
-    default: return res.status(400).json({ error: `Unknown provider: ${provider}` });
+  try {
+    switch (provider) {
+      case 'claude':     result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr); break;
+      case 'openai':     result = await _callOpenAI(apiKey, renamedModel(model), messages, systemPrompt, toolsArr, 'https://api.openai.com'); break;
+      case 'gemini':     result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr); break;
+      case 'oai-compat': result = await _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, toolsArr, baseUrl.replace(/\/+$/, '')); break;
+      default: return res.status(400).json({ error: `Unknown provider: ${provider}` });
+    }
+  } catch (e) {
+    // A reply that stopped short: said, with a code the app says in its
+    // language (422, not 5xx: a proxy may put its own page in place of those).
+    if (/^trace_stopped_/.test(e?.code || '')) return res.status(422).json({ error: e.message, code: e.code });
+    throw e;
   }
   res.json(result);
 }));
@@ -229,23 +237,29 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
 
   const body = {
     model: model || AI_DEFAULT_MODELS.claude,
-    max_tokens: 4096,
+    // A model that can't write that many is asked again as before (lib/trace-reply.js).
+    max_tokens: REPLY_MAX_TOKENS,
     system: systemPrompt,
     messages: claudeMessages,
   };
   if (claudeTools.length) body.tools = claudeTools;
 
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
+  const sent = await sendWithLengthFallback(body, async (b) => {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(b),
+    });
+    return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error?.message || `Claude API ${r.status}`);
+  const data = sent.data;
+  if (!sent.ok) throw new Error(data.error?.message || `Claude API ${sent.status}`);
+  const short = stoppedShort('claude', data);
+  if (short) throw stoppedShortError(short);
 
   const blocks    = data.content || [];
   const toolUses  = blocks.filter(b => b.type === 'tool_use');
@@ -270,6 +284,8 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
 // Models this server found can't use tools, by base URL and model.
 const toolSupport = createToolSupportMemory();
 
+// A server or model that won't take the reply length is asked again as
+// before (lib/trace-reply.js).
 async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl = 'https://api.openai.com') {
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
@@ -284,22 +300,25 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
       baseUrl,
       model: selectedModel,
       hasTools: openaiTools.length > 0,
+      maxTokens: REPLY_MAX_TOKENS,
     }),
   };
   if (openaiTools.length) body.tools = openaiTools;
 
-  const send = async (b) => {
+  const send = (req) => sendWithLengthFallback(req, async (b) => {
     const r = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify(b),
     });
     return { ok: r.ok, status: r.status, data: await r.json() };
-  };
+  });
   // A model that can't use tools gets the request again without them
   // (TraceApps/nutritrace#259); toolsUnsupported lets the app say so.
   const { ok, status, data, toolsDropped, toolsRouted } = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
   if (!ok) throw new Error(data.error?.message || `OpenAI API ${status}`);
+  const short = stoppedShort('openai', data);
+  if (short) throw stoppedShortError(short);
 
   const msg = data.choices?.[0]?.message || {};
   if (!msg.tool_calls || msg.tool_calls.length === 0) {
@@ -344,6 +363,8 @@ async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
   });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error?.message || `Gemini API ${r.status}`);
+  const short = stoppedShort('gemini', data);
+  if (short) throw stoppedShortError(short);
 
   const parts    = data.candidates?.[0]?.content?.parts || [];
   const fnCalls  = parts.filter(p => p.functionCall);

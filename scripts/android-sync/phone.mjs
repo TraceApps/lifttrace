@@ -71,6 +71,30 @@ const me = () => localStorage.setItem('wl:userId', process.env.LT_PHONE_USER);
 const scenarios = {
   // Rows made offline (a plan, a day in it, an exercise, a workout using all
   // three) while another account takes the server ids the phone would use.
+  // Trace through the server (set by environment variables) is never put
+  // in the queue to be asked again on a later sync, and a server slow to
+  // answer is said as that, not as offline (TraceApps/notetrace#23).
+  async traceNotQueued() {
+    const { requestDeadlineMs } = await import('../../src/lib/apiFetch.js');
+    const { callAIProxy } = await import('../../src/lib/aiChat.js');
+    const queued = async () => (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    const before = await queued();
+    const ask = () => callAIProxy({ messages: [{ role: 'user', content: 'Plan my week' }], systemPrompt: 'You are Trace.' }).then(() => 'answered', e => e.message);
+    // The request's deadline runs out (a long reply on a slow server).
+    globalThis.__fetchHook = (u) => (String(u).includes('/api/ai/') ? Promise.reject(new DOMException('The operation timed out.', 'TimeoutError')) : null);
+    const slow = await ask();
+    // The connection is gone.
+    globalThis.__fetchHook = (u) => (String(u).includes('/api/ai/') ? Promise.reject(new TypeError('Failed to fetch')) : null);
+    const gone = await ask();
+    const queuedMore = (await queued()) - before;
+    // Trace's saved history still waits for a connection, as before.
+    const history = await fetch(`${server}/api/ai/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'user', content: 'Plan my week' }) });
+    globalThis.__fetchHook = null;
+    return {
+      slow, gone, queuedMore, historyQueued: (await queued()) - before - queuedMore, historyStatus: history.status,
+      deadlines: { trace: requestDeadlineMs('/api/ai/chat', true), history: requestDeadlineMs('/api/ai/history', false), save: requestDeadlineMs('/api/workouts', true), read: requestDeadlineMs('/api/workouts', false) },
+    };
+  },
   async offlineIds() {
     // What stores/auth.js keeps for the signed-in account (not account 1).
     me();

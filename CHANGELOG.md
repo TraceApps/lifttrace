@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trace's replies are no longer cut off at 4,096 tokens, and a reply that stops short says so** (found with [notetrace#23](https://github.com/TraceApps/notetrace/issues/23), thanks @harikiran-lab). A reasoning model's thinking counts toward a reply's length, and 4,096 tokens could go to thinking alone, so Trace said it returned nothing. Trace now asks for up to 16,384 tokens, with every provider, and asks again with 4,096 when a server or an older model won't take that many (vLLM before 0.32 serving a small context, Claude 3 Haiku). A reply cut off at its limit, or one with reasoning but no answer, is said and never used, so a rewrite never replaces your text with half of it and a cut-off tool call never runs. In the Android app with Trace set by environment variables, a reply that took more than 30 seconds counted as offline and the question was queued to be asked again on a later sync; Trace now waits up to 5 minutes, and is never queued.
+
 ---
 
 ## [1.4.0] - 2026-10-16
