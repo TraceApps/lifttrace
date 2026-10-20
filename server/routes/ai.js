@@ -72,11 +72,11 @@ router.delete('/history', wrap((req, res) => {
 
 // ── Rate limit ──────────────────────────────────────────────────────────────
 // Multi-round tool use amplifies request count (one user "send" can fire
-// several proxy round-trips), so budget for that. Mirrors NutriTrace's
-// 30 requests / 60s. Cheap in-memory bucket keyed by user then IP,
+// up to 13 proxy round-trips, TraceApps/notetrace#34), so budget for that:
+// 60 requests / 60s, a few long answers a minute. Cheap in-memory bucket keyed by user then IP,
 // same shape as the login rate limiter in server/routes/auth.js.
 const _AI_LIMIT_WINDOW_MS = 60_000;
-const _AI_LIMIT_MAX       = 30;
+const _AI_LIMIT_MAX       = 60;
 const _aiBuckets = new Map();
 function _aiRateLimit(req, res, next) {
   const key = 'u:' + (uid(req) ?? ('ip:' + (req.ip || req.socket?.remoteAddress || 'unknown')));
@@ -167,6 +167,9 @@ const AI_MAX_BYTES    = 8_000_000;
 router.post('/chat', _aiRateLimit, wrap(async (req, res) => {
   const cfg = getAiConfig();
   const { messages: rawMessages, systemPrompt, tools } = req.body;
+  // The app's last request of an answer: the tools stay declared but can't
+  // be called, so the model answers from what it found.
+  const last = req.body.last === true;
   if (!Array.isArray(rawMessages)) return res.status(400).json({ error: 'messages array required' });
   const messages = rawMessages.map(_normaliseImagePartsToOpenAI);
   if (messages.length > AI_MAX_MESSAGES) {
@@ -198,10 +201,10 @@ router.post('/chat', _aiRateLimit, wrap(async (req, res) => {
   let result;
   try {
     switch (provider) {
-      case 'claude':     result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr); break;
-      case 'openai':     result = await _callOpenAI(apiKey, renamedModel(model), messages, systemPrompt, toolsArr, 'https://api.openai.com'); break;
-      case 'gemini':     result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr); break;
-      case 'oai-compat': result = await _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, toolsArr, baseUrl.replace(/\/+$/, '')); break;
+      case 'claude':     result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr, last); break;
+      case 'openai':     result = await _callOpenAI(apiKey, renamedModel(model), messages, systemPrompt, toolsArr, 'https://api.openai.com', last); break;
+      case 'gemini':     result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr, last); break;
+      case 'oai-compat': result = await _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, toolsArr, baseUrl.replace(/\/+$/, ''), last); break;
       default: return res.status(400).json({ error: `Unknown provider: ${provider}` });
     }
   } catch (e) {
@@ -227,7 +230,7 @@ export const _models = { AI_DEFAULT_MODELS, AI_MODEL_RENAMES, GEMINI_RETIRED, ge
 // so the client can append it verbatim to its message history before
 // dispatching tool results back through the proxy.
 
-async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
+async function _callClaude(apiKey, model, messages, systemPrompt, tools, last = false) {
   const claudeMessages = _openaiToClaudeMessages(messages);
   const claudeTools    = (tools || []).map(t => ({
     name: t.name,
@@ -243,6 +246,7 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
     messages: claudeMessages,
   };
   if (claudeTools.length) body.tools = claudeTools;
+  if (last && claudeTools.length) body.tool_choice = { type: 'none' };
 
   const sent = await sendWithLengthFallback(body, async (b) => {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -286,7 +290,7 @@ const toolSupport = createToolSupportMemory();
 
 // A server or model that won't take the reply length is asked again as
 // before (lib/trace-reply.js).
-async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl = 'https://api.openai.com') {
+async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl = 'https://api.openai.com', last = false) {
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -304,6 +308,7 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
     }),
   };
   if (openaiTools.length) body.tools = openaiTools;
+  if (last && openaiTools.length) body.tool_choice = 'none';
 
   const send = (req) => sendWithLengthFallback(req, async (b) => {
     const r = await fetch(`${baseUrl}/v1/chat/completions`, {
@@ -315,7 +320,13 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
   });
   // A model that can't use tools gets the request again without them
   // (TraceApps/nutritrace#259); toolsUnsupported lets the app say so.
-  const { ok, status, data, toolsDropped, toolsRouted } = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+  let sent = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+  // A server that refuses tool_choice "none" is asked once more without it.
+  if (last && !sent.ok && (sent.status === 400 || sent.status === 422) && body.tool_choice) {
+    delete body.tool_choice;
+    sent = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+  }
+  const { ok, status, data, toolsDropped, toolsRouted } = sent;
   if (!ok) throw new Error(data.error?.message || `OpenAI API ${status}`);
   const short = stoppedShort('openai', data);
   if (short) throw stoppedShortError(short);
@@ -337,7 +348,7 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
   return { assistantMessage: msg, toolCalls };
 }
 
-async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
+async function _callGemini(apiKey, model, messages, systemPrompt, tools, last = false) {
   const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
@@ -354,6 +365,7 @@ async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
         parameters: t.parameters,
       })),
     }];
+    if (last) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
   }
 
   const r = await fetch(url, {

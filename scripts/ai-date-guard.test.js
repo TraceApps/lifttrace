@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const { runTool, cleanRangeArgs, TOOLS } = await import('../src/lib/aiTools.js');
+const { runTool, cleanRangeArgs, TOOLS, forgetToolReads } = await import('../src/lib/aiTools.js');
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 /** Local YYYY-MM-DD, offset in days from today; matches aiTools' own today. */
@@ -26,6 +26,7 @@ const workout = (id, date, name) => ({
 
 /** Install a fake API; returns the list of calls it saw. */
 function stubApi(routes) {
+  forgetToolReads(); // each test is a new answer
   const calls = [];
   globalThis.fetch = async (path, opts = {}) => {
     calls.push({ path, method: opts.method || 'GET' });

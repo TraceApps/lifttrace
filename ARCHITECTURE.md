@@ -75,8 +75,12 @@ set, logging a body stat, loading a template, switching active
 program, and coach-only prescription. Tool execution stays
 client-side against `fetch('/api/...')` even in env-locked mode so
 the server never gains write access to the user's data. The shared
-loop in `src/lib/aiChat.js` caps tool-use at 5 rounds per turn across
-Claude, OpenAI, Gemini, and OpenAI-compatible providers. The system
+loop in `src/lib/aiChat.js` allows 12 rounds of tool use per turn across
+Claude, OpenAI, Gemini, and OpenAI-compatible providers (and through the
+server's `/api/ai/chat`), then sends one last request with the tools off so
+the model answers from what it found; it does the same sooner once the tool
+answers pass about 300 kB, and calls past that in a round are answered "not
+run". `get_workouts` and `get_prs` page with `offset`. The system
 prompt in `src/components/ai/Trace.svelte` stays trimmed to a stable
 core (persona, weight unit, today's date + day, user profile, active
 program name, one-line recent-activity summary); everything else is

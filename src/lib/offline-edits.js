@@ -28,6 +28,10 @@ export function isOfflineError(err) {
 }
 
 /** The path without its query, for matching. */
+// Marks an answer the offline layer made from what it kept, rather than the
+// server's: Trace reads it to know a list may be shorter than it asked for.
+export const OFFLINE_HEADER = 'X-LiftTrace-Offline';
+
 export const pathOf = (url) => String(url).split('?')[0].replace(/^https?:\/\/[^/]+/, '');
 /** What a mirrored answer is filed under: the path and its query together. */
 export const mirrorKey = (url) => String(url).replace(/^https?:\/\/[^/]+/, '');

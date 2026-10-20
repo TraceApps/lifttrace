@@ -19,7 +19,8 @@ router.use(requireAuth);
 
 // GET /api/workout/recent — last N workout entries
 router.get('/recent', wrap((req, res) => {
-  const limit = parseInt(req.query.limit) || 30;
+  // Up to 20,000: Trace reads that far back for a long range (aiTools.js).
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 30), 20000);
   const userId = uid(req);
   const rows = userId != null
     ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT ?').all(userId, limit)

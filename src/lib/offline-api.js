@@ -20,7 +20,7 @@
  */
 import { writable } from 'svelte/store';
 import {
-  isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs,
+  isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs, OFFLINE_HEADER,
   answerWithOps, queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, orphanWorkoutSave, opsAsKnown,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply,
 } from './offline-edits.js';
@@ -388,10 +388,14 @@ async function _rememberSwapped(map) {
   await _tx('meta', 'readwrite', s => s.put(_swapped, 'idMap'));
 }
 
-const _json = (status, body) => new Response(JSON.stringify(body), {
+const _json = (status, body, headers = {}) => new Response(JSON.stringify(body), {
   status,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...headers },
 });
+// Long workout lists only Trace asks for, reaching years back: read from the
+// server each time, not kept (the usual short list is).
+const _tooBigToKeep = (url) => /\/api\/workout\/recent$/.test(pathOf(url))
+  && Number(new URLSearchParams(String(url).split('?')[1] || '').get('limit')) > 500;
 // This browser would not keep a change to send later (storage full, blocked
 // or broken). Not "offline": the screen says what actually went wrong.
 const _storageReply = () => _json(507, { error: 'This browser could not keep the change to send later.', storage: true });
@@ -731,7 +735,7 @@ export async function offlineFetch(url, init, origFetch) {
       // Even with no copy of this call, what is queued for it may be the whole
       // answer: a day never opened online, with a run logged on it here.
       if (answer === undefined) return _offlineReply(url);
-      return _json(200, answer);
+      return _json(200, answer, { [OFFLINE_HEADER]: '1' });
     };
     // A workout started here and still waiting to go up: the server has
     // never had its id, so the answer is here.
@@ -740,7 +744,7 @@ export async function offlineFetch(url, init, origFetch) {
       const sentAt = Date.now();
       const res = await send(url, init);
       _noteClock(res, sentAt);
-      if (res.ok && isMirroredGet(url)) {
+      if (res.ok && isMirroredGet(url) && !_tooBigToKeep(url)) {
         try { await _remember(mirrorKey(url), await res.clone().json()); } catch { /* not json */ }
       }
       // A coach who no longer coaches this client (they left, or the
