@@ -1130,6 +1130,16 @@
     "migration_complete":      "Migration complete",
     "continue":                "Continue"
   },
+  "server_signin": {
+    "web_page":                "Something other than LiftTrace answered with a web page: often a sign-in proxy (Authentik, Authelia, Cloudflare Access), or this isn't your server's address. Let the app reach /api on your server.",
+    "options_failed":          "Couldn't load this server's sign-in options. Retry, or sign in with your password if the server allows it.",
+    "token_refused":           "This sign-in couldn't be checked, so it was stopped. If your server is older than LiftTrace 1.4, update it, or connect with your password.",
+    "sso_expired":             "That sign-in took too long. Start again from Settings → Server Connection.",
+    "retry":                   "Retry",
+    "checking":                "Checking sign-in options…",
+    "sign_in_with":            "Sign In with {provider}",
+    "or":                      "or"
+  },
   "radio": {
     "toast": {
       "name_url_required":     "Name and URL are required",

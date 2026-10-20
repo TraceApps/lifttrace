@@ -238,6 +238,10 @@ If you use Cloudflare Tunnel for external access, no special LiftTrace configura
 
 ---
 
+## Behind a Sign-In Proxy
+
+Behind a sign-in proxy (an Authentik or Authelia outpost, VoidAuth, Cloudflare Access), let `/api/*` through to LiftTrace without it. The Android and Wear apps can't sign in to the proxy; LiftTrace signs people in itself, with SSO when OIDC is set up (its callback is under `/api/auth/oidc/`). If the proxy answers the app instead, the app says that something other than LiftTrace answered with a web page. Examples: [The Android app behind a sign-in proxy](https://traceapps.github.io/docs/getting-started/reverse-proxy/#android-behind-a-login).
+
 ## Reverse Proxy with Subpath
 
 To run LiftTrace behind a reverse proxy at a subpath (e.g. `https://example.com/lifttrace/`), set the `BASE_URL` environment variable to the path prefix:

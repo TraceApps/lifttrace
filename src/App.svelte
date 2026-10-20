@@ -546,10 +546,25 @@
               let idTokenHint = params.get('id_token_hint');
               let providerId  = params.get('provider_id');
               const code = params.get('code');
-              if (code && !errMsg) {
+              // Signed in from Settings → Server Connection, with the phone
+              // still in local mode: the token goes back to that screen, which
+              // moves the phone's workouts over as a password sign-in does
+              // (TraceApps/notetrace#36). That sign-in takes only the single-use
+              // code it asked for, never a bare token another app could hand
+              // over (lib/server-signin.js).
+              const signin = await import('./lib/server-signin.js');
+              const { redeemHandoff, challengeSent } = await import('./lib/oidc-app-handoff.js');
+              const local = getNativeMode() === 'local';
+              const connecting = local ? signin.pendingSsoConnect() : null;
+              const action = signin.ssoCallbackAction({ code, token, error: errMsg, connecting, challengeSent: challengeSent(), local });
+              if (connecting && action.do !== 'none') signin.forgetSsoConnect();
+              if (action.do === 'refuse' || action.do === 'expired') {
+                import('./stores/toast.js').then(({ showError }) => showError(getStore(_)(action.do === 'refuse' ? 'server_signin.token_refused' : 'server_signin.sso_expired')));
+                return;
+              }
+              if (action.do === 'redeem') {
                 try {
-                  const { redeemHandoff } = await import('./lib/oidc-app-handoff.js');
-                  const data = await redeemHandoff(code);
+                  const data = await redeemHandoff(code, action.server);
                   token = data.token;
                   idTokenHint = data.id_token_hint || null;
                   providerId = data.provider_id != null ? String(data.provider_id) : null;
@@ -565,6 +580,9 @@
                 const { showSuccess } = await import('./stores/toast.js');
                 showSuccess('Linked');
                 await loadAuthState();
+              } else if (connecting && token) {
+                signin.ssoConnectResult.set({ url: connecting.url, token, idTokenHint, providerId });
+                window.location.hash = '#/settings/serverConnection';
               } else if (token) {
                 const { setAuthToken } = await import('./lib/platform.js');
                 setAuthToken(token);

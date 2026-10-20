@@ -49,6 +49,10 @@
     isNative, getNativeMode, setNativeMode, getServerUrl, setServerUrl,
     getAuthToken, setAuthToken, resolveAssetUrl, explainConnectError,
   } from '../lib/platform.js';
+  import {
+    serverReady, passwordSignIn, accountFor, ssoSignInUrl, providerLogo, createSignInOptions,
+    rememberSsoConnect, forgetSsoConnect, ssoConnectResult, createConnectHint,
+  } from '../lib/server-signin.js';
 
   // ── Server Connection (native only) ─────────────────────────────────────
   let serverUrlInput = getServerUrl() || '';
@@ -57,6 +61,16 @@
   let serverShowPw = false;
   let serverConnecting = false;
   let serverMode = getNativeMode(); // 'local' | 'server'
+  // The server's sign-in options, read as soon as its address is in
+  // (TraceApps/notetrace#36): SSO buttons, and the password fields only when
+  // it takes one. Typing clears them; a half-typed host isn't an error.
+  //   signinState: '' (no address yet) | 'checking' | 'ok' | 'failed'
+  const signinOptions = createSignInOptions();
+  onDestroy(() => signinOptions.stop());
+  let signinProviders = [], signinPasswordEnabled = true, signinState = '', signinError = '', signinFor = '';
+  $: ({ state: signinState, providers: signinProviders, passwordLoginEnabled: signinPasswordEnabled, error: signinError, url: signinFor } = $signinOptions);
+  // SSO: lets Log Out end the IdP session too, kept only once connected.
+  const connectHint = createConnectHint();
   // True when running as a standalone phone app (hide multi-user / server
   // features). Reactive on serverMode so the UI updates instantly when the
   // user disconnects, without waiting for the post-disconnect reload.
@@ -127,59 +141,90 @@
   let localCounts = null;   // counts from migrate.countLocalData()
   let migrationSummary = null;
 
+  const _serverUrlTyped = () => serverUrlInput.trim().replace(/\/$/, '');
+  // A sign-in proxy's web page is said as such (lib/server-signin.js).
+  const _connectError = (e, url) => (e?.webPage ? e.message : explainConnectError(e, url));
+
+  // Server Connection is on the phone only, so the server is asked natively
+  // (CapacitorHttp: no CORS).
   async function connectServer() {
     if (!serverUrlInput.trim()) { showError($_('settings_main.toast.server_url_required')); return; }
     if (!serverUsername.trim() || !serverPassword.trim()) { showError($_('settings_main.toast.credentials_required')); return; }
-    const url = serverUrlInput.trim().replace(/\/$/, '');
+    if (serverConnecting) return;
+    const url = _serverUrlTyped();
     serverConnecting = true;
     try {
-      // Use CapacitorHttp on native to bypass CORS (WebView fetch can't reach external origins)
-      let loginData;
-      if (isNative) {
-        const { CapacitorHttp } = await import('@capacitor/core');
-        const healthRes = await CapacitorHttp.get({ url: `${url}/api/health` });
-        if (healthRes.status < 200 || healthRes.status >= 300) throw new Error('Server not reachable');
-        const loginRes = await CapacitorHttp.post({
-          url: `${url}/api/auth/login`,
-          headers: { 'Content-Type': 'application/json' },
-          data: { username: serverUsername.trim(), password: serverPassword },
-        });
-        loginData = typeof loginRes.data === 'string' ? JSON.parse(loginRes.data) : loginRes.data;
-        if (loginRes.status < 200 || loginRes.status >= 300) throw new Error(loginData.error || 'Login failed');
-      } else {
-        const healthRes = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(8000) });
-        if (!healthRes.ok) throw new Error('Server not reachable');
-        const loginRes = await fetch(`${url}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ username: serverUsername.trim(), password: serverPassword }),
-        });
-        loginData = await loginRes.json();
-        if (!loginRes.ok) throw new Error(loginData.error || 'Login failed');
-      }
-
-      _pendingServerUrl = url;
-      if (loginData.token) setAuthToken(loginData.token);
-      if (loginData.user?.id) localStorage.setItem('wl:userId', String(loginData.user.id));
-      _pendingUserId = loginData.user?.id ?? null;
-      _connectMode = null;
-
-      // Count local data so the merge dialog can show what's about to move
-      const { countLocalData } = await import('../lib/migrate.js');
-      localCounts = await countLocalData({ serverUrl: url, userId: _pendingUserId });
-
-      if (localCounts.total > 0) {
-        mergeStep = 'ask-settings';
-      } else {
-        _finalizeConnect();
-      }
+      await serverReady(url);
+      const loginData = await passwordSignIn(url, serverUsername.trim(), serverPassword);
+      connectHint.password();
+      forgetSsoConnect(); // an SSO sign-in left open in the browser is over
+      await _afterSignIn(url, loginData);
     } catch (e) {
-      showError(explainConnectError(e, url));
+      showError(_connectError(e, url));
     } finally {
       serverConnecting = false;
     }
   }
+
+  // Signed in, by password or SSO: the phone's data and the merge choice,
+  // then the switch to the server.
+  async function _afterSignIn(url, loginData) {
+    _pendingServerUrl = url;
+    if (loginData.token) setAuthToken(loginData.token);
+    if (loginData.user?.id) localStorage.setItem('wl:userId', String(loginData.user.id));
+    _pendingUserId = loginData.user?.id ?? null;
+    _connectMode = null;
+
+    // Count local data so the merge dialog can show what's about to move
+    const { countLocalData } = await import('../lib/migrate.js');
+    localCounts = await countLocalData({ serverUrl: url, userId: _pendingUserId });
+
+    if (localCounts.total > 0) {
+      mergeStep = 'ask-settings';
+    } else {
+      _finalizeConnect();
+    }
+  }
+
+  // SSO: the sign-in page opens in the browser; the deep link brings the
+  // token back here (App.svelte, lib/server-signin.js), and the phone's
+  // workouts move over as they do after a password sign-in.
+  async function connectServerSso(provider) {
+    // One sign-in at a time: a second tap would open another browser and
+    // replace the code's secret, so the first one's hand-off would fail.
+    if (serverConnecting) return;
+    const url = signinFor;
+    serverConnecting = true;
+    try {
+      await serverReady(url);
+      rememberSsoConnect(url);
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url: await ssoSignInUrl(url, provider.id), presentationStyle: 'popover' });
+    } catch (e) {
+      forgetSsoConnect();
+      showError(e?.webPage ? e.message : $_('native_setup.toast.cant_open_oidc'));
+    } finally {
+      serverConnecting = false;
+    }
+  }
+
+  async function _finishSso({ url, token, idTokenHint, providerId }) {
+    serverConnecting = true;
+    try {
+      const user = await accountFor(url, token);
+      connectHint.sso({ providerId, idTokenHint });
+      await _afterSignIn(url, { token, user });
+    } catch (e) {
+      showError(_connectError(e, url));
+    } finally {
+      serverConnecting = false;
+    }
+  }
+  onDestroy(ssoConnectResult.subscribe((r) => {
+    if (!r) return;
+    ssoConnectResult.set(null);
+    _finishSso(r);
+  }));
 
   async function _mergeAndConnect(mode) {
     // Download replaces the phone's data. Changes from an earlier
@@ -251,6 +296,10 @@
         return;
       }
     }
+    // Signed in by SSO: Log Out can end the IdP session too (as App.svelte
+    // keeps it for a sign-in from the setup screen). By password: none, so
+    // one from an earlier SSO never goes to this server.
+    connectHint.connected();
     setServerUrl(_pendingServerUrl);
     setNativeMode('server');
     serverMode = 'server';
@@ -260,6 +309,7 @@
   }
 
   function cancelMerge() {
+    connectHint.cancelled();
     mergeStep = null;
     _pendingServerUrl = '';
     localCounts = null;
@@ -291,6 +341,7 @@
     setServerUrl(null);
     setAuthToken(null);
     setNativeMode('local');
+    connectHint.disconnected(); // this server's SSO session isn't the next one's
 
     // The phone's own user from now on (standalone mode is user 1), set up
     // already: it was in use. Removed, the first-run welcome came back.
@@ -446,7 +497,7 @@
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
     webhooks:       ['webhook','webhooks','outgoing webhook','automation','automations','home assistant','n8n','integration','integrations','event','events','signature','hmac','secret','payload','pr','personal record','workout completed','program advanced','test webhook'],
-    serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
+    serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out','sign in','sso','single sign-on','oidc','proxy'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
     support:        ['support','donate','donation','sponsor','github sponsors','ko-fi','kofi','tip','star','report a bug','bug','translate','weblate','help'],
@@ -1406,8 +1457,36 @@
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
               <div class="form-group" style="margin:0">
                 <label class="form-label">{$_('settings_main.server.server_url')}</label>
-                <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} />
+                <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} on:input={() => signinOptions.typed(serverUrlInput)} on:blur={() => signinOptions.left(serverUrlInput)} />
               </div>
+              <!-- The server's sign-in options (TraceApps/notetrace#36): SSO first,
+                   and a failure to read them said with Retry, never a quietly
+                   password-only form. -->
+              {#if signinState === 'checking'}
+                <div class="signin-checking">{$_('server_signin.checking')}</div>
+              {:else if signinState === 'failed'}
+                <div class="signin-note" role="alert">
+                  <span class="material-symbols-rounded">warning</span>
+                  <div class="signin-note-text">{signinError}</div>
+                  <button class="btn btn-secondary" on:click={() => signinOptions.retry()} disabled={serverConnecting}>{$_('server_signin.retry')}</button>
+                </div>
+              {/if}
+              {#if signinProviders.length}
+                {#each signinProviders as p (p.id)}
+                  <button class="btn btn-primary sso-btn" on:click={() => connectServerSso(p)} disabled={serverConnecting}>
+                    {#if p.logo_url}
+                      <img src={providerLogo(signinFor, p.logo_url)} alt="" class="sso-logo" on:error={e => e.target.style.display = 'none'} />
+                    {:else}
+                      <span class="material-symbols-rounded" style="font-size:20px">login</span>
+                    {/if}
+                    {$_('server_signin.sign_in_with', { values: { provider: p.display_name || p.name || p.id } })}
+                  </button>
+                {/each}
+                {#if signinPasswordEnabled}
+                  <div class="signin-or"><span>{$_('server_signin.or')}</span></div>
+                {/if}
+              {/if}
+              {#if signinPasswordEnabled}
               <div class="form-group" style="margin:0">
                 <label class="form-label">{$_('settings_main.server.username')}</label>
                 <input class="form-input" type="text" placeholder={$_('settings_main.server.username_ph')} bind:value={serverUsername} autocapitalize="off" />
@@ -1428,6 +1507,7 @@
               <button class="btn btn-primary" style="width:100%;justify-content:center;height:42px" on:click={connectServer} disabled={serverConnecting}>
                 {serverConnecting ? 'Connecting…' : 'Connect to Server'}
               </button>
+              {/if}
             </div>
           {/if}
         </div>
@@ -1737,6 +1817,21 @@
 </Sheet>
 
 <style>
+  /* Settings → Server Connection: sign-in options, as on the setup screen */
+  .sso-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 42px; }
+  .sso-logo { width: 20px; height: 20px; object-fit: contain; }
+  .signin-or { display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 12px; }
+  .signin-or::before, .signin-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .signin-note {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 10px 12px;
+    background: color-mix(in srgb, #f59e0b 8%, transparent);
+    border-left: 3px solid #f59e0b; border-radius: 4px;
+    font-size: 13px; line-height: 1.5; color: var(--text-2);
+  }
+  .signin-note .material-symbols-rounded { font-size: 20px; color: #f59e0b; flex-shrink: 0; }
+  .signin-note-text { flex: 1; min-width: 160px; }
+  .signin-checking { font-size: 13px; color: var(--text-3); }
   .page {
     min-height: 100dvh;
     background: var(--bg);
