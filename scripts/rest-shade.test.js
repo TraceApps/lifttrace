@@ -179,9 +179,9 @@ test('nothing left in the session is nothing next', () => {
 const t = (key, opts) => {
   const v = opts?.values || {};
   return ({
-    'rest_bar.set_of': `${v.name} · Set ${v.n} of ${v.count}`,
-    'rest_bar.round_of': `${v.name} · Round ${v.n} of ${v.count}`,
-    'rest_bar.warmup': `${v.name} · Warm-Up`,
+    'rest_bar.set_of': `Set ${v.n} of ${v.count} · ${v.name}`,
+    'rest_bar.round_of': `Round ${v.n} of ${v.count} · ${v.name}`,
+    'rest_bar.warmup': `Warm-Up · ${v.name}`,
     'rest_bar.reps': `${v.n} reps`,
     'rest_bar.last_time': `Last time ${v.set}`,
   })[key] ?? key;
@@ -190,10 +190,10 @@ const t = (key, opts) => {
 test('the notification leads with the next set, then last time', () => {
   const next = { name: 'Bench Press', number: 3, count: 4, weight: 150, reps: 8, timed: false };
   assert.deepEqual(restNoticeText(next, { unit: 'lbs', last: '145 × 8', t }), {
-    title: 'Bench Press · Set 3 of 4',
+    title: 'Set 3 of 4 · Bench Press',
     text: '150 lbs × 8 · Last time 145 × 8',
   });
-  assert.equal(restNoticeText({ ...next, superset: true }, { t }).title, 'Bench Press · Round 3 of 4');
+  assert.equal(restNoticeText({ ...next, superset: true }, { t }).title, 'Round 3 of 4 · Bench Press');
   assert.deepEqual(restNoticeText(null, { t, fallbackTitle: 'Rest' }), { title: 'Rest', text: '' });
 });
 

@@ -21,7 +21,7 @@ public class RestRecordTest {
         r.startedAt = T0;
         r.at = T0;
         r.label = "Bench Press";
-        r.title = "Bench Press · Set 3 of 4";
+        r.title = "Set 3 of 4 · Bench Press";
         r.pausedText = "Rest paused, {time} left";
         return r;
     }
@@ -92,7 +92,7 @@ public class RestRecordTest {
         assertTrue(r.adoptWire(true, true, 40_000L, 0L, 90, "Bench Press", T0 + 50_000L, T0 + 50_000L));
         assertEquals(RestRecord.Kind.PAUSED, r.kind(T0 + 60_000L));
         assertEquals(40_000L, r.leftMs);
-        assertEquals("the next set this phone had is kept", "Bench Press · Set 3 of 4", r.title);
+        assertEquals("the next set this phone had is kept", "Set 3 of 4 · Bench Press", r.title);
         assertFalse("an older word is ignored", r.adoptWire(false, false, 0L, T0 + 80_000L, 90, "Bench Press", T0 + 40_000L, T0 + 60_000L));
         assertFalse("its own write coming back changes nothing", r.adoptWire(true, true, 40_000L, 0L, 90, "Bench Press", r.at, T0 + 60_000L));
     }

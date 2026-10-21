@@ -145,8 +145,9 @@ export function lastTimeFor(history, { before, number, timed = false, t = defaul
 }
 
 /**
- * The notification's two lines. Title: what is next ("Bench Press · Set 3 of
- * 4", "Round 2 of 3" in a superset); text: that set's weight and reps, and
+ * The notification's two lines. Title: what is next ("Set 3 of 4 · Bench
+ * Press", "Round 2 of 3" in a superset; the set first, so a long name cut
+ * off by the shade never hides it); text: that set's weight and reps, and
  * last time's when known. With nothing next, the plain word for a rest.
  */
 export function restNoticeText(next, { unit = 'lbs', last = '', t = defaultT, fallbackTitle = '' } = {}) {

@@ -702,9 +702,9 @@
     "resume":         "Resume",
     "paused":         "Paused",
     "paused_left":    "Rest paused, {time} left",
-    "set_of":         "{name} · Set {n} of {count}",
-    "round_of":       "{name} · Round {n} of {count}",
-    "warmup":         "{name} · Warm-Up",
+    "set_of":         "Set {n} of {count} · {name}",
+    "round_of":       "Round {n} of {count} · {name}",
+    "warmup":         "Warm-Up · {name}",
     "reps":           "{n} reps",
     "last_time":      "Last time {set}"
   },
