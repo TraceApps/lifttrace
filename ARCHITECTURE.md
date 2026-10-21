@@ -230,6 +230,16 @@ address in reset, invite, coaching and weekly summary emails from
 `PUBLIC_URL`, or else from an address a signed-in admin has used, never from
 the request's Host headers, which the sender controls.
 
+### Only the app's own addresses get CORS
+
+`server/lib/cors.js` (identical in all four Trace apps) decides which pages
+on another address may call the API with the person's sign-in. Allowed: the
+Android app's WebView (`https://app.lifttrace.local`, and
+`https://localhost` from versions before it) and the address in
+`PUBLIC_URL`, each compared whole: scheme, host and port. Anything else gets
+no CORS headers. The web app calls its own address, which needs none;
+the API, MCP and the watch app send no Origin.
+
 ### Update checks are off until asked for
 
 `server/lib/update-check.js`: a fresh database asks in the setup wizard and
