@@ -13,7 +13,8 @@
   import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, requestPermission } from '../lib/notifications.js';
   import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName, lastCompletedSession } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
-  import { startRest as startRestTimer, stopRest } from '../stores/restTimer.js';
+  import { startRest as startRestTimer, stopRest, noteRestLastTime } from '../stores/restTimer.js';
+  import { nextUp, lastTimeFor } from '../lib/rest-next.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
   import GymTools from '../components/diary/GymTools.svelte';
   import { showSuccess, showError } from '../stores/toast.js';
@@ -846,12 +847,16 @@
     // when the store already holds the target date causes a visible flash
     // on the meal cards. Skip the refetch if the store is already on the
     // right date.
-    const targetDate = localDateStr();
+    // Opened from the rest notification: that workout's day, not today's.
+    const targetDate = _takeOpenDate() || localDateStr();
     if ($currentDate !== targetDate || !$todayLog) {
       await loadWorkout(targetDate);
     } else {
       currentDate.set(targetDate);
     }
+    // A tap on the rest notification that arrived during the load above.
+    const lateDate = _takeOpenDate();
+    if (lateDate && lateDate !== $currentDate) await loadWorkout(lateDate);
     notes = $todayLog?.notes || '';
     loading = false;
     loadActiveProgram();
@@ -905,6 +910,24 @@
   // tap away would have saved onto it.
   function _onWorkoutOpened() {
     notes = $todayLog?.notes || '';
+  }
+
+  // The rest notification names the day its workout is on (App.svelte).
+  // Listened for from the start, not after onMount's first load: a tap that
+  // arrives while that load is under way would otherwise be lost.
+  if (typeof window !== 'undefined') window.addEventListener('lt:diary-open-date', _onOpenDate);
+  function _takeOpenDate() {
+    try {
+      const d = sessionStorage.getItem('lt:diary-open-date');
+      if (d) sessionStorage.removeItem('lt:diary-open-date');
+      return /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null;
+    } catch { return null; }
+  }
+  function _onOpenDate() {
+    // Still loading: onMount takes the day when that is done.
+    if (loading) return;
+    const d = _takeOpenDate();
+    if (d && d !== $currentDate) goToDiaryDate(d);
   }
 
   // Pull-to-refresh: track touch deltas while at scrollY 0. Past a
@@ -970,6 +993,7 @@
     document.removeEventListener('visibilitychange', handleVisibility);
     window.removeEventListener('lt:sync-complete', _onSyncComplete);
     window.removeEventListener('lt:workout-opened', _onWorkoutOpened);
+    window.removeEventListener('lt:diary-open-date', _onOpenDate);
     _stopDayTick();
   });
 
@@ -1672,19 +1696,35 @@
           //   - Standalone exercise: same exercise (next set of it)
           //   - Superset: the FIRST exercise in the group (start of round N+1)
           //     not the last one completed. "Finished A2, next up is A1 again."
+          const updatedExercises = exercises.map((e, i) => i === idx ? ex : e);
           let nextEx = ex;
           if (ex.superset_id != null && ex.superset_size > 1) {
-            const updatedExercises = exercises.map((e, i) => i === idx ? ex : e);
             const firstInGroup = updatedExercises.find(e => e.superset_id === ex.superset_id);
             if (firstInGroup) nextEx = firstInGroup;
           }
-          startRestTimer({
+          // The set itself, for the rest bar and the rest notification: the
+          // same lift's next set, the next round of a superset, or, once this
+          // one is done, the next lift in the session (rest-next.js).
+          const next = nextUp(updatedExercises, idx);
+          const restDay = $currentDate;
+          const rest = startRestTimer({
             exerciseId:   nextEx.exercise_id || null,
-            exerciseName: nextEx.exercise_name || '',
+            exerciseName: next?.name || nextEx.exercise_name || '',
             // A plan's per-exercise rest (issue #13) overrides the global
             // default when present; otherwise fall back to the user's setting.
             durationSec:  Number(nextEx.rest_sec) > 0 ? Number(nextEx.rest_sec) : $restDuration,
+            date:         restDay,
+            next,
           });
+          // What you did on that set last time, by the Diary's own rule
+          // (lastCompletedSession), once the history is in.
+          if (rest && next && !next.warmup && next.exerciseId) {
+            LtApi.getWorkoutHistory(next.exerciseId)
+              .then(history => noteRestLastTime(rest.startedAt, lastTimeFor(history, {
+                before: restDay, number: next.number, timed: next.timed, t: $_,
+              })))
+              .catch(() => {});
+          }
         }
 
         // PR check, once the set is saved: it awaits the history, and a

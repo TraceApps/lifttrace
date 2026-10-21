@@ -353,11 +353,25 @@ object Pairing {
      * The rest running right now, so raising your wrist again shows the count
      * still going rather than a blank app that lost it.
      */
-    data class Timer(val label: String, val total: Int, val endsAt: Long)
+    data class Timer(
+        val label: String,
+        val total: Int,
+        val endsAt: Long,
+        /**
+         * Paused: what was left, held still, and [endsAt] is 0. A deadline
+         * keeps moving closer while nobody is resting, so a paused rest has
+         * none; resuming makes one again from this.
+         */
+        val pausedLeftMs: Long = 0L,
+    ) {
+        val paused: Boolean get() = pausedLeftMs > 0L
+    }
 
     fun timer(ctx: Context): Timer? {
         val raw = prefs(ctx).getString(KEY_TIMER, null) ?: return null
         val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val left = o.optLong("pausedLeftMs", 0L)
+        if (left > 0L) return Timer(o.optString("label"), o.optInt("total", 0), 0L, left)
         val endsAt = o.optLong("endsAt", 0L)
         if (endsAt <= 0L) return null
         return Timer(o.optString("label"), o.optInt("total", 0), endsAt)
@@ -365,7 +379,34 @@ object Pairing {
 
     fun putTimer(ctx: Context, timer: Timer) {
         val o = JSONObject().put("label", timer.label).put("total", timer.total).put("endsAt", timer.endsAt)
+        if (timer.paused) o.put("pausedLeftMs", timer.pausedLeftMs)
         prefs(ctx).edit().putString(KEY_TIMER, o.toString()).apply()
+    }
+
+    /**
+     * What a /lifttrace/rest record from the phone means: a rest counting to
+     * a deadline, one paused with time left, or none (null).
+     *
+     * A paused rest arrives as cleared with paused beside it. A phone from
+     * before pausing never sends paused, so its records read exactly as they
+     * always did; and a watch from before pausing reads a paused rest as
+     * cleared, taking it down instead of buzzing in the middle of a pause.
+     */
+    fun restFrom(
+        cleared: Boolean,
+        paused: Boolean,
+        leftMs: Long,
+        label: String,
+        total: Int,
+        endsAt: Long,
+        now: Long,
+    ): Timer? {
+        if (paused) {
+            if (leftMs <= 0L) return null
+            return Timer(label, if (total > 0) total else ((leftMs + 999) / 1000).toInt(), 0L, leftMs)
+        }
+        if (cleared || endsAt <= now) return null
+        return Timer(label, total, endsAt)
     }
 
     /**
@@ -384,16 +425,27 @@ object Pairing {
         }.onFailure { Log.w(TAG, "couldn't say hello to the phone: " + it.message) }
     }
 
-    /** The wearer started, extended or skipped a rest. Tell the phone. */
+    /** The wearer started, extended, paused, resumed or skipped a rest. Tell the phone. */
     fun publishRest(ctx: Context, timer: Timer?) {
         val at = System.currentTimeMillis()
         prefs(ctx).edit().putLong(KEY_REST_AT, at).apply()
         val request = PutDataMapRequest.create(PairingService.REST_PATH)
         request.dataMap.apply {
-            if (timer == null || timer.endsAt <= at) {
+            if (timer != null && timer.paused) {
+                // Cleared, to a phone from before pausing: it stops its rest
+                // rather than ringing at a deadline that no longer exists.
                 putBoolean("cleared", true)
+                putBoolean("paused", true)
+                putLong("leftMs", timer.pausedLeftMs)
+                putString("label", timer.label)
+                putInt("total", timer.total)
+                putLong("endsAt", 0L)
+            } else if (timer == null || timer.endsAt <= at) {
+                putBoolean("cleared", true)
+                putBoolean("paused", false)
             } else {
                 putBoolean("cleared", false)
+                putBoolean("paused", false)
                 putString("label", timer.label)
                 putInt("total", timer.total)
                 putLong("endsAt", timer.endsAt)
@@ -414,15 +466,36 @@ object Pairing {
         val at = map.getLong("at", 0L)
         if (at > 0 && at < prefs(ctx).getLong(KEY_REST_AT, 0L)) return
         val now = System.currentTimeMillis()
-        val endsAt = map.getLong("endsAt", 0L)
-        if (map.getBoolean("cleared", false) || endsAt <= now) {
-            RestAlarm.cancel(ctx)
-            clearTimer(ctx)
-            RestOngoing.hide(ctx)
-        } else {
-            putTimer(ctx, Timer(map.getString("label").orEmpty(), map.getInt("total", 0), endsAt))
-            RestAlarm.schedule(ctx, endsAt)
-            RestOngoing.refresh(ctx)
+        val rest = restFrom(
+            cleared = map.getBoolean("cleared", false),
+            paused = map.getBoolean("paused", false),
+            leftMs = map.getLong("leftMs", 0L),
+            label = map.getString("label").orEmpty(),
+            total = map.getInt("total", 0),
+            endsAt = map.getLong("endsAt", 0L),
+            now = now,
+        )
+        when {
+            // A hold counting here is published as a rest, but it is a set
+            // being held: it logs itself at zero and is not paused from afar.
+            rest != null && rest.paused && holdArmed(ctx) -> return
+            rest == null -> {
+                RestAlarm.cancel(ctx)
+                clearTimer(ctx)
+                RestOngoing.hide(ctx)
+            }
+            rest.paused -> {
+                // Held: no buzz until it is resumed, and the count on the
+                // face stops where it is.
+                RestAlarm.cancel(ctx)
+                putTimer(ctx, rest)
+                RestOngoing.refresh(ctx)
+            }
+            else -> {
+                putTimer(ctx, rest)
+                RestAlarm.schedule(ctx, rest.endsAt)
+                RestOngoing.refresh(ctx)
+            }
         }
         prefs(ctx).edit().putLong(KEY_REST_AT, if (at > 0) at else now).apply()
     }

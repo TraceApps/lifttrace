@@ -66,6 +66,30 @@
         <receiver
             android:name=".RestTimerCueReceiver"
             android:exported="false" />
+
+        <!-- The rest notification's buttons (Skip Rest, +30s, Pause, Resume),
+             its alarm at zero and its being swiped away. Only this app's
+             own PendingIntents reach it. -->
+        <receiver
+            android:name=".RestShadeReceiver"
+            android:exported="false" />
+
+        <!-- The watch paused, resumed, extended or skipped the rest, heard
+             with the app in the background or not running, so this phone's
+             alarms and notification follow. Exported because Google Play
+             services delivers it, and the base class turns away any
+             other caller ("Caller is not GooglePlayServices"). -->
+        <service
+            android:name=".RestWearListener"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/lifttrace/rest" />
+            </intent-filter>
+        </service>
     </application>
 
     <!-- Permissions -->
@@ -73,6 +97,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Notifications (Android 13+ requires runtime grant) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The rest notification as a Live Update on Android 16 and later (in
+         the status bar as well as the shade). Not a runtime prompt. -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <!-- Exact-time scheduling for WorkManager / LocalNotifications -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />

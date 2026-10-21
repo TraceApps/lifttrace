@@ -156,6 +156,16 @@ class Countdown(private val ctx: android.content.Context) {
         private set
     var endsAt by mutableStateOf(0L)
         private set
+    /**
+     * Paused: what was left, held still (and [endsAt] is 0). A rest, not a
+     * hold: a hold logs itself when its time is up, and holding still is
+     * the whole of it.
+     */
+    var pausedLeftMs by mutableStateOf(0L)
+        private set
+    val paused: Boolean get() = pausedLeftMs > 0L
+    /** Counting, or paused with time left. */
+    val active: Boolean get() = endsAt > 0L || paused
     /** What to do when it reaches zero, for a hold that logs itself. */
     var onDone: (() -> Unit)? = null
         private set
@@ -185,6 +195,7 @@ class Countdown(private val ctx: android.content.Context) {
         val saved = Pairing.timer(ctx)
         if (saved == null) {
             endsAt = 0L
+            pausedLeftMs = 0L
             onDone = null
             fired = true
             return
@@ -192,7 +203,8 @@ class Countdown(private val ctx: android.content.Context) {
         label = saved.label
         total = saved.total
         endsAt = saved.endsAt
-        fired = saved.endsAt <= System.currentTimeMillis()
+        pausedLeftMs = saved.pausedLeftMs
+        fired = !saved.paused && saved.endsAt <= System.currentTimeMillis()
     }
 
     val running: Boolean get() = endsAt > System.currentTimeMillis()
@@ -200,6 +212,7 @@ class Countdown(private val ctx: android.content.Context) {
     fun start(label: String, seconds: Int, onDone: (() -> Unit)? = null) {
         this.label = label
         this.total = seconds
+        this.pausedLeftMs = 0L
         this.endsAt = System.currentTimeMillis() + seconds * 1000L
         this.onDone = onDone
         this.fired = false
@@ -207,10 +220,45 @@ class Countdown(private val ctx: android.content.Context) {
     }
 
     fun extend(seconds: Int) {
+        if (paused) {
+            pausedLeftMs += seconds * 1000L
+            total += seconds
+            held()
+            return
+        }
         if (endsAt <= 0L) return
         endsAt += seconds * 1000L
         total += seconds
         remember()
+    }
+
+    /** Only a rest pauses; a hold logs itself when its time is up. */
+    val canPause: Boolean get() = onDone == null && !Pairing.holdArmed(ctx)
+
+    /** Held where it is: no buzz, and the count stops, here and on the phone. */
+    fun pause() {
+        val left = endsAt - System.currentTimeMillis()
+        if (endsAt <= 0L || left <= 0L || !canPause) return
+        pausedLeftMs = left
+        endsAt = 0L
+        held()
+    }
+
+    /** Counting on from what was left. */
+    fun resume() {
+        if (!paused) return
+        endsAt = System.currentTimeMillis() + pausedLeftMs
+        pausedLeftMs = 0L
+        fired = false
+        remember()
+    }
+
+    private fun held() {
+        val timer = Pairing.Timer(label, total, 0L, pausedLeftMs)
+        RestAlarm.cancel(ctx)
+        Pairing.putTimer(ctx, timer)
+        RestOngoing.refresh(ctx)
+        Pairing.publishRest(ctx, timer)
     }
 
     fun markFired() {
@@ -219,6 +267,7 @@ class Countdown(private val ctx: android.content.Context) {
 
     fun stop() {
         endsAt = 0L
+        pausedLeftMs = 0L
         onDone = null
         RestAlarm.cancel(ctx)
         Pairing.clearTimer(ctx)
@@ -236,8 +285,11 @@ class Countdown(private val ctx: android.content.Context) {
         Pairing.publishRest(ctx, Pairing.Timer(label, total, endsAt))
     }
 
-    fun secondsLeft(): Long =
-        if (endsAt <= 0L) 0L else maxOf(0L, (endsAt - System.currentTimeMillis() + 999) / 1000)
+    fun secondsLeft(): Long = when {
+        paused -> (pausedLeftMs + 999) / 1000
+        endsAt <= 0L -> 0L
+        else -> maxOf(0L, (endsAt - System.currentTimeMillis() + 999) / 1000)
+    }
 }
 
 @Composable
@@ -268,7 +320,7 @@ fun WearApp(store: WearStore, route: String? = null, onRouted: () -> Unit = {}) 
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         RestOngoing.refresh(context)
     }
-    val resting = clock.endsAt > 0L
+    val resting = clock.active
     LaunchedEffect(resting) {
         if (!resting || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@LaunchedEffect
         val granted = ContextCompat.checkSelfPermission(
@@ -1115,7 +1167,11 @@ private fun RestRow(clock: Countdown, onStart: () -> Unit, onOpen: () -> Unit) {
             delay(1000)
         }
     }
-    val left = if (clock.endsAt <= 0L) 0 else maxOf(0L, (clock.endsAt - now + 999) / 1000).toInt()
+    val left = when {
+        clock.paused -> clock.secondsLeft().toInt()
+        clock.endsAt <= 0L -> 0
+        else -> maxOf(0L, (clock.endsAt - now + 999) / 1000).toInt()
+    }
     if (left <= 0) {
         Button(
             onClick = onStart,
@@ -1131,13 +1187,16 @@ private fun RestRow(clock: Countdown, onStart: () -> Unit, onOpen: () -> Unit) {
             Text(
                 Session.clock(left),
                 maxLines = 1,
-                color = ringColour(Session.urgency(left, total)),
+                // Held: the colour of something waiting, not of time running out.
+                color = if (clock.paused) MaterialTheme.colorScheme.onSurfaceVariant
+                else ringColour(Session.urgency(left, total)),
             )
         },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            "Resting" + (if (clock.label.isBlank()) "" else " before " + clock.label),
+            if (clock.paused) stringResource(R.string.rest_paused) + (if (clock.label.isBlank()) "" else " · " + clock.label)
+            else "Resting" + (if (clock.label.isBlank()) "" else " before " + clock.label),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1154,7 +1213,9 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
     val context = LocalContext.current
     var remaining by remember { mutableStateOf(clock.secondsLeft()) }
 
-    WhileWatching(clock.endsAt) {
+    WhileWatching(clock.endsAt, clock.pausedLeftMs) {
+        // Paused, the number holds where it is and nothing ticks.
+        remaining = clock.secondsLeft()
         if (clock.endsAt <= 0L) return@WhileWatching
         while (true) {
             remaining = clock.secondsLeft()
@@ -1177,7 +1238,7 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
     // A timer you have to keep awake with a finger is no timer at all, but
     // only while it is counting: once it reaches zero the screen was being
     // held on at full brightness until somebody swiped it away.
-    val counting = remaining > 0
+    val counting = remaining > 0 && !clock.paused
     DisposableEffect(counting) {
         val window = (context as? Activity)?.window
         if (counting) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1192,7 +1253,8 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
             // Green while there is time, amber when it is getting on, red at
             // the death, so a glance tells you without reading the number.
             colors = ProgressIndicatorDefaults.colors(
-                indicatorColor = ringColour(Session.urgency(remaining.toInt(), total)),
+                indicatorColor = if (clock.paused) MaterialTheme.colorScheme.onSurfaceVariant
+                else ringColour(Session.urgency(remaining.toInt(), total)),
             ),
             modifier = Modifier.fillMaxSize().padding(4.dp),
         )
@@ -1206,7 +1268,11 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
                 style = MaterialTheme.typography.displayMedium,
             )
             Text(
-                if (remaining > 0) clock.label else "Next set",
+                when {
+                    clock.paused -> stringResource(R.string.rest_paused)
+                    remaining > 0 -> clock.label
+                    else -> "Next set"
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall,
@@ -1216,11 +1282,27 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (remaining > 0) {
+                // Paused: Resume and Skip, as on the phone's notification.
+                if (remaining > 0 && !clock.paused) {
                     FilledTonalIconButton(
                         onClick = { clock.extend(30) },
                         modifier = Modifier.size(40.dp),
                     ) { Text("+30") }
+                }
+                if (clock.paused) {
+                    FilledTonalIconButton(
+                        onClick = { clock.resume() },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_play), contentDescription = stringResource(R.string.rest_resume))
+                    }
+                } else if (remaining > 0 && clock.canPause) {
+                    FilledTonalIconButton(
+                        onClick = { clock.pause() },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_pause), contentDescription = stringResource(R.string.rest_pause))
+                    }
                 }
                 FilledTonalIconButton(
                     onClick = {

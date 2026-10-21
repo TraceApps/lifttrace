@@ -1,6 +1,5 @@
 package com.lifttrace.app;
 
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -44,15 +43,20 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
         final boolean vibrate = intent.getBooleanExtra("vibrate", false);
         final String  sound   = intent.getStringExtra("sound");
         final boolean isFinale = intent.getBooleanExtra("finale", false);
+        // Settings > Workout, "Play Through Do Not Disturb": the cue as an
+        // alarm rather than a notification sound. Off by default.
+        final boolean asAlarm = intent.getBooleanExtra("alarm", false);
 
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         final PowerManager.WakeLock wl = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK, "lifttrace:rest-cue");
         wl.acquire(5000);
 
-        if (vibrate) doVibrate(context, isFinale);
+        if (vibrate) doVibrate(context, isFinale, asAlarm);
 
         if (isFinale) {
+            // Zero: the rest's own notification goes, with or without the app.
+            try { RestShade.atZero(context.getApplicationContext()); } catch (Exception ignored) {}
             postFinish(
                 context,
                 intent.getStringExtra("title"),
@@ -61,7 +65,7 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
         }
 
         if (sound != null && !sound.isEmpty()) {
-            playSound(context, sound, () -> {
+            playSound(context, sound, asAlarm, () -> {
                 if (wl.isHeld()) try { wl.release(); } catch (Exception ignored) {}
             });
         } else {
@@ -86,14 +90,7 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
         try {
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
-                NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID, "Rest timer", NotificationManager.IMPORTANCE_DEFAULT);
-                channel.setDescription("When a rest between sets is over");
-                channel.enableVibration(false);
-                channel.setSound(null, null);
-                nm.createNotificationChannel(channel);
-            }
+            RestShade.channel(context);
             Intent open = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
             PendingIntent tap = null;
             if (open != null) {
@@ -117,7 +114,7 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
         }
     }
 
-    private void doVibrate(Context context, boolean isFinale) {
+    private void doVibrate(Context context, boolean isFinale, boolean asAlarm) {
         try {
             Vibrator vib;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -128,15 +125,27 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
             }
             if (vib == null || !vib.hasVibrator()) return;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                VibrationEffect effect;
                 if (isFinale) {
                     // Finale buzz is a double-pulse so the "0" feels distinct
                     // from the countdown beeps. Timing array: wait, vibrate,
                     // wait, vibrate. Amplitudes match a confident "done" feel.
                     long[] timings = { 0, 110, 90, 180 };
                     int[]  amps    = { 0, 200, 0, 255 };
-                    vib.vibrate(VibrationEffect.createWaveform(timings, amps, -1));
+                    effect = VibrationEffect.createWaveform(timings, amps, -1);
                 } else {
-                    vib.vibrate(VibrationEffect.createOneShot(80, VibrationEffect.DEFAULT_AMPLITUDE));
+                    effect = VibrationEffect.createOneShot(80, VibrationEffect.DEFAULT_AMPLITUDE);
+                }
+                if (asAlarm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    // As an alarm, the buzz comes through Do Not Disturb with the sound.
+                    vib.vibrate(effect, android.os.VibrationAttributes.createForUsage(android.os.VibrationAttributes.USAGE_ALARM));
+                } else if (asAlarm) {
+                    vib.vibrate(effect, new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build());
+                } else {
+                    vib.vibrate(effect);
                 }
             } else {
                 vib.vibrate(isFinale ? new long[] { 0, 110, 90, 180 } : new long[] { 0, 80 }, -1);
@@ -146,7 +155,7 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
         }
     }
 
-    private void playSound(Context context, String soundName, Runnable onDone) {
+    private void playSound(Context context, String soundName, boolean asAlarm, Runnable onDone) {
         try {
             int resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
             if (resId == 0) { onDone.run(); return; }
@@ -161,8 +170,13 @@ public class RestTimerCueReceiver extends BroadcastReceiver {
             // our own radio) while this plays and restores volume on
             // completion. Same pattern Google Maps uses for turn-by-turn
             // voice over music.
+            //
+            // With "Play Through Do Not Disturb" on, USAGE_ALARM instead:
+            // Do Not Disturb silences notification sounds but, set up the
+            // usual way, lets alarms through, at the alarm volume. Same
+            // content type, so the music still ducks.
             mp.setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setUsage(asAlarm ? AudioAttributes.USAGE_ALARM : AudioAttributes.USAGE_NOTIFICATION_EVENT)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build());
 

@@ -690,6 +690,24 @@
     "open_date":      "Open {date} to stop",
     "set_not_found":  "Couldn't find that set. You held {time}."
   },
+  "rest_bar": {
+    "label":          "REST",
+    "paused_label":   "PAUSED",
+    "title":          "Rest",
+    "next":           "Next: {name}",
+    "add":            "+{s}s",
+    "add_title":      "Add {s} seconds",
+    "skip":           "Skip Rest",
+    "pause":          "Pause",
+    "resume":         "Resume",
+    "paused":         "Paused",
+    "paused_left":    "Rest paused, {time} left",
+    "set_of":         "{name} · Set {n} of {count}",
+    "round_of":       "{name} · Round {n} of {count}",
+    "warmup":         "{name} · Warm-Up",
+    "reps":           "{n} reps",
+    "last_time":      "Last time {set}"
+  },
   "trace_ai": {
     "unreachable": "Couldn't get an answer from {host}. Check the Base URL in Settings → AI Assistant. If it's right, that server has to allow requests from {origin} on every answer, errors included (with nginx, add_header … always), or Trace can be set up on the LiftTrace server instead.",
     "unreachable_insecure": "This page is on HTTPS, so the browser won't call {host} over plain HTTP. Give your provider an https:// address, or set Trace up on the LiftTrace server instead.",
@@ -2007,6 +2025,8 @@
       "tone_style":        "Tone Style",
       "tone_style_desc":   "Tap a row to select, tap ▶ to preview",
       "preview":           "Preview",
+      "dnd":               "Play Through Do Not Disturb",
+      "dnd_desc":          "Plays the rest alert like an alarm, at your alarm volume, so you still hear it with Do Not Disturb on",
       "tones": {
         "classic":         "Classic",
         "classic_desc":    "880 Hz beeps, higher chirp at 0",

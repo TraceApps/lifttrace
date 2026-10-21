@@ -28,7 +28,7 @@ const SERVER_SETTINGS = new Set([
   'autoGenerateWarmups', 'trackRpe',
   'radioStations',
   'restTimerEnabled', 'restDuration', 'restAutoStart', 'restAlert',
-  'restAlertVibrate', 'restAlertTone', 'restAlertToneId', 'restPerExercise',
+  'restAlertVibrate', 'restAlertTone', 'restAlertToneId', 'restAlertOutput', 'restPerExercise',
   'notifLocalEnabled', 'notifPushService',
   'gotifyUrl', 'gotifyToken', 'ntfyUrl', 'ntfyTopic', 'ntfyToken', 'appriseUrl', 'appriseTag',
   'notifWorkoutReminder', 'notifWorkoutTime', 'notifRestDay',
@@ -274,6 +274,11 @@ export const restAlert        = createSettingStore('restAlert',        true);
 export const restAlertVibrate = createSettingStore('restAlertVibrate', true);
 export const restAlertTone    = createSettingStore('restAlertTone',    true);
 export const restAlertToneId  = createSettingStore('restAlertToneId',  'classic');
+// How the rest cue sounds on Android: 'notification' (the notification
+// volume, quiet under Do Not Disturb) or 'alarm' (alarm volume, heard
+// through Do Not Disturb). Opt-in, since an alarm-loud beep is startling if
+// you did not ask for it.
+export const restAlertOutput  = createSettingStore('restAlertOutput',  'notification');
 // Per-exercise rest memory (map of exercise_id -> seconds). Auto-populated each
 // time the timer runs to completion; overrides the global restDuration when present.
 export const restPerExercise  = createSettingStore('restPerExercise',  {});

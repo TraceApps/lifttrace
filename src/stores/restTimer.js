@@ -1,7 +1,10 @@
 import { writable, get } from 'svelte/store';
-import { restAlert, restAlertVibrate, restAlertTone, restAlertToneId, restPerExercise } from './settings.js';
+import { _ } from 'svelte-i18n';
+import { restAlert, restAlertVibrate, restAlertTone, restAlertToneId, restAlertOutput, restPerExercise, weightUnit } from './settings.js';
 import { getTone } from '../lib/restTones.js';
 import { isNative } from '../lib/platform.js';
+import { restLeftMs, pausedRest, resumedRest, extendedRest, restFromWire, REST_ADD_SEC } from '../lib/rest-state.js';
+import { restNoticeText } from '../lib/rest-next.js';
 // CLAUDE.md note (LiftTrace + NutriTrace): LocalNotifications MUST be a static
 // import. Dynamic `await import('@capacitor/local-notifications')` silently
 // fails on Android with `.then() is not a function`, so the rest-timer
@@ -20,6 +23,13 @@ import { LocalNotifications } from '@capacitor/local-notifications';
  * a small vibrate), plus a final higher-pitch alert + double vibrate at 0.
  * When the document is hidden we fire a Service Worker notification so the
  * OS can vibrate / sound in the background.
+ *
+ * A rest can be paused: it then holds what was left (`paused`, `leftMs`)
+ * instead of a deadline, nothing counts or rings, and resuming counts on from
+ * there (src/lib/rest-state.js). On Android the rest also sits in the
+ * notification shade and on the lock screen while it runs or is paused, with
+ * buttons that work with the app closed (RestShade.java); whatever they
+ * change is picked up here.
  */
 
 const LS_KEY = 'lt:rest-timer';
@@ -45,7 +55,14 @@ function _load() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    if (!state || !state.endTime) return null;
+    if (!state) return null;
+    // A paused rest has no deadline to run past: it keeps what was left.
+    if (state.paused) {
+      if (Number(state.leftMs) > 0) return state;
+      localStorage.removeItem(LS_KEY);
+      return null;
+    }
+    if (!state.endTime) return null;
     if (state.endTime <= Date.now()) {
       localStorage.removeItem(LS_KEY);
       return null;
@@ -229,6 +246,64 @@ async function _ensureNativeNotifReady() {
   }
 }
 
+/**
+ * The rest's sound and buzz as the plugin arms them, ending at T, from the
+ * account's settings; null when both are off. Kept by the plugin too, so the
+ * notification's Resume and +30s can put them back with the app closed.
+ */
+function _cuePlan(state, T) {
+  const wantTone = get(restAlertTone);
+  const wantVibe = get(restAlertVibrate);
+  if (!wantTone && !wantVibe) return null; // nothing to fire
+
+  const toneId = get(restAlertToneId) || 'classic';
+  const tone   = getTone(toneId);
+  const hasCountdown = !!(tone.countdown && tone.countdown(3));
+  // Settings > Workout, Play Through Do Not Disturb: the cue as an alarm.
+  const alarm = get(restAlertOutput) === 'alarm';
+
+  // Build the cue list. The audio cue is ONE entry that plays the full
+  // pre-rendered 3-2-1-finale WAV (lt_tone_<id>.wav, see
+  // scripts/build-rest-tones.mjs); it fires at endTime-3s for tones
+  // with countdown, endTime for minimal-style tones. Vibration cues
+  // are independent per-tick haptics aligned with the audio beeps.
+  //
+  // The whole batch goes over, past entries included: the plugin skips
+  // those, and keeps the batch so the notification's Pause, Resume and +30s
+  // can put it back against a new end with the app closed.
+  const cues = [];
+  if (wantTone) {
+    const soundFireAt = hasCountdown ? T - 3000 : T;
+    cues.push({ at: soundFireAt, sound: `lt_tone_${toneId}`, vibrate: false, finale: false, alarm });
+  }
+  if (wantVibe) {
+    // Mirror the v4 cadence: a buzz on each beep + a finale double-pulse
+    // at zero so "0" feels distinct from the countdown.
+    const tickOffsets = hasCountdown ? [-3000, -2000, -1000] : [];
+    for (const offset of tickOffsets) {
+      cues.push({ at: T + offset, sound: '', vibrate: true, finale: false, alarm });
+    }
+  }
+
+  // The message at zero, and the finale buzz, ride on one cue. The
+  // receiver posts it local-only, so it stays in this phone's shade: Wear
+  // mirrors a phone's notifications to the watch by default, and the watch
+  // app runs its own rest with its own alarm and its own words. Two copies
+  // of the same fact, one of them unlabelled, is how a buzz on a wrist
+  // becomes a mystery.
+  const body = state.exerciseName ? `Ready for your next ${state.exerciseName} set` : 'Back to work!';
+  cues.push({
+    at: T, sound: '', vibrate: wantVibe, finale: true, alarm,
+    title: 'Rest complete', body,
+    // Mirrored to the watch only when the watch does not have the rest
+    // itself. When it does, it rings with its own alarm and its own
+    // words, and a second unlabelled copy of this is the thing that made
+    // a buzz on the wrist unaccountable.
+    localOnly: _onWatch,
+  });
+  return { cues, body };
+}
+
 async function _scheduleNativeFinish(state) {
   if (!isNative || !state) return;
   // Settle the question of whether the watch has this rest before deciding
@@ -248,59 +323,26 @@ async function _scheduleNativeFinish(state) {
       ],
     }).catch(() => {});
     const { scheduleCues, cancelCues, isCuePluginAvailable } = await import('../lib/rest-cue.js');
+    // Paused, skipped or moved while the lines above were waiting (by the
+    // notification's buttons, say): this batch is for a deadline that no
+    // longer exists, and whoever moved the rest has armed its own.
+    const stale = (cur) => !cur || cur.paused || cur.endTime !== state.endTime;
+    if (stale(get(restTimer))) return;
     // Always cancel previous cues — handles the "user pressed add 30s
     // mid-countdown" case where we re-schedule a fresh batch.
     await cancelCues();
+    // Moved while cancelling: what was cancelled may have been armed for the
+    // new deadline, so arm for the rest as it now is.
+    const current = get(restTimer);
+    if (stale(current)) {
+      if (current && !current.paused && document.visibilityState === 'hidden') return _scheduleNativeFinish(current);
+      return;
+    }
 
-    const wantTone = get(restAlertTone);
-    const wantVibe = get(restAlertVibrate);
-    if (!wantTone && !wantVibe) return; // nothing to fire
-
-    const toneId = get(restAlertToneId) || 'classic';
-    const tone   = getTone(toneId);
-    const hasCountdown = !!(tone.countdown && tone.countdown(3));
+    const plan = _cuePlan(state, state.endTime);
+    if (!plan) return; // nothing to fire
+    const { cues, body } = plan;
     const T = state.endTime;
-
-    // Build the cue list. The audio cue is ONE entry that plays the full
-    // pre-rendered 3-2-1-finale WAV (lt_tone_<id>.wav, see
-    // scripts/build-rest-tones.mjs); it fires at endTime-3s for tones
-    // with countdown, endTime for minimal-style tones. Vibration cues
-    // are independent per-tick haptics aligned with the audio beeps.
-    const cues = [];
-    if (wantTone) {
-      const soundFireAt = hasCountdown ? T - 3000 : T;
-      if (soundFireAt > Date.now()) {
-        cues.push({ at: soundFireAt, sound: `lt_tone_${toneId}`, vibrate: false, finale: false });
-      }
-    }
-    if (wantVibe) {
-      // Mirror the v4 cadence: a buzz on each beep + a finale double-pulse
-      // at zero so "0" feels distinct from the countdown.
-      const tickOffsets = hasCountdown ? [-3000, -2000, -1000] : [];
-      for (const offset of tickOffsets) {
-        const at = T + offset;
-        if (at > Date.now()) cues.push({ at, sound: '', vibrate: true, finale: false });
-      }
-    }
-
-    // The message at zero, and the finale buzz, ride on one cue. The
-    // receiver posts it local-only, so it stays in this phone's shade: Wear
-    // mirrors a phone's notifications to the watch by default, and the watch
-    // app runs its own rest with its own alarm and its own words. Two copies
-    // of the same fact, one of them unlabelled, is how a buzz on a wrist
-    // becomes a mystery.
-    const body = state.exerciseName ? `Ready for your next ${state.exerciseName} set` : 'Back to work!';
-    if (T > Date.now()) {
-      cues.push({
-        at: T, sound: '', vibrate: wantVibe, finale: true,
-        title: 'Rest complete', body,
-        // Mirrored to the watch only when the watch does not have the rest
-        // itself. When it does, it rings with its own alarm and its own
-        // words, and a second unlabelled copy of this is the thing that made
-        // a buzz on the wrist unaccountable.
-        localOnly: _onWatch,
-      });
-    }
     const fireAt = new Date(T);
     const notifications = [{
       id:        REST_TIMER_AUDIO_ID,
@@ -314,7 +356,7 @@ async function _scheduleNativeFinish(state) {
     }];
 
     if (cues.length && isCuePluginAvailable()) {
-      const r = await scheduleCues(cues);
+      const r = await scheduleCues(cues, T);
       console.log(`[restTimer] cue plugin scheduled ${r.scheduled}/${cues.length} broadcasts`);
       // The finale cue carries the message, so there is nothing left for
       // LocalNotifications to post. That is the point: what it posts cannot
@@ -390,6 +432,8 @@ async function _bgCountdownNotify(n) {
 
 async function _finish() {
   const state = get(restTimer);
+  // A paused rest has no zero to reach (its beeps were cleared on pausing).
+  if (state?.paused) return;
   const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
 
   if (hidden) {
@@ -434,7 +478,7 @@ async function _finish() {
   setTimeout(() => stopRest(false, { keepNativeNotif: true }), 700);
 }
 
-// ── Tick loop (for UI updates only — NOT authoritative) ────────────────────
+// ── Tick loop (for UI updates only, NOT authoritative) ─────────────────────
 function _startTick() {
   _stopTick();
   _tickInterval = setInterval(_tick, 250);
@@ -446,9 +490,10 @@ function _stopTick() {
 function _tick() {
   const state = get(restTimer);
   if (!state) { restRemaining.set(0); return; }
-  const remaining = Math.max(0, (state.endTime - Date.now()) / 1000);
+  const remaining = restLeftMs(state) / 1000;
   restRemaining.set(remaining);
-  if (remaining <= 0) _stopTick();
+  // Paused: the number holds, so there is nothing to tick.
+  if (state.paused || remaining <= 0) _stopTick();
 }
 
 // ── The wrist ──────────────────────────────────────────────────────────────
@@ -472,62 +517,195 @@ function _restStamped(at) {
 }
 
 let _telling = null;
+let _shading = null;
+// The watch holds this rest paused (it took the pause, or paused it itself).
+let _watchPaused = false;
 function _tellWatch(state) {
   if (!isNative) return;
   const at = Date.now();
+  // A watch that took this rest's pause hears how it ends even once it has
+  // gone half an hour unopened, or it would show "Paused" for good.
+  const force = _onWatch && _watchPaused;
   _restStamped(at);
+  // The notification is told first, with the same stamp, so that when this
+  // phone hears its own write to the watch come back (RestWearListener) it
+  // is already the word it holds and changes nothing.
+  _shading = _shade(state, at);
   // Kept, because whether the watch took it is what decides if this phone's
   // own notification may mirror across, and the notification is scheduled in
   // the same breath as the send. Reading _onWatch before this settles would
   // mean the first rest of a session always mirrored, which is the double
   // buzz this is here to stop.
-  _telling = import('../lib/wear-pairing.js')
-    .then(({ publishRest }) => publishRest(state, at))
-    .then(took => { _onWatch = !!took; return _onWatch; })
+  _telling = Promise.resolve(_shading)
+    .then(() => import('../lib/wear-pairing.js'))
+    .then(({ publishRest }) => publishRest(state, at, { force }))
+    .then(took => {
+      _onWatch = !!took;
+      _watchPaused = _onWatch && !!state?.paused;
+      // The notification's buttons follow the same rule with the app closed.
+      import('../lib/rest-cue.js').then(({ restOnWatch }) => restOnWatch(at, _onWatch)).catch(() => {});
+      return _onWatch;
+    })
     .catch(() => { _onWatch = false; return false; });
 }
 
+// ── The shade (Android) ────────────────────────────────────────────────────
 /**
- * The watch started, extended or skipped a rest. Take its word if it is
- * newer than ours. Called when the app comes back to the front, which is
- * before anyone can press anything here.
+ * The rest in the notification shade and on the lock screen, in this app's
+ * words. Everything it says is worked out here, translated, because its
+ * buttons act with no web layer to ask (RestShade.java).
+ */
+function _accent() {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    const short = /^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/.exec(v);
+    if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  } catch {}
+  return '#FF7433';
+}
+
+async function _shade(state, at = _restStamp(), { wordsOnly = false } = {}) {
+  if (!isNative) return;
+  try {
+    const { showRest, hideRest } = await import('../lib/rest-cue.js');
+    if (!state) { await hideRest(at); return; }
+    const t = get(_);
+    const fallbackTitle = state.exerciseName
+      ? t('rest_bar.next', { values: { name: state.exerciseName } })
+      : t('rest_bar.title');
+    const end = state.paused ? Date.now() + restLeftMs(state) : Number(state.endTime) || 0;
+    const plan = _cuePlan(state, end);
+    const { title, text } = restNoticeText(state.next, {
+      unit: get(weightUnit), last: state.next?.last || '', t, fallbackTitle,
+    });
+    await showRest({
+      paused: !!state.paused,
+      endsAt: Number(state.endTime) || 0,
+      leftMs: restLeftMs(state),
+      total: Number(state.total) || 0,
+      startedAt: Number(state.startedAt) || 0,
+      at,
+      date: String(state.date || ''),
+      label: String(state.exerciseName || ''),
+      title, text, fallbackTitle,
+      skip: t('rest_bar.skip'),
+      add: t('rest_bar.add', { values: { s: REST_ADD_SEC } }),
+      pause: t('rest_bar.pause'),
+      resume: t('rest_bar.resume'),
+      // The time goes in on the phone, when it is paused: "{time}" is kept.
+      pausedText: t('rest_bar.paused_left', { values: { time: '{time}' } }),
+      pausedChip: t('rest_bar.paused'),
+      addSec: REST_ADD_SEC,
+      accent: _accent(),
+      // The sound and buzz for this rest, kept by the plugin so that Resume
+      // and +30s on the notification can arm them with the app closed.
+      cues: plan ? plan.cues : [],
+      cuesEnd: end,
+      // A rest taken up from the notification or the watch, with no next set
+      // known here: the notification keeps the words it already had for it.
+      keepWords: !state.next,
+      // Only the words changed (last time arrived): nothing about the rest.
+      wordsOnly,
+    });
+  } catch (e) {
+    console.warn('[restTimer] shade failed:', e?.message || e);
+  }
+}
+
+/**
+ * Take a rest that the watch or this phone's notification changed. Their
+ * stamp becomes ours, nothing is sent back (that would be an echo, and its
+ * newer stamp would beat whatever either device does next), and the native
+ * cues are left alone: whoever made the change has already moved them.
+ */
+function _adopt(theirs, at, { fromNative = false } = {}) {
+  _restStamped(at);
+  const r = restFromWire(theirs, Date.now(), get(restTimer));
+  if (!r) return;
+  // Said by the watch: it has the rest, in whatever state it said.
+  if (!fromNative) {
+    _onWatch = true;
+    _watchPaused = !r.stop && !!r.state?.paused;
+  }
+  if (r.stop) {
+    if (get(restTimer)) stopRest(false, { fromWatch: true });
+    else if (!fromNative) _shade(null, at);
+    return;
+  }
+  const state = r.state;
+  restTimer.set(state);
+  _persist(state);
+  if (state.paused) {
+    _clearBeeps();
+    _stopTick();
+    restRemaining.set(restLeftMs(state) / 1000);
+  } else {
+    _scheduleBeeps(state.endTime);
+    _startTick();
+  }
+  // The notification follows what the watch said; one that said it itself
+  // already shows it.
+  if (!fromNative) _shade(state, at);
+}
+
+function _fromNative(rec) {
+  if (!rec || !(Number(rec.at) > _restStamp())) return false;
+  _adopt({
+    cleared: !rec.active,
+    paused: !!rec.active && !!rec.paused,
+    leftMs: Number(rec.leftMs) || 0,
+    endsAt: Number(rec.endsAt) || 0,
+    total: Number(rec.total) || 0,
+    label: String(rec.label || ''),
+    // Which rest, and its day: for a swipe-away to keep holding, and for
+    // the notification to open the right workout.
+    startedAt: Number(rec.startedAt) || 0,
+    date: String(rec.date || ''),
+  }, Number(rec.at), { fromNative: true });
+  return true;
+}
+
+/** What the notification's buttons did while this app was not looking. */
+async function _syncNative() {
+  if (!isNative) return false;
+  const { nativeRest } = await import('../lib/rest-cue.js');
+  return _fromNative(await nativeRest());
+}
+
+/**
+ * The watch started, extended, paused or skipped a rest, or this phone's
+ * notification did. Take the word if it is newer than ours. Called when the
+ * app comes back to the front, which is before anyone can press anything here.
  */
 export async function syncRest() {
   if (!isNative) return false;
+  let changed = false;
+  try { changed = await _syncNative(); } catch {}
   const { readRest } = await import('../lib/wear-pairing.js');
   const theirs = await readRest(_restStamp());
-  if (!theirs) return false;
-  _restStamped(theirs.at);
-  if (theirs.cleared || theirs.endsAt <= Date.now()) {
-    if (get(restTimer)) stopRest(false, { fromWatch: true });
-    return true;
-  }
-  const state = {
-    startedAt: theirs.endsAt - theirs.total * 1000,
-    endTime: theirs.endsAt,
-    total: theirs.total || Math.max(1, Math.round((theirs.endsAt - Date.now()) / 1000)),
-    exerciseId: get(restTimer)?.exerciseId ?? null,
-    exerciseName: theirs.label || '',
-  };
-  restTimer.set(state);
-  _persist(state);
-  _scheduleBeeps(state.endTime);
-  _startTick();
+  if (!theirs) return changed;
+  _adopt(theirs, theirs.at);
   return true;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
-export function startRest({ exerciseId, exerciseName, durationSec } = {}) {
+/**
+ * Start a rest. `next` is what is lifted after it (src/lib/rest-next.js),
+ * for the notification; `date` is the diary day, for opening it from there.
+ * Returns the rest, or null when none was started.
+ */
+export function startRest({ exerciseId, exerciseName, durationSec, date, next } = {}) {
   // Prefer per-exercise memory if caller didn't specify
   let total = durationSec;
   if (total == null && exerciseId != null) {
     const memory = get(restPerExercise) || {};
     if (memory[exerciseId]) total = memory[exerciseId];
   }
-  if (total == null || total <= 0) return;
-  if (!get(restAlert)) return;
+  if (total == null || total <= 0) return null;
+  if (!get(restAlert)) return null;
 
-  // startRest is called from a user gesture (set checkbox tap) — the
+  // startRest is called from a user gesture (set checkbox tap), the
   // ONLY context where browsers will actually show the Notification
   // permission prompt. Requesting it later from inside _finish's
   // setTimeout silently fails on Chrome / Safari because that callback
@@ -535,19 +713,25 @@ export function startRest({ exerciseId, exerciseName, durationSec } = {}) {
   // alerted on the PWA. Fire-and-forget; the result drives _finish's
   // showNotification gate next time the timer hits zero.
   _ensureNotifyPermission();
+  // Android: the rest's own notification needs the same permission, and
+  // now, with the app in front, is when asking can be answered.
+  if (isNative) _ensureNativeNotifReady();
 
+  const now = Date.now();
   const state = {
-    startedAt: Date.now(),
-    endTime:   Date.now() + total * 1000,
+    startedAt: now,
+    endTime:   now + total * 1000,
     total,
     exerciseId: exerciseId ?? null,
     exerciseName: exerciseName || '',
+    date: date || '',
+    next: next || null,
   };
   restTimer.set(state);
   _persist(state);
   _scheduleBeeps(state.endTime);
   _tellWatch(state);
-  // Only arm the OS notification if the user is already backgrounded —
+  // Only arm the OS notification if the user is already backgrounded,
   // otherwise the in-app Web Audio path handles cues and an OS schedule
   // would double up at -3s. The visibilitychange handler at the bottom of
   // this file re-arms the OS schedule if the user backgrounds mid-timer.
@@ -555,6 +739,22 @@ export function startRest({ exerciseId, exerciseName, durationSec } = {}) {
     _scheduleNativeFinish(state);
   }
   _startTick();
+  return state;
+}
+
+/**
+ * What you did on the next set last time, found after the rest started (it
+ * needs the exercise's history). Only for the rest it was looked up for.
+ */
+export function noteRestLastTime(startedAt, last) {
+  const state = get(restTimer);
+  if (!state || !last || state.startedAt !== startedAt || !state.next) return;
+  const next = { ...state, next: { ...state.next, last } };
+  restTimer.set(next);
+  _persist(next);
+  // The same rest in more words: not a change to it, so no new stamp, and
+  // only the words go over (a button pressed meanwhile is not undone).
+  _shade(next, _restStamp(), { wordsOnly: true });
 }
 
 function _ensureNotifyPermission() {
@@ -565,15 +765,56 @@ function _ensureNotifyPermission() {
   } catch {}
 }
 
-export function addRestTime(extraSec = 30) {
+export function addRestTime(extraSec = REST_ADD_SEC) {
   const state = get(restTimer);
   if (!state) return;
-  const next = { ...state, endTime: state.endTime + extraSec * 1000, total: state.total + extraSec };
+  const next = extendedRest(state, extraSec);
+  restTimer.set(next);
+  _persist(next);
+  _tellWatch(next);
+  if (next.paused) {
+    restRemaining.set(restLeftMs(next) / 1000);
+    return;
+  }
+  _scheduleBeeps(next.endTime);
+  // As at the start: the OS cues only while the app is in the background,
+  // or they play over the app's own countdown.
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    _scheduleNativeFinish(next);
+  }
+  _tick();
+}
+
+/** Hold the rest where it is. Nothing counts or rings until it is resumed. */
+export function pauseRest() {
+  const state = get(restTimer);
+  if (!state || state.paused) return;
+  const next = pausedRest(state);
+  if (restLeftMs(next) <= 0) return;
+  restTimer.set(next);
+  _persist(next);
+  _clearBeeps();
+  _stopTick();
+  restRemaining.set(restLeftMs(next) / 1000);
+  // The OS cues are for a deadline that no longer exists.
+  _cancelNativeFinish();
+  _tellWatch(next);
+}
+
+/** Count on from what was left. */
+export function resumeRest() {
+  const state = get(restTimer);
+  if (!state || !state.paused) return;
+  const next = resumedRest(state);
+  if (next.endTime <= Date.now()) { stopRest(false); return; }
   restTimer.set(next);
   _persist(next);
   _scheduleBeeps(next.endTime);
   _tellWatch(next);
-  _scheduleNativeFinish(next);
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    _scheduleNativeFinish(next);
+  }
+  _startTick();
 }
 
 export function stopRest(rememberIfFull = true, opts = {}) {
@@ -595,6 +836,9 @@ export function stopRest(rememberIfFull = true, opts = {}) {
   // echo, and the newer stamp on it would beat the next thing either device
   // actually does.
   if (!fromWatch) _tellWatch(null);
+  // The rest's own notification goes either way; "Rest complete" (kept by
+  // keepNativeNotif) is a different one.
+  else _shade(null);
   _stopTick();
 }
 
@@ -603,26 +847,57 @@ if (typeof window !== 'undefined') {
   const resumed = _load();
   if (resumed) {
     restTimer.set(resumed);
-    _scheduleBeeps(resumed.endTime);
-    // Re-schedule the OS notification too — _ensureNativeNotifReady is
-    // idempotent and the scheduler de-dupes by id, so this is safe even
-    // if a previous app launch already scheduled the same notification.
-    _scheduleNativeFinish(resumed);
-    _startTick();
+    if (resumed.paused) restRemaining.set(restLeftMs(resumed) / 1000);
+    else {
+      _scheduleBeeps(resumed.endTime);
+      _startTick();
+    }
   }
 
-  document.addEventListener('visibilitychange', () => {
-    const state = get(restTimer);
-    if (!state) return;
+  if (isNative) {
+    // The notification's buttons (and the watch) may have changed the rest
+    // with this app closed: take that first, then put the notification and
+    // the cues back for whatever the rest now is (a force-stop takes both).
+    (async () => {
+      let rec = null;
+      try {
+        await _syncNative();
+        rec = await (await import('../lib/rest-cue.js')).nativeRest();
+      } catch {}
+      const state = get(restTimer);
+      if (!state) return;
+      // Its own record already has this rest (the same word, or a newer one
+      // just taken): put it back as it was, words and swipe-away included.
+      if (rec && rec.active && rec.at >= _restStamp()) {
+        import('../lib/rest-cue.js').then(({ repostRest }) => repostRest()).catch(() => {});
+      } else {
+        _shade(state);
+      }
+      // Only from the background, as everywhere else: in front, the app
+      // plays the countdown itself and an OS batch would double it.
+      if (!state.paused && document.visibilityState === 'hidden') _scheduleNativeFinish(state);
+    })();
+    import('../lib/rest-cue.js').then(({ onNativeRest }) => onNativeRest(_fromNative)).catch(() => {});
+  }
+
+  document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
+      // Whatever the notification's buttons did while the app was away
+      // comes first, so the countdown below is for the rest as it now is.
+      if (isNative) { try { await _syncNative(); } catch {} }
+      const state = get(restTimer);
+      if (!state) return;
+      _tick();
+      if (state.paused) return;
       // Foregrounded: catch up on missed ticks, re-issue any beeps the
-      // browser dropped while throttled, and cancel the OS notification —
+      // browser dropped while throttled, and cancel the OS notification:
       // the in-app Web Audio path will fire the countdown + finale now
       // that the WebView is awake again.
-      _tick();
       _scheduleBeeps(state.endTime);
       _cancelNativeFinish();
     } else {
+      const state = get(restTimer);
+      if (!state || state.paused) return;
       // Backgrounded: arm the OS notification so the bundled tone audio
       // (3-2-1-finale) plays without the WebView. Foreground in-app cues
       // won't fire from setTimeout callbacks while suspended anyway.

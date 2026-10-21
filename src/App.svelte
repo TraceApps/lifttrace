@@ -470,6 +470,16 @@
           } catch {}
         });
         setTimeout(() => import('./stores/restTimer.js').then(({ syncRest }) => syncRest()).catch(() => {}), 3000);
+        // The rest's notification was tapped: the Diary, on that workout's
+        // day. Heard even when the tap is what started the app.
+        import('./lib/rest-cue.js').then(({ onRestOpened }) => onRestOpened((date) => {
+          try { if (date) sessionStorage.setItem('lt:diary-open-date', date); } catch {}
+          if ($location !== '/') {
+            import('svelte-spa-router').then(({ push }) => push('/')).catch(() => {});
+          } else {
+            window.dispatchEvent(new CustomEvent('lt:diary-open-date'));
+          }
+        })).catch(() => {});
         // Web/PWA fallbacks — same reason as above but for the browser
         // page lifecycle (tab hidden, page unload). Cheap idempotent
         // flush; no-op if nothing pending.

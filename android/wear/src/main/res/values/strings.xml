@@ -19,4 +19,9 @@
     <string name="summary_volume">%1$s %2$s</string>
     <string name="summary_done">Done</string>
     <string name="finished_note">Change a set or add one any time.</string>
+    <!-- Pausing a rest -->
+    <string name="rest_pause">Pause</string>
+    <string name="rest_resume">Resume</string>
+    <string name="rest_paused">Paused</string>
+    <string name="rest_paused_left">Rest paused, %1$s left</string>
 </resources>

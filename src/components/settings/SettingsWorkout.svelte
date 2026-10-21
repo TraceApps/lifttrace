@@ -8,8 +8,9 @@
     exerciseReorderMethod, confirmExerciseRemoval, restTimerEnabled,
     restDuration, restAutoStart, restAlert, restAlertVibrate, restAlertTone,
     bodyStatsVisible, autoGenerateWarmups, trackRpe, restAlertToneId,
-    caloriesBurnedEnabled,
+    caloriesBurnedEnabled, restAlertOutput,
   } from '../../stores/settings.js';
+  import { isNative } from '../../lib/platform.js';
   import { REST_TONES } from '../../lib/restTones.js';
   import { LtApi } from '../../lib/api.js';
   import { showError, showSuccess } from '../../stores/toast.js';
@@ -253,6 +254,18 @@
               </div>
               <Toggle bind:checked={$restAlertTone} />
             </div>
+            {#if isNative && ($restAlertTone || $restAlertVibrate)}
+              <!-- Android only: the app plays the cue itself, so it can play it
+                   as an alarm, which Do Not Disturb lets through. -->
+              <div class="setting-row" style="padding-left:28px">
+                <div class="setting-label-group">
+                  <span class="setting-label">{$_('settings_workout.rest.dnd')}</span>
+                  <span class="setting-hint">{$_('settings_workout.rest.dnd_desc')}</span>
+                </div>
+                <Toggle checked={$restAlertOutput === 'alarm'}
+                  on:change={e => $restAlertOutput = e.detail ? 'alarm' : 'notification'} />
+              </div>
+            {/if}
             {#if $restAlertTone}
               <div class="setting-row" style="padding-left:28px;flex-direction:column;align-items:stretch;gap:6px">
                 <div class="setting-label-group">
