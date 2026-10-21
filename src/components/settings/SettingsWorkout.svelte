@@ -117,8 +117,8 @@
         {#if $cardioEnabled}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Weekly Cardio Minutes</span>
-              <span class="setting-hint">Target line on the Statistics Cardio chart. Set to 0 to hide the target.</span>
+              <span class="setting-label">{$_('settings_workout.goals.weekly_cardio')}</span>
+              <span class="setting-hint">{$_('settings_workout.goals.weekly_cardio_desc')}</span>
             </div>
             <input class="form-input-sm" type="number" min="0" step="15" style="width:90px"
               bind:value={$weeklyCardioMinutesGoal} />

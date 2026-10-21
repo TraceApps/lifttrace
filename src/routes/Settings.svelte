@@ -116,18 +116,18 @@
   }
 
   function _fmtTimeAgo(iso) {
-    if (!iso) return 'never';
+    if (!iso) return $_('settings_main.time.never');
     const ms = _nowTick - new Date(iso).getTime();
-    if (ms < 0) return 'just now';
+    if (ms < 0) return $_('settings_main.time.just_now');
     const s = Math.floor(ms / 1000);
-    if (s < 10)  return 'just now';
-    if (s < 60)  return `${s}s ago`;
+    if (s < 10)  return $_('settings_main.time.just_now');
+    if (s < 60)  return $_('settings_main.time.sec_ago', { values: { n: s } });
     const m = Math.floor(s / 60);
-    if (m < 60)  return `${m}m ago`;
+    if (m < 60)  return $_('settings_main.time.min_ago', { values: { n: m } });
     const h = Math.floor(m / 60);
-    if (h < 24)  return `${h}h ago`;
+    if (h < 24)  return $_('settings_main.time.hr_ago', { values: { n: h } });
     const d = Math.floor(h / 24);
-    return `${d}d ago`;
+    return $_('settings_main.time.day_ago', { values: { n: d } });
   }
 
   // ── Server connect / merge flow ────────────────────────────────────────
@@ -250,18 +250,18 @@
 
         const { uploadLocalToServer } = await import('../lib/migrate.js');
         const stageLabels = {
-          settings:        'settings',
-          workouts:        'workouts',
-          bodyStats:       'body stats',
-          programs:        'programs',
-          templates:       'templates',
-          customExercises: 'custom exercises',
+          settings:        $_('settings_main.merge.stage.settings'),
+          workouts:        $_('settings_main.merge.stage.workouts'),
+          bodyStats:       $_('settings_main.merge.stage.body_stats'),
+          programs:        $_('settings_main.merge.stage.programs'),
+          templates:       $_('settings_main.merge.stage.templates'),
+          customExercises: $_('settings_main.merge.stage.custom_exercises'),
         };
         migrationSummary = await uploadLocalToServer({
           userId: _pendingUserId,
           onProgress: (stage, current, total) => {
             mergeStage = stageLabels[stage] || stage;
-            mergeProgress = `Uploading ${mergeStage} (${current + 1} / ${total})`;
+            mergeProgress = $_('settings_main.merge.uploading', { values: { stage: mergeStage, current: current + 1, total } });
             mergeProgressPct = total > 0 ? Math.round(((current + 1) / total) * 100) : 0;
           },
         });
@@ -821,13 +821,13 @@
   $: _onboardingCards = (() => {
     const cards = [];
     if (isNative && !getServerUrl()) {
-      cards.push({ key: 'serverConnection', icon: 'cloud_sync', label: 'Connect a Server', desc: 'Sync your workouts across devices.' });
+      cards.push({ key: 'serverConnection', icon: 'cloud_sync', labelKey: 'settings_main.onboarding.server', descKey: 'settings_main.onboarding.server_desc' });
     }
     if (_activeProgramLoaded && !$activeProgram) {
-      cards.push({ key: 'program',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.', route: '/programs' });
+      cards.push({ key: 'program',   icon: 'fitness_center', labelKey: 'settings_main.onboarding.program', descKey: 'settings_main.onboarding.program_desc', route: '/programs' });
     }
     if (!$aiEnabled) {
-      cards.push({ key: 'trace',     icon: 'smart_toy', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
+      cards.push({ key: 'trace',     icon: 'smart_toy', labelKey: 'settings_main.onboarding.trace', descKey: 'settings_main.onboarding.trace_desc' });
     }
     return cards.filter(c => !_onboardingDismissed.has(c.key));
   })();
@@ -884,7 +884,7 @@
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
 
-  <p class="settings-group-label">Data &amp; Tracking</p>
+  <p class="settings-group-label">{$_('settings_main.group_data')}</p>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'workout')} class:active={currentSection === 'workout'} aria-current={currentSection === 'workout' ? 'page' : undefined} on:click={() => toggleSection('workout')}>
     <span class="material-symbols-rounded si">fitness_center</span>
     <span>{$_('settings.workout.section')}</span>
@@ -923,7 +923,7 @@
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
 
-  <p class="settings-group-label">App</p>
+  <p class="settings-group-label">{$_('settings_main.group_app')}</p>
   {#if isNative}
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} class:active={currentSection === 'serverConnection'} aria-current={currentSection === 'serverConnection' ? 'page' : undefined} on:click={() => toggleSection('serverConnection')}>
       <span class="material-symbols-rounded si">cloud</span>
@@ -1062,7 +1062,7 @@
          shell 1:1 so the family stays visually uniform. -->
     <div class="settings-two-pane" bind:this={paneEl} class:fold-snap={railSnap}
       style={railSnap ? `--rail-w:${foldRailW}px; --hinge:${hingeW}px` : ''}>
-      <aside class="settings-nav-rail" aria-label="Settings sections"
+      <aside class="settings-nav-rail" aria-label={$_('settings_main.sections_aria')}
              bind:this={_railEl}
              on:scroll={() => { _scrollMemo.railTop = _railEl.scrollTop; }}>
         <!-- Sliding highlight pill. Absolutely positioned; its
@@ -1077,10 +1077,10 @@
         {#if _railNoMatches}
           <div class="settings-nav-empty">
             <span class="material-symbols-rounded">search_off</span>
-            <p>No sections match "{settingsSearch}"</p>
+            <p>{$_('settings_main.no_sections_match', { values: { query: settingsSearch } })}</p>
             <button type="button" class="settings-nav-clear"
               on:click={() => settingsSearch = ''}>
-              Clear search
+              {$_('settings_main.clear_search_button')}
             </button>
           </div>
         {/if}
@@ -1098,8 +1098,8 @@
       {@const _u = $currentUser || {}}
       {@const _nick = (_u.nickname || '').trim()}
       {@const _full = (_u.full_name || '').trim()}
+      {@const _hasName = !!(_nick || (_full && _full !== 'Local User'))}
       {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || $_('settings_main.profile_fallback')}
-      {@const _hasName = _displayName !== $_('settings_main.profile_fallback')}
       {@const _initial = (_displayName[0] || '?').toUpperCase()}
       <div class="settings-desktop-hero">
         <button class="profile-hero profile-hero-expander" on:click={_toggleProfileHero}
@@ -1116,7 +1116,7 @@
           <div class="profile-hero-info">
             <span class="profile-hero-name">{_displayName}</span>
             {#if _hasName && _u.role === 'admin' && $userMgmtActive}
-              <span class="profile-hero-role">admin</span>
+              <span class="profile-hero-role">{$_('common.admin')}</span>
             {:else if !_hasName}
               <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
             {/if}
@@ -1141,7 +1141,7 @@
                disappear once the underlying thing is configured or
                the user × dismisses them. Ports NT's shape. -->
           <div class="settings-onboarding">
-            <p class="settings-onboarding-heading">Get Set Up</p>
+            <p class="settings-onboarding-heading">{$_('settings_main.onboarding.heading')}</p>
             <div class="settings-onboarding-grid">
               {#each _onboardingCards as card (card.key)}
                 <div class="settings-onboarding-card-wrap">
@@ -1149,14 +1149,14 @@
                     on:click={() => card.route ? push(card.route) : toggleSection(card.key)}>
                     <span class="material-symbols-rounded">{card.icon}</span>
                     <div class="settings-onboarding-copy">
-                      <span class="settings-onboarding-label">{card.label}</span>
-                      <span class="settings-onboarding-desc">{card.desc}</span>
+                      <span class="settings-onboarding-label">{$_(card.labelKey)}</span>
+                      <span class="settings-onboarding-desc">{$_(card.descKey)}</span>
                     </div>
                   </button>
                   <button type="button" class="settings-onboarding-dismiss"
                     on:click|stopPropagation={() => _dismissOnboarding(card.key)}
-                    aria-label="Dismiss {card.label}"
-                    title="Dismiss">
+                    aria-label={$_('settings_main.onboarding.dismiss_named', { values: { name: $_(card.labelKey) } })}
+                    title={$_('settings_main.onboarding.dismiss')}>
                     <span class="material-symbols-rounded">close</span>
                   </button>
                 </div>
@@ -1193,8 +1193,8 @@
     {@const _u = $currentUser || {}}
     {@const _nick = (_u.nickname || '').trim()}
     {@const _full = (_u.full_name || '').trim()}
-    {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || 'My Profile'}
-    {@const _hasName = _displayName !== 'My Profile'}
+    {@const _hasName = !!(_nick || (_full && _full !== 'Local User'))}
+    {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || $_('settings_main.profile_fallback')}
     {@const _initial = (_displayName[0] || '?').toUpperCase()}
     <button class="profile-hero mobile-profile-hero" on:click={() => push('/profile')}>
       <div class="profile-hero-avatar">
@@ -1209,7 +1209,7 @@
       <div class="profile-hero-info">
         <span class="profile-hero-name">{_displayName}</span>
         {#if _hasName && _u.role === 'admin' && $userMgmtActive}
-          <span class="profile-hero-role">admin</span>
+          <span class="profile-hero-role">{$_('common.admin')}</span>
         {:else if !_hasName}
           <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
         {/if}
@@ -1351,7 +1351,7 @@
     />
 
     <!-- ═══ DATA & TRACKING (workout settings, charts — mirrors NutriTrace) -->
-    <p class="group-label">Data &amp; Tracking</p>
+    <p class="group-label">{$_('settings_main.group_data')}</p>
 
     <SettingsWorkout
       visible={sectionVisible(settingsQuery, 'workout')}
@@ -1399,7 +1399,7 @@
     {/if}
 
     <!-- ═══ APP (server connection + notifications + data movement, app-level — visible to all) -->
-    <p class="group-label">App</p>
+    <p class="group-label">{$_('settings_main.group_app')}</p>
 
     <!-- ── Server Connection (native only — manages connection to a remote
          LiftTrace server). PWA users have no "server connection" concept;
@@ -1431,18 +1431,18 @@
               </div>
               <button class="btn btn-secondary" style="height:32px;font-size:12px;padding:0 12px;display:flex;align-items:center;gap:6px" on:click={manualSync} disabled={_syncing}>
                 <span class="material-symbols-rounded" class:spin={_syncing} style="font-size:16px">{_syncing ? 'autorenew' : 'sync'}</span>
-                {_syncing ? 'Syncing…' : 'Sync now'}
+                {_syncing ? $_('sync.syncing') : $_('settings_main.server.sync_now')}
               </button>
             </div>
             <div class="setting-divider"></div>
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-ghost w-full" on:click={logoutServer}>
                 <span class="material-symbols-rounded" style="font-size:18px">logout</span>
-                Log Out
+                {$_('common.log_out')}
               </button>
               <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer} disabled={disconnecting}>
                 <span class="material-symbols-rounded" style="font-size:18px">{disconnecting ? 'progress_activity' : 'link_off'}</span>
-                {#if disconnecting}{$_('sync.disconnecting')}{:else}Disconnect &amp; Use Locally{/if}
+                {#if disconnecting}{$_('sync.disconnecting')}{:else}{$_('settings_main.server.disconnect')}{/if}
               </button>
             </div>
           {:else}
@@ -1505,7 +1505,7 @@
                 </div>
               </div>
               <button class="btn btn-primary" style="width:100%;justify-content:center;height:42px" on:click={connectServer} disabled={serverConnecting}>
-                {serverConnecting ? 'Connecting…' : 'Connect to Server'}
+                {serverConnecting ? $_('settings_main.server.connecting') : $_('native_setup.connect_server')}
               </button>
               {/if}
             </div>
@@ -1646,7 +1646,7 @@
     />
 
     {#if settingsQuery && !Object.values(expanded).some(v => v)}
-      <p class="empty-state">No settings match "{settingsSearch}"</p>
+      <p class="empty-state">{$_('settings_main.no_settings_match', { values: { query: settingsSearch } })}</p>
     {/if}
 
     <div style="height:24px"></div>
@@ -1662,19 +1662,19 @@
     <div class="merge-dialog">
       <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">{$_('settings_main.merge.title')}</h3>
       <p style="font-size:13px;color:var(--text-3);margin:0 0 12px;line-height:1.5">
-        You have data on this phone. How should it be handled when connecting?
+        {$_('settings_main.merge.intro')}
       </p>
       {#if localCounts && localCounts.total > 0}
         <div class="merge-counts" style="margin:0 0 16px">
-          <div class="merge-counts-title">On this phone:</div>
+          <div class="merge-counts-title">{$_('settings_main.merge.on_this_phone')}</div>
           <div class="merge-counts-grid">
-            {#if localCounts.workouts        > 0}<div><strong>{localCounts.workouts}</strong> {localCounts.workouts === 1 ? 'workout' : 'workouts'}</div>{/if}
-            {#if localCounts.bodyStats       > 0}<div><strong>{localCounts.bodyStats}</strong> body {localCounts.bodyStats === 1 ? 'stat' : 'stats'}</div>{/if}
-            {#if localCounts.programs        > 0}<div><strong>{localCounts.programs}</strong> {localCounts.programs === 1 ? 'program' : 'programs'}</div>{/if}
-            {#if localCounts.templates       > 0}<div><strong>{localCounts.templates}</strong> {localCounts.templates === 1 ? 'template' : 'templates'}</div>{/if}
-            {#if localCounts.customExercises > 0}<div><strong>{localCounts.customExercises}</strong> custom {localCounts.customExercises === 1 ? 'exercise' : 'exercises'}</div>{/if}
+            {#if localCounts.workouts        > 0}<div><strong>{localCounts.workouts}</strong> {$_('settings_main.merge.unit_workouts', { values: { count: localCounts.workouts } })}</div>{/if}
+            {#if localCounts.bodyStats       > 0}<div><strong>{localCounts.bodyStats}</strong> {$_('settings_main.merge.unit_body_stats', { values: { count: localCounts.bodyStats } })}</div>{/if}
+            {#if localCounts.programs        > 0}<div><strong>{localCounts.programs}</strong> {$_('settings_main.merge.unit_programs', { values: { count: localCounts.programs } })}</div>{/if}
+            {#if localCounts.templates       > 0}<div><strong>{localCounts.templates}</strong> {$_('settings_main.merge.unit_templates', { values: { count: localCounts.templates } })}</div>{/if}
+            {#if localCounts.customExercises > 0}<div><strong>{localCounts.customExercises}</strong> {$_('settings_main.merge.unit_custom_exercises', { values: { count: localCounts.customExercises } })}</div>{/if}
             {#if localCounts.cardio          > 0}<div>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</div>{/if}
-            {#if localCounts.settings        > 0}<div><strong>{localCounts.settings}</strong> settings</div>{/if}
+            {#if localCounts.settings        > 0}<div><strong>{localCounts.settings}</strong> {$_('settings_main.merge.unit_settings', { values: { count: localCounts.settings } })}</div>{/if}
           </div>
         </div>
       {/if}
@@ -1683,21 +1683,21 @@
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_upload</span>
           <div>
             <div class="merge-option-title">{$_('settings_main.merge.upload')}</div>
-            <div class="merge-option-desc">Send this phone's workouts, programs, and settings to the server. Existing server data stays.</div>
+            <div class="merge-option-desc">{$_('settings_main.merge.upload_desc')}</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('download')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_download</span>
           <div>
             <div class="merge-option-title">{$_('settings_main.merge.download')}</div>
-            <div class="merge-option-desc">Replace this phone's data with everything from the server. Local data is discarded.</div>
+            <div class="merge-option-desc">{$_('settings_main.merge.download_desc')}</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('merge')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">sync</span>
           <div>
             <div class="merge-option-title">{$_('settings_main.merge.merge')}</div>
-            <div class="merge-option-desc">Upload phone data to the server AND download server data. Nothing is lost, but duplicates are possible.</div>
+            <div class="merge-option-desc">{$_('settings_main.merge.merge_desc')}</div>
           </div>
         </button>
         <button class="btn btn-ghost" style="color:var(--text-3);margin-top:4px;width:100%;justify-content:center;height:40px" on:click={cancelMerge}>{$_('settings_main.merge.cancel')}</button>
@@ -1708,8 +1708,8 @@
   <div class="merge-overlay" use:portal use:closeOnBack={() => {}} transition:fade={{ duration: 150 }}>
     <div class="merge-dialog" style="text-align:center">
       <span class="material-symbols-rounded" style="font-size:36px;color:var(--accent);animation:settings-spin 1.2s linear infinite">sync</span>
-      <p style="font-size:15px;color:var(--text-1);margin:12px 0 4px;font-weight:600">Syncing…</p>
-      <p style="font-size:13px;color:var(--text-3);margin:0">{mergeProgress || 'Preparing…'}</p>
+      <p style="font-size:15px;color:var(--text-1);margin:12px 0 4px;font-weight:600">{$_('sync.syncing')}</p>
+      <p style="font-size:13px;color:var(--text-3);margin:0">{mergeProgress || $_('settings_main.merge.preparing')}</p>
       {#if mergeProgressPct > 0}
         <div class="merge-progress-bar" style="margin-top:14px">
           <div class="merge-progress-fill" style="width:{mergeProgressPct}%"></div>
@@ -1721,27 +1721,27 @@
   <div class="merge-overlay" use:portal use:closeOnBack={() => {}} transition:fade={{ duration: 150 }}>
     <div class="merge-dialog">
       <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">
-        {migrationSummary.errors.length === 0 ? 'Upload complete' : 'Upload finished with issues'}
+        {migrationSummary.errors.length === 0 ? $_('settings_main.merge.upload_complete') : $_('settings_main.merge.upload_issues')}
       </h3>
       <p style="font-size:13px;color:var(--text-3);margin:0 0 14px;line-height:1.5">
-        {migrationSummary.totalSuccess} of {migrationSummary.total} {migrationSummary.total === 1 ? 'item' : 'items'} uploaded successfully.
+        {$_('settings_main.merge.uploaded_of', { values: { done: migrationSummary.totalSuccess, total: migrationSummary.total } })}
       </p>
       <div class="merge-counts" style="margin:0 0 14px">
-        <div class="merge-counts-title">Uploaded to server:</div>
+        <div class="merge-counts-title">{$_('settings_main.merge.uploaded_to_server')}</div>
         <div class="merge-counts-grid">
-          {#if migrationSummary.success.workouts        > 0}<div><strong>{migrationSummary.success.workouts}</strong> {migrationSummary.success.workouts === 1 ? 'workout' : 'workouts'}</div>{/if}
-          {#if migrationSummary.success.bodyStats       > 0}<div><strong>{migrationSummary.success.bodyStats}</strong> body {migrationSummary.success.bodyStats === 1 ? 'stat' : 'stats'}</div>{/if}
-          {#if migrationSummary.success.programs        > 0}<div><strong>{migrationSummary.success.programs}</strong> {migrationSummary.success.programs === 1 ? 'program' : 'programs'}</div>{/if}
-          {#if migrationSummary.success.templates       > 0}<div><strong>{migrationSummary.success.templates}</strong> {migrationSummary.success.templates === 1 ? 'template' : 'templates'}</div>{/if}
-          {#if migrationSummary.success.customExercises > 0}<div><strong>{migrationSummary.success.customExercises}</strong> custom {migrationSummary.success.customExercises === 1 ? 'exercise' : 'exercises'}</div>{/if}
-          {#if migrationSummary.success.settings        > 0}<div><strong>{migrationSummary.success.settings}</strong> settings</div>{/if}
+          {#if migrationSummary.success.workouts        > 0}<div><strong>{migrationSummary.success.workouts}</strong> {$_('settings_main.merge.unit_workouts', { values: { count: migrationSummary.success.workouts } })}</div>{/if}
+          {#if migrationSummary.success.bodyStats       > 0}<div><strong>{migrationSummary.success.bodyStats}</strong> {$_('settings_main.merge.unit_body_stats', { values: { count: migrationSummary.success.bodyStats } })}</div>{/if}
+          {#if migrationSummary.success.programs        > 0}<div><strong>{migrationSummary.success.programs}</strong> {$_('settings_main.merge.unit_programs', { values: { count: migrationSummary.success.programs } })}</div>{/if}
+          {#if migrationSummary.success.templates       > 0}<div><strong>{migrationSummary.success.templates}</strong> {$_('settings_main.merge.unit_templates', { values: { count: migrationSummary.success.templates } })}</div>{/if}
+          {#if migrationSummary.success.customExercises > 0}<div><strong>{migrationSummary.success.customExercises}</strong> {$_('settings_main.merge.unit_custom_exercises', { values: { count: migrationSummary.success.customExercises } })}</div>{/if}
+          {#if migrationSummary.success.settings        > 0}<div><strong>{migrationSummary.success.settings}</strong> {$_('settings_main.merge.unit_settings', { values: { count: migrationSummary.success.settings } })}</div>{/if}
         </div>
       </div>
       {#if migrationSummary.errors.length > 0}
         <div style="margin:0 0 14px">
           <div class="merge-counts-title" style="color:var(--danger,#e57373)">
-            {migrationSummary.errors.length} {migrationSummary.errors.length === 1 ? 'error' : 'errors'}
-            {#if migrationSummary.errors.length > 5}(showing first 5){/if}
+            {$_('settings_main.merge.error_count', { values: { count: migrationSummary.errors.length } })}
+            {#if migrationSummary.errors.length > 5}{$_('settings_main.merge.showing_first', { values: { n: 5 } })}{/if}
           </div>
           <ul style="font-size:12px;color:var(--text-3);padding-left:18px;margin:6px 0 0;line-height:1.5">
             {#each migrationSummary.errors.slice(0, 5) as err}
@@ -1762,7 +1762,7 @@
       <span class="cp-preview-hex">{customHexInput}</span>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Hue</label>
+      <label class="form-label">{$_('settings_main.color.hue')}</label>
       <div class="cp-slider-wrap">
         <input type="range" class="cp-slider cp-hue" min="0" max="360"
           bind:value={cpHue} on:input={cpUpdateFromSliders} />

@@ -29,6 +29,9 @@
   let inviteResult = null;
   let inviting = false;
   let pendingInvites = []; // { token, email, role, expires_at }
+  // A role as the app names it; an unknown one shows as the server sent it.
+  const ROLE_KEYS = { admin: 'settings.users.role_admin', trainer: 'settings.users.role_trainer', member: 'settings.users.role_member' };
+  $: roleName = (role) => ROLE_KEYS[role] ? $_(ROLE_KEYS[role]) : role;
 
   // Permissive email shape — server is the source of truth, this is just
   // a UI guard so 'asdf' can't be submitted as if it were an email address.
@@ -293,10 +296,10 @@
 
   async function enableUserMgmt() {
     enableUmError = '';
-    if (!enableAdminUser.trim()) { enableUmError = 'Username required'; return; }
+    if (!enableAdminUser.trim()) { enableUmError = $_('settings.users.err_username_required'); return; }
     const pwErr = validatePassword(enableAdminPass);
     if (pwErr) { enableUmError = pwErr; return; }
-    if (enableAdminPass !== enableAdminConf) { enableUmError = 'Passwords do not match'; return; }
+    if (enableAdminPass !== enableAdminConf) { enableUmError = $_('settings.users.err_passwords_mismatch'); return; }
     enableUmLoading = true;
     try {
       const res = await fetch('/api/auth/register', {
@@ -375,7 +378,7 @@
             </div>
             <div class="my-profile-info">
               <span class="my-profile-name">{$currentUser.full_name || $currentUser.username}</span>
-              <span class="my-profile-role">{$currentUser.role}</span>
+              <span class="my-profile-role">{roleName($currentUser.role)}</span>
             </div>
             <span class="material-symbols-rounded my-profile-chev">chevron_right</span>
           </button>
@@ -401,7 +404,7 @@
                   <span class="user-row-meta">@{u.username}</span>
                   <div class="user-row-selects">
                     {#if u.id === $currentUser.id}
-                      <span class="user-role-badge">{u.role} {$_('settings.users.role_self_suffix')}</span>
+                      <span class="user-role-badge">{roleName(u.role)} {$_('settings.users.role_self_suffix')}</span>
                     {:else}
                       <select class="form-select-xs" value={u.role} on:change={e => changeUserRole(u, e.target.value)} title={$_('settings.users.role')}>
                         <option value="member">{$_('settings.users.role_member_opt')}</option>
@@ -410,7 +413,7 @@
                       </select>
                     {/if}
                     {#if u.role === 'member' && u.id !== $currentUser.id}
-                      <select class="form-select-xs" value={u.trainer_id || ''} on:change={e => changeUserTrainer(u, e.target.value, e.target)} title="Assigned trainer">
+                      <select class="form-select-xs" value={u.trainer_id || ''} on:change={e => changeUserTrainer(u, e.target.value, e.target)} title={$_('settings.users.assigned_trainer')}>
                         <option value="">{$_('settings.users.no_trainer')}</option>
                         {#each trainers as t (t.id)}
                           <option value={t.id}>{$_('settings.users.coach_option', { values: { name: t.full_name || t.username } })}</option>
@@ -447,7 +450,7 @@
               class:invalid={_inviteEmailTrimmed && !_inviteEmailValid}
               bind:value={inviteEmail} placeholder={$_('settings.users.email_optional')} />
             {#if _inviteEmailTrimmed && !_inviteEmailValid}
-              <p class="invite-hint">Enter a valid email address, or clear the field to generate a shareable link.</p>
+              <p class="invite-hint">{$_('settings.users.invite_email_hint')}</p>
             {/if}
             <div class="um-role-pair">
               <label class="um-role-label" for="invite-role-sel">{$_('settings.users.role')}</label>
@@ -484,17 +487,17 @@
                 {#each pendingInvites as inv (inv.token)}
                   <div class="pending-invite-row">
                     <div class="pending-invite-info">
-                      <span class="pending-invite-email">{inv.email || 'Link-only (no email)'}</span>
+                      <span class="pending-invite-email">{inv.email || $_('settings.users.invite_link_only')}</span>
                       <span class="pending-invite-meta">
-                        {inv.role === 'admin' ? 'Admin' : (inv.role === 'trainer' ? 'Trainer' : 'Member')} ·
-                        expires {new Date(inv.expires_at).toLocaleDateString()}
+                        {roleName(inv.role)} ·
+                        {$_('settings.users.invite_expires', { values: { date: new Date(inv.expires_at).toLocaleDateString() } })}
                         {#if inv.coach_id && trainers.find(t => t.id === inv.coach_id)}
                           · {$_('settings.users.new_coach_meta', { values: { name: trainers.find(t => t.id === inv.coach_id).full_name || trainers.find(t => t.id === inv.coach_id).username } })}
                         {/if}
                       </span>
                     </div>
                     <button class="pending-invite-revoke" on:click={() => revokeInvite(inv.token)}
-                      aria-label="Revoke invite" title="Revoke invite">
+                      aria-label={$_('settings.users.revoke_invite')} title={$_('settings.users.revoke_invite')}>
                       <span class="material-symbols-rounded">close</span>
                     </button>
                   </div>
@@ -535,7 +538,7 @@
                 {:else}
                   <input class="form-input-sm um-pw-input" type="password" bind:value={addPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
                 {/if}
-                <button class="um-pw-eye" type="button" on:click={() => addShowPass = !addShowPass} aria-label={addShowPass ? 'Hide' : 'Show'}>
+                <button class="um-pw-eye" type="button" on:click={() => addShowPass = !addShowPass} aria-label={addShowPass ? $_('settings.users.hide') : $_('settings.users.show')}>
                   <span class="material-symbols-rounded">{addShowPass ? 'visibility_off' : 'visibility'}</span>
                 </button>
               </div>
@@ -579,7 +582,7 @@
             <Toggle checked={passwordPolicy === 'strong'} on:change={e => savePasswordPolicy(e.detail ? 'strong' : 'standard')} />
           </div>
           {#if passwordPolicySaved}
-            <p class="setting-desc" style="padding:0 16px 8px;color:var(--accent)">Saved.</p>
+            <p class="setting-desc" style="padding:0 16px 8px;color:var(--accent)">{$_('settings.users.policy_saved')}</p>
           {/if}
 
           <div class="setting-divider"></div>

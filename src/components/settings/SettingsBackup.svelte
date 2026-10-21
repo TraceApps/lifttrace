@@ -109,9 +109,9 @@
     const ms = Date.now() - new Date(iso).getTime();
     if (!Number.isFinite(ms) || ms < 0) return null;
     const hours = ms / 3_600_000;
-    if (hours < 1)   return `${Math.max(1, Math.round(ms / 60_000))} min ago`;
-    if (hours < 36)  return `${Math.round(hours)} hr ago`;
-    return `${Math.round(hours / 24)} days ago`;
+    if (hours < 1)   return $_('settings_backup.relative.minutes_ago', { values: { n: Math.max(1, Math.round(ms / 60_000)) } });
+    if (hours < 36)  return $_('settings_backup.relative.hours_ago', { values: { n: Math.round(hours) } });
+    return $_('settings_backup.relative.days_ago', { values: { n: Math.round(hours / 24) } });
   }
   function _nextDueLabel(cfg) {
     if (!cfg || cfg.schedule === 'off') return null;
@@ -155,7 +155,7 @@
     fullBackupBusy = true;
     try {
       const res = await fetch('/api/full-backup', { method: 'POST', credentials: 'include' });
-      if (!res.ok) throw new Error((await res.json()).error || 'Backup failed');
+      if (!res.ok) throw new Error((await res.json()).error || $_('settings_backup.toast.backup_failed'));
       showSuccess($_('settings_backup.toast.backup_created'));
       await loadFullBackups();
     } catch(e) { showError(e.message); }
@@ -171,13 +171,13 @@
 
   function confirmRestoreBackup() {
     showRestoreDialog = false;
-    restoreStatus = { phase: 'restoring', percent: 40, label: 'Restoring\u2026' };
+    restoreStatus = { phase: 'restoring', percent: 40, label: $_('settings_backup.progress.restoring') };
     scrollToProgress();
     fetch(`/api/full-backup/${encodeURIComponent(restoreTarget)}/restore`, {
       method: 'POST', credentials: 'include',
     }).then(res => {
-      if (!res.ok) throw new Error('Restore failed');
-      restoreStatus = { phase: 'restoring', percent: 100, label: 'Restore complete \u2014 reloading\u2026' };
+      if (!res.ok) throw new Error($_('settings_backup.toast.restore_failed'));
+      restoreStatus = { phase: 'restoring', percent: 100, label: $_('settings_backup.progress.restore_complete') };
       setTimeout(() => location.reload(), 1500);
     }).catch(e => {
       showError(e.message);
@@ -206,7 +206,7 @@
 
   function confirmUploadRestore() {
     showUploadRestoreDialog = false;
-    restoreStatus = { phase: 'uploading', percent: 0, label: 'Uploading\u2026' };
+    restoreStatus = { phase: 'uploading', percent: 0, label: $_('settings_backup.progress.uploading') };
     scrollToProgress();
 
     const xhr = new XMLHttpRequest();
@@ -214,19 +214,19 @@
     xhr.withCredentials = true;
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
-        restoreStatus = { phase: 'uploading', percent: Math.round((e.loaded / e.total) * 85), label: 'Uploading\u2026' };
+        restoreStatus = { phase: 'uploading', percent: Math.round((e.loaded / e.total) * 85), label: $_('settings_backup.progress.uploading') };
       }
     };
     xhr.onload = () => {
       if (xhr.status >= 400) {
-        const msg = xhr.status === 413 ? 'File too large' : (JSON.parse(xhr.responseText || '{}').error || 'Restore failed');
+        const msg = xhr.status === 413 ? $_('settings_backup.toast.file_too_large') : (JSON.parse(xhr.responseText || '{}').error || $_('settings_backup.toast.restore_failed'));
         showError(msg);
         restoreStatus = null;
         return;
       }
-      restoreStatus = { phase: 'restoring', percent: 95, label: 'Restoring\u2026' };
+      restoreStatus = { phase: 'restoring', percent: 95, label: $_('settings_backup.progress.restoring') };
       setTimeout(() => {
-        restoreStatus = { phase: 'restoring', percent: 100, label: 'Restore complete \u2014 reloading\u2026' };
+        restoreStatus = { phase: 'restoring', percent: 100, label: $_('settings_backup.progress.restore_complete') };
         setTimeout(() => location.reload(), 1000);
       }, 600);
     };
@@ -267,7 +267,7 @@
     showClearDataDialog = false;
     try {
       const res = await fetch('/api/settings/clear-data', { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed');
+      if (!res.ok) throw new Error((await res.json()).error || $_('common.errors.failed'));
       showSuccess($_('settings_backup.toast.data_cleared'));
       setTimeout(() => location.reload(), 1000);
     } catch(e) { showError(e.message); }

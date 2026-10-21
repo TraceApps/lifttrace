@@ -148,16 +148,16 @@
         const data = await res.json().catch(() => ({}));
         smtpTestRecipient = data.to || to;
         smtpTestStatus = 'ok';
-        showSuccess(`SMTP test email sent to ${smtpTestRecipient}`);
+        showSuccess($_('settings_email.toast.test_sent', { values: { to: smtpTestRecipient } }));
       } else {
         smtpTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
         try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
-        showError(`SMTP test failed: ${detail}`);
+        showError($_('settings_email.toast.test_failed', { values: { detail } }));
       }
     } catch (e) {
       smtpTestStatus = 'fail';
-      showError(`SMTP test failed: ${e?.message || 'network error'}`);
+      showError($_('settings_email.toast.test_failed', { values: { detail: e?.message || $_('settings_email.toast.network_error') } }));
     }
   }
 
@@ -172,12 +172,12 @@
   $: smtpBannerStatus = smtpTestStatus === 'testing' || smtpTestStatus === 'fail'
     ? smtpTestStatus
     : (smtpHost && smtpFrom ? 'ok' : '');
-  $: smtpBannerLabel   = smtpTestStatus === 'ok' ? 'Last Test Sent' : 'Configured';
+  $: smtpBannerLabel   = smtpTestStatus === 'ok' ? $_('settings_email.banner.last_test_sent') : $_('settings_email.banner.configured');
   $: smtpBannerSubtext = smtpTestStatus === 'ok'
     ? (smtpTestRecipient
-        ? `Sent to ${smtpTestRecipient}. Use Send Test again any time to re-verify.`
-        : 'Use Send Test again any time to re-verify')
-    : 'No test has been sent yet';
+        ? $_('settings_email.banner.sent_to', { values: { to: smtpTestRecipient } })
+        : $_('settings_email.banner.send_again'))
+    : $_('settings_email.banner.no_test_yet');
 </script>
 
 {#if visible}
@@ -200,14 +200,14 @@
           status={smtpBannerStatus}
           okLabel={smtpBannerLabel}
           subtext={smtpBannerSubtext}
-          error={smtpTestStatus === 'fail' ? 'Check host, credentials, and from address' : ''}
+          error={smtpTestStatus === 'fail' ? $_('settings_email.banner.check_settings') : ''}
           onRetest={testSmtp}
           retestDisabled={smtpTestStatus === 'testing' || !smtpHost}
-          retestLabel="Send Test"
+          retestLabel={$_('settings_email.send_test')}
         />
         <div class="form-group">
           <label class="form-label">{$_('settings_email.smtp_host')}</label>
-          <input class="form-input" type="text" placeholder="e.g. smtp.example.com"
+          <input class="form-input" type="text" placeholder={$_('settings_email.smtp_host_ph')}
             bind:value={smtpHost} disabled={smtpLocked} />
         </div>
         <div style="display:flex;gap:10px">
@@ -243,21 +243,21 @@
             {#if passIsStored}
               <button type="button" class="btn-icon-toggle change-btn"
                 on:click={changeSmtpPass}
-                title="Change password"
-                aria-label="Change password">
-                Change
+                title={$_('settings_email.change_password')}
+                aria-label={$_('settings_email.change_password')}>
+                {$_('settings_email.change')}
               </button>
             {:else}
               <button type="button" class="btn-icon-toggle"
                 on:click={() => smtpShowPass = !smtpShowPass}
-                title={smtpShowPass ? 'Hide' : 'Show'}
-                aria-label={smtpShowPass ? 'Hide password' : 'Show password'}>
+                title={smtpShowPass ? $_('common.hide') : $_('settings_email.show')}
+                aria-label={smtpShowPass ? $_('settings_email.hide_password') : $_('settings_email.show_password')}>
                 <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
               </button>
             {/if}
           </div>
           {#if passIsStored}
-            <p class="pass-hint">Password saved. Tap Change to replace it.</p>
+            <p class="pass-hint">{$_('settings_email.password_saved_hint')}</p>
           {/if}
         </div>
         <div class="form-group">
@@ -269,9 +269,9 @@
           <button class="btn btn-primary" style="height:36px;font-size:13px"
             on:click={saveSmtp} disabled={smtpSaving || smtpLocked}>
             {#if smtpSaved}
-              <span class="material-symbols-rounded" style="font-size:16px">check</span> Saved
+              <span class="material-symbols-rounded" style="font-size:16px">check</span> {$_('settings_email.saved')}
             {:else}
-              {smtpSaving ? 'Saving…' : 'Save'}
+              {smtpSaving ? $_('common.saving') : $_('common.save')}
             {/if}
           </button>
         </div>
@@ -286,7 +286,7 @@
     <div class="test-dialog" role="dialog" aria-labelledby="test-dialog-title"
       on:click|stopPropagation>
       <h3 id="test-dialog-title">{$_('settings_email.send_test_email')}</h3>
-      <p>Where should we send the test?</p>
+      <p>{$_('settings_email.test_where')}</p>
       <input bind:this={testDialogInputEl} class="form-input" type="email"
         placeholder="you@example.com" bind:value={testRecipient}
         on:keydown={(e) => e.key === 'Enter' && confirmTestSmtp()} />

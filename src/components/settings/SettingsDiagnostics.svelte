@@ -32,7 +32,7 @@
   let logsCopied = false;
 
   function openLogsSheet() {
-    logsText = getLogBufferText() || '(no log lines captured yet)';
+    logsText = getLogBufferText() || $_('settings_diagnostics.no_lines');
     logsCopied = false;
     logsSheet = true;
   }
@@ -52,12 +52,12 @@
       if (isNative) {
         const { Share } = await import('@capacitor/share');
         await Share.share({
-          title: 'LiftTrace diagnostic logs',
+          title: $_('settings_diagnostics.share_title'),
           text: logsText,
-          dialogTitle: 'Share LiftTrace logs',
+          dialogTitle: $_('settings_diagnostics.share_dialog_title'),
         });
       } else if (navigator.share) {
-        await navigator.share({ title: 'LiftTrace diagnostic logs', text: logsText });
+        await navigator.share({ title: $_('settings_diagnostics.share_title'), text: logsText });
       } else {
         await copyLogs();
       }
@@ -68,7 +68,7 @@
 
   function clearLogs() {
     clearLogBuffer();
-    logsText = '(cleared)';
+    logsText = $_('settings_diagnostics.cleared');
     showSuccess($_('settings_diagnostics.logs_cleared'));
   }
 
@@ -93,14 +93,14 @@
          first thing to look at: a phone says "not a foldable", an opened one
          says "opened flat", and only a half-open one reports a crease. -->
     <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-      <span class="setting-label">Foldable</span>
+      <span class="setting-label">{$_('settings_diagnostics.foldable')}</span>
       <div class="setting-desc">
         {#if $fold && $fold.posture === 'flat'}
-          Open flat. Hinge at {$fold.start}-{$fold.end}px, so columns can line up with it.
+          {$_('settings_diagnostics.fold_flat', { values: { start: $fold.start, end: $fold.end } })}
         {:else if $fold}
-          Half open, {$fold.posture === 'book' ? 'like a book' : 'like a laptop'}. Crease at {$fold.start}-{$fold.end}px.
+          {$_($fold.posture === 'book' ? 'settings_diagnostics.fold_half_book' : 'settings_diagnostics.fold_half_laptop', { values: { start: $fold.start, end: $fold.end } })}
         {:else}
-          No hinge reported: not a foldable, or the system does not report one here.
+          {$_('settings_diagnostics.fold_none')}
         {/if}
       </div>
     </div>
@@ -132,10 +132,10 @@
     </div>
   {/if}
 
-  <Sheet bind:open={logsSheet} title="Diagnostic Logs">
+  <Sheet bind:open={logsSheet} title={$_('settings_diagnostics.logs_title')}>
     <div style="padding:0 4px 8px">
       <p class="setting-hint" style="line-height:1.5;margin-bottom:10px">
-        Last 500 lines captured. Copy or share into a bug report.
+        {$_('settings_diagnostics.logs_hint')}
       </p>
       <textarea
         readonly
@@ -146,16 +146,16 @@
       <div style="display:flex;gap:8px;margin-top:10px">
         <button class="btn btn-primary" style="flex:1;height:40px;font-size:13px" on:click={copyLogs}>
           {#if logsCopied}
-            <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">check</span> Copied
+            <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">check</span> {$_('settings_diagnostics.copied')}
           {:else}
-            <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">content_copy</span> Copy
+            <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">content_copy</span> {$_('settings_diagnostics.copy')}
           {/if}
         </button>
         <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px" on:click={shareLogs}>
-          <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">share</span> Share
+          <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">share</span> {$_('settings_diagnostics.share')}
         </button>
         <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px" on:click={clearLogs}>
-          <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">delete</span> Clear
+          <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">delete</span> {$_('settings_diagnostics.clear')}
         </button>
       </div>
     </div>

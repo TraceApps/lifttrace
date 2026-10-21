@@ -16,6 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **All of Settings can be translated.** Weekly Cardio Minutes and its hint, the connection banners, and parts of Email (SMTP), Radio, NutriTrace, Language & Region, Diagnostics, Exercise Catalog, Backup & Restore, Authentication, Users, Import Workouts, Server Connection and the setup cards stayed in English in every language; they now go through Weblate like the rest of the app.
 - **Push notifications from the Android app arrive.** Finishing a workout or setting a PR on the phone sent nothing to your ntfy, Gotify or Apprise, because the app looked for their settings under names Settings never saves. Signed in to a server with user accounts, your server now sends them, as it does for the web app (so a push service on your home network works too); otherwise the phone sends them with the settings from Settings → Notifications, ntfy's access token and Apprise's tag included.
 - **Trace's workout changes on Android reach your server right away.** Logging a set or a workout with Trace on the phone failed the server's cross-origin check and waited for the next sync as if offline. Your server from this release allows it, for this and earlier versions of the app.
 - **A workout finished on the watch stays finished.** Saving a set in the Android app just after could mark it not finished again, because the phone's own copy of the day hadn't caught up yet. A save from the app now changes only the details you changed there (name, notes, length, finished).
