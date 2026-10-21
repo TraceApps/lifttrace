@@ -115,26 +115,26 @@ router.post('/test', wrap(async (req, res) => {
   }
 }));
 
-// POST /log-workout — forward a completed workout summary to NT.
-// Body shape (passed straight through after light validation):
-//   { date, name, duration_min, calories_burned, external_id, start_time? }
-// Server-side gates: federation must be enabled and configured.
-router.post('/log-workout', wrap(async (req, res) => {
-  const u = uid(req);
-  const cfg = _config(u);
-  if (!cfg || !cfg.enabled) return res.status(503).json({ error: 'Federation not enabled' });
-  const { date, name, duration_min, calories_burned, external_id, start_time } = req.body || {};
+/**
+ * Send a finished workout's calories to the account's NutriTrace. The app
+ * asks for it through POST /log-workout below; a workout finished on the
+ * watch has the server ask for it itself (lib/watch-finish.js). Returns
+ * { status, body }: what the route answers with.
+ */
+export async function logWorkoutToNt(userId, { date, name, duration_min, calories_burned, external_id, start_time } = {}) {
+  const cfg = _config(userId);
+  if (!cfg || !cfg.enabled) return { status: 503, body: { error: 'Federation not enabled' } };
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
-    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    return { status: 400, body: { error: 'date must be YYYY-MM-DD' } };
   }
   if (!external_id) {
-    return res.status(400).json({ error: 'external_id required' });
+    return { status: 400, body: { error: 'external_id required' } };
   }
   const kcal = Number(calories_burned);
   if (!Number.isFinite(kcal) || kcal <= 0) {
     // 0 kcal would just dirty the NT row for no value; reject so the
     // client knows it doesn't have a usable estimate yet.
-    return res.status(400).json({ error: 'calories_burned must be > 0' });
+    return { status: 400, body: { error: 'calories_burned must be > 0' } };
   }
   try {
     const ntRes = await _ntFetch(cfg, '/api/v1/workouts', {
@@ -151,13 +151,22 @@ router.post('/log-workout', wrap(async (req, res) => {
     const body = await ntRes.json().catch(() => ({}));
     if (!ntRes.ok) {
       const error = typeof body?.error === 'string' && body.error ? body.error.slice(0, 200) : `NutriTrace returned ${ntRes.status}`;
-      return res.status(502).json({ error, code: typeof body?.code === 'string' ? body.code.slice(0, 60) : undefined });
+      return { status: 502, body: { error, code: typeof body?.code === 'string' ? body.code.slice(0, 60) : undefined } };
     }
     // The app only needs to know it worked; nothing else of the reply goes back.
-    res.json({ ok: true });
+    return { status: 200, body: { ok: true } };
   } catch (e) {
-    res.status(502).json({ error: _linkError(e) });
+    return { status: 502, body: { error: _linkError(e) } };
   }
+}
+
+// POST /log-workout: forward a completed workout summary to NT.
+// Body shape (passed straight through after light validation):
+//   { date, name, duration_min, calories_burned, external_id, start_time? }
+// Server-side gates: federation must be enabled and configured.
+router.post('/log-workout', wrap(async (req, res) => {
+  const { status, body } = await logWorkoutToNt(uid(req), req.body || {});
+  res.status(status).json(body);
 }));
 
 export default router;

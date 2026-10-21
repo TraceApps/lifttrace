@@ -479,8 +479,13 @@ async function _mergeAndSave(dateStr, clientEntry) {
     ...detailsToSave(clientEntry, server, edits.fields),
     deleted_uuids,
     changed_uuids: { exercises: edits.exercises, sets: edits.sets },
+    // And the details it changed. On Android the copy read above is the
+    // device's own, which can be a moment behind the server (a workout just
+    // finished on the watch); the details this Diary didn't change are sent
+    // from it, and counted as changed they'd put the server's back.
+    changed_fields: [...edits.fields],
   } : { ...clientEntry, exercises: nextExercises, deleted_uuids };
-  if (!server) delete toSave.changed_uuids;
+  if (!server) { delete toSave.changed_uuids; delete toSave.changed_fields; }
   const saved = await LtApi.saveWorkout(dateStr, toSave);
   // Only once it reached the server: a queued save can still be refused, and
   // a later one sent straight up must still say what this one changed.

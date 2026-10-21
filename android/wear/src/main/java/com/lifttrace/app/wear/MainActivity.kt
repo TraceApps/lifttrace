@@ -43,6 +43,10 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -305,6 +309,27 @@ fun WearApp(store: WearStore, route: String? = null, onRouted: () -> Unit = {}) 
         return
     }
 
+    // The workout just finished, here or by a hold that was the last set:
+    // how it went, until you're done looking. Then the session, whatever
+    // screen the finish came from (the hold's timer, a set).
+    var backToSession by remember { mutableStateOf(false) }
+    val finishedDay = state.workout
+    if (state.summary && finishedDay != null && finishedDay.completed) {
+        AppScaffold {
+            FinishedScreen(finishedDay, state.unit) {
+                backToSession = true
+                store.closeSummary()
+            }
+        }
+        return
+    }
+    LaunchedEffect(backToSession) {
+        if (backToSession) {
+            nav.popBackStack("session", inclusive = false)
+            backToSession = false
+        }
+    }
+
     AppScaffold {
         SwipeDismissableNavHost(navController = nav, startDestination = "session") {
             composable("session") { SessionScreen(store, nav, clock) }
@@ -403,16 +428,28 @@ private const val DETENT = 40f
 @Composable
 private fun CrownColumn(
     listState: ScalingLazyListState,
+    /** The scaffold's, when there is a button on the bottom edge to clear. */
+    contentPadding: PaddingValues? = null,
     content: ScalingLazyListScope.() -> Unit,
 ) {
     val focus = remember { FocusRequester() }
-    ScalingLazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .rotaryScrollable(RotaryScrollableDefaults.behavior(listState), focusRequester = focus),
-        content = content,
-    )
+    val modifier = Modifier
+        .fillMaxSize()
+        .rotaryScrollable(RotaryScrollableDefaults.behavior(listState), focusRequester = focus)
+    if (contentPadding != null) {
+        // Not centered: the last item stops just above the button rather than
+        // in the middle of the screen, and a list that fits shows the button
+        // whole from the start.
+        ScalingLazyColumn(
+            state = listState,
+            modifier = modifier,
+            contentPadding = contentPadding,
+            autoCentering = null,
+            content = content,
+        )
+    } else {
+        ScalingLazyColumn(state = listState, modifier = modifier, content = content)
+    }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
@@ -423,32 +460,46 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
     val listState = rememberScalingLazyListState()
     val next = Session.next(state.workout)
     // Finishing with work left is a deliberate thing to do, so it is asked
-    // about. Finishing a session where every set is done is not.
+    // about, saying how much is left. Finishing a workout where every set is
+    // done is not.
     var finishing by remember { mutableStateOf(false) }
 
     val day = state.workout
+    val left = Session.setsLeft(day)
     AlertDialog(
         visible = finishing,
         onDismissRequest = { finishing = false },
-        title = { Text("Finish anyway?") },
-        text = {
-            val left = (day?.setsTotal ?: 0) - (day?.setsDone ?: 0)
-            Text(
-                if (left == 1) "One set is not done. It stays as it is."
-                else "$left sets are not done. They stay as they are.",
-            )
-        },
+        title = { Text(pluralStringResource(R.plurals.finish_sets_left, left, left)) },
+        text = { Text(stringResource(R.string.finish_anyway)) },
         confirmButton = {
             AlertDialogDefaults.ConfirmButton(onClick = {
                 finishing = false
-                clock.stop()
                 scope.launch { store.finishSession() }
             })
         },
         dismissButton = { AlertDialogDefaults.DismissButton(onClick = { finishing = false }) },
     )
 
-    ScreenScaffold(scrollState = listState) {
+    // Finish Workout on the bottom edge, where a watch keeps the one action a
+    // screen is for: there once a set is done, as the phone's button is, and
+    // reached by scrolling to the end of the workout rather than hunted for
+    // in a menu. A finished workout shows its summary there instead.
+    val edge: (@Composable BoxScope.() -> Unit)? = when {
+        !state.paired || day == null -> null
+        day.completed -> {
+            { EdgeButton(onClick = { store.showSummary() }) { Text(stringResource(R.string.view_summary)) } }
+        }
+        Session.canFinish(day) -> {
+            {
+                EdgeButton(onClick = {
+                    if (Session.setsLeft(day) > 0) finishing = true
+                    else scope.launch { store.finishSession() }
+                }) { Text(stringResource(R.string.finish_workout)) }
+            }
+        }
+        else -> null
+    }
+    val body: @Composable BoxScope.(PaddingValues?) -> Unit = { padding ->
         if (!state.paired) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 28.dp),
@@ -459,9 +510,7 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     body = "Open LiftTrace on your phone and sign in. The watch pairs itself.",
                 )
             }
-            return@ScreenScaffold
-        }
-        CrownColumn(listState) {
+        } else CrownColumn(listState, padding) {
             item {
                 ListHeader {
                     Text(
@@ -480,7 +529,14 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             // The set you are on, first. Everything else here is something you
             // glance at; this is the thing you came to tap, and on a round
             // screen anything below the first card means scrolling for it.
-            if (next != null) {
+            if (state.workout?.completed == true) {
+                item(key = "finished") {
+                    Message(
+                        title = stringResource(R.string.workout_complete),
+                        body = stringResource(R.string.finished_note),
+                    )
+                }
+            } else if (next != null) {
                 item(key = "next-up") {
                     val day = state.workout
                     val label = day?.let { Session.supersetLabel(it, next.exercise) }
@@ -564,26 +620,6 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     exerciseBlocks(day, finished, next?.exercise?.uuid) { nav.navigate("exercise/$it") }
                 }
             }
-            // The session ends here too. Everything it needs is on the watch
-            // already: the sets are logged and the clock knows how long it
-            // ran, so walking to a phone to press one more button is the app
-            // getting in the way of the thing it is for.
-            if (day != null && !day.completed) {
-                item(key = "finish") {
-                    Button(
-                        onClick = {
-                            if (day.finished) {
-                                clock.stop()
-                                scope.launch { store.finishSession() }
-                            } else {
-                                finishing = true
-                            }
-                        },
-                        label = { Text("Finish the session") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
             item {
                 Button(
                     onClick = { scope.launch { store.refresh() } },
@@ -603,6 +639,11 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                 }
             }
         }
+    }
+    if (edge != null) {
+        ScreenScaffold(scrollState = listState, edgeButton = edge) { padding -> body(padding) }
+    } else {
+        ScreenScaffold(scrollState = listState) { body(null) }
     }
 }
 
@@ -736,8 +777,11 @@ private fun SetScreen(
         // round can be judged before the save has been anywhere near the
         // server.
         val after = state.workout?.let { Session.applyChange(it, change) }
+        // The last set finishes the workout (the store does it, and shows how
+        // it went), and there is no rest after the last set.
+        val finishing = Session.finishes(state.workout, change)
         commit(change, if (done) "Set changed" else "Set logged")
-        val resting = !done && after != null &&
+        val resting = !done && !finishing && after != null &&
             state.restEnabled && state.restAutoStart &&
             Session.shouldRest(after, exerciseUuid, setUuid)
         if (resting) {
@@ -1237,6 +1281,66 @@ private fun ScalingLazyListScope.exerciseBlocks(
                     // on the one you are actually up to.
                     Text((if (nowUuid == exercise.uuid) "→ " else "") + Session.standing(exercise))
                 }
+            }
+        }
+    }
+}
+
+/**
+ * How the workout went, the moment it's over: how long, how many sets, how
+ * much was lifted, worked out the way the phone's summary works them out.
+ */
+@Composable
+private fun FinishedScreen(day: Session.Workout, unit: String, onDone: () -> Unit) {
+    val summary = Session.summary(day)
+    val listState = rememberScalingLazyListState()
+    ScreenScaffold(
+        scrollState = listState,
+        edgeButton = { EdgeButton(onClick = onDone) { Text(stringResource(R.string.summary_done)) } },
+    ) { padding ->
+        CrownColumn(listState, padding) {
+            item {
+                ListHeader {
+                    Text(
+                        stringResource(R.string.workout_complete),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                    )
+                }
+            }
+            Session.duration(summary.minutes)?.let { time ->
+                item {
+                    Text(
+                        time,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.displayMedium,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            item {
+                val sets = pluralStringResource(R.plurals.summary_sets, summary.sets, summary.sets)
+                val volume = if (summary.volume > 0) {
+                    stringResource(R.string.summary_volume, Session.volumeText(summary.volume), unit)
+                } else null
+                Text(
+                    listOfNotNull(sets, volume).joinToString(" · "),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+            }
+            item {
+                Text(
+                    day.name,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                )
             }
         }
     }

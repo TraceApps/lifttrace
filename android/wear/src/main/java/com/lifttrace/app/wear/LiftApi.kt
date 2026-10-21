@@ -50,18 +50,30 @@ object LiftApi {
     suspend fun settings(cfg: Pairing.Config): JSONObject =
         runCatching { JSONObject(get(cfg, "/api/settings")) }.getOrDefault(JSONObject())
 
-    /** The whole day back, with the set just logged marked done. */
-    suspend fun saveWorkout(cfg: Pairing.Config, date: String, body: JSONObject): String =
-        send(cfg, "PUT", "/api/workout/$date", body)
+    /**
+     * The whole day back, with the set just logged marked done. `changed`
+     * names the session's own fields the watch changed (X-Changed-Fields):
+     * the server keeps its copy of the others.
+     */
+    suspend fun saveWorkout(cfg: Pairing.Config, date: String, body: JSONObject, changed: List<String>): String =
+        send(cfg, "PUT", "/api/workout/$date", body, mapOf("X-Changed-Fields" to changed.joinToString(",")))
 
     private suspend fun get(cfg: Pairing.Config, path: String): String = send(cfg, "GET", path, null)
 
-    private suspend fun send(cfg: Pairing.Config, method: String, path: String, body: JSONObject?): String =
+    private suspend fun send(
+        cfg: Pairing.Config,
+        method: String,
+        path: String,
+        body: JSONObject?,
+        headers: Map<String, String> = emptyMap(),
+    ): String =
         withContext(Dispatchers.IO) {
-            val request = Request.Builder()
+            val builder = Request.Builder()
                 .url(cfg.serverUrl.trimEnd('/') + path)
                 .header("Authorization", "Bearer " + cfg.token)
                 .header("Accept", "application/json")
+            headers.forEach { (name, value) -> builder.header(name, value) }
+            val request = builder
                 .method(method, body?.toString()?.toRequestBody(JSON))
                 .build()
             client.newCall(request).execute().use { res ->

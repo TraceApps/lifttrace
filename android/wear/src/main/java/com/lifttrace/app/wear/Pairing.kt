@@ -36,7 +36,7 @@ object Pairing {
     private const val KEY_SETTINGS = "settings"
     private const val KEY_OUTBOX = "outbox"
     private const val KEY_SEQ = "outbox_seq"
-    private const val KEY_HOLD = "pending_hold"
+    const val KEY_HOLD = "pending_hold"
     const val KEY_TIMER = "timer"
     private const val KEY_REST_AT = "rest_at"
     const val KEY_SESSION = "session_timer"
@@ -47,6 +47,8 @@ object Pairing {
     /** When the phone last said it saved the day (an open app reads it again). */
     const val KEY_DAY = "day_saved_at"
     private const val KEY_PHONE_RELEASE = "phone_release"
+    /** A workout finished here whose summary hasn't been looked at: "date|id". */
+    const val KEY_FINISHED = "finished_unseen"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -158,7 +160,8 @@ object Pairing {
     fun clear(ctx: Context) {
         prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_REFUSED)
             .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER)
-            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).remove(KEY_SESSION_AT).apply()
+            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).remove(KEY_SESSION_AT)
+            .remove(KEY_FINISHED).apply()
     }
 
     // ── The last session the watch saw ───────────────────────────────────
@@ -444,6 +447,9 @@ object Pairing {
         prefs(ctx).edit().remove(KEY_HOLD).apply()
     }
 
+    /** Is a hold still counting toward logging itself? */
+    fun holdArmed(ctx: Context): Boolean = prefs(ctx).contains(KEY_HOLD)
+
     /**
      * The hold is over: mark its set done in what the watch is showing and put
      * it on the queue. Safe to call twice, since the queue keeps one entry per
@@ -459,15 +465,82 @@ object Pairing {
             clearHold(ctx)
             return false
         }
+        // A hold that was the last set finishes the workout, as ticking the
+        // last set does anywhere else, with the app open or not.
+        var finishing: Session.Workout? = null
         cache(ctx)?.let { body ->
             runCatching {
                 val workout = Session.parse(body) ?: return@runCatching
-                putCache(ctx, JSONObject().put("workout", Session.applyChange(workout, change).raw).toString())
+                val after = Session.applyChange(workout, change)
+                putCache(ctx, JSONObject().put("workout", after.raw).toString())
+                if (workout.id == op.workoutId && workout.date == op.date && Session.finishes(workout, change)) {
+                    finishing = after
+                }
             }
         }
         queue(ctx, op)
+        finishing?.let { finish(ctx, it) }
+        // Last: clearing it tells an open app to catch up and send (it hears
+        // at once, on this thread), and by then the finish is queued too.
         clearHold(ctx)
         return true
+    }
+
+    // ── Finishing ────────────────────────────────────────────────────────
+
+    /**
+     * The workout is over, said on the wrist: what the phone does when you
+     * finish there (Diary.svelte finishWorkout), as far as a watch can.
+     *
+     * The length comes off the shared clock, which stops, and any rest stops
+     * on both devices. The end is queued like a set, so it holds with no
+     * signal and goes up with whatever else is waiting, and the summary is
+     * noted to be shown, so a workout finished by a hold with the app closed
+     * still shows it when the app is opened. The notification and the
+     * calories sent to NutriTrace are the server's to do once this arrives
+     * (server/lib/watch-finish.js).
+     *
+     * Returns the workout as finished, or null when it already was: that
+     * isn't finished, or celebrated, a second time.
+     */
+    fun finish(ctx: Context, workout: Session.Workout, now: Long = System.currentTimeMillis()): Session.Workout? {
+        if (workout.completed) return null
+        val date = workout.date.ifBlank { java.time.LocalDate.now().toString() }
+        val clock = session(ctx)?.takeIf { it.date == date }
+        val minutes = clock?.minutes(now)
+        // Queued and written down before anything else changes: an open app
+        // hears each change below as it's made, and reads and sends what's
+        // here when it does.
+        queue(ctx, Op(date, workout.id, minutes = minutes, finished = true))
+        val done = Session.finish(workout, minutes)
+        putCache(ctx, JSONObject().put("workout", done.raw).toString())
+        prefs(ctx).edit().putString(KEY_FINISHED, "$date|${workout.id}").apply()
+        if (clock != null) publishSession(ctx, null)
+        if (timer(ctx) != null) stopRest(ctx)
+        return done
+    }
+
+    /** The finished workout whose summary is waiting to be seen, if it's this one. */
+    fun finishedUnseen(ctx: Context, workout: Session.Workout?): Boolean {
+        val w = workout ?: return false
+        return prefs(ctx).getString(KEY_FINISHED, null) == "${w.date}|${w.id}"
+    }
+
+    fun clearFinished(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_FINISHED).apply()
+    }
+
+    /**
+     * The rest is over because the workout is: the alarm, the entry on the
+     * watch face and the phone's copy all go, and a hold that was counting
+     * won't log itself later.
+     */
+    fun stopRest(ctx: Context) {
+        RestAlarm.cancel(ctx)
+        clearTimer(ctx)
+        RestOngoing.hide(ctx)
+        publishRest(ctx, null)
+        clearHold(ctx)
     }
 
     // ── Changes made with no connection ──────────────────────────────────
@@ -545,6 +618,34 @@ object Pairing {
                 )
             }
         }
+    }
+
+    /**
+     * The session's own fields a batch changes, for X-Changed-Fields: the
+     * server keeps its own copy of every other one (server/lib/newer-wins.js),
+     * so the name, notes and the rest, sent back only because they were in
+     * the day the watch read, can't overwrite a newer edit made on the phone.
+     */
+    /**
+     * What's waiting laid over the server's copy of the day, for the screen:
+     * the sets, the length when the clock was stopped, and the finish. A send
+     * the server refused leaves them queued, and the workout must not look
+     * unfinished meanwhile, or Finish Workout would come back for a workout
+     * already finished here.
+     */
+    fun replay(workout: Session.Workout, ops: List<Op>): Session.Workout = ops.fold(workout) { acc, op ->
+        val change = op.change
+        when {
+            change != null -> Session.applyChange(acc, change)
+            op.finished -> Session.finish(acc, op.minutes)
+            op.minutes != null -> acc.copy(raw = JSONObject(acc.raw.toString()).put("duration_min", op.minutes))
+            else -> acc
+        }
+    }
+
+    fun changedFields(batch: List<Op>): List<String> = buildList {
+        if (batch.any { it.finished }) add("completed")
+        if (batch.any { it.minutes != null }) add("duration_min")
     }
 
     fun outbox(ctx: Context): List<Op> {

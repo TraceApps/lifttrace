@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { onWorkoutCompleted } from '../lib/coach-activity.js';
+import { afterWatchFinish } from '../lib/watch-finish.js';
 import { mergeExercises, ensureExerciseUuids, changedUuidsOf } from '../lib/workout-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
@@ -252,12 +253,22 @@ router.put('/:date', wrap((req, res) => {
     : new_session ? null : _resolveWorkout(userId, date, bodyId ?? null, { fallbackToDefault: true, excludeDeleted: true });
   // The newer edit of each of the session's own fields stays
   // (lib/newer-wins.js); its program, program workout and week go together.
-  // The exercises and sets merge one by one, as before.
+  // The exercises and sets merge one by one, as before. Which details the
+  // save changed: X-Changed-Fields, or for a save made just now (no
+  // X-Edited-At) the app's own list in the body, `changed_fields` (the
+  // Android app can't send that header to a server that doesn't allow it).
+  // A detail it only passed along, from a copy older than the server's
+  // (Android reads its own), then doesn't count as changed, so it can't put
+  // back a workout just finished on the watch. A queued save says what it
+  // changed in the header, or counts everything it sends when it can't
+  // (src/lib/offline-edits.js), and its body's list is not used.
   const body = { ...req.body };
+  const listed = !req.get('x-edited-at') && Array.isArray(req.body.changed_fields) ? req.body.changed_fields : null;
   let fieldTimesNext = applyToBody(req, existing, body, {
     fields: ['name', 'notes', 'duration_min', 'completed', 'program_week', 'program_id', 'template_id'],
     groups: [['program_id', 'template_id', 'program_week']],
     current: f => existing[f],
+    changed: listed,
   });
   if (Array.isArray(body.exercises) || body.deleted_uuids) fieldTimesNext = stampMerged(req, fieldTimesNext, ['exercises']);
   const { name, notes, duration_min, completed, program_week } = body;
@@ -360,6 +371,13 @@ router.put('/:date', wrap((req, res) => {
   if (workout && workout.completed && !wasCompleted) {
     try { onWorkoutCompleted(workout); }
     catch (e) { /* never let a notification failure block the save */ }
+
+    // Finished on the watch: the notification and the NutriTrace calories
+    // the phone sends when it finishes a workout, sent from here since the
+    // watch can't (lib/watch-finish.js). After the answer, never holding it.
+    if (req.body.finished_on === 'watch') {
+      setImmediate(() => { afterWatchFinish(userId, workout).catch(() => {}); });
+    }
 
     // workout.completed webhook (issue #79). Reuses getWorkoutCore so
     // the payload matches exactly what GET /api/v1/workouts/:date and

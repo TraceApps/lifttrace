@@ -50,13 +50,15 @@ export function fieldTimes(row) {
 /**
  * Decide an edit against `existing` (null: a new row, everything goes in).
  * `values`: the edit's values by field (undefined: not sent). `fields`: the
- * fields that merge; `groups`: lists of fields that go together.
+ * fields that merge; `groups`: lists of fields that go together. `changed`:
+ * the fields the edit says it changed some other way than the header (a
+ * workout save's body, see routes/workout.js), used when there's no header.
  * Returns { keep: Set of fields where what's here stays, times: the row's
  * field_times afterwards (JSON), at: the edit's time (ms) }.
  */
-export function decide(req, existing, values, { fields, groups = [] }) {
+export function decide(req, existing, values, { fields, groups = [], changed: listed = null }) {
   const at = editedAt(req);
-  const header = _changedHeader(req);
+  const header = _changedHeader(req) ?? (Array.isArray(listed) ? new Set(listed.map(String)) : null);
   const sent = f => values[f] !== undefined;
   const changed = f => sent(f) && (!header || header.has(f));
   const times = fieldTimes(existing);
@@ -145,8 +147,8 @@ export function refuseDelete(res, row, changedAt) {
  * row's value (`current(f)`), so the route's usual write leaves them as
  * they are. Returns the row's field_times afterwards.
  */
-export function applyToBody(req, existing, body, { fields, groups = [], current }) {
-  const { keep, times } = decide(req, existing, body, { fields, groups });
+export function applyToBody(req, existing, body, { fields, groups = [], current, changed = null }) {
+  const { keep, times } = decide(req, existing, body, { fields, groups, changed });
   if (existing) for (const f of keep) body[f] = current(f);
   return times;
 }
