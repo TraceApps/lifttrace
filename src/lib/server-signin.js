@@ -127,6 +127,23 @@ export async function discoverSignIn(url) {
   };
 }
 
+/**
+ * Who is signed in, asked natively by the Android app at startup:
+ * /api/auth/status and /api/auth/me as { status, data }. The WebView's fetch
+ * can't tell a sign-in proxy from no connection (its redirect to another
+ * site fails as a network error); asked here, the proxy's page is read as
+ * the web page it is (serverJson). No answer at all is marked `network`.
+ */
+export async function readSession(url, token) {
+  const http = await _http();
+  const base = String(url || '').trim().replace(/\/+$/, '');
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const ask = (path) => http.get({ url: `${base}${path}`, headers, connectTimeout: 15000, readTimeout: 15000 })
+    .catch((e) => { throw Object.assign(new Error(e?.message || 'Failed to fetch'), { network: true }); });
+  const [status, me] = await Promise.all([ask('/api/auth/status'), ask('/api/auth/me')]);
+  return { status, me };
+}
+
 /** Username and password sign-in: the server's { token, user }. */
 export async function passwordSignIn(url, username, password) {
   const http = await _http();

@@ -1136,6 +1136,9 @@
     "token_refused":           "This sign-in couldn't be checked, so it was stopped. If your server is older than LiftTrace 1.4, update it, or connect with your password.",
     "sso_expired":             "That sign-in took too long. Start again from Settings → Server Connection.",
     "retry":                   "Retry",
+    "unreachable":             "Can't reach your server right now. Check that it's running, then Retry.",
+    "server_error":            "Your server answered with an error. Try again in a moment.",
+    "proxy_sign_in":           "Something in front of your server is asking you to sign in. Sign in there, then reload this page.",
     "checking":                "Checking sign-in options…",
     "sign_in_with":            "Sign In with {provider}",
     "or":                      "or"

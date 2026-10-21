@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { currentUser, userMgmtActive, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, loadAuthState, signInProblem, serverProblem, setupRequired } from '../stores/auth.js';
+  import { problemKey } from '../lib/auth-plan.js';
   import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
   import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { loadServerSettings } from '../stores/settings.js';
@@ -65,6 +66,24 @@
       } catch {}
     }
   });
+
+  // The server couldn't say who is signed in (no connection, a gateway's
+  // error page, a sign-in proxy's page): said at the top, with Retry, which
+  // also runs on its own when the connection comes back. A server that
+  // answers again takes over: the app opens if this browser is still
+  // signed in, or this page signs in as usual.
+  let rechecking = false;
+  async function recheckServer() {
+    if (rechecking) return;
+    rechecking = true;
+    try {
+      await loadAuthState();
+      // Back, and freshly installed: its first account is made in setup.
+      if (!isNative && get(setupRequired)) { push('/wizard'); return; }
+      if (!get(serverProblem)) await loadSignInOptions();
+    } finally { rechecking = false; }
+  }
+  function _backOnline() { if (get(serverProblem)) recheckServer(); }
 
   // The server's sign-in options, from /api/auth/status. The app asks
   // natively (no CORS, so a sign-in proxy's page is said as such, not
@@ -254,6 +273,8 @@
   function onKey(e) { if (e.key === 'Enter') login(); }
 </script>
 
+<svelte:window on:online={_backOnline} />
+
 <div class="login-page">
   <div class="login-card card">
     <div class="login-logo">
@@ -264,6 +285,13 @@
 
     {#if $signInProblem}
       <CookieWarning reason={$signInProblem} />
+    {/if}
+
+    {#if $serverProblem}
+      <div class="options-error server-problem" role="alert">
+        <span>{$_(problemKey($serverProblem, isNative))}</span>
+        <button class="btn btn-secondary options-retry" type="button" on:click={recheckServer} disabled={rechecking}>{$_('server_signin.retry')}</button>
+      </div>
     {/if}
 
     {#if !recoveryDone}
@@ -295,7 +323,7 @@
       {/if}
       {/if}
 
-      {#if optionsError}
+      {#if optionsError && !$serverProblem}
         <div class="options-error" role="alert">
           <span>{optionsError}</span>
           <button class="btn btn-secondary options-retry" type="button" on:click={loadSignInOptions}>{$_('server_signin.retry')}</button>

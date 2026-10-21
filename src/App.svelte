@@ -22,7 +22,7 @@
 
   // Drive svelte-i18n's active locale from the user's saved language setting.
   $: if ($language) locale.set($language);
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, launchState } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
   import { syncState, forgetRefused } from './lib/sync.js';
   import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
@@ -733,6 +733,7 @@
   // signed out, before the sign-in screen replaced it. Android starts from
   // the account it cached, so it never waits.
   let authLoaded = isNative;
+  launchState();
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
 
   // Signing in loads what the sign-in screen left out. (Login.svelte loads

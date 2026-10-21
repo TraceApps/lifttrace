@@ -275,7 +275,7 @@ test('the screens use them: first run, Settings, the sign-in page, and the deep 
   const login = read('../src/routes/Login.svelte');
   assert.match(login, /if \(isNative\) data = \(await discoverSignIn\(getServerUrl\(\)\)\)\.status;/);
   assert.match(login, /const data = await responseJson\(res\);\n\s*if \(!res\.ok\) \{ showError\(data\.error/);
-  assert.match(login, /\{#if optionsError\}[\s\S]*on:click=\{loadSignInOptions\}/);
+  assert.match(login, /\{#if optionsError && !\$serverProblem\}[\s\S]*on:click=\{loadSignInOptions\}/);
   assert.match(login, /disabled=\{ssoOpening\}/);
   const app = read('../src/App.svelte');
   assert.match(app, /const action = signin\.ssoCallbackAction\(\{ code, token, error: errMsg, connecting, challengeSent: challengeSent\(\), local \}\);/);
