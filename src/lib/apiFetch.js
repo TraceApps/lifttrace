@@ -239,12 +239,14 @@ export function requestDeadlineMs(fullPath, isWrite) {
  * A write that only means something now, with the server: coaching consent,
  * and asking Trace (a question answered on a later sync, to no one, would
  * only spend the AI provider's tokens). Trace's saved history still waits
- * for a connection like any other change.
+ * for a connection like any other change. A push notification too: one that
+ * can't go now is sent by the phone itself (notifications.js), not later.
  */
 export function needsServerNow(fullPath, method) {
   const path = String(fullPath).split('?')[0];
   if (/^\/api\/coaching\//.test(path)) return true;
   if (_isTraceChat(path)) return true;
+  if (method === 'POST' && path === '/api/notify') return true;
   return (method === 'POST' || method === 'DELETE') && /^\/api\/trainer\/members\/\d+$/.test(path);
 }
 

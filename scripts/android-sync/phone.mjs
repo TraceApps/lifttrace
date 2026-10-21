@@ -23,7 +23,11 @@ async function web(who, method, path, body) {
 
 // A browser-ish global scope for the app's modules.
 globalThis.__offline = false;
-globalThis.fetch = (u, i) => (globalThis.__offline ? Promise.reject(new TypeError('Failed to fetch')) : (globalThis.__fetchHook?.(u, i) || realFetch(u, i)));
+// The WebView's own fetch reaches the server from the app's origin, under
+// CORS (webview-fetch.mjs); CapacitorHttp (sync) goes around it, as on the phone.
+const { webviewFetch } = await import('./webview-fetch.mjs');
+const webview = webviewFetch(realFetch, () => globalThis.__webviewOrigin || 'https://app.lifttrace.local');
+globalThis.fetch = (u, i) => (globalThis.__offline ? Promise.reject(new TypeError('Failed to fetch')) : (globalThis.__fetchHook?.(u, i) || webview(u, i)));
 globalThis.window = globalThis;
 globalThis.location = { origin: 'http://localhost', href: 'http://localhost/' };
 globalThis.addEventListener ??= () => {};
@@ -66,6 +70,12 @@ async function syncNow() {
   return r;
 }
 const names = rows => rows.map(r => r.name);
+// An ntfy title as ntfy reads it: plain, or RFC 2047 (=?UTF-8?B?...?=).
+function _decodeTitle(v) {
+  if (v == null) return undefined;
+  const m = /^=\?UTF-8\?B\?([A-Za-z0-9+/=]*)\?=$/i.exec(v);
+  return m ? Buffer.from(m[1], 'base64').toString('utf8') : Buffer.from(v, 'latin1').toString('utf8');
+}
 const me = () => localStorage.setItem('wl:userId', process.env.LT_PHONE_USER);
 
 const scenarios = {
@@ -93,6 +103,94 @@ const scenarios = {
     return {
       slow, gone, queuedMore, historyQueued: (await queued()) - before - queuedMore, historyStatus: history.status,
       deadlines: { trace: requestDeadlineMs('/api/ai/chat', true), history: requestDeadlineMs('/api/ai/history', false), save: requestDeadlineMs('/api/workouts', true), read: requestDeadlineMs('/api/workouts', false) },
+    };
+  },
+  // Trace's workout saves say which details they changed in a header
+  // (X-Changed-Fields). From the WebView (another origin than the server)
+  // that header has to pass the server's CORS preflight, or the save fails
+  // as if there were no connection and waits in the queue for a sync.
+  async traceSave() {
+    me();
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await web('phone', 'PUT', `/api/workout/${today}`, { name: 'Legs', exercises: [{ exercise_name: 'Squat', sets: [{ weight: 100, reps: 5, completed: true }] }] });
+    await syncNow();
+    // Finished on the watch since: the phone's copy still says not finished.
+    const w0 = (await web('phone', 'GET', `/api/workout/${today}`)).workout;
+    await web('phone', 'PUT', `/api/workout/${today}`, { ...w0, completed: 1 });
+    const queued = async () => (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    const { runTool } = await import('../../src/lib/aiTools.js');
+    const out = {};
+    // The app's origin now, and the one older Android builds have.
+    for (const origin of ['https://app.lifttrace.local', 'https://localhost']) {
+      globalThis.__webviewOrigin = origin;
+      const before = await queued();
+      const res = await runTool('log_set', { workout_id: w0.id, exercise_name: 'Squat', weight: origin.includes('app') ? 105 : 110, reps: 3 });
+      const w = (await web('phone', 'GET', `/api/workout/${today}`)).workout;
+      out[origin] = {
+        set: res.set_id, queued: (await queued()) - before,
+        serverSets: w.exercises[0].sets.map(s => s.weight), completed: w.completed,
+      };
+    }
+    globalThis.__webviewOrigin = null;
+    return out;
+  },
+  // The phone sends its own pushes (a finished workout, a PR) straight to the
+  // push service, with the settings chosen in Settings; the server sends the
+  // same notification for the web app (/api/notify) and the watch.
+  async phonePush() {
+    me();
+    const { createServer: http } = await import('node:http');
+    const got = [];
+    const box = http((req, res) => {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => { got.push({ method: req.method, url: req.url, headers: req.headers, body }); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); });
+    });
+    await new Promise(r => box.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${box.address().port}`;
+    const service = process.env.LT_PUSH;
+    const st = await import('../../src/stores/settings.js');
+    // As Settings, Notifications saves them, on the phone and the server.
+    st.notifPushService.set(service);
+    if (service === 'gotify') { st.gotifyUrl.set(base + '/gotify/'); st.gotifyToken.set('gtok'); }
+    if (service === 'ntfy') { st.ntfyUrl.set(base); st.ntfyTopic.set('lifts'); st.ntfyToken.set('tk_ntfy'); }
+    if (service === 'apprise') { st.appriseUrl.set(base + '/apprise'); st.appriseTag.set('gym'); }
+    await st.flushSettingSaves();
+    const { celebrateWorkoutComplete, notify } = await import('../../src/lib/notifications.js');
+    const queued = async () => (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    const before = await queued();
+    // What reached the push service, waiting a moment longer for a second one.
+    const arrived = async (what) => {
+      await until(() => got.length >= 1 || null, what, 5000).catch(() => {});
+      await later(300);
+      return got.splice(0);
+    };
+    const TITLE = '💪 Workout Complete!', BODY = 'Great session. "Push Day" is done!';
+    // Signed in to a server with accounts (stores/auth.js remembers it).
+    localStorage.setItem('lt:userMgmt', '1');
+    celebrateWorkoutComplete('Push Day');
+    const signedIn = await arrived("the signed-in phone's push");
+    // The server's, for the web app.
+    await web('phone', 'POST', '/api/notify', { title: TITLE, body: BODY, priority: 5 });
+    const web_ = await arrived("the web app's push");
+    // The server can't be reached just then.
+    globalThis.__fetchHook = (u) => (String(u).includes('/api/notify') ? Promise.reject(new TypeError('Failed to fetch')) : null);
+    await notify(TITLE, BODY, 5);
+    globalThis.__fetchHook = null;
+    const unreachable = await arrived("the phone's push with the server out of reach");
+    // A server without accounts keeps no settings: the phone sends it.
+    localStorage.setItem('lt:userMgmt', '0');
+    await notify(TITLE, BODY, 5);
+    const noAccounts = await arrived("the phone's push on a server without accounts");
+    box.close();
+    const shape = r => r && {
+      method: r.method, url: r.url, type: (r.headers['content-type'] || '').split(';')[0],
+      auth: r.headers.authorization || null, title: _decodeTitle(r.headers.title) ?? null, priority: r.headers.priority ?? null, body: r.body,
+    };
+    return {
+      signedIn: signedIn.map(shape), web: web_.map(shape), unreachable: unreachable.map(shape), noAccounts: noAccounts.map(shape),
+      queued: (await queued()) - before, shown: (globalThis.__shown || []).map(n => n.title),
     };
   },
   async offlineIds() {

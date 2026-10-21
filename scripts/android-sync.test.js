@@ -151,6 +151,47 @@ test("Trace through the server is never queued to be asked again later, and a sl
   assert.deepEqual(out.deadlines, { trace: 300000, history: 20000, save: 30000, read: 20000 }, 'Trace has room for a long reply; the rest as before');
 });
 
+test("Trace's workout saves on Android go straight to the server, past its CORS check", { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('traceSave');
+  // The server's CORS allowed X-Changed-Fields from neither origin: each
+  // save failed as if offline and waited in the queue for a sync.
+  assert.deepEqual(out['https://app.lifttrace.local'], { set: 1, queued: 0, serverSets: [100, 105], completed: 1 });
+  assert.deepEqual(out['https://localhost'], { set: 2, queued: 0, serverSets: [100, 105, 110], completed: 1 });
+});
+
+for (const service of ['ntfy', 'gotify', 'apprise']) {
+  test(`the phone's own Workout Complete push goes through ${service}`, { skip, timeout: SCENARIO_MS }, async () => {
+    const { out } = await scenario('phonePush', { phoneEnv: { LT_PUSH: service } });
+    // It read push settings under names Settings never saves (notifNtfyUrl
+    // and so on), so it sent nothing, signed in or not.
+    for (const k of ['signedIn', 'web', 'unreachable', 'noAccounts']) assert.equal(out[k].length, 1, `${k}: sent once`);
+    assert.deepEqual(out.shown, ['💪 Workout Complete!', '💪 Workout Complete!', '💪 Workout Complete!'], 'and the phone showed it each time');
+    // Signed in to a server with accounts, the server sends it, as for the
+    // web app: the same request.
+    assert.deepEqual(out.signedIn[0], out.web[0]);
+    // Otherwise the phone sends it itself: the server's request, but for the
+    // app's name the server puts in front of the title. Never queued.
+    const title = (t) => String(t).replace(/^LiftTrace \S /u, '');
+    const unprefixed = (r) => {
+      if (r.type !== 'application/json') return { ...r, title: r.title == null ? null : title(r.title) };
+      const b = JSON.parse(r.body);
+      return { ...r, body: { ...b, title: title(b.title) } };
+    };
+    assert.deepEqual(out.unreachable[0], out.noAccounts[0]);
+    assert.deepEqual(unprefixed(out.noAccounts[0]), unprefixed(out.web[0]));
+    assert.equal(out.queued, 0, 'nothing queued for later');
+    const phone = out.noAccounts[0];
+    const want = {
+      ntfy: { url: '/lifts', type: 'text/plain', auth: 'Bearer tk_ntfy', priority: '5', title: '💪 Workout Complete!', body: 'Great session. "Push Day" is done!' },
+      gotify: { url: '/gotify/message?token=gtok', type: 'application/json', auth: null, priority: null, title: null },
+      apprise: { url: '/apprise/notify', type: 'application/json', auth: null, priority: null, title: null },
+    }[service];
+    for (const [k, v] of Object.entries(want)) assert.deepEqual(phone[k], v, k);
+    if (service === 'gotify') assert.deepEqual(JSON.parse(phone.body), { title: '💪 Workout Complete!', message: 'Great session. "Push Day" is done!', priority: 5 });
+    if (service === 'apprise') assert.deepEqual(JSON.parse(phone.body), { title: '💪 Workout Complete!', body: 'Great session. "Push Day" is done!', type: 'info', tag: 'gym' });
+  });
+}
+
 test('rows made offline go up under the server\'s ids, and point at each other there', { skip, timeout: SCENARIO_MS }, async () => {
   const { srv, out } = await scenario('offlineIds');
   assert.ok(out.deviceIds.every(id => id < 0), 'made offline with ids below zero');

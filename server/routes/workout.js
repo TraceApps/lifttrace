@@ -255,8 +255,8 @@ router.put('/:date', wrap((req, res) => {
   // (lib/newer-wins.js); its program, program workout and week go together.
   // The exercises and sets merge one by one, as before. Which details the
   // save changed: X-Changed-Fields, or for a save made just now (no
-  // X-Edited-At) the app's own list in the body, `changed_fields` (the
-  // Android app can't send that header to a server that doesn't allow it).
+  // X-Edited-At) the app's own list in the body, `changed_fields` (servers
+  // before this one refused that header from the Android app, index.js).
   // A detail it only passed along, from a copy older than the server's
   // (Android reads its own), then doesn't count as changed, so it can't put
   // back a workout just finished on the watch. A queued save says what it

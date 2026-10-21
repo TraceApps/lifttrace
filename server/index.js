@@ -138,7 +138,10 @@ router.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      // Plus what an edit says about itself (lib/newer-wins.js): Trace's
+      // workout saves send X-Changed-Fields from the WebView, and without it
+      // here the preflight failed, so each save waited in the queue instead.
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Changed-Fields, X-Edited-At');
       // The Android app reads this from an answer (another origin).
       res.setHeader('Access-Control-Expose-Headers', 'X-LT-Coaching');
     }
