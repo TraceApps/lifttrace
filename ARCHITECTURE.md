@@ -240,6 +240,32 @@ Android app's WebView (`https://app.lifttrace.local`, and
 no CORS headers. The web app calls its own address, which needs none;
 the API, MCP and the watch app send no Origin.
 
+### Changes from another site are refused
+
+`server/lib/cross-site.js` (identical in all four Trace apps) runs before
+every route: a request that changes something (any method but GET, HEAD and
+OPTIONS) passes only when the browser's `Sec-Fetch-Site` is `same-origin` or
+`none`, or its `Origin` is one CORS allows (above) or exactly the request's
+own address (from `X-Forwarded-Proto` and `X-Forwarded-Host`, or Host), or
+it carries neither header (the Android app's native code, the watch app,
+MCP, the API, scripts, other servers). Browsers always send `Origin` on
+these methods (`null` from a sandboxed frame or a page that sends no
+referrer), and a page can't change it, so a page on any other address, on
+the same site or not, can't send a form, a no-cors fetch or an upload that
+changes anything, with or without the sign-in cookie. Anything else gets a
+403 (`code: "cross_site"`) and one warning in the log per address. Behind a
+proxy that passes neither the public `Host` nor `X-Forwarded-Host`, writes
+need `PUBLIC_URL` over plain http (no browser sends `Sec-Fetch-Site` there)
+and, over https, from older browsers without it (such as Safari before
+16.4). It can't tell apart apps that share one origin (two apps under
+subpaths of the same host), and a DNS rebinding page counts as the app's own
+address.
+
+LiftTrace has no CSRF token; this is what stops a page on the same site
+(another name under your domain, another port on the machine) from using the
+sign-in cookie, and a page anywhere from writing to a server without
+accounts.
+
 ### Update checks are off until asked for
 
 `server/lib/update-check.js`: a fresh database asks in the setup wizard and
@@ -262,6 +288,7 @@ asks GitHub itself, only once it was told yes on that phone.
 - Backup `:name` extension guard
 - Session duration capped at 1 year via `MAX_SESSION_HOURS`
 - JWT_SECRET refuse-to-start in production if unset
+- Changes from another site refused (`server/lib/cross-site.js`, above)
 
 ## Android Local Mode
 

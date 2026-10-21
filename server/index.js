@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { rememberAdminOrigin } from './lib/public-url.js';
 import { corsOrigin } from './lib/cors.js';
+import { crossSiteGuard } from './lib/cross-site.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
 // HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
@@ -144,6 +145,16 @@ router.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+
+// A change (anything but GET, HEAD, OPTIONS) from a page on another site
+// is refused (lib/cross-site.js). The browser says where a request comes
+// from; the web app on its own address, the WebView origins above and
+// PUBLIC_URL pass, and so does anything that isn't a browser page (the
+// Android app's native code, the watch, MCP, scripts, other servers).
+// Without it, a page on any site could make the browser of someone using
+// a server with no accounts send a backup restore or an upload, and a
+// page on the same site could do it with the sign-in cookie.
+router.use(crossSiteGuard({ appOrigins: ['https://app.lifttrace.local', 'https://localhost'], warn: (m) => logger.warn(m) }));
 
 router.use(authenticate);
 // Remember the address an admin uses, so emailed links (password reset,
