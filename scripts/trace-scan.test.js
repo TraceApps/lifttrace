@@ -39,6 +39,11 @@ const endpoint = http.createServer((req, res) => {
   req.on('end', () => {
     const b = JSON.parse(raw || '{}');
     seen.push({ path: req.url, body: b });
+    // Gemini takes only a JSON object as a tool's answer (#147).
+    const notObject = (r) => r === null || typeof r !== 'object' || Array.isArray(r);
+    if (req.url.startsWith('/gemini') && (b.contents || []).some((c) => c.parts?.some((p) => p.functionResponse && notObject(p.functionResponse.response)))) {
+      return res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { code: 400, message: 'functionResponse.response must be a JSON object.', status: 'INVALID_ARGUMENT' } }));
+    }
     const n = toolRounds(b, req.url);
     const ids = Array.from({ length: perRound }, (_, i) => `r${n}_${i}`);
     let out;
@@ -341,4 +346,20 @@ test('calls whose own arguments are big all run: only what the tools answer coun
     assert.equal(await askProxy(provider), 'answer after 1', `server ${provider}`);
     check(`server ${provider}`);
   }
+});
+
+test('a tool that answers with a list reaches Gemini in an object, in the app and through the server (#147)', async (t) => {
+  const list = [{ id: 1, name: 'Bench Press' }, { id: 2, name: 'Squat' }];
+  const answers = () => seen.at(-1).body.contents.flatMap((c) => c.parts.filter((p) => p.functionResponse)).map((p) => p.functionResponse.response);
+  fresh({ perRound: 3, stopAfter: 1, toolResult: list });
+  assert.equal(await ask('gemini'), 'answer after 1');
+  assert.deepEqual(answers(), [{ result: list }, { result: list }, { result: list }]);
+  if (needsServer(t)) return;
+  fresh({ perRound: 3, stopAfter: 1, toolResult: list });
+  assert.equal(await askProxy('gemini'), 'answer after 1', 'server gemini');
+  assert.deepEqual(answers(), [{ result: list }, { result: list }, { result: list }]);
+  // An object, a failed tool's { error } too, goes as it is.
+  fresh({ perRound: 2, stopAfter: 1, toolResult: { error: 'Workout 9 not found' } });
+  assert.equal(await askProxy('gemini'), 'answer after 1');
+  assert.deepEqual(answers(), [{ error: 'Workout 9 not found' }, { error: 'Workout 9 not found' }]);
 });

@@ -6,6 +6,7 @@ import { getAiConfig, isAiEnvLocked } from '../ai.js';
 import { getOpenAIChatParams, openAIBase } from '../lib/openai-chat-params.js';
 import { REPLY_MAX_TOKENS, sendWithLengthFallback, stoppedShort, stoppedShortError } from '../lib/trace-reply.js';
 import { toolMessagesForOpenAI, toolNameFor, rememberToolCalls } from '../lib/tool-messages.js';
+import { geminiToolResponse } from '../lib/gemini-tool-response.js';
 import { createToolSupportMemory, sendWithToolFallback } from '../lib/tool-support.js';
 
 const router = Router();
@@ -496,7 +497,8 @@ function _openaiToGeminiContents(messages) {
           // Gemini answers a tool call by name: the one the app echoes
           // on the message, else the one on the tool call it answers.
           name: toolNameFor(m, toolCallNames),
-          response: typeof m.content === 'string' ? _safeJsonParse(m.content, { result: m.content }) : (m.content || {}),
+          // A JSON object (a list or a plain value is refused: see the helper).
+          response: geminiToolResponse(typeof m.content === 'string' ? _safeJsonParse(m.content, m.content) : (m.content ?? null)),
         },
       };
       const last = out[out.length - 1];
