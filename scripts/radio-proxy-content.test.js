@@ -23,7 +23,7 @@ test('pages and scripts are refused, audio and playlists are not', () => {
 
 test('what comes through is sent so it cannot act as a page', () => {
   assert.match(stream, /res\.setHeader\('X-Content-Type-Options', 'nosniff'\);/);
-  assert.match(stream, /res\.setHeader\('Content-Security-Policy', "default-src 'none'; sandbox"\);/);
+  assert.match(stream, /res\.setHeader\('Content-Security-Policy', `default-src 'none'; sandbox; \$\{frameAncestorsDirective\(process\.env\.FRAME_ANCESTORS\)\}`\);/);
   assert.ok(stream.indexOf("isn't a radio stream") < stream.indexOf('res.status(upstream.status)'), 'refused before any of it is sent');
 });
 
@@ -31,6 +31,6 @@ test('the music proxy sends what it passes so it cannot act as a page', () => {
   const music = readFileSync(new URL('../server/routes/subsonic-proxy.js', import.meta.url), 'utf8');
   const pipe = music.slice(music.indexOf('async function pipeUpstream'));
   assert.match(pipe, /res\.set\('X-Content-Type-Options', 'nosniff'\);/);
-  assert.match(pipe, /res\.set\('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox"\);/);
+  assert.match(pipe, /res\.set\('Content-Security-Policy', `default-src 'none'; style-src 'unsafe-inline'; sandbox; \$\{frameAncestorsDirective\(process\.env\.FRAME_ANCESTORS\)\}`\);/);
   assert.ok(pipe.indexOf("'nosniff'") < pipe.indexOf('nodeStream.pipe(res)'), 'set before the body goes out');
 });

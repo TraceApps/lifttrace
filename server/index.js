@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { rememberAdminOrigin } from './lib/public-url.js';
 import { corsOrigin } from './lib/cors.js';
+import { framingHeaders, parseFrameAncestors } from './lib/frame-ancestors.js';
 import { crossSiteGuard } from './lib/cross-site.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
@@ -100,6 +101,13 @@ if (BASE_URL && !BASE_URL.startsWith('/')) {
 // Everything route-related goes on this router, mounted at BASE_URL or '/'.
 const router = express.Router();
 
+// Only LiftTrace itself, and the addresses in FRAME_ANCESTORS, may show it
+// in a frame (lib/frame-ancestors.js), so no other site can frame it to
+// trick a click. First, so every answer has it, a refused body included.
+const FRAMING = framingHeaders(process.env.FRAME_ANCESTORS);
+for (const w of parseFrameAncestors(process.env.FRAME_ANCESTORS).warnings) console.warn(`[lifttrace] FRAME_ANCESTORS: ${w}`);
+router.use((req, res, next) => { res.set(FRAMING); next(); });
+
 // Global JSON body limit defaults to 1 MB. The handful of routes that
 // legitimately accept large bodies (full-backup restore, exercise import)
 // use multer's multipart/file uploads with their own per-route caps, so
@@ -118,6 +126,7 @@ for (const path of ['/api/body-stats/photos', '/api/exercises', '/api/auth/profi
 router.use('/api/coaching', express.json({ limit: '5mb' }));
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
+
 // The server's clock on every answer: an app offline puts the time of each
 // edit it queues on this clock, so the newer edit wins (lib/newer-wins.js).
 router.use((req, res, next) => { res.set('X-Server-Time', new Date().toISOString()); next(); });

@@ -14,6 +14,7 @@
 import path from 'path';
 import fs from 'fs';
 import { logger } from '../logger.js';
+import { frameAncestorsDirective } from './frame-ancestors.js';
 
 const uploadsPath = process.env.UPLOADS_PATH || './uploads';
 
@@ -149,5 +150,6 @@ export function safeUploadExtension(mimetype, originalname) {
  */
 export const UPLOAD_RESPONSE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
-  'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+  // This policy replaces the app's, so it carries the framing rule too.
+  'Content-Security-Policy': `default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox; ${frameAncestorsDirective(process.env.FRAME_ANCESTORS)}`,
 };
