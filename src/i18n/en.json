@@ -1939,6 +1939,8 @@
       "last_success":           "Last auto-backup: {when}",
       "next":                   "Next: {when}",
       "next_when_open":         "Next: {when} (fires when app is open)",
+      "zone_differs":           "Backups run at {time} in {zone}, which is {local} where you are. Use My Time Zone runs them at {time} on your clock.",
+      "use_my_zone":            "Use My Time Zone",
       "retention_note":         "Keeps the {n} newest backup, older archives prune automatically after each run.",
       "retention_note_plural":  "Keeps the {n} newest backups, older archives prune automatically after each run.",
       "retention_note_local":         "Keeps the {n} newest auto-backup, manual exports are never pruned.",

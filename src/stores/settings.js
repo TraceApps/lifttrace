@@ -448,6 +448,8 @@ export const localBackupTime      = createSettingStore('localBackupTime',      '
 export const localBackupRetention = createSettingStore('localBackupRetention', 7);
 export const localBackupLastRun   = createSettingStore('localBackupLastRun',   null);
 export const localBackupLastError = createSettingStore('localBackupLastError', null);
+// When the schedule or its time was last set: its first run comes at that time (TraceApps/notetrace#44).
+export const localBackupSetAt     = createSettingStore('localBackupSetAt',     null);
 
 /** Apply accent color */
 let _lastAppliedAccent = null;

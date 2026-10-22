@@ -5,6 +5,7 @@ import { pushNotify } from './push-notify.js';
 import { sendWeeklySummary, isEmailConfigured } from '../email.js';
 import { checkMissedPrescriptions } from './coach-activity.js';
 import { buildWeeklySummary, summaryLine } from './weekly-summary.js';
+import { isBackupDue } from './backup-schedule.js';
 
 /**
  * Server-side scheduler — runs every 15 minutes.
@@ -121,27 +122,13 @@ async function _tick() {
   }
 }
 
-const _BACKUP_INTERVAL_MS = {
-  daily:   22 * 60 * 60 * 1000,
-  weekly:  6.5 * 24 * 60 * 60 * 1000,
-  monthly: 28 * 24 * 60 * 60 * 1000,
-};
-
 async function _checkBackupSchedule() {
   const { getScheduleConfig, runScheduledBackup } = await import('../routes/full-backup.js');
   const cfg = getScheduleConfig();
   if (cfg.schedule === 'off') return;
-  const intervalMs = _BACKUP_INTERVAL_MS[cfg.schedule];
-  if (!intervalMs) return;
-  const [hh, mm] = cfg.time.split(':').map(n => parseInt(n, 10));
-  const now = new Date();
-  const scheduledMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0).getTime();
-  if (now.getTime() < scheduledMs) return;
-  if (cfg.lastAutoRun) {
-    const lastMs = new Date(cfg.lastAutoRun).getTime();
-    if (Number.isFinite(lastMs) && now.getTime() - lastMs < intervalMs) return;
-  }
-  logger.info(`[backup] auto-backup due (schedule=${cfg.schedule}, time=${cfg.time}, retention=${cfg.retention}, last=${cfg.lastAutoRun || 'never'})`);
+  // The time is on the clock of whoever set it, in the zone saved with it (TraceApps/notetrace#44).
+  if (!isBackupDue(cfg)) return;
+  logger.info(`[backup] auto-backup due (schedule=${cfg.schedule}, time=${cfg.time} ${cfg.runsIn}, retention=${cfg.retention}, last=${cfg.lastAutoRun || 'never'})`);
   try { await runScheduledBackup(); } catch {}
 }
 
