@@ -44,6 +44,104 @@ function _setSnapshot(dateStr, sessionId, workout) {
   }
 }
 
+// What this Diary changed and hasn't seen saved yet, per workout: each
+// exercise, set and detail, by when it was last changed. A save sends the
+// whole workout as shown, so one shown from before another change (the watch
+// ticking a set, Trace naming the workout) put the old values back: only what
+// was changed here is the save's to say. Noted as each change is made,
+// against what was on screen just before it, so a refresh landing in
+// between, or a change undone while the save before it was still on its way,
+// can't make someone else's change look like this Diary's, or this Diary's
+// look like none.
+const _editsByKey = new Map();
+let _editSeq = 0;
+// What the Diary was showing, as a copy: an edit made in place on screen
+// would otherwise change this too and read as no change at all.
+let _shown = null;
+todayLog.subscribe(v => { _shown = v ? JSON.parse(JSON.stringify(v)) : null; });
+const _DETAILS = ['name', 'notes', 'duration_min', 'completed', 'template_id', 'program_id', 'program_week'];
+// The program, its workout and the week go together, as on the server.
+const _PROGRAM = ['template_id', 'program_id', 'program_week'];
+const _same = (a, b) => {
+  const n = (v) => (v === undefined || v === '' ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v);
+  return String(n(a)) === String(n(b));
+};
+// One exercise or set against another: the same, leaving out what only the
+// screen keeps (fields starting with _) and, for an exercise, its sets.
+function _sameEntry(a, b, skip = null) {
+  const norm = (o) => JSON.stringify(Object.keys(o || {}).filter(k => !k.startsWith('_') && k !== skip).sort().map(k => [k, o[k]]));
+  return norm(a) === norm(b);
+}
+
+/** The exercises and sets in `next` that are new or different from `before`. */
+export function changedUuids(before, next) {
+  const was = new Map((before || []).filter(e => e?.uuid).map(e => [e.uuid, e]));
+  const exercises = [];
+  const sets = {};
+  for (const ex of next || []) {
+    if (!ex?.uuid) continue;
+    const old = was.get(ex.uuid);
+    if (!old || !_sameEntry(ex, old, 'sets')) exercises.push(ex.uuid);
+    const oldSets = new Map((old?.sets || []).filter(x => x?.uuid).map(x => [x.uuid, x]));
+    const changed = (ex.sets || []).filter(x => x?.uuid && (!oldSets.has(x.uuid) || !_sameEntry(x, oldSets.get(x.uuid))));
+    if (changed.length) sets[ex.uuid] = changed.map(x => x.uuid);
+  }
+  return { exercises, sets };
+}
+
+/** Note what an edit changed: `before` is what was on screen (null: all of it). */
+function _noteEdits(key, before, next) {
+  const ch = changedUuids(before?.exercises || [], next?.exercises || []);
+  const fields = before ? _DETAILS.filter(f => !_same(next?.[f], before?.[f])) : _DETAILS;
+  if (!ch.exercises.length && !Object.keys(ch.sets).length && !fields.length) return;
+  const m = _editsByKey.get(key) || new Map();
+  const at = ++_editSeq;
+  for (const u of ch.exercises) m.set(`e ${u}`, at);
+  for (const [ex, list] of Object.entries(ch.sets)) for (const u of list) m.set(`s ${ex} ${u}`, at);
+  for (const f of fields) m.set(`f ${f}`, at);
+  _editsByKey.set(key, m);
+}
+
+/** What a save of `key` carries: everything changed here so far. */
+function _editsOf(key) {
+  const out = { exercises: [], sets: {}, fields: new Set(), upTo: _editSeq };
+  for (const k of (_editsByKey.get(key) || new Map()).keys()) {
+    const [kind, a, b] = k.split(' ');
+    if (kind === 'e') out.exercises.push(a);
+    else if (kind === 's') (out.sets[a] ||= []).push(b);
+    else out.fields.add(a);
+  }
+  return out;
+}
+
+/** Saved: what was changed by then is the server's now. A change made while
+ *  the save was on its way stays, for the next one. */
+function _editsSaved(key, upTo) {
+  const m = _editsByKey.get(key);
+  if (!m) return;
+  for (const [k, at] of m) if (at <= upTo) m.delete(k);
+  if (!m.size) _editsByKey.delete(key);
+}
+
+/** The details a save sends: this Diary's where it changed them (`edited`),
+ *  the current copy's for the rest. With nothing to go by, as before. */
+export function detailsToSave(client, current, edited) {
+  if (!edited) {
+    return {
+      name: client.name ?? current.name,
+      notes: client.notes ?? current.notes,
+      duration_min: client.duration_min ?? current.duration_min,
+      template_id: client.template_id ?? current.template_id,
+      program_id: client.program_id ?? current.program_id,
+      program_week: client.program_week ?? current.program_week,
+    };
+  }
+  const program = _PROGRAM.some(f => edited.has(f));
+  const out = {};
+  for (const f of _DETAILS) out[f] = (_PROGRAM.includes(f) ? program : edited.has(f)) ? client[f] : current[f];
+  return out;
+}
+
 /** Load workout log for a specific date — the default session (issue
  *  #76: session 0, or the lowest surviving one). Also pulls the full
  *  session list and any coach prescription. */
@@ -58,7 +156,7 @@ function _tsMs(v) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
+export async function loadWorkout(dateStr, { preferFresher = false, sessionId } = {}) {
   // See the _epoch declaration below saveWorkout (issue #86): bumping it
   // stops a save still pending for whatever date/session the user is
   // navigating away from from landing later and overwriting the date
@@ -68,9 +166,33 @@ export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
   // navigation, and bumping the epoch there would invalidate any edit
   // the user is actively mid-debounce on.
   if (!preferFresher) _epoch++;
+  // A background refresh started before a tab switch, a new workout or a
+  // date change is dropped when it lands: it would put back the workout
+  // that was open when it started.
+  const startEpoch = _epoch;
+  const startOpen = get(currentSessionId);
+  // The workout to show: the one asked for, else, for a background refresh,
+  // the one already on screen (issue #142). By date alone a refresh got the
+  // date's first workout, so a second one logged in the evening switched
+  // back to the morning's every time a set synced. Gone (deleted on another
+  // device), the date's first workout shows, as before.
+  const keepId = sessionId !== undefined ? sessionId
+    : (preferFresher && dateStr === get(currentDate) ? get(currentSessionId) : null);
   currentDate.set(dateStr);
   try {
-    const data = await LtApi.getWorkout(dateStr);
+    let data = await LtApi.getWorkout(dateStr, keepId ?? null);
+    // Only that workout, still there: the server answers a deleted one by id,
+    // and the web's offline copy can answer with another. One made on this
+    // device offline comes back under the server's id once it's there.
+    const w = data?.workout;
+    if (keepId != null && (!w || w.deleted_at || (w.id !== keepId && !(keepId < 0)))) {
+      data = await LtApi.getWorkout(dateStr);
+    }
+    if (preferFresher && (startEpoch !== _epoch || get(currentSessionId) !== startOpen)) {
+      // The tab list still catches up: this was its refresh after the sync.
+      if (dateStr === get(currentDate)) loadWorkoutSessions(dateStr).catch(() => {});
+      return;
+    }
     // Stale check against the CURRENT value of currentDate, not a local
     // copy of the argument (which can never differ from itself). Matters
     // most for preferFresher: a background refresh captures $currentDate
@@ -96,6 +218,16 @@ export async function loadWorkout(dateStr, { preferFresher = false } = {}) {
       // for this same session; equal timestamps still apply, since a
       // tombstone-driven cross-device deletion patches `exercises`
       // in place without bumping `updated_at`.
+      // A change made here still waiting to save, or on its way: its answer
+      // brings the merged copy. Shown now, the next edit would be built on
+      // this one and put back what that change did.
+      // Only while one is actually waiting or on its way (both always end):
+      // a save the server refused stays recorded, and must not shut out
+      // every refresh after it.
+      if ((_armed && _latestDate === dateStr) || _inFlight) {
+        loadWorkoutSessions(dateStr).catch(() => {});
+        return;
+      }
       const current = get(todayLog);
       const sameSession = current?.id != null && current.id === (data.workout?.id ?? null);
       if (sameSession && _tsMs(data.workout?.updated_at) < _tsMs(current.updated_at)) {
@@ -138,17 +270,28 @@ if (typeof window !== 'undefined' && window.addEventListener) {
     const cur = get(currentSessionId);
     if (cur != null && map.has(cur)) currentSessionId.set(map.get(cur));
     todayLog.update(swap);
+    // The tabs too, in place. Not fetched again here: this fires mid-sync,
+    // while the phone's copy of the date is being brought back in line with
+    // the server, and a list read then came back without the workout, so
+    // its tab vanished for seconds. The refresh after the sync reads it.
+    todaySessions.update(list => (Array.isArray(list) ? list.map(swap) : list));
     if (_latestEntry) _latestEntry = swap(_latestEntry);
     for (const [oldId, newId] of map) {
       for (const [key, ex] of [..._snapshotByDate]) {
         if (key.endsWith(`:${oldId}`)) {
-          _snapshotByDate.set(key.slice(0, -String(oldId).length) + newId, ex);
+          const moved = key.slice(0, -String(oldId).length) + newId;
+          _snapshotByDate.set(moved, ex);
           _snapshotByDate.delete(key);
+          if (_editsByKey.has(key)) { _editsByKey.set(moved, _editsByKey.get(key)); _editsByKey.delete(key); }
         }
       }
     }
-    const date = get(currentDate);
-    if (date) loadWorkoutSessions(date).catch(() => {});
+  });
+  // In the browser, the day's tabs are read again once the queue has gone up:
+  // a workout started while it waited is on the server now.
+  window.addEventListener('lt:offline-synced', () => {
+    const d = get(currentDate);
+    if (d) loadWorkoutSessions(d).catch(() => {});
   });
 }
 
@@ -184,10 +327,42 @@ export async function switchSession(dateStr, sessionId) {
   try {
     const data = await LtApi.getWorkout(dateStr, sessionId);
     if (!data?.workout) return;
-    todayLog.set(data.workout);
-    currentSessionId.set(data.workout.id);
-    _setSnapshot(dateStr, data.workout.id, data.workout);
+    _open(dateStr, data.workout);
   } catch {}
+}
+
+function _open(dateStr, workout) {
+  const another = get(currentSessionId) !== workout.id;
+  todayLog.set(workout);
+  currentSessionId.set(workout.id);
+  _setSnapshot(dateStr, workout.id, workout);
+  // Another workout opened: the Diary's notes box follows (it keeps its own
+  // copy while typing, so the same one again leaves it alone).
+  if (another && typeof window !== 'undefined') window.dispatchEvent?.(new CustomEvent('lt:workout-opened', { detail: { date: dateStr, id: workout.id } }));
+}
+
+/** Show a workout just saved from outside the Diary (Trace) as the open one,
+ *  as the save answered it. Not read back: with changes waiting to sync, the
+ *  server doesn't have it yet. */
+export function showWorkout(dateStr, workout) {
+  if (!workout || workout.id == null || dateStr !== get(currentDate)) return;
+  // A Diary change of this workout made while the tool ran, still waiting to
+  // save: left to save as it is. Shown over, it would go up later measured
+  // against what is shown, and remove what was just added.
+  if (_pendingSave(dateStr) && _latestEntry.id === workout.id) return;
+  _epoch++;
+  _open(dateStr, workout);
+}
+
+const _pendingSave = (dateStr) => !!_latestEntry && _latestDate === dateStr && _latestEntryEpoch === _epoch;
+
+/** Send a Diary change of `dateStr` still waiting to save, before something
+ *  outside the Diary (Trace) reads the workout and saves over it. Built on a
+ *  copy without it, that save replaced it. */
+export async function settlePendingSave(dateStr) {
+  if (_armed && _pendingSave(dateStr)) await flushWorkoutSave(dateStr);
+  // Already on its way: waited for, not sent a second time.
+  else if (_inFlight && _latestDate === dateStr) await _inFlight.catch(() => {});
 }
 
 /** Permanently delete one session (issue #76). sessionId is optional —
@@ -293,29 +468,47 @@ async function _mergeAndSave(dateStr, clientEntry) {
   // deletions the local user actually performed since load.
   const deleted_uuids = diffTombstones(_snapshotExercises(dateStr, sessionId), nextExercises);
 
+  // Only what this Diary changed is its to say (see _editsByKey): the rest of
+  // the workout, as shown here, may be older than the copy just read.
+  const key = _snapshotKey(dateStr, sessionId);
+  const edits = _editsOf(key);
   const toSave = server ? {
     ...server,
     ...clientEntry,
     exercises: nextExercises,
-    // Where client didn't explicitly set a metadata field, fall back to
-    // server's value so a stale-cache write doesn't wipe what another
-    // device added. `??` (nullish coalescing) means an explicit empty
-    // string or 0 from the client still wins over server.
-    name:         clientEntry.name         ?? server.name,
-    notes:        clientEntry.notes        ?? server.notes,
-    duration_min: clientEntry.duration_min ?? server.duration_min,
-    template_id:  clientEntry.template_id  ?? server.template_id,
-    program_id:   clientEntry.program_id   ?? server.program_id,
-    program_week: clientEntry.program_week ?? server.program_week,
+    ...detailsToSave(clientEntry, server, edits.fields),
     deleted_uuids,
+    changed_uuids: { exercises: edits.exercises, sets: edits.sets },
+    // And the details it changed. On Android the copy read above is the
+    // device's own, which can be a moment behind the server (a workout just
+    // finished on the watch); the details this Diary didn't change are sent
+    // from it, and counted as changed they'd put the server's back.
+    changed_fields: [...edits.fields],
   } : { ...clientEntry, exercises: nextExercises, deleted_uuids };
+  if (!server) { delete toSave.changed_uuids; delete toSave.changed_fields; }
   const saved = await LtApi.saveWorkout(dateStr, toSave);
+  // Only once it reached the server: a queued save can still be refused, and
+  // a later one sent straight up must still say what this one changed.
+  if (saved?.workout && !saved.queued) {
+    _editsSaved(key, edits.upTo);
+    // Under its server id too, where a new workout's or a swapped id's are now.
+    const savedKey = _snapshotKey(dateStr, saved.workout.id ?? null);
+    if (savedKey !== key) _editsSaved(savedKey, edits.upTo);
+  }
+  // On the server now: a watch in use reads the day again at once.
+  if (saved?.workout && !saved.queued) {
+    import('../lib/wear-pairing.js').then(({ tellWatchDaySaved }) => tellWatchDaySaved(dateStr)).catch(() => {});
+  }
   // Refresh snapshot to the server-authoritative post-merge state so
   // subsequent saves diff against reality (including any concurrent
   // additions the server folded in). Keyed by the saved row's own id —
   // identical to sessionId for an existing session; resolves the very
   // first save's null to the newly-assigned id so the next edit on this
   // date diffs against the right slot.
+  // The details it was measured against move only once the Diary shows what
+  // came back (saveWorkout / flushWorkoutSave): with a newer edit waiting,
+  // the screen keeps its own, and moved here a detail changed elsewhere would
+  // read as the Diary's own change on the next save, and be put back.
   if (saved?.workout) _setSnapshot(dateStr, saved.workout.id ?? sessionId, saved.workout);
   return saved;
 }
@@ -347,6 +540,10 @@ let _latestDate = null;
 // gets applied locally; the save itself, and its promise, always
 // complete normally.
 let _epoch = 0;
+// Moved when the account changes (resetWorkoutState): a save made under
+// the previous one that fires afterwards is dropped, never sent under the
+// next.
+let _accountEpoch = 0;
 // The epoch _latestEntry was stamped in, checked by BOTH the debounced
 // timer callback below AND flushWorkoutSave (issue #86) -- a plain
 // per-call closure variable would only guard the timer path, leaving
@@ -354,6 +551,10 @@ let _epoch = 0;
 // apply a stale result if it fires inside the same race window before
 // the original 350ms timer does.
 let _latestEntryEpoch = 0;
+// A save waiting on its timer (what to answer its caller with), and one on
+// its way to the server.
+let _armed = null;
+let _inFlight = null;
 export function saveWorkout(dateStr, entry) {
   // Stamp uuids IMMEDIATELY so `_latestEntry` and `todayLog` hold the
   // uuid-carrying shape from the start. Without this, `ensureExerciseUuids`
@@ -373,18 +574,27 @@ export function saveWorkout(dateStr, entry) {
     ...entry,
     exercises: ensureExerciseUuids(entry.exercises || []),
   };
+  // What this edit changed, against what was on screen just before it.
+  const before = _shown && (_shown.id ?? null) === (stamped.id ?? null) ? _shown : null;
+  _noteEdits(_snapshotKey(dateStr, stamped.id ?? null), before, stamped);
   todayLog.set(stamped);
   _latestEntry = stamped;
   _latestDate  = dateStr;
   _latestEntryEpoch = _epoch; // see the _epoch declaration above (issue #86)
 
+  const account = _accountEpoch;
   return new Promise((resolve, reject) => {
     clearTimeout(_saveTimer);
+    _armed = { resolve };
     _saveTimer = setTimeout(async () => {
+      _armed = null;
+      if (account !== _accountEpoch) { resolve(stamped); return; }
       const toSave = _latestEntry;
       const toSaveEpoch = _latestEntryEpoch;
       try {
-        const saved = await _mergeAndSave(dateStr, toSave);
+        const sending = _mergeAndSave(dateStr, toSave);
+        _inFlight = sending;
+        const saved = await sending.finally(() => { if (_inFlight === sending) _inFlight = null; });
         // Only sync from server if no newer edits are queued, and the
         // user hasn't since switched to a different session/date.
         // A reply without the saved workout keeps what is on screen rather
@@ -418,10 +628,14 @@ export async function flushWorkoutSave(dateStr) {
   const date = dateStr || _latestDate;
   if (!_latestEntry || !date) return;
   clearTimeout(_saveTimer);
+  // The save whose timer this replaces still answers whoever is waiting on it.
+  const armed = _armed;
+  _armed = null;
   const toSave = _latestEntry;
   const toSaveEpoch = _latestEntryEpoch; // see the _epoch declaration above (issue #86)
+  let saved = null;
   try {
-    const saved = await _mergeAndSave(date, toSave);
+    saved = await _mergeAndSave(date, toSave);
     if (_latestEntry === toSave && toSaveEpoch === _epoch && saved?.workout) {
       todayLog.set(saved.workout);
       currentSessionId.set(saved.workout?.id ?? null);
@@ -432,6 +646,23 @@ export async function flushWorkoutSave(dateStr) {
       _latestDate  = null;
     }
   } catch {}
+  armed?.resolve(saved?.workout ?? toSave);
+}
+
+/** The account changed: nothing of the last one's workout stays on show,
+ *  and a save of it still waiting is dropped (its promise still resolves). */
+export function resetWorkoutState() {
+  _accountEpoch++;
+  _epoch++;
+  _latestEntry = null;
+  _latestDate = null;
+  _snapshotByDate.clear();
+  _editsByKey.clear();
+  todayLog.set(null);
+  todaySessions.set([]);
+  currentSessionId.set(null);
+  activeProgram.set(null);
+  todayPrescription.set(null);
 }
 
 /** Derived: count of completed sets today */

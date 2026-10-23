@@ -75,8 +75,12 @@ set, logging a body stat, loading a template, switching active
 program, and coach-only prescription. Tool execution stays
 client-side against `fetch('/api/...')` even in env-locked mode so
 the server never gains write access to the user's data. The shared
-loop in `src/lib/aiChat.js` caps tool-use at 5 rounds per turn across
-Claude, OpenAI, Gemini, and OpenAI-compatible providers. The system
+loop in `src/lib/aiChat.js` allows 12 rounds of tool use per turn across
+Claude, OpenAI, Gemini, and OpenAI-compatible providers (and through the
+server's `/api/ai/chat`), then sends one last request with the tools off so
+the model answers from what it found; it does the same sooner once the tool
+answers pass about 300 kB, and calls past that in a round are answered "not
+run". `get_workouts` and `get_prs` page with `offset`. The system
 prompt in `src/components/ai/Trace.svelte` stays trimmed to a stable
 core (persona, weight unit, today's date + day, user profile, active
 program name, one-line recent-activity summary); everything else is
@@ -186,6 +190,90 @@ exact alarm carrying a deadline, never something counting; anything repeating
 on screen is inside `repeatOnLifecycle(RESUMED)`. Both rules exist because
 breaking either one was measurable in the battery stats.
 
+### The web app works offline
+
+`src/lib/offline-api.js` and `offline-edits.js` hang off `apiFetch.js`, so no
+screen needed changing. Online, every call goes to the server and the answer
+is kept in an IndexedDB mirror. With no server, the mirror answers reads, and
+writes go into an outbox that shows at once and is replayed later against the
+same routes the Android app replays its queue against, so the server merges a
+browser's edits exactly as it merges a phone's. New rows get temporary ids
+mapped to real ones after they go up. A Web Lock stops two tabs sending at
+once, and a BroadcastChannel keeps them in step. Not built on Background Sync
+(Safari lacks it): the page flushes on a backoff, on `online`, and when the
+tab comes to the front.
+
+### Coaching is consent first
+
+`server/lib/coaching.js` holds who coaches whom (`coach_clients`, the same
+table NutriTrace uses; the active pairing is mirrored to `users.trainer_id`
+for older readers) and the one guard every coach route uses: an active
+pairing the client accepted. A request still waiting, an ended pairing and
+another coach's client are refused alike, admins included. Roles are read
+from the database on every request, not from the token. The conversation
+(`server/lib/coaching-messages.js`) is one thread per pairing; its photos sit
+under `UPLOADS_PATH/coaching`, outside the public `/uploads` mount, and are
+served only to the two people. No Trace tool, MCP tool or token route reads it.
+
+### Private media is never under /uploads
+
+`/uploads` is mounted ahead of the auth check so an Android WebView `<img>`
+can load it without a header, which makes anything there readable by URL.
+Set videos (`server/lib/set-media.js`) and coaching photos therefore live in
+directories kept out of that mount and are streamed through routes that check
+the owner (and, for clips, the owner's active coach).
+
+### Links in emails come from PUBLIC_URL
+
+`server/lib/public-url.js` (identical in all four Trace apps) builds the
+address in reset, invite, coaching and weekly summary emails from
+`PUBLIC_URL`, or else from an address a signed-in admin has used, never from
+the request's Host headers, which the sender controls.
+
+### Only the app's own addresses get CORS
+
+`server/lib/cors.js` (identical in all four Trace apps) decides which pages
+on another address may call the API with the person's sign-in. Allowed: the
+Android app's WebView (`https://app.lifttrace.local`, and
+`https://localhost` from versions before it) and the address in
+`PUBLIC_URL`, each compared whole: scheme, host and port. Anything else gets
+no CORS headers. The web app calls its own address, which needs none;
+the API, MCP and the watch app send no Origin.
+
+### Changes from another site are refused
+
+`server/lib/cross-site.js` (identical in all four Trace apps) runs before
+every route: a request that changes something (any method but GET, HEAD and
+OPTIONS) passes only when the browser's `Sec-Fetch-Site` is `same-origin` or
+`none`, or its `Origin` is one CORS allows (above) or exactly the request's
+own address (from `X-Forwarded-Proto` and `X-Forwarded-Host`, or Host), or
+it carries neither header (the Android app's native code, the watch app,
+MCP, the API, scripts, other servers). Browsers always send `Origin` on
+these methods (`null` from a sandboxed frame or a page that sends no
+referrer), and a page can't change it, so a page on any other address, on
+the same site or not, can't send a form, a no-cors fetch or an upload that
+changes anything, with or without the sign-in cookie. Anything else gets a
+403 (`code: "cross_site"`) and one warning in the log per address. Behind a
+proxy that passes neither the public `Host` nor `X-Forwarded-Host`, writes
+need `PUBLIC_URL` over plain http (no browser sends `Sec-Fetch-Site` there)
+and, over https, from older browsers without it (such as Safari before
+16.4). It can't tell apart apps that share one origin (two apps under
+subpaths of the same host), and a DNS rebinding page counts as the app's own
+address.
+
+LiftTrace has no CSRF token; this is what stops a page on the same site
+(another name under your domain, another port on the machine) from using the
+sign-in cookie, and a page anywhere from writing to a server without
+accounts.
+
+### Update checks are off until asked for
+
+`server/lib/update-check.js`: a fresh database asks in the setup wizard and
+checks nothing until someone says yes; a database that already had accounts
+keeps checking, as it did before. `UPDATE_CHECK=off` wins over the setting.
+Browsers ask the server, which asks GitHub (cached 24 hours); the Android app
+asks GitHub itself, only once it was told yes on that phone.
+
 ### Security posture
 
 - bcrypt cost 12
@@ -200,6 +288,7 @@ breaking either one was measurable in the battery stats.
 - Backup `:name` extension guard
 - Session duration capped at 1 year via `MAX_SESSION_HOURS`
 - JWT_SECRET refuse-to-start in production if unset
+- Changes from another site refused (`server/lib/cross-site.js`, above)
 
 ## Android Local Mode
 
@@ -219,7 +308,53 @@ changes it later.
 - **Local SQLite:** `src/lib/db-native.js` mirrors all 13 server
   tables plus `sync_meta` + `sync_queue`. Each mutable table has
   `updated_at` / `deleted_at` / `sync_state` columns
-- **Differential sync:** `src/lib/sync.js` handles push/pull cycles
+- **Differential sync:** `src/lib/sync.js` handles push/pull cycles,
+  one at a time, each request with a deadline. Offline writes are
+  queued requests replayed in order; a write that names a row the
+  server doesn't have yet joins the queue even when online. A row made
+  offline has an id below zero until its create goes up, then it and
+  every queued write naming it take the server's id; creates carry a
+  `client_key` the server dedupes on (`server/lib/create-keys.js`).
+  Every row only this device has has an id below zero: made offline,
+  made standalone (renumbered when the copy becomes an account's, or
+  before an Upload), or everything the account had here after Disconnect
+  (`renumberLocalRows`, which also records each row's origin in
+  `row_origin` so connecting back to that account puts it back:
+  `adoptLocalCopy`); a copy from an earlier version is sorted out once,
+  against the server's list (queued creates linked to their rows only on
+  an exact match). Moving rows to new ids is one transaction of a few
+  dozen statements (`id_remap`), and no sync runs while Disconnect does
+  it. So an id above zero always means the server's row. A pull writes over it, or deletes
+  it when the server did, except while a queued write is about to change
+  it (it asks for those again next time, for up to an hour; after that,
+  once the queue has gone up, it pulls everything). Rows below zero are
+  never touched by a pull (body stats on a day the server also has are
+  merged), and are created on the server, under a key, the first time a
+  write names them. The server also sends rows deleted outright
+  (`sync_deletions`), the full list of programs and program workouts the
+  account may keep, and, without user accounts, the program being
+  followed; the pull is gzipped. The local copy, its queue included,
+  belongs to one account on one server (`src/lib/local-account.js`,
+  tagged with the server's `instance_id` from `/api/auth/status`, its
+  address and the user id; a copy from before tags is tagged at startup
+  as the account last signed in). App.svelte checks it before showing
+  anything: another account clears it (asking first if the previous one
+  left changes waiting), the same user id at another address with an
+  instance id unknown is asked about, and a sync refuses while it is
+  another account's (or might be). Claiming a copy is one at a time. Each sync reads the session once. Before the copy changes
+  hands (another account, Connect, Disconnect, sign-out), a running sync
+  is stopped and waited for (`src/lib/account-gen.js`: every sync checks
+  the number before it writes), and what the app holds in memory for the
+  account is reset (`src/lib/user-state.js`). A queued edit carries the
+  time it was made (on the server's clock, from the last pull) and the
+  fields it changed (`X-Edited-At`, `X-Changed-Fields`); the server keeps
+  the newer edit of each field, or group of fields, from each row's
+  `field_times` (`server/lib/newer-wins.js`; a create is stamped with its
+  own edit time, and updated_at, which housekeeping moves, never counts); a
+  delete loses (409) to a later edit of the row. The web app's outbox sends the same headers,
+  on the clock from `X-Server-Time`. Sessions come from the
+  `Authorization` header before the cookie when it is one of this server's
+  (`req.authVia`). Signed out, no sync runs.
 - **Image cache:** `src/lib/image-cache.js` downloads exercise media
   via Filesystem to `Directory.Data/lifttrace-images/`,
   `resolveAssetUrl()` swaps in local `file://` URIs synchronously

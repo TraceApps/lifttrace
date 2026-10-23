@@ -47,6 +47,8 @@ class WearStore(private val ctx: Context) {
         val lastTimes: Map<String, String> = emptyMap(),
         /** The phone's workout timer, when one is running for today. */
         val session: Pairing.SessionTimer? = null,
+        /** The finished workout's summary is on screen. */
+        val summary: Boolean = false,
     )
 
     private val _state = MutableStateFlow(State(paired = Pairing.config(ctx) != null))
@@ -58,6 +60,9 @@ class WearStore(private val ctx: Context) {
      * goes up even though that screen is gone by the time the request is made.
      */
     private val work = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Is the app on screen? Set by the activity as it comes and goes. */
+    @Volatile var showing = false
 
     /** One send at a time: two at once would read the same day twice and race. */
     private val sending = Mutex()
@@ -74,6 +79,26 @@ class WearStore(private val ctx: Context) {
             Pairing.KEY_SESSION -> _state.update { it.copy(session = sessionTimer()) }
             Pairing.KEY_URL, Pairing.KEY_TOKEN ->
                 _state.update { it.copy(paired = Pairing.config(ctx) != null) }
+            // The phone saved the day: read it again now, not at the next poll,
+            // but only on screen. Off screen it waits: coming back reads it
+            // anyway, and a watch reading the network with its screen off is
+            // battery spent on nobody.
+            Pairing.KEY_DAY -> if (showing) work.launch { refresh(quiet = true) }
+            // A hold over: logged by its alarm, which can get there before the
+            // screen does (and then the screen doesn't log it). With the app
+            // open, what it shows catches up, the summary too when that was
+            // the last set, and the set goes up now rather than at the next
+            // poll. A hold skipped clears this too; then there's nothing new.
+            Pairing.KEY_HOLD -> if (showing && !Pairing.holdArmed(ctx)) {
+                restore()
+                send()
+            }
+            // A hold that was the last set finished the workout with the app
+            // in the background: what it shows catches up.
+            Pairing.KEY_FINISHED -> {
+                val cached = runCatching { Pairing.cache(ctx)?.let { Session.parse(it) } }.getOrNull()
+                if (Pairing.finishedUnseen(ctx, cached)) restore()
+            }
         }
     }
 
@@ -100,6 +125,9 @@ class WearStore(private val ctx: Context) {
             pending = Pairing.outbox(ctx).size,
             lastTimes = Pairing.lastTimes(ctx),
             session = sessionTimer(),
+            // Finished while the app was away (a hold that was the last set):
+            // the summary is waiting.
+            summary = it.summary || Pairing.finishedUnseen(ctx, cached),
         ) }
     }
 
@@ -134,10 +162,7 @@ class WearStore(private val ctx: Context) {
             // Only this day's. A template copied into two days can carry the
             // same set ids into both, and laying yesterday's change over
             // today's session would tick off a set nobody has done.
-            val shown = workout?.let { w ->
-                waiting.filter { it.date == w.date }
-                    .fold(w) { acc, op -> op.change?.let { Session.applyChange(acc, it) } ?: acc }
-            }
+            val shown = workout?.let { w -> Pairing.replay(w, waiting.filter { it.date == w.date }) }
             if (shown != null) Pairing.putCache(ctx, wrap(shown))
             else Pairing.putCache(ctx, body)
             redrawSurfaces()
@@ -195,12 +220,16 @@ class WearStore(private val ctx: Context) {
      */
     suspend fun save(change: Session.Change, flash: String? = null) {
         val current = _state.value.workout ?: return
+        // Ticking off the last set finishes the workout, as on the phone.
+        val finishing = Session.finishes(current, change)
         val updated = Session.applyChange(current, change)
-        _state.update { it.copy(workout = updated, flash = flash) }
+        _state.update { it.copy(workout = updated, flash = if (finishing) null else flash) }
         Pairing.putCache(ctx, wrap(updated))
         redrawSurfaces()
         Pairing.queue(ctx, Pairing.Op(updated.date.ifBlank { today }, updated.id, change))
         _state.update { it.copy(pending = Pairing.outbox(ctx).size) }
+        // Queued after the set, so both go up together.
+        if (finishing) finishHere(updated)
         send()
     }
 
@@ -217,7 +246,9 @@ class WearStore(private val ctx: Context) {
     fun completeHold() {
         if (!Pairing.completeHold(ctx)) return
         restore()
-        _state.update { it.copy(flash = "Hold logged") }
+        // The last set: the workout finished with it, and says so.
+        if (_state.value.summary) Haptics.finished(ctx)
+        else _state.update { it.copy(flash = "Hold logged") }
         send()
     }
 
@@ -289,43 +320,55 @@ class WearStore(private val ctx: Context) {
     }
 
     /**
-     * The session is over, said from the wrist.
+     * The workout is over, said from the wrist: Finish Workout, with or
+     * without sets left (the screen asks first when there are).
      *
      * Everything this needs is already here: the sets are logged, the clock
      * knows how long it ran, and the day goes back the same way a set does.
      * Sending someone to their phone to press one more button, after they
      * have done the whole workout on their watch, is the app getting in the
-     * way of the thing it is for.
-     *
-     * Queued like anything else, so a gym with no signal still finishes the
-     * session; it goes up with the rest of the work when there is one.
+     * way of the thing it is for. Queued like anything else, so a gym with
+     * no signal still finishes it; it goes up with the rest of the work when
+     * there is one.
      */
     suspend fun finishSession() {
         val day = _state.value.workout ?: run {
             _state.update { it.copy(error = "No session to finish") }
             return
         }
-        // Whatever the clock says, before it is stopped. A session finished
-        // on the wrist should carry its length with it.
-        val timer = _state.value.session
-        val minutes = timer?.minutes(System.currentTimeMillis())
-        if (timer != null) publishSession(null)
-        Pairing.queue(
-            ctx,
-            Pairing.Op(day.date.ifBlank { today }, day.id, minutes = minutes, finished = true),
-        )
-        // Shown as finished at once: the wearer is walking out of the gym,
-        // not waiting for a server.
-        val body = JSONObject(day.raw.toString()).put("completed", 1)
-        minutes?.let { body.put("duration_min", it) }
-        val updated = Session.parse(JSONObject().put("workout", body).toString())
-        if (updated != null) {
-            Pairing.putCache(ctx, wrap(updated))
-            _state.update { it.copy(workout = updated) }
-        }
-        _state.update { it.copy(pending = Pairing.outbox(ctx).size, flash = "Session finished") }
-        redrawSurfaces()
+        // Already finished (on the phone, say): its summary, nothing more.
+        if (!finishHere(day)) _state.update { it.copy(summary = true) }
         send()
+    }
+
+    /**
+     * Finish `day` here: written down and queued (Pairing.finish), shown as
+     * finished at once with its summary, and a buzz to say so. False when it
+     * was already finished.
+     */
+    private fun finishHere(day: Session.Workout): Boolean {
+        val done = Pairing.finish(ctx, day) ?: return false
+        Haptics.finished(ctx)
+        _state.update { it.copy(
+            workout = done,
+            pending = Pairing.outbox(ctx).size,
+            session = sessionTimer(),
+            summary = true,
+            flash = null,
+        ) }
+        redrawSurfaces()
+        return true
+    }
+
+    /** The finished workout's summary, again (View Summary). */
+    fun showSummary() {
+        _state.update { it.copy(summary = true) }
+    }
+
+    /** Done with the summary: back to the session. */
+    fun closeSummary() {
+        Pairing.clearFinished(ctx)
+        _state.update { it.copy(summary = false) }
     }
 
     private fun publishSession(timer: Pairing.SessionTimer?) {
@@ -365,10 +408,19 @@ class WearStore(private val ctx: Context) {
                 op.minutes?.let { body.put("duration_min", it) }
                 if (op.finished) body.put("completed", 1)
             }
-            val saved = LiftApi.saveWorkout(cfg, date, body)
+            // Which sets this changes: the server keeps its own of the rest, so
+            // a set the phone changed between the read above and this save
+            // isn't put back by the copy read here.
+            body.put("changed_uuids", Session.changedUuids(batch.mapNotNull { it.change }))
+            // Finished here: the server sends the notification and the
+            // calories the phone would have (server/lib/watch-finish.js),
+            // once, when this is what marks the workout done.
+            if (batch.any { it.finished }) body.put("finished_on", "watch")
+            val saved = LiftApi.saveWorkout(cfg, date, body, Pairing.changedFields(batch))
             // Only what actually went up comes off the queue. Anything logged
             // while this was in the air is a later entry and stays.
             forget(batch)
+            Pairing.tellPhoneDaySaved(ctx, date)
             val workout = Session.parse(saved)
             if (workout != null) {
                 Pairing.putCache(ctx, wrap(workout))
@@ -443,4 +495,19 @@ class WearStore(private val ctx: Context) {
         e is LiftApi.ApiError && (e.code == 401 || e.code == 403)
 
     private fun isOffline(e: Exception): Boolean = e !is LiftApi.ApiError
+}
+
+/** The buzz that says the workout is over: a short one and a long one. */
+object Haptics {
+    fun finished(ctx: Context) {
+        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            ctx.getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            ctx.getSystemService(android.os.Vibrator::class.java)
+        } ?: return
+        runCatching {
+            vibrator.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 60, 90, 220), -1))
+        }
+    }
 }

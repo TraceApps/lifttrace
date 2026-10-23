@@ -1,6 +1,7 @@
 <script>
   import { _ } from 'svelte-i18n';
-  import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl, iconUrl } from '../lib/platform.js';
+  import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl, iconUrl, explainConnectError } from '../lib/platform.js';
+  import { serverReady, discoverSignIn, passwordSignIn, ssoSignInUrl } from '../lib/server-signin.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { countLocalData, uploadLocalToServer } from '../lib/migrate.js';
   import { destroyLocalDb } from '../lib/db-native.js';
@@ -31,6 +32,7 @@
   let validatedUrl = '';        // set after successful step-1 validation
   let providers = [];            // OIDC providers array from /api/auth/status
   let passwordLoginEnabled = true;
+  let optionsError = '';         // why the sign-in options couldn't be read (shown with Retry)
   let username = '';
   let password = '';
   let showPw = false;
@@ -54,41 +56,45 @@
     step = 'server-url';
   }
 
-  // Step 1 → step 2: validate server reachability + discover which auth
-  // methods the server supports. Uses CapacitorHttp to bypass WebView CORS.
+  // A sign-in proxy's web page is said as such (lib/server-signin.js).
+  const errorText = (e, url) => (e?.webPage ? e.message : explainConnectError(e, url) || $_('native_setup.toast.cant_reach'));
+
+  // Step 1 → step 2: the server is there and is LiftTrace, then which ways
+  // in it offers (lib/server-signin.js).
   async function validateAndNext() {
     if (!serverUrl.trim()) { showError($_('native_setup.toast.server_url_required')); return; }
     const url = serverUrl.trim().replace(/\/$/, '');
     connecting = true;
     try {
-      const { CapacitorHttp } = await import('@capacitor/core');
-      const healthRes = await CapacitorHttp.get({ url: `${url}/api/health` });
-      if (healthRes.status < 200 || healthRes.status >= 300) {
-        throw new Error(`Server returned ${healthRes.status}`);
-      }
-      // Discover auth methods. If /api/auth/status fails or is missing OIDC
-      // shape, fall back to password-only (safe default matching pre-fix).
-      let discoveredProviders = [];
-      let discoveredPasswordEnabled = true;
-      try {
-        const statusRes = await CapacitorHttp.get({ url: `${url}/api/auth/status` });
-        if (statusRes.status >= 200 && statusRes.status < 300) {
-          const data = typeof statusRes.data === 'string' ? JSON.parse(statusRes.data) : statusRes.data;
-          if (data?.oidc) {
-            discoveredProviders = Array.isArray(data.oidc.providers) ? data.oidc.providers : [];
-            discoveredPasswordEnabled = data.oidc.enable_email_password_login !== false;
-          }
-        }
-      } catch { /* leave defaults — safe fallback */ }
+      await serverReady(url);
       validatedUrl = url;
-      providers = discoveredProviders;
-      passwordLoginEnabled = discoveredPasswordEnabled;
+      await loadSignInOptions();
       step = 'server-auth';
     } catch (e) {
-      showError(e.message || $_('native_setup.toast.cant_reach'));
+      showError(errorText(e, url));
     } finally {
       connecting = false;
     }
+  }
+
+  // Which ways the server offers to sign in (/api/auth/status). When they
+  // can't be read, the sign-in step says so with Retry, and keeps the
+  // password form: the server may well take one (TraceApps/notetrace#36).
+  async function loadSignInOptions() {
+    try {
+      ({ providers, passwordLoginEnabled } = await discoverSignIn(validatedUrl));
+      optionsError = '';
+    } catch (e) {
+      providers = [];
+      passwordLoginEnabled = true;
+      console.warn('[setup] sign-in options:', e?.status || e?.message);
+      optionsError = e?.webPage ? e.message : $_('server_signin.options_failed');
+    }
+  }
+
+  async function retrySignInOptions() {
+    connecting = true;
+    try { await loadSignInOptions(); } finally { connecting = false; }
   }
 
   // Step 2 (password branch): traditional username+password sign-in. Preserves
@@ -98,16 +104,7 @@
     if (!username.trim() || !password.trim()) { showError($_('native_setup.toast.credentials_required')); return; }
     connecting = true;
     try {
-      const { CapacitorHttp } = await import('@capacitor/core');
-      const loginRes = await CapacitorHttp.post({
-        url: `${validatedUrl}/api/auth/login`,
-        headers: { 'Content-Type': 'application/json' },
-        data: { username: username.trim(), password },
-      });
-      const data = typeof loginRes.data === 'string' ? JSON.parse(loginRes.data) : loginRes.data;
-      if (loginRes.status < 200 || loginRes.status >= 300) {
-        throw new Error(data?.error || 'Login failed');
-      }
+      const data = await passwordSignIn(validatedUrl, username.trim(), password);
 
       // Flip native mode → server BEFORE checking for local data, so the
       // upload pass (if the user picks it) routes through apiFetch correctly.
@@ -131,7 +128,7 @@
         window.location.reload();
       }
     } catch (e) {
-      showError(e.message || $_('native_setup.toast.cant_connect'));
+      showError(e?.webPage ? e.message : e.message || $_('native_setup.toast.cant_connect'));
     } finally {
       connecting = false;
     }
@@ -149,20 +146,22 @@
   // NOTE: OIDC path skips the LT-specific local-data migration prompt. See
   // header comment for rationale.
   async function loginWithOidc(providerId) {
+    // One sign-in at a time: a second tap would open another browser and
+    // replace the code's secret, so the first one's hand-off would fail.
+    if (connecting) return;
+    connecting = true;
     setServerUrl(validatedUrl);
     setNativeMode('server');
     try {
-      const ret = encodeURIComponent('#/');
       const { Browser } = await import('@capacitor/browser');
-      await Browser.open({
-        url: `${validatedUrl}/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`,
-        presentationStyle: 'popover',
-      });
+      await Browser.open({ url: await ssoSignInUrl(validatedUrl, providerId), presentationStyle: 'popover' });
       // Deep-link callback (lifttrace://oidc-callback?token=…) handled by
       // App.svelte's appUrlOpen listener — it sets the token, calls
       // loadAuthState, redirects to '#/', and the main app renders.
     } catch (e) {
       showError($_('native_setup.toast.cant_open_oidc'));
+    } finally {
+      connecting = false;
     }
   }
 
@@ -222,6 +221,7 @@
     validatedUrl = '';
     providers = [];
     passwordLoginEnabled = true;
+    optionsError = '';
     username = '';
     password = '';
   }
@@ -231,6 +231,7 @@
     validatedUrl = '';
     providers = [];
     passwordLoginEnabled = true;
+    optionsError = '';
     username = '';
     password = '';
   }
@@ -315,14 +316,22 @@
                 {:else}
                   <span class="material-symbols-rounded" style="font-size:20px">login</span>
                 {/if}
-                Sign in with {p.display_name || p.name || p.id}
+                {$_('server_signin.sign_in_with', { values: { provider: p.display_name || p.name || p.id } })}
               </button>
             {/each}
           </div>
         {/if}
 
+        {#if optionsError}
+          <div class="options-failed" role="alert">
+            <span class="material-symbols-rounded">warning</span>
+            <div class="options-failed-text">{optionsError}</div>
+            <button class="btn btn-secondary" on:click={retrySignInOptions} disabled={connecting}>{$_('server_signin.retry')}</button>
+          </div>
+        {/if}
+
         {#if passwordLoginEnabled && providers.length}
-          <div class="auth-divider"><span>or</span></div>
+          <div class="auth-divider"><span>{$_('server_signin.or')}</span></div>
         {/if}
         {#if passwordLoginEnabled}
           <div class="form-group">
@@ -351,7 +360,7 @@
           </div>
         {/if}
 
-        {#if !providers.length && !passwordLoginEnabled}
+        {#if !providers.length && !passwordLoginEnabled && !optionsError}
           <div class="no-auth-warning">
             <span class="material-symbols-rounded">warning</span>
             <div>
@@ -383,6 +392,7 @@
           {#if localCounts.bodyStats}<li>{localCounts.bodyStats} body-stats {localCounts.bodyStats === 1 ? 'entry' : 'entries'}</li>{/if}
           {#if localCounts.programs}<li>{localCounts.programs} program{localCounts.programs === 1 ? '' : 's'}{localCounts.templates ? ` (${localCounts.templates} template${localCounts.templates === 1 ? '' : 's'})` : ''}</li>{/if}
           {#if localCounts.customExercises}<li>{localCounts.customExercises} custom exercise{localCounts.customExercises === 1 ? '' : 's'}</li>{/if}
+          {#if localCounts.cardio}<li>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</li>{/if}
           {#if localCounts.settings}<li>{localCounts.settings} setting{localCounts.settings === 1 ? '' : 's'}</li>{/if}
         </ul>
       </div>
@@ -391,7 +401,7 @@
         <button class="setup-card" on:click={() => migrateUpload(false)} disabled={migrateBusy}>
           <span class="material-symbols-rounded setup-card-icon">cloud_upload</span>
           <div class="setup-card-title">{$_('native_setup.upload_to_server')}</div>
-          <p class="setup-card-desc">Push everything on this device to your server. Re-uploaded dates overwrite cleanly.</p>
+          <p class="setup-card-desc">Push everything on this device to your server. Each workout goes up as its own session, and uploading again doesn't double it.</p>
         </button>
 
         <button class="setup-card" on:click={migrateDownload} disabled={migrateBusy}>
@@ -403,7 +413,7 @@
         <button class="setup-card" on:click={() => migrateUpload(true)} disabled={migrateBusy}>
           <span class="material-symbols-rounded setup-card-icon">merge</span>
           <div class="setup-card-title">{$_('native_setup.merge_both')}</div>
-          <p class="setup-card-desc">Upload local data, then pull the merged result back. Workouts dedupe by date; programs and exercises may duplicate.</p>
+          <p class="setup-card-desc">Upload local data, then pull the merged result back. Workouts already on the server stay as they are; programs and exercises may duplicate.</p>
         </button>
 
         <button class="btn btn-ghost migrate-skip" on:click={migrateSkip} disabled={migrateBusy}>
@@ -563,6 +573,15 @@
   .no-auth-warning .material-symbols-rounded {
     font-size: 20px; color: #f59e0b; flex-shrink: 0;
   }
+  .options-failed {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 12px 14px;
+    background: color-mix(in srgb, #f59e0b 8%, transparent);
+    border-left: 3px solid #f59e0b; border-radius: 4px;
+    font-size: 13px; line-height: 1.5; color: var(--text-2);
+  }
+  .options-failed .material-symbols-rounded { font-size: 20px; color: #f59e0b; flex-shrink: 0; }
+  .options-failed-text { flex: 1; min-width: 160px; }
   .migrate-summary {
     background: var(--surface-1);
     border: 1px solid var(--border);

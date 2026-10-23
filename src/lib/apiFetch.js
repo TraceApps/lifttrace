@@ -17,6 +17,7 @@ import { isNative, getServerUrl, getAuthToken } from './platform.js';
 import { LtApiNative } from './api-native.js';
 import { installOffline, offlineFetch } from './offline-api.js';
 import { isInterceptable, ownOrigins } from './api-route.js';
+import { accountGen, copyMoving } from './account-gen.js';
 
 const _basePath = (typeof window !== 'undefined' && window.__LT_CONFIG__ && window.__LT_CONFIG__.basePath) || '';
 
@@ -70,12 +71,12 @@ export function installApiFetch() {
 const LOCAL_FIRST_GET_PATTERNS = [
   /^\/api\/workout\/\d{4}-\d{2}-\d{2}(\?|$)/,    // Diary entry by date
   /^\/api\/workout\/recent(\?|$)/,                // Statistics recent workouts
-  /^\/api\/workout\/history\/\d+(\?|$)/,          // ExerciseDetail history
+  /^\/api\/workout\/history\/-?\d+(\?|$)/,        // ExerciseDetail history
   /^\/api\/exercises(\?|$)/,                      // Exercise list
-  /^\/api\/exercises\/\d+(\?|$)/,                 // Single exercise detail
+  /^\/api\/exercises\/-?\d+(\?|$)/,               // Single exercise detail
   /^\/api\/programs(\?|$)/,                       // Programs list
-  /^\/api\/programs\/\d+(\?|\/?$)/,               // Program detail
-  /^\/api\/templates\/\d+(\?|$)/,                 // Workout template
+  /^\/api\/programs\/-?\d+(\?|\/?$)/,             // Program detail
+  /^\/api\/templates\/-?\d+(\?|$)/,               // Workout template
   /^\/api\/body-stats\/[\d-]+(\?|$)/,             // Body stats by date or range
   // Statistics aggregates are deliberately NOT local-first: when the server
   // is reachable it answers, so the numbers always match the web app. The
@@ -95,12 +96,18 @@ function _isLocalFirstGet(path, method) {
 // guard, so this is just to keep noise down in logs and avoid re-entrant
 // dynamic imports.
 let _lastBgSync = 0;
-async function _kickBackgroundSync() {
+// `force`: a write waiting in the queue behind a create (below) goes now,
+// however recently a sync ran.
+async function _kickBackgroundSync({ force = false } = {}) {
   const now = Date.now();
-  if (now - _lastBgSync < 5000) return;          // ignore bursts within 5s
+  if (!force && now - _lastBgSync < 5000) return; // ignore bursts within 5s
   _lastBgSync = now;
   try {
-    const { runSync } = await import('./sync.js');
+    const { runSync, lastSyncDoneAt } = await import('./sync.js');
+    // A page reloading after a sync reads through here: a sync that just
+    // finished is fresh enough, and starting another made a loop (a sync,
+    // the reload, its reads, another sync) every few seconds.
+    if (!force && now - (lastSyncDoneAt?.() || 0) < 30000) return;
     runSync().catch(() => {});
   } catch {}
 }
@@ -116,13 +123,46 @@ async function _kickBackgroundSync() {
  * re-render with fresh data when the snapshot lands.
  */
 async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
+  const method = (init.method || 'GET').toUpperCase();
+  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  const gen = accountGen();
+  // A row made offline is known by a device id (below zero) until it syncs;
+  // a screen opened before then still asks by that id, or points other rows
+  // at it. Once the server's id is known, that is what goes out.
+  if (/\/-\d|=-\d/.test(url) || (typeof init.body === 'string' && /[:[,{]\s*"?-\d/.test(init.body))) {
+    try {
+      const { swapKnownIds, namesUnsyncedRow } = await import('./sync.js');
+      let body = init.body;
+      if (typeof body === 'string') { try { body = JSON.parse(body); } catch { /* not JSON */ } }
+      const swapped = await swapKnownIds(_stripBase(url), body);
+      url = swapped.path;
+      if (typeof init.body === 'string' && swapped.body && typeof swapped.body === 'object') {
+        init = { ...init, body: JSON.stringify(swapped.body) };
+      }
+      // Back online, but that row's create hasn't gone up yet: sent now,
+      // the server would read the number as nothing (or as a row of its
+      // own). It joins the queue behind the create instead, and the sync
+      // started here sends both, in order.
+      if (isWrite && await namesUnsyncedRow(_stripBase(url), swapped.body)) {
+        const res = await _queueWrite(url, init, method, gen);
+        _kickBackgroundSync({ force: true });
+        return res;
+      }
+    } catch { /* sent as it is */ }
+  }
+  // A create carries a key made here once, sent with it online too: if
+  // the answer is lost and it goes again (queued, below), the server
+  // returns the row it made rather than making a second.
+  if (isWrite && typeof init.body === 'string' && _isCreate(method, _stripBase(url), init.body)) {
+    try {
+      const b = JSON.parse(init.body);
+      if (b && typeof b === 'object' && !Array.isArray(b) && !b.client_key) init = { ...init, body: JSON.stringify({ ...b, client_key: _clientKey() }) };
+    } catch { /* not JSON */ }
+  }
   const absolute = serverUrl + _stripBase(url);
   const headers = new Headers(init.headers || {});
   const token = getAuthToken();
   if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
-
-  const method = (init.method || 'GET').toUpperCase();
-  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(method);
 
   // Local-first: serve cache, refresh in background.
   if (!isWrite && _isLocalFirstGet(url, method)) {
@@ -141,70 +181,166 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
   }
 
   try {
-    const res = await origFetch(absolute, { ...init, headers, credentials: 'omit' });
-    // Writes whose screens read local-first also update the device's copy,
-    // so reopening the screen cannot show the older value until the next
-    // pull. This runs behind the reply; local reads wait on _localWrites.
+    // A request that never answers would hang the screen that made it, and
+    // could still be out when another account signs in. JSON requests get a
+    // deadline (an upload of a file is left to take as long as it takes).
+    const deadline = !init.signal && (init.body == null || typeof init.body === 'string') && typeof AbortSignal?.timeout === 'function'
+      ? { signal: AbortSignal.timeout(requestDeadlineMs(_stripBase(url), isWrite)) } : {};
+    const res = await origFetch(absolute, { ...init, headers, credentials: 'omit', ...deadline });
+    // Successful writes also update screens that read the device copy first.
+    // This runs behind the reply; local reads wait on _localWrites.
     if (isWrite && res.ok) {
       const copy = res.clone();
       // Capped, so a stuck update can never hold reads for more than a moment.
       _localWrites = _localWrites
-        .then(() => Promise.race([_mirrorSuccessfulWrite(url, method, init, copy), new Promise(r => setTimeout(r, 3000))]))
+        .then(() => Promise.race([_mirrorSuccessfulWrite(url, method, init, copy, gen), new Promise(r => setTimeout(r, 3000))]))
         .catch(() => {});
     }
     return res;
   } catch (netErr) {
-    // Real network failure — TypeError from fetch (DNS, offline, etc.)
-    if (isWrite) {
-      // Enqueue write for retry, write to local cache, return synthetic 202.
-      try {
-        const { enqueueWrite, noteQueuedLocalId, workoutDateOf } = await import('./sync.js');
-        let body = null;
-        if (typeof init.body === 'string') {
-          try { body = JSON.parse(init.body); } catch { body = init.body; }
-        }
-        const queueId = await enqueueWrite(method, _stripBase(url), body);
-        // Mirror the write to local cache so UI stays consistent, and answer
-        // with what the local write returned: callers read the saved record
-        // from the reply (a workout save reads `workout`), and a bare
-        // "queued" reply made the Diary blank the workout on screen when the
-        // connection dropped (issue #102).
-        let local = null;
-        try {
-          const path = _stripBase(url).split('?')[0];
-          const u = new URL(url, 'http://localhost');
-          const query = Object.fromEntries(u.searchParams.entries());
-          local = await LtApiNative.handle(method, path, body, query);
-        } catch {}
-        if (local && typeof local === 'object' && !Array.isArray(local)) {
-          // A workout that exists only on the device so far gets a device-side
-          // id; note it on the queued write so the replay can swap in the
-          // server's id.
-          const created = local.workout?.id;
-          const sentId = body && typeof body === 'object' ? body.id : null;
-          if (method === 'PUT' && created != null && created !== sentId && workoutDateOf(_stripBase(url))) {
-            try { await noteQueuedLocalId(queueId, created); } catch { /* replay falls back to the date's session */ }
-          }
-          return _jsonResponse(200, { ...local, queued: true, offline: true });
-        }
-        return _jsonResponse(202, { queued: true, offline: true });
-      } catch {
-        return _jsonResponse(503, { error: 'Offline and could not enqueue.' });
-      }
-    }
+    // Real network failure: TypeError from fetch (DNS, offline, etc.)
+    // A sign-in, sign-out or other session request is never queued: sent
+    // later, it would act for whoever is signed in by then.
+    if (isWrite && /^\/api\/auth\//.test(_stripBase(url))) return _jsonResponse(503, { error: 'Offline.', offline: true });
+    // Coaching consent (asking, answering, leaving, ending) changes who can
+    // see whose data: it is decided by the server at the moment it happens,
+    // never replayed later from a queue (the web app refuses the same).
+    // Trace's server took longer than a reply should: said as that, not as
+    // offline (the code is said in the app's language, aiChat.js).
+    if (netErr?.name === 'TimeoutError' && _isTraceChat(_stripBase(url))) return _jsonResponse(504, { error: "Trace didn't get an answer in time. Try again, or ask for less at once.", code: 'trace_timed_out' });
+    if (isWrite && needsServerNow(_stripBase(url), method)) return _jsonResponse(503, { error: 'This needs a connection.', offline: true });
+    if (isWrite) return _queueWrite(url, init, method, gen);
+    // Who is signed in is the server's to say: offline, this device's
+    // standalone answer (its local user) would stand in for the account.
+    if (/^\/api\/auth\/(status|me)(\?|$)/.test(_stripBase(url))) return _jsonResponse(503, { error: 'Offline.', offline: true });
     // Read fallback — try local cache.
     await _localWrites;
     return _dispatchLocal(url, init);
   }
 }
 
+// Asking Trace through the server (Trace set by environment variables).
+const _isTraceChat = (fullPath) => /^\/api\/ai\/chat$/.test(String(fullPath).split('?')[0]);
+
+/**
+ * How long a request may take before it counts as unanswered. Asking Trace
+ * is the server waiting on the AI provider for a whole reply, which can take
+ * minutes (TraceApps/notetrace#23); everything else answers in seconds.
+ */
+export function requestDeadlineMs(fullPath, isWrite) {
+  if (_isTraceChat(fullPath)) return 300000;
+  return isWrite ? 30000 : 20000;
+}
+
+/**
+ * A write that only means something now, with the server: coaching consent,
+ * and asking Trace (a question answered on a later sync, to no one, would
+ * only spend the AI provider's tokens). Trace's saved history still waits
+ * for a connection like any other change. A push notification too: one that
+ * can't go now is sent by the phone itself (notifications.js), not later.
+ */
+export function needsServerNow(fullPath, method) {
+  const path = String(fullPath).split('?')[0];
+  if (/^\/api\/coaching\//.test(path)) return true;
+  if (_isTraceChat(path)) return true;
+  if (method === 'POST' && path === '/api/notify') return true;
+  return (method === 'POST' || method === 'DELETE') && /^\/api\/trainer\/members\/\d+$/.test(path);
+}
+
+// Creates that go into the queue carry a key made here once, so one sent
+// again after its answer was lost makes one row (server/lib/create-keys.js).
+const _QUEUED_CREATE = /^\/api\/(programs|templates|exercises|cardio)$/;
+const _clientKey = () => {
+  try { if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID(); } catch { /* fall back */ }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+};
+
+/** A request that makes a row: a program, program workout, exercise,
+ *  cardio session, or a new workout session. */
+function _isCreate(method, fullPath, rawBody) {
+  const path = String(fullPath).split('?')[0];
+  if (method === 'POST' && _QUEUED_CREATE.test(path)) return true;
+  if (method === 'PUT' && /^\/api\/workout\/\d{4}-\d{2}-\d{2}$/.test(path)) {
+    try { return !!JSON.parse(rawBody)?.new_session; } catch { return false; }
+  }
+  return false;
+}
+
+/** Queue a write for the next sync, apply it to this device's copy, and
+ *  answer with what that local write returned. */
+async function _queueWrite(url, init, method, gen = accountGen()) {
+  // Made under the account that held the phone when it started: if another
+  // account has it now (or it's changing hands), the write is not this
+  // copy's to keep, and isn't queued or applied here.
+  if (gen !== accountGen() || copyMoving()) {
+    return _jsonResponse(409, { error: 'Not saved: the account on this phone changed.' });
+  }
+  let queued = () => {};
+  let queueId = null;
+  let settle = null;
+  try {
+    const { enqueueWrite, noteQueuedLocalId, workoutDateOf, describeEdit, beginQueueWrite } = await import('./sync.js');
+    queued = beginQueueWrite();
+    let body = null;
+    if (typeof init.body === 'string') {
+      try { body = JSON.parse(init.body); } catch { body = init.body; }
+    }
+    // When it was made and what it changes, before it changes this copy:
+    // the server keeps the newer edit of each field.
+    const edit = await describeEdit(method, _stripBase(url), body).catch(() => null);
+    const path = _stripBase(url).split('?')[0];
+    const isCreate = (method === 'POST' && _QUEUED_CREATE.test(path))
+      || (method === 'PUT' && !!workoutDateOf(_stripBase(url)) && body && typeof body === 'object' && body.new_session);
+    const sentBody = isCreate && body && typeof body === 'object' && !body.client_key ? { ...body, client_key: _clientKey() } : body;
+    // Marked half-way until its row is noted on it: a sync leaves it alone
+    // until then (sync.js settleQueuedWrite).
+    ({ settleQueuedWrite: settle } = await import('./sync.js'));
+    queueId = await enqueueWrite(method, _stripBase(url), sentBody, { ...(edit || {}), half: true });
+    // Mirror the write to local cache so UI stays consistent, and answer
+    // with what the local write returned: callers read the saved record
+    // from the reply (a workout save reads `workout`), and a bare
+    // "queued" reply made the Diary blank the workout on screen when the
+    // connection dropped (issue #102).
+    let local = null;
+    try {
+      const u = new URL(url, 'http://localhost');
+      const query = Object.fromEntries(u.searchParams.entries());
+      local = await LtApiNative.handle(method, path, body, query);
+    } catch {}
+    if (local && typeof local === 'object' && !Array.isArray(local)) {
+      // A workout that exists only on the device so far gets a device-side
+      // id; note it on the queued write so the replay can swap in the
+      // server's id.
+      const created = local.workout?.id;
+      const sentId = body && typeof body === 'object' ? body.id : null;
+      if (method === 'PUT' && created != null && created !== sentId && workoutDateOf(_stripBase(url))) {
+        try { await noteQueuedLocalId(queueId, created); } catch { /* replay falls back to the date's session */ }
+      }
+      // So does a program, a program's workout, an exercise or a cardio
+      // session made here: writes that name it wait for it and then use
+      // the server's id.
+      if (method === 'POST' && _QUEUED_CREATE.test(path) && local.id != null) {
+        try { await noteQueuedLocalId(queueId, local.id); } catch { /* sent without its id swapped */ }
+      }
+      return _jsonResponse(200, { ...local, queued: true, offline: true });
+    }
+    return _jsonResponse(202, { queued: true, offline: true });
+  } catch {
+    return _jsonResponse(503, { error: 'Offline and could not enqueue.' });
+  } finally {
+    try { await settle?.(queueId); } catch { /* sent as it is */ }
+    queued();
+  }
+}
+
 // Chain of device-copy updates still running behind a server reply.
 let _localWrites = Promise.resolve();
 
-async function _mirrorSuccessfulWrite(url, method, init, res) {
+async function _mirrorSuccessfulWrite(url, method, init, res, gen) {
   try {
+    if (gen !== accountGen() || copyMoving()) return;
     const path = _stripBase(url).split('?')[0];
-    if (/^\/api\/exercises\/\d+\/muscle-load$/.test(path)
+    if (/^\/api\/exercises\/-?\d+\/muscle-load$/.test(path)
       || /^\/api\/stats\/muscle-recovery-adjustments\/[a-z-]+$/.test(path)) {
       let body = null;
       if (typeof init?.body === 'string') {
@@ -213,18 +349,19 @@ async function _mirrorSuccessfulWrite(url, method, init, res) {
       await LtApiNative.handle(method, path, body, {});
       return;
     }
-    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate } = await import('./sync.js');
+    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate, forgetDeletedRow } = await import('./sync.js');
+    if (method === 'DELETE') await forgetDeletedRow(_stripBase(url), gen);
     const date = workoutDateOf(_stripBase(url));
     if (!date) return;
     if (method === 'PUT') {
       const data = await res.clone().json();
-      await mirrorSavedWorkout(date, data?.workout);
+      await mirrorSavedWorkout(date, data?.workout, gen);
     } else if (method === 'DELETE') {
       // Local only, so reads never wait on the network; the full refresh of
       // that day from the server runs on its own afterwards.
       const id = new URL(url, 'http://localhost').searchParams.get('id');
-      await forgetDeletedWorkout(date, id != null && id !== '' ? Number(id) : null);
-      reconcileWorkoutDate(date).catch(() => {});
+      await forgetDeletedWorkout(date, id != null && id !== '' ? Number(id) : null, gen);
+      reconcileWorkoutDate(date, [], gen).catch(() => {});
     }
   } catch { /* the next pull brings the copy up to date */ }
 }

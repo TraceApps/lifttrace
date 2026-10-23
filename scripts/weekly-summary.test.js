@@ -128,7 +128,8 @@ test('time trained reads as hours and minutes', () => {
 
 test('the scheduler uses the user\'s own weekday and the shared summary', () => {
   const src = read('../server/lib/scheduler.js');
-  assert.match(src, /_localWeekday\(tz\) === targetDay/);
+  // The user's weekday, or the day before for a late match just after midnight.
+  assert.match(src, /\(_localWeekday\(tz\) \+ 7 \+ due\) % 7 === targetDay/);
   assert.doesNotMatch(src, /new Date\(\)\.getDay\(\) === targetDay|const currentDay = new Date\(\)\.getDay\(\)/);
   assert.match(src, /buildWeeklySummary\(/);
   assert.match(src, /summaryLine\(summary/);

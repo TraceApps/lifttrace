@@ -42,7 +42,7 @@
         logo_url: 'https://cdn.simpleicons.org/auth0/EB5424',
       },
       issuer_hint: 'https://<your-tenant>.auth0.com/',
-      help: 'Auth0 adds custom claims under a namespaced URL like "https://lifttrace.app/roles" — leave the admin claim blank for now and contact your tenant admin to set up a rule that exposes role membership.',
+      helpKey: 'settings_auth.presets.auth0_help',
       hides: [],
     },
     {
@@ -57,7 +57,7 @@
         logo_url: 'https://cdn.simpleicons.org/authelia/000000',
       },
       issuer_hint: 'https://auth.example.com',
-      help: 'Authelia\'s issuer URL is the root URL where Authelia is served — no path suffix.',
+      helpKey: 'settings_auth.presets.authelia_help',
       hides: [],
     },
     {
@@ -72,7 +72,7 @@
         logo_url: '/icons/sso/authentik.svg',
       },
       issuer_hint: 'https://auth.example.com/application/o/<your-app-slug>/',
-      help: 'Issuer URL is the "OpenID Configuration Issuer" shown on the Provider page in Authentik. Make sure your Application uses an OAuth2/OIDC Provider and you\'ve added the redirect URI shown above to its allowed list.',
+      helpKey: 'settings_auth.presets.authentik_help',
       hides: [],
     },
     {
@@ -88,7 +88,7 @@
         logo_url: 'https://cdn.simpleicons.org/google/4285F4',
       },
       issuer_hint: 'https://accounts.google.com',
-      help: 'Google\'s issuer URL is fixed. Group/role claims are not available with standard scopes — admin role mapping is hidden for this provider; promote Google users manually after first login.',
+      helpKey: 'settings_auth.presets.google_help',
       hides: ['admin_group_claim', 'admin_group_value'],
     },
     {
@@ -103,7 +103,7 @@
         logo_url: 'https://cdn.simpleicons.org/keycloak/4D4D4D',
       },
       issuer_hint: 'https://auth.example.com/realms/<your-realm>',
-      help: 'Add a "groups" mapper to your client\'s default scope so the groups claim is included in the ID token.',
+      helpKey: 'settings_auth.presets.keycloak_help',
       hides: [],
     },
     {
@@ -118,12 +118,13 @@
         logo_url: '/icons/sso/pocket-id.svg',
       },
       issuer_hint: 'https://id.example.com',
-      help: 'Pocket ID uses passkeys for primary auth — your users won\'t need a password at the IdP either. Add the redirect URI shown above to the OIDC client in Pocket ID admin.',
+      helpKey: 'settings_auth.presets.pocket_id_help',
       hides: [],
     },
     {
       id: 'custom',
       name: 'Custom / Generic OIDC',
+      nameKey: 'settings_auth.presets.custom_name',
       icon: 'badge',
       defaults: {
         scope: 'openid profile email',
@@ -133,7 +134,7 @@
         logo_url: '',
       },
       issuer_hint: 'https://your-idp.example.com',
-      help: 'Any OpenID Connect 1.0 compliant provider that supports Authorization Code Flow + PKCE + Discovery should work here.',
+      helpKey: 'settings_auth.presets.custom_help',
       hides: [],
     },
   ];
@@ -167,7 +168,7 @@
       const t = getAuthToken();
       if (t) h['Authorization'] = `Bearer ${t}`;
     } else {
-      const csrf = localStorage.getItem('nt:csrf');
+      const csrf = localStorage.getItem('lt:csrf');
       if (csrf) h['X-CSRF-Token'] = csrf;
     }
     return h;
@@ -282,7 +283,7 @@
       });
       oidcTestResult = await r.json();
     } catch (e) {
-      oidcTestResult = { ok: false, error: 'Could not reach server' };
+      oidcTestResult = { ok: false, error: $_('common.errors.cant_reach_server') };
     } finally { oidcBusy = false; }
   }
 
@@ -450,21 +451,21 @@
                       class="oidc-preset-card"
                       class:selected={oidcSelectedPreset === preset.id}
                       on:click={() => oidcSelectedPreset = preset.id}
-                      title={preset.name}
+                      title={preset.nameKey ? $_(preset.nameKey) : preset.name}
                     >
                       {#if preset.defaults.logo_url}
                         <img src={resolveAssetUrl(preset.defaults.logo_url)} alt="" class="oidc-preset-logo" />
                       {:else}
                         <span class="material-symbols-rounded oidc-preset-icon">{preset.icon}</span>
                       {/if}
-                      <span class="oidc-preset-name">{preset.name}</span>
+                      <span class="oidc-preset-name">{preset.nameKey ? $_(preset.nameKey) : preset.name}</span>
                     </button>
                   {/each}
                 </div>
-                {#if oidcPreset.help}
+                {#if oidcPreset.helpKey}
                   <div class="text-3 text-sm" style="margin-top:8px;line-height:1.4">
                     <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
-                    {oidcPreset.help}
+                    {$_(oidcPreset.helpKey)}
                   </div>
                 {/if}
               </div>

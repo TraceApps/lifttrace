@@ -24,7 +24,7 @@
   import { currentUser } from '../../stores/auth.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
-    checkForUpdate, isUpdateAvailable, downloadAndInstallApk,
+    checkForUpdate, isUpdateAvailable, downloadAndInstallApk, isApkStaged,
     getChannel, setChannel, getAutoCheck, setAutoCheck,
     getLastChecked, formatAgo, checkServerUpdate,
     skipVersion, getUpdateCacheInfo, clearUpdateCache, formatBytes,
@@ -51,6 +51,11 @@
   let autoCheck   = getAutoCheck();
   let checking    = false;
   let latest      = null;
+  // The APK for `latest` is already downloaded (the installer was backed out
+  // of, say), so the button says Install: nothing will download again.
+  let apkStaged   = false;
+  async function refreshStaged(l) { apkStaged = l ? await isApkStaged(l) : false; }
+  $: refreshStaged(latest);
   let serverInfo  = null;
   let lastChecked = getLastChecked();
   let error       = '';
@@ -160,6 +165,7 @@
       showError($_('updates.install_failed'));
     } finally {
       downloading = false;
+      refreshStaged(latest);
     }
   }
 
@@ -344,8 +350,8 @@
         </span>
       {:else if primaryState === 'install'}
         <span class="btn-label">
-          <span class="material-symbols-rounded">download</span>
-          {$_('updates.download_install')}
+          <span class="material-symbols-rounded">{apkStaged ? 'install_mobile' : 'download'}</span>
+          {apkStaged ? $_('updates.install_downloaded') : $_('updates.download_install')}
         </span>
       {:else}
         <span class="btn-label">

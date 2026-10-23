@@ -49,13 +49,13 @@ test('the edit and delete routes check ownership', () => {
   assert.match(put, /Library exercises are shared, so they cannot be edited/);
   assert.match(put, /if \(!canChangeExercise\(existing, uid\(req\)\)\) return res\.status\(404\)/);
   const del = src.slice(src.indexOf("router.delete('/:id'"), src.indexOf('// ── Catalog source'));
-  assert.match(del, /if \(!row\) return res\.json\(\{ ok: true \}\)/, 'already gone is still a success');
+  assert.match(del, /if \(!row \|\| row\.deleted_at\) return res\.json\(\{ ok: true \}\)/, 'already gone (or cleared) is still a success');
   assert.match(del, /if \(!canChangeExercise\(row, uid\(req\)\)\) return res\.status\(404\)/);
 });
 
 test('the sync push only writes rows the pushing user owns', () => {
   const src = read('../server/routes/sync.js');
-  assert.match(src, /SELECT updated_at, is_global, created_by FROM exercises WHERE id = \?/);
+  assert.match(src, /SELECT updated_at, is_global, created_by, img_url, gif_url FROM exercises WHERE id = \?/);
   assert.match(src, /if \(canChangeExercise\(existing, u\) && wins\(e\.updated_at, existing\.updated_at\)\)/);
 });
 

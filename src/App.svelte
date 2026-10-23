@@ -8,6 +8,7 @@
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
+  import AccountCheckError from './components/AccountCheckError.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
   import { initFold } from './lib/fold.js';
@@ -21,9 +22,11 @@
 
   // Drive svelte-i18n's active locale from the user's saved language setting.
   $: if ($language) locale.set($language);
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
-  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
-  import { syncState } from './lib/sync.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, launchState } from './stores/auth.js';
+  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
+  import { syncState, forgetRefused } from './lib/sync.js';
+  import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
+  import { get as getStore } from 'svelte/store';
   import { offlineState } from './lib/offline-api.js';
   import NativeSetup from './routes/NativeSetup.svelte';
 
@@ -50,6 +53,12 @@
     const _say = $offlineState.refused.map(r => $_('sync.refused', { values: { what: r.what, reason: r.reason } }));
     import('./stores/toast.js').then(({ showError }) => _say.forEach(m => showError(m)));
     import('./lib/offline-api.js').then(m => m.forgetRefused());
+  }
+  // The same on Android, for changes queued offline there (lib/sync.js).
+  $: if (isNative && ($syncState.refused || []).length) {
+    const _sayNative = $syncState.refused.map(r => $_('sync.refused', { values: { what: r.what, reason: r.reason } }));
+    forgetRefused();
+    import('./stores/toast.js').then(({ showError }) => _sayNative.forEach(m => showError(m)));
   }
   // Reactive copy build for the smart connection banner. Falls back to
   // the generic "Sync error" title when a non-connection error is
@@ -196,6 +205,7 @@
   import Radio           from './routes/Radio.svelte';
   import Settings        from './routes/Settings.svelte';
   import Coaching        from './routes/Coaching.svelte';
+  import Coach           from './routes/Coach.svelte';
   import MiniPlayer      from './components/radio/MiniPlayer.svelte';
   import RestTimer       from './components/diary/RestTimer.svelte';
   import FullPlayer      from './components/radio/FullPlayer.svelte';
@@ -223,6 +233,7 @@
     '/radio':                 Radio,
     '/settings':              Settings,
     '/settings/:section':     Settings,
+    '/coach':                 Coach,
     '/coaching':              Coaching,
     '/coaching/:memberId':    Coaching,
     '/wizard':                Wizard,
@@ -394,8 +405,14 @@
         // process lived. Stopping loses nothing: coming back fires a sync of
         // its own (the resume listener below).
         let poll = null;
+        // Only for an account that is signed in and whose data is shown: a
+        // signed-out phone (or one still being checked) has nothing to sync.
         const startPolling = () => {
-          if (poll == null) poll = setInterval(() => sync.fullSync(true).catch(() => {}), 30000);
+          if (poll == null) poll = setInterval(() => {
+            const user = getStore(currentUser);
+            if (user?.id == null || !accountReadyFor(getStore(accountGate), user.id)) return;
+            sync.fullSync(true).catch(() => {});
+          }, 30000);
         };
         const stopPolling = () => {
           if (poll != null) { clearInterval(poll); poll = null; }
@@ -404,6 +421,17 @@
         document.addEventListener('visibilitychange', () => {
           if (document.hidden) stopPolling(); else startPolling();
         });
+        // A set logged on the watch is on the phone when you look, not at
+        // the next poll: the watch says when it has saved.
+        import('./lib/wear-pairing.js').then(({ onWatchSaved }) => onWatchSaved(() => {
+          // Only on screen: in the background it waits, since coming back
+          // syncs anyway, and a sync per set logged would wake the radio
+          // with nobody looking.
+          if (document.hidden) return;
+          const user = getStore(currentUser);
+          if (user?.id == null || !accountReadyFor(getStore(accountGate), user.id)) return;
+          sync.fullSync(true).catch(() => {});
+        })).catch(() => {});
         // Resume from background → fire a visible sync (matches NT's
         // App.resume listener wiring).
         try {
@@ -442,6 +470,16 @@
           } catch {}
         });
         setTimeout(() => import('./stores/restTimer.js').then(({ syncRest }) => syncRest()).catch(() => {}), 3000);
+        // The rest's notification was tapped: the Diary, on that workout's
+        // day. Heard even when the tap is what started the app.
+        import('./lib/rest-cue.js').then(({ onRestOpened }) => onRestOpened((date) => {
+          try { if (date) sessionStorage.setItem('lt:diary-open-date', date); } catch {}
+          if ($location !== '/') {
+            import('svelte-spa-router').then(({ push }) => push('/')).catch(() => {});
+          } else {
+            window.dispatchEvent(new CustomEvent('lt:diary-open-date'));
+          }
+        })).catch(() => {});
         // Web/PWA fallbacks — same reason as above but for the browser
         // page lifecycle (tab hidden, page unload). Cheap idempotent
         // flush; no-op if nothing pending.
@@ -504,15 +542,47 @@
             await Browser.close().catch(() => {});
           } catch {}
           try {
-            const u = new URL(url);
-            const host = (u.hostname || u.host || '').toLowerCase();
-            const params = u.searchParams;
+            // Read by hand (lib/app-link.js): older WebViews leave new URL()'s
+            // host empty for this scheme, so SSO never finished there.
+            const { parseAppLink } = await import('./lib/app-link.js');
+            const link = parseAppLink(url);
+            if (!link) throw new Error('not an app link');
+            const host = link.host;
+            const params = link.params;
             if (host === 'oidc-callback') {
               const errMsg = params.get('error');
               const linked = params.get('linked');
-              const token = params.get('token');
-              const idTokenHint = params.get('id_token_hint');
-              const providerId  = params.get('provider_id');
+              let token = params.get('token');
+              let idTokenHint = params.get('id_token_hint');
+              let providerId  = params.get('provider_id');
+              const code = params.get('code');
+              // Signed in from Settings → Server Connection, with the phone
+              // still in local mode: the token goes back to that screen, which
+              // moves the phone's workouts over as a password sign-in does
+              // (TraceApps/notetrace#36). That sign-in takes only the single-use
+              // code it asked for, never a bare token another app could hand
+              // over (lib/server-signin.js).
+              const signin = await import('./lib/server-signin.js');
+              const { redeemHandoff, challengeSent } = await import('./lib/oidc-app-handoff.js');
+              const local = getNativeMode() === 'local';
+              const connecting = local ? signin.pendingSsoConnect() : null;
+              const action = signin.ssoCallbackAction({ code, token, error: errMsg, connecting, challengeSent: challengeSent(), local });
+              if (connecting && action.do !== 'none') signin.forgetSsoConnect();
+              if (action.do === 'refuse' || action.do === 'expired') {
+                import('./stores/toast.js').then(({ showError }) => showError(getStore(_)(action.do === 'refuse' ? 'server_signin.token_refused' : 'server_signin.sso_expired')));
+                return;
+              }
+              if (action.do === 'redeem') {
+                try {
+                  const data = await redeemHandoff(code, action.server);
+                  token = data.token;
+                  idTokenHint = data.id_token_hint || null;
+                  providerId = data.provider_id != null ? String(data.provider_id) : null;
+                } catch (e) {
+                  import('./stores/toast.js').then(({ showError }) => showError(e?.message || 'Sign-in failed'));
+                  return;
+                }
+              }
               if (errMsg) {
                 const { showError } = await import('./stores/toast.js');
                 showError(decodeURIComponent(errMsg));
@@ -520,6 +590,9 @@
                 const { showSuccess } = await import('./stores/toast.js');
                 showSuccess('Linked');
                 await loadAuthState();
+              } else if (connecting && token) {
+                signin.ssoConnectResult.set({ url: connecting.url, token, idTokenHint, providerId });
+                window.location.hash = '#/settings/serverConnection';
               } else if (token) {
                 const { setAuthToken } = await import('./lib/platform.js');
                 setAuthToken(token);
@@ -557,21 +630,18 @@
       }
     } catch {}
 
-    await loadAuthState();
+    // A copy an earlier version kept for a server is tagged as the account
+    // last signed in here, before anyone signs in (lib/local-account.js).
+    if (isNative && getNativeMode() === 'server') {
+      try { await (await import('./lib/local-account.js')).tagLegacyCopy(); } catch { /* no local database */ }
+    }
+    try { await loadAuthState(); } finally { authLoaded = true; }
 
     // Env-lock state for AI / SMTP / OIDC. Fetched globally so the Trace
     // FAB knows about env-set AI_ENABLED without waiting for Settings to
-    // load. Mirrors NutriTrace #36.
-    if (!isNative || getServerUrl()) {
-      fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .then(async d => {
-          if (!d) return;
-          const { envLocks } = await import('./stores/settings.js');
-          envLocks.set(d);
-        })
-        .catch(() => {});
-    }
+    // load. Mirrors NutriTrace #36. Signed out it would only be refused;
+    // signing in loads it (see _wasNeedsLogin below).
+    if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
 
     const _isNativeServer = isNative && getNativeMode() === 'server';
     const _isNativeLocal  = isNative && getNativeMode() === 'local';
@@ -649,8 +719,64 @@
     }
   });
 
+  /**
+   * Which sections the server holds by environment variable, Trace included.
+   * Sends the Android app's token: cookies alone were refused there, which
+   * left Trace looking unconfigured even with AI_* set on the server.
+   */
+  async function loadEnvLocks() {
+    if (isNative && !getServerUrl()) return;
+    try {
+      const headers = {};
+      const token = isNative ? getAuthToken() : null;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers });
+      if (!res.ok) return;
+      const { envLocks } = await import('./stores/settings.js');
+      envLocks.set(await res.json());
+    } catch { /* defaults stay: Trace waits for a key in Settings */ }
+  }
+
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
+  // The web app learns who is signed in from the server. Until it knows,
+  // nothing renders: the app used to load first and fire its requests
+  // signed out, before the sign-in screen replaced it. Android starts from
+  // the account it cached, so it never waits.
+  let authLoaded = isNative;
+  launchState();
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
+
+  // Signing in loads what the sign-in screen left out. (Login.svelte loads
+  // the server settings itself.)
+  let _wasNeedsLogin = needsLogin;
+  $: {
+    if (_wasNeedsLogin && !needsLogin && $currentUser) {
+      _wasNeedsLogin = false;
+      loadEnvLocks();
+    } else if (needsLogin) {
+      _wasNeedsLogin = true;
+    }
+  }
+
+  // Android, server mode: the phone's copy of the data must be this
+  // account's before the app shows any of it (lib/local-account.js). A
+  // different account than last time clears the copy; if that account
+  // left changes that never went up, the person is asked first, and
+  // saying no signs them back out. Every sign-in path ends by setting
+  // $currentUser, so this is the one place that sees them all. Keyed on
+  // the id, so a refreshed user object doesn't ask again; the gate itself
+  // runs one check per account at a time.
+  $: _accountId = isNative && getNativeMode() === 'server' && $currentUser?.id != null ? $currentUser.id : null;
+  $: if (_accountId != null) _checkAccount();
+  $: accountReady = _accountId == null || accountReadyFor($accountGate, _accountId);
+  async function _checkAccount() {
+    const user = getStore(currentUser);
+    if (!user || user.id == null) return;
+    const ok = await ensureLocalAccount(user, {
+      signOut: async () => { const { logout } = await import('./stores/auth.js'); await logout(); },
+    });
+    if (ok) import('./lib/sync.js').then(m => m.fullSync()).catch(() => {});
+  }
 </script>
 
 <svelte:window
@@ -663,8 +789,17 @@
 {#if showNativeSetup}
   <NativeSetup />
   <Toast />
+{:else if !authLoaded}
+  <!-- Asking the server who is signed in: a blank page, never the app. -->
 {:else if needsLogin}
   <Login />
+{:else if !accountReady}
+  <!-- Checking the phone's copy is this account's: never another account's data. -->
+  {#if $accountGate.state === 'error'}
+    <AccountCheckError on:retry={_checkAccount} on:signout={async () => { const { logout } = await import('./stores/auth.js'); await logout(); }} />
+  {/if}
+  <Toast />
+  <ConfirmDialogMount />
 {:else}
 
 <Sidebar bind:open={sidebarOpen} persistent={sidebarPinned} on:close={() => { if (!sidebarPinned) sidebarOpen = false; }} />

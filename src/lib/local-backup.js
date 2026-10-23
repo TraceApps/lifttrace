@@ -122,8 +122,9 @@ export async function exportBackup({ share = true, includeUploads = true } = {})
   await _ensureDir(BACKUP_DIR);
   const data = await buildBackup({ includeUploads });
   const json = JSON.stringify(data);
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const name = `${BACKUP_DIR}/lifttrace-${ts}.json`;
+  // Named in this device's own time (TraceApps/notetrace#44).
+  const { localFileStamp } = await import('./file-stamp.js');
+  const name = `${BACKUP_DIR}/lifttrace-${localFileStamp()}.json`;
   const writeRes = await Filesystem.writeFile({
     path: name,
     data: json,

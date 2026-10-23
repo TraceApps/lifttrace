@@ -55,7 +55,14 @@ public class ReminderWorker extends Worker {
             // Master kill switch: if the JS LocalNotifications path is in use,
             // don't run any native checks. Web settings UI flips this when
             // the user opts into native reminders.
-            if (!WorkerScheduler.readBoolSetting(ctx, "_USE_NATIVE_WORKER")) {
+            // A setting that can't be read isn't "off" (LocalDb): this tick
+            // is skipped and the next one tries again.
+            Boolean useNative = WorkerScheduler.readBoolSetting(ctx, "_USE_NATIVE_WORKER");
+            if (useNative == null) {
+                Log.w(TAG, "settings couldn't be read, trying again next tick");
+                return Result.success();
+            }
+            if (!useNative) {
                 return Result.success();
             }
 
@@ -67,8 +74,8 @@ public class ReminderWorker extends Worker {
 
             ensureChannel(ctx);
 
-            SQLiteDatabase db = SQLiteDatabase.openDatabase(
-                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+            SQLiteDatabase db = LocalDb.open(ctx);
+            if (db == null) return Result.success();
             try {
                 runChecks(ctx, db);
             } finally {

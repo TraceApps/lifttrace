@@ -19,10 +19,11 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
   <a href="https://traceapps.github.io/docs/lifttrace/"><img alt="Documentation" src="https://img.shields.io/badge/docs-traceapps.github.io-8A2BE2?logo=readthedocs&logoColor=white"></a>
   <a href="https://github.com/traceapps/lifttrace/pkgs/container/lifttrace"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-traceapps%2Flifttrace-181717?logo=github&logoColor=white"></a>
   <a href="https://hub.docker.com/r/traceapps/lifttrace"><img alt="Docker Hub pulls" src="https://img.shields.io/docker/pulls/traceapps/lifttrace?logo=docker&logoColor=white&label=docker%20pulls&color=2496ED"></a>
+  <a href="https://hosted.weblate.org/engage/lifttrace/"><img alt="Translation status" src="https://hosted.weblate.org/widget/lifttrace/svg-badge.svg"></a>
 </p>
 
 <p align="center">
-  <b>iOS fund:</b> the Trace apps have no iOS app yet, because building one needs a Mac and an iPhone.
+  <b>Coming to Apple devices:</b> the Trace apps have no iPhone app yet, because building and testing one needs a Mac and an iPhone.
   <a href="https://ko-fi.com/traceapps">Chip in on Ko-fi</a>. Self-hosting stays free either way.
 </p>
 
@@ -51,16 +52,19 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 
 ## Features
 
-- **Diary and set logging.** Weight, reps, RPE, warm-up marking, Smart Add prose parser, superset-aware rest timer, floating workout mode bar, workout completion share card. → [full guide](https://traceapps.github.io/docs/lifttrace/diary/)
+- **Diary and set logging.** Weight, reps, RPE, warm-up marking, Smart Add prose parser, superset-aware rest timer (with Pause, and on Android in the notification shade and on the lock screen), floating workout mode bar, workout completion share card. → [full guide](https://traceapps.github.io/docs/lifttrace/diary/)
 - **Programs and templates.** Starter templates (Push/Pull/Legs, Upper/Lower, Full Body 3x), multi-week progression with Sessions or Calendar advance modes (v1.0.1). → [full guide](https://traceapps.github.io/docs/lifttrace/programs/)
 - **Exercise library.** Four sources: wger (~600, CC-BY-SA), Free Exercise DB (~870, public domain), ExerciseDB (~1,300, RapidAPI BYO key), and ExerciseDB Open Source (self-hostable mirror, no key). Plus custom exercises and XLSX bulk import. → [full guide](https://traceapps.github.io/docs/lifttrace/exercises/)
-- **Statistics and PRs.** Metric-pill layout with Overview, Exercise Progress, Records, Volume, Frequency, and Body Weight views; automatic PR detection. → [full guide](https://traceapps.github.io/docs/lifttrace/statistics/)
+- **Statistics and PRs.** Overview, Exercise Progress, Records, Volume, Frequency, and Body Measurements views, plus Cardio (weekly minutes against your target) when you track cardio; automatic PR detection. → [full guide](https://traceapps.github.io/docs/lifttrace/statistics/)
 - **Progress photos.** Dated photos alongside your body stats, with a drag-to-compare before/after view for any two dates. Photos never expire, sync across devices, and are included in full backups. → [full guide](https://traceapps.github.io/docs/lifttrace/progress/)
-- **Trace AI coach.** Reads your workouts, programs, PRs, body stats, and coach prescriptions; can log a workout, prescribe (if you are a coach), start a program template, or update your active program, all conversationally. 18 tools total. Multi-provider (Claude / OpenAI / Gemini / any OpenAI-compatible endpoint). Hold-to-record voice log, FFT visualizer. → [full guide](https://traceapps.github.io/docs/lifttrace/trace/)
+- **Trace AI coach.** Reads your workouts, programs, PRs, body stats, progress photo dates, cardio, and coach prescriptions; can log a workout or a cardio session, prescribe (if you are a coach), start a program template, or update your active program, all conversationally. 21 tools total. Multi-provider (Claude / OpenAI / Gemini / any OpenAI-compatible endpoint). Hold-to-record voice log, FFT visualizer. → [full guide](https://traceapps.github.io/docs/lifttrace/trace/)
 - **Radio player.** Stream from Subsonic (Navidrome, Airsonic, Funkwhale, Gonic), Jellyfin, Plex, Emby, plus Icecast/Shoutcast/HLS internet radio with now-playing metadata. → [full guide](https://traceapps.github.io/docs/lifttrace/radio/)
-- **Coaching.** Trainer accounts prescribe workouts to athletes; prescriptions surface in Diary on the right day. → [full guide](https://traceapps.github.io/docs/lifttrace/coaching/)
+- **Coaching with consent.** A coach asks and the client accepts before anything is shared, and either side can end it. The coach assigns programs, prescribes workouts the client accepts or declines, leaves notes on workouts and exercises, and talks with the client in one conversation (text and photos, read receipts, works offline). → [full guide](https://traceapps.github.io/docs/lifttrace/coaching/)
+- **Set videos.** Film a set in the app or pick a clip, and your coach leaves a note stamped at the moment that matters. Only you and your coach can open a clip. → [full guide](https://traceapps.github.io/docs/lifttrace/set-videos/)
 - **Workout history import.** Bring your old log in from Strong, Hevy, FitNotes, Jefit (CSV) or Garmin FIT files. → [full guide](https://traceapps.github.io/docs/lifttrace/import/)
 - **Multi-user and OIDC SSO.** Role-based access (admin/trainer/member), invites, session policy, plus OIDC 1.0 SSO via Authentik, Keycloak, Pocket ID, Authelia, Google, Auth0, or any compliant provider. → [full guide](https://traceapps.github.io/docs/auth/oidc/)
+- **Works without a connection.** In a gym with no signal the web app still opens, today's workout is there, and you keep logging: sets, body stats, cardio, your own exercises and settings. Changes go up on their own when the connection returns, merged set by set. → [full guide](https://traceapps.github.io/docs/lifttrace/features/#offline)
+- **MCP and REST API.** AI clients and scripts read your workouts, records, progress and body stats over a date range, and can log sets and body stats. Off by default. → [full guide](https://traceapps.github.io/docs/lifttrace/mcp/)
 - **Native Android app.** Local-only mode with on-device SQLite, or connect to your self-hosted server for sync. Media3 ExoPlayer, WorkManager reminders, biometric sign-in. → [full guide](https://traceapps.github.io/docs/mobile/install/)
 - **Wear OS.** A watch app for Wear OS 3 and up: the set you are on with weight and reps already filled in, what you lifted last time, the session timer, started, paused and stopped from either device, any set in the session open to change, sets added or put back to not done, supersets alternating properly, holds counted down and logged, and the rest timer buzzing on your wrist even with the watch face back, plus a tile and a watch face complication. Finish the workout without touching the phone. It talks to your server itself, so it keeps logging in a basement gym with the phone in a locker, and it pairs itself when you sign in on the phone. → [full guide](https://traceapps.github.io/docs/lifttrace/wear/)
 - **Foldables (preliminary).** Half open like a book, Settings puts its section list on one side of the crease and the section on the other, and dialogs, sheets, the rest timer and Trace keep off the fold. Opened flat or on a tablet, Programs and Exercises split into a list and a preview pane, and the Diary keeps its session column beside the exercises.
@@ -69,9 +73,9 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 
 ## Apps
 
-- **Web (PWA).** Install from any modern browser via the address bar (Chrome) or share menu (Safari). Works offline once cached.
+- **Web (PWA).** Install from any modern browser via the address bar (Chrome) or share menu (Safari). Keeps working with no connection, in a tab or installed.
 - **Android.** Sideload the signed APK from the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Release APKs require HTTPS to your server; debug APKs accept plain HTTP. See [DEPLOY.md](DEPLOY.md) for the four supported paths.
-- **Wear OS.** A separate APK for the watch, on the same [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload it onto a Wear OS 3 watch; it pairs itself the next time you open LiftTrace on the phone.
+- **Wear OS.** A separate APK for the watch, on the same [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload it onto a Wear OS 3 watch; it pairs itself the next time you open LiftTrace on the phone, and from then on it updates itself to the phone's release.
 - **iOS.** No native build yet. Install the PWA from Safari (Share → Add to Home Screen).
 
 ---
@@ -79,6 +83,8 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 ## Install
 
 Published to two registries with identical tag sets: `ghcr.io/traceapps/lifttrace` (primary) and `traceapps/lifttrace` on [Docker Hub](https://hub.docker.com/r/traceapps/lifttrace) (mirror). The snippet below uses GHCR; swap in `traceapps/lifttrace:latest` if that suits your setup.
+
+**Unraid:** LiftTrace is in Community Applications. Search for LiftTrace in the Apps tab; the template sets the port, the appdata folders and the settings. Fill in JWT Secret before the first start.
 
 ```yaml
 services:
@@ -123,8 +129,12 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `LOG_LEVEL` | `info` | `error` \| `warn` \| `info` \| `debug` |
 | `EXERCISE_SOURCES` | `wger,free-db` | Sources to auto-seed on first boot (`wger`, `free-db`, `exercisedb`, `exercisedb-oss`) |
 | `EXERCISEDB_OSS_URL` | (upstream) | Point the OSS exercise source at your own mirror |
-| `INSECURE_COOKIES` | `0` | Set `1` only for non-HTTPS deployments |
+| `INSECURE_COOKIES` | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
+| `TZ` | `UTC` | The server's time zone, such as `America/New_York` (needs no tzdata). Names backups and runs a backup schedule that has no time zone of its own, `BACKUP_TIME` included. Set it in the container's environment and restart. |
+| `FRAME_ANCESTORS` | - | Addresses allowed to show LiftTrace inside a frame, such as a dashboard (`https://home.example.com`; several separated by spaces or commas). By default only LiftTrace itself may. If you show LiftTrace inside a dashboard (Homarr, Organizr, Home Assistant), it shows blank after this update until you set `FRAME_ANCESTORS` to the dashboard's address, for example `FRAME_ANCESTORS=https://home.example.com`. Origins only; a path is ignored. A proxy that already sets its own frame-ancestors for the dashboard needs `FRAME_ANCESTORS` too. |
 | `BASE_URL` | (none) | Mount at a subpath (e.g. `/lifttrace`) instead of root |
+| `PUBLIC_URL` | (none) | The full address people open the app at, subpath included (e.g. `https://lift.example.com`). Links in emails (password reset, invites, coaching, the weekly summary) use it. Unset, they use an address an admin has opened the app at. The server also takes it as the app's own address when it refuses changes sent from other sites' pages: set it if your reverse proxy passes neither the public `Host` nor `X-Forwarded-Host`; otherwise changes from a browser are refused (403, `cross_site`) over plain http, and over https from older browsers without `Sec-Fetch-Site` (such as Safari before 16.4). |
+| `UPDATE_CHECK` | (none) | Set `off` to stop the server asking GitHub about new releases for good. Unset, update checks stay off until setup or Settings, Updates turns them on. |
 | `RECOVERY_TOKEN` | (none) | Token for the "Disable user management" recovery endpoint |
 | `SMTP_*` | (none) | SMTP for password reset emails and user invites |
 | `AI_*` | (none) | Server-side AI proxy; `AI_PROVIDER` accepts `claude` \| `openai` \| `gemini` \| `oai-compat` |
@@ -156,22 +166,30 @@ Part of the **TraceApps** family. Sister apps: [CookTrace](https://github.com/tr
 
 ---
 
+## Translations
+
+LiftTrace is translated with [Weblate](https://weblate.org/), a free web platform for libre translation projects. No coding required: pick your language, translate the strings, submit. Missing strings fall back to English, so a partial translation is safe to use.
+
+Start translating at [hosted.weblate.org/projects/lifttrace/](https://hosted.weblate.org/projects/lifttrace/). See [CONTRIBUTING.md](CONTRIBUTING.md#translations) for guidance (lifting terms, proper nouns, tone).
+
+---
+
 ## Roadmap, changelog, contributing, license
 
 - [ROADMAP.md](ROADMAP.md) for what's next.
 - [CHANGELOG.md](CHANGELOG.md) for release history.
-- [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request guidance. Translations: see [Contributing → Translations](https://traceapps.github.io/docs/reference/contribute/translations/).
+- [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request guidance.
 - AGPL-3.0: see [LICENSE](LICENSE). By contributing you agree your contributions are licensed under the same.
 
 ## Support
 
 LiftTrace is free to self-host and always will be. No paid tier, nothing behind a donation, no telemetry. It's built and maintained by one person.
 
-**The current goal is iOS.** None of the Trace apps run properly on an iPhone, because building and testing for iOS needs Apple hardware, plus the developer accounts for both app stores. That comes to about $1,300, and the itemised breakdown is on the [Support page](https://traceapps.github.io/docs/support/).
+**The current goal is a Mac and an iPhone.** None of the Trace apps run properly on an iPhone, because building and testing for iOS needs Apple hardware, plus the developer accounts for both app stores. That comes to about $1,300, and the itemised breakdown is on the [Support page](https://traceapps.github.io/docs/support/).
 
 Helping doesn't have to cost anything: starring the repo, reporting bugs with detail, and translating all count, and stars are how self-hosted projects get found.
 
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_the_iOS_fund-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/traceapps)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Toward_a_Mac_and_iPhone-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/traceapps) [![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Sponsor_monthly-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/TraceApps?metadata_app=lifttrace&metadata_from=readme)
 
 ## Disclaimer
 

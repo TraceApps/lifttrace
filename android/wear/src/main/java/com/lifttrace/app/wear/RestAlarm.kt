@@ -87,6 +87,9 @@ object RestAlarm {
 
 class RestAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // Paused since this was set (the alarm is cancelled on pausing, so
+        // this is only a late one): nothing has run out.
+        if (Pairing.timer(context)?.paused == true) return
         // What it was for, before the record of it is cleared.
         val label = Pairing.timer(context)?.label.orEmpty()
         Pairing.clearTimer(context)

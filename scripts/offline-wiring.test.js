@@ -61,7 +61,10 @@ test('a row created offline is changed by its real id after the queue goes up', 
   assert.match(offline, /let _swapped = \{\}/);
   assert.match(offline, /remapPath\(String\(url\), _swapped\)/);
   assert.match(offline, /_channel\?\.postMessage\(\{ type: 'outbox', ids: map \}\)/);
-  assert.match(offline, /if \(e\.data\.ids\) _swapped = /);
+  assert.match(offline, /if \(e\.data\.ids\) \{ _swapped = \{ \.\.\._swapped, \.\.\.e\.data\.ids \}; _announceIds\(e\.data\.ids\); \}/);
+  // The Diary follows a workout made here to its real id, in this tab and others.
+  assert.match(offline, /_channel\?\.postMessage\(\{ type: 'outbox', ids: map \}\);\s*\n\s*_announceIds\(map\);/);
+  assert.match(offline, /window\.dispatchEvent\(new CustomEvent\('lt:workout-ids', \{ detail: \{ map: pairs \} \}\)\)/);
 });
 
 test('the header badge reports the queue on the web', () => {
@@ -171,7 +174,7 @@ test('your profile and its picture work the same way here as in the sibling apps
   const localizer = readFileSync(new URL('../server/lib/image-localizer.js', import.meta.url), 'utf8');
   assert.match(localizer, /export function localizeDataUrl/);
   const auth = readFileSync(new URL('../server/routes/auth.js', import.meta.url), 'utf8');
-  assert.match(auth, /localizeDataUrl\(req\.body\?\.avatar_url\)/);
+  assert.match(auth, /localizeDataUrl\(body\.avatar_url\)/);
   // Progress photos use the same helper, into their own directory.
   const bodyStats = readFileSync(new URL('../server/routes/body-stats.js', import.meta.url), 'utf8');
   assert.match(bodyStats, /localizeDataUrl\(req\.body\?\.url, \{ subdir: 'body-stats' \}\)/);

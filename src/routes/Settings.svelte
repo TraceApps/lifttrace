@@ -1,6 +1,8 @@
 <script context="module">
   // Survives the remount between /settings and /settings/<slug> (NutriTrace #227).
-  const _scrollMemo = { page: null, indexTop: 0 };
+  // railTop: the desktop rail is rebuilt by that remount too, so opening a
+  // section from the index would otherwise snap the rail back to Profile.
+  const _scrollMemo = { page: null, indexTop: 0, railTop: 0 };
 </script>
 
 <script>
@@ -14,6 +16,7 @@
   import { accentColor, applyAccentColor, pageBanners, bannerStyle, aiEnabled, appearance as appearanceStore, disableAnimations } from '../stores/settings.js';
   import { activeProgram, loadActiveProgram } from '../stores/workout.js';
   import { showSuccess, showError } from '../stores/toast.js';
+  import SettingsSupport from '../components/settings/SettingsSupport.svelte';
   import SettingsAbout from '../components/settings/SettingsAbout.svelte';
   import SettingsUpdates from '../components/settings/SettingsUpdates.svelte';
   import SettingsAppearance from '../components/settings/SettingsAppearance.svelte';
@@ -46,6 +49,10 @@
     isNative, getNativeMode, setNativeMode, getServerUrl, setServerUrl,
     getAuthToken, setAuthToken, resolveAssetUrl, explainConnectError,
   } from '../lib/platform.js';
+  import {
+    serverReady, passwordSignIn, accountFor, ssoSignInUrl, providerLogo, createSignInOptions,
+    rememberSsoConnect, forgetSsoConnect, ssoConnectResult, createConnectHint,
+  } from '../lib/server-signin.js';
 
   // ── Server Connection (native only) ─────────────────────────────────────
   let serverUrlInput = getServerUrl() || '';
@@ -54,6 +61,16 @@
   let serverShowPw = false;
   let serverConnecting = false;
   let serverMode = getNativeMode(); // 'local' | 'server'
+  // The server's sign-in options, read as soon as its address is in
+  // (TraceApps/notetrace#36): SSO buttons, and the password fields only when
+  // it takes one. Typing clears them; a half-typed host isn't an error.
+  //   signinState: '' (no address yet) | 'checking' | 'ok' | 'failed'
+  const signinOptions = createSignInOptions();
+  onDestroy(() => signinOptions.stop());
+  let signinProviders = [], signinPasswordEnabled = true, signinState = '', signinError = '', signinFor = '';
+  $: ({ state: signinState, providers: signinProviders, passwordLoginEnabled: signinPasswordEnabled, error: signinError, url: signinFor } = $signinOptions);
+  // SSO: lets Log Out end the IdP session too, kept only once connected.
+  const connectHint = createConnectHint();
   // True when running as a standalone phone app (hide multi-user / server
   // features). Reactive on serverMode so the UI updates instantly when the
   // user disconnects, without waiting for the post-disconnect reload.
@@ -99,18 +116,18 @@
   }
 
   function _fmtTimeAgo(iso) {
-    if (!iso) return 'never';
+    if (!iso) return $_('settings_main.time.never');
     const ms = _nowTick - new Date(iso).getTime();
-    if (ms < 0) return 'just now';
+    if (ms < 0) return $_('settings_main.time.just_now');
     const s = Math.floor(ms / 1000);
-    if (s < 10)  return 'just now';
-    if (s < 60)  return `${s}s ago`;
+    if (s < 10)  return $_('settings_main.time.just_now');
+    if (s < 60)  return $_('settings_main.time.sec_ago', { values: { n: s } });
     const m = Math.floor(s / 60);
-    if (m < 60)  return `${m}m ago`;
+    if (m < 60)  return $_('settings_main.time.min_ago', { values: { n: m } });
     const h = Math.floor(m / 60);
-    if (h < 24)  return `${h}h ago`;
+    if (h < 24)  return $_('settings_main.time.hr_ago', { values: { n: h } });
     const d = Math.floor(h / 24);
-    return `${d}d ago`;
+    return $_('settings_main.time.day_ago', { values: { n: d } });
   }
 
   // ── Server connect / merge flow ────────────────────────────────────────
@@ -119,62 +136,105 @@
   let mergeProgressPct = 0;
   let mergeStage = '';
   let _pendingServerUrl = '';
+  let _pendingUserId = null;
+  let _connectMode = null;  // 'upload' | 'download' | 'merge' | null (no local data)
   let localCounts = null;   // counts from migrate.countLocalData()
   let migrationSummary = null;
 
+  const _serverUrlTyped = () => serverUrlInput.trim().replace(/\/$/, '');
+  // A sign-in proxy's web page is said as such (lib/server-signin.js).
+  const _connectError = (e, url) => (e?.webPage ? e.message : explainConnectError(e, url));
+
+  // Server Connection is on the phone only, so the server is asked natively
+  // (CapacitorHttp: no CORS).
   async function connectServer() {
     if (!serverUrlInput.trim()) { showError($_('settings_main.toast.server_url_required')); return; }
     if (!serverUsername.trim() || !serverPassword.trim()) { showError($_('settings_main.toast.credentials_required')); return; }
-    const url = serverUrlInput.trim().replace(/\/$/, '');
+    if (serverConnecting) return;
+    const url = _serverUrlTyped();
     serverConnecting = true;
     try {
-      // Use CapacitorHttp on native to bypass CORS (WebView fetch can't reach external origins)
-      let loginData;
-      if (isNative) {
-        const { CapacitorHttp } = await import('@capacitor/core');
-        const healthRes = await CapacitorHttp.get({ url: `${url}/api/health` });
-        if (healthRes.status < 200 || healthRes.status >= 300) throw new Error('Server not reachable');
-        const loginRes = await CapacitorHttp.post({
-          url: `${url}/api/auth/login`,
-          headers: { 'Content-Type': 'application/json' },
-          data: { username: serverUsername.trim(), password: serverPassword },
-        });
-        loginData = typeof loginRes.data === 'string' ? JSON.parse(loginRes.data) : loginRes.data;
-        if (loginRes.status < 200 || loginRes.status >= 300) throw new Error(loginData.error || 'Login failed');
-      } else {
-        const healthRes = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(8000) });
-        if (!healthRes.ok) throw new Error('Server not reachable');
-        const loginRes = await fetch(`${url}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ username: serverUsername.trim(), password: serverPassword }),
-        });
-        loginData = await loginRes.json();
-        if (!loginRes.ok) throw new Error(loginData.error || 'Login failed');
-      }
-
-      _pendingServerUrl = url;
-      if (loginData.token) setAuthToken(loginData.token);
-      if (loginData.user?.id) localStorage.setItem('wl:userId', String(loginData.user.id));
-
-      // Count local data so the merge dialog can show what's about to move
-      const { countLocalData } = await import('../lib/migrate.js');
-      localCounts = await countLocalData();
-
-      if (localCounts.total > 0) {
-        mergeStep = 'ask-settings';
-      } else {
-        _finalizeConnect();
-      }
+      await serverReady(url);
+      const loginData = await passwordSignIn(url, serverUsername.trim(), serverPassword);
+      connectHint.password();
+      forgetSsoConnect(); // an SSO sign-in left open in the browser is over
+      await _afterSignIn(url, loginData);
     } catch (e) {
-      showError(explainConnectError(e, url));
+      showError(_connectError(e, url));
     } finally {
       serverConnecting = false;
     }
   }
 
+  // Signed in, by password or SSO: the phone's data and the merge choice,
+  // then the switch to the server.
+  async function _afterSignIn(url, loginData) {
+    _pendingServerUrl = url;
+    if (loginData.token) setAuthToken(loginData.token);
+    if (loginData.user?.id) localStorage.setItem('wl:userId', String(loginData.user.id));
+    _pendingUserId = loginData.user?.id ?? null;
+    _connectMode = null;
+
+    // Count local data so the merge dialog can show what's about to move
+    const { countLocalData } = await import('../lib/migrate.js');
+    localCounts = await countLocalData({ serverUrl: url, userId: _pendingUserId });
+
+    if (localCounts.total > 0) {
+      mergeStep = 'ask-settings';
+    } else {
+      _finalizeConnect();
+    }
+  }
+
+  // SSO: the sign-in page opens in the browser; the deep link brings the
+  // token back here (App.svelte, lib/server-signin.js), and the phone's
+  // workouts move over as they do after a password sign-in.
+  async function connectServerSso(provider) {
+    // One sign-in at a time: a second tap would open another browser and
+    // replace the code's secret, so the first one's hand-off would fail.
+    if (serverConnecting) return;
+    const url = signinFor;
+    serverConnecting = true;
+    try {
+      await serverReady(url);
+      rememberSsoConnect(url);
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url: await ssoSignInUrl(url, provider.id), presentationStyle: 'popover' });
+    } catch (e) {
+      forgetSsoConnect();
+      showError(e?.webPage ? e.message : $_('native_setup.toast.cant_open_oidc'));
+    } finally {
+      serverConnecting = false;
+    }
+  }
+
+  async function _finishSso({ url, token, idTokenHint, providerId }) {
+    serverConnecting = true;
+    try {
+      const user = await accountFor(url, token);
+      connectHint.sso({ providerId, idTokenHint });
+      await _afterSignIn(url, { token, user });
+    } catch (e) {
+      showError(_connectError(e, url));
+    } finally {
+      serverConnecting = false;
+    }
+  }
+  onDestroy(ssoConnectResult.subscribe((r) => {
+    if (!r) return;
+    ssoConnectResult.set(null);
+    _finishSso(r);
+  }));
+
   async function _mergeAndConnect(mode) {
+    // Download replaces the phone's data. Changes from an earlier
+    // connection that never went up are part of it: asked about, never
+    // dropped without a word (lib/local-account.js).
+    if (mode === 'download') {
+      const { settleQueuedChanges } = await import('../lib/local-account.js');
+      if (!(await settleQueuedChanges('download', { send: false }))) return;
+    }
+    _connectMode = mode;
     mergeStep = 'syncing';
     mergeProgress = '';
     mergeProgressPct = 0;
@@ -190,17 +250,18 @@
 
         const { uploadLocalToServer } = await import('../lib/migrate.js');
         const stageLabels = {
-          settings:        'settings',
-          workouts:        'workouts',
-          bodyStats:       'body stats',
-          programs:        'programs',
-          templates:       'templates',
-          customExercises: 'custom exercises',
+          settings:        $_('settings_main.merge.stage.settings'),
+          workouts:        $_('settings_main.merge.stage.workouts'),
+          bodyStats:       $_('settings_main.merge.stage.body_stats'),
+          programs:        $_('settings_main.merge.stage.programs'),
+          templates:       $_('settings_main.merge.stage.templates'),
+          customExercises: $_('settings_main.merge.stage.custom_exercises'),
         };
         migrationSummary = await uploadLocalToServer({
+          userId: _pendingUserId,
           onProgress: (stage, current, total) => {
             mergeStage = stageLabels[stage] || stage;
-            mergeProgress = `Uploading ${mergeStage} (${current + 1} / ${total})`;
+            mergeProgress = $_('settings_main.merge.uploading', { values: { stage: mergeStage, current: current + 1, total } });
             mergeProgressPct = total > 0 ? Math.round(((current + 1) / total) * 100) : 0;
           },
         });
@@ -221,7 +282,24 @@
     }
   }
 
-  function _finalizeConnect() {
+  async function _finalizeConnect() {
+    // The phone's data is this account's from now on, as chosen above:
+    // Download empties it so it fills from the server (the setup screen's
+    // Replace with Server does the same); otherwise it's kept and goes up.
+    // Signing in after the reload then neither asks nor clears.
+    if (_pendingUserId != null) {
+      try {
+        const { claimForServer } = await import('../lib/local-account.js');
+        await claimForServer(_pendingServerUrl, _pendingUserId, { clear: _connectMode === 'download' });
+      } catch (e) {
+        showError(e?.message || String(e));
+        return;
+      }
+    }
+    // Signed in by SSO: Log Out can end the IdP session too (as App.svelte
+    // keeps it for a sign-in from the setup screen). By password: none, so
+    // one from an earlier SSO never goes to this server.
+    connectHint.connected();
     setServerUrl(_pendingServerUrl);
     setNativeMode('server');
     serverMode = 'server';
@@ -231,18 +309,44 @@
   }
 
   function cancelMerge() {
+    connectHint.cancelled();
     mergeStep = null;
     _pendingServerUrl = '';
     localCounts = null;
     migrationSummary = null;
   }
 
+  // Disconnect is making the account's rows the phone's own (shown on the
+  // button; the app doesn't sync meanwhile).
+  let disconnecting = false;
   async function disconnectServer() {
+    if (disconnecting) return;
+    // Changes still queued for this server go up first; any that can't are
+    // asked about. Left queued, they'd go up later under whichever account
+    // the phone connects to next.
+    try {
+      const { settleQueuedChanges, setLocalOwner } = await import('../lib/local-account.js');
+      if (!(await settleQueuedChanges('disconnect'))) return;
+      // The phone's data is its own now, and goes to whichever account it's
+      // connected to next.
+      disconnecting = true;
+      await setLocalOwner();
+    } catch (e) {
+      // Not made the phone's own: still this account's, so stay connected
+      // rather than leave it to be cleared by the next sign-in.
+      disconnecting = false;
+      showError(e?.message || String(e));
+      return;
+    }
     setServerUrl(null);
     setAuthToken(null);
     setNativeMode('local');
+    connectHint.disconnected(); // this server's SSO session isn't the next one's
 
-    localStorage.removeItem('wl:userId');
+    // The phone's own user from now on (standalone mode is user 1), set up
+    // already: it was in use. Removed, the first-run welcome came back.
+    localStorage.setItem('wl:userId', '1');
+    localStorage.setItem('wl_u1_setupComplete', 'true');
 
     currentUser.set(null);
     userMgmtActive.set(false);
@@ -378,24 +482,25 @@
   const SECTION_KEYWORDS = {
     profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
     appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce','force mobile','mobile layout','mobile view','phone layout','narrow layout','desktop'],
-    workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill','video','videos','clip','clips','set video','film','filming','footage','form check','technique','storage','disk','space','delete clips'],
+    workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','tone','sound','do not disturb','dnd','alarm','alarm volume','silent mode','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill','video','videos','clip','clips','set video','film','filming','footage','form check','technique','storage','disk','space','delete clips'],
     units:          ['language','languages','units','measurement','measurement system','format','date','time','12h','24h','locale','region','regional','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
     statistics:     ['statistics','stats','chart','bar','line','average','trend','y-axis','zero','calorie','calories','kcal'],
-    trace:          ['trace','ai','assistant','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image','voice language','voice input','language','environment','env','locked'],
+    trace:          ['trace','ai','assistant','test connection','connection','failed to fetch','cors','v1','without','chat','provider','model','custom model','model id','claude','openai','gemini','sonnet','opus','haiku','fable','gpt','gpt-6','luna','sol','terra','gemini 3','flash','flash lite','pro preview','ollama','lm studio','deepseek','groq','localai','vllm','llama.cpp','mistral','base url','oai-compat','openai compatible','api key','rapidapi','artificial intelligence','bot','voice','hold to record','smart log','smart add','microphone','speech','attach','image','voice language','voice input','language','environment','env','locked'],
     radio:          ['radio','music','player','subsonic','navidrome','jellyfin','streaming','audio','playlist'],
     federation:     ['federation','nutritrace','nt','sync','integration','calorie sync','log workouts','log calories','api','api token','access token','instance','wearable','double count'],
     catalog:        ['catalog','catalogue','exercise','exercises','source','sources','wger','free','db','exercisedb','rapidapi','import','sync','library','custom','custom exercise','custom exercises','my exercises','create exercise','offline','offline exercise library','image cache'],
     data:           ['data','export','import','backup','reset','json','defaults','local backup','full backup','restore','schedule'],
     workoutImport:  ['import','workout','strong','hevy','fitnotes','jefit','garmin','fit','fit file','garmin connect','watch','strength training','migration','csv'],
-    notifications:  ['notifications','reminders','workout reminder','rest day','streak','push','gotify','ntfy','apprise','celebration','pr','weekly summary','alert','permission','channel','sound','vibrate','vibration','battery','low battery','android'],
+    notifications:  ['notifications','reminders','workout reminder','rest day','streak','push','gotify','ntfy','apprise','celebration','pr','weekly summary','alert','permission','channel','sound','vibrate','vibration','battery','low battery','android','coaching','coach','client','request','coaching request','recommendation','new recommendation','prescription','answer','client answer','accepted','declined','left','message','messages','new message','conversation','chat','email me too','coaching email'],
     email:          ['email','smtp','mail','host','port','tls','password reset','invite','test','test email','send test','recipient','change password','stored password'],
-    users:          ['users','user management','accounts','login','admin','trainer','member','register','invite','session','my profile','account','biometric','fingerprint','face'],
+    users:          ['users','user management','accounts','login','admin','trainer','member','client','clients','coach','coaching','request','coaching request','pairing','pairings','end coaching','register','invite','session','my profile','account','biometric','fingerprint','face'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
     webhooks:       ['webhook','webhooks','outgoing webhook','automation','automations','home assistant','n8n','integration','integrations','event','events','signature','hmac','secret','payload','pr','personal record','workout completed','program advanced','test webhook'],
-    serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out'],
+    serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out','sign in','sso','single sign-on','oidc','proxy'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
+    support:        ['support','donate','donation','sponsor','github sponsors','ko-fi','kofi','tip','star','report a bug','bug','translate','weblate','help'],
     about:          ['about','version','lifttrace','license','sister','nutritrace'],
   };
 
@@ -451,8 +556,13 @@
   onMount(() => {
     const page = _pageEl();
     // A different page element: Settings was opened fresh from elsewhere.
-    if (page && page === _scrollMemo.page) _placeScroll(currentSection);
-    else _scrollMemo.indexTop = 0;
+    if (page && page === _scrollMemo.page) {
+      _placeScroll(currentSection);
+      if (_railEl) _railEl.scrollTop = _scrollMemo.railTop;
+    } else {
+      _scrollMemo.indexTop = 0;
+      _scrollMemo.railTop = 0;
+    }
     _scrollMemo.page = page;
     window.addEventListener('scroll', _recordIndexScroll, { passive: true });
     _shownSection = currentSection;
@@ -489,6 +599,7 @@
     apiTokens:        { titleKey: 'settings.api_tokens.section',        icon: 'key' },
     webhooks:         { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
     email:            { titleKey: 'settings.email.section',             icon: 'mail' },
+    support:          { titleKey: 'settings.support.section',           icon: 'volunteer_activism' },
     about:            { titleKey: 'settings.about.section',             icon: 'info' },
   };
 
@@ -568,6 +679,7 @@
     webhooks: false,
     updates: false,
     helpImprove: false,
+    support: false,
     about: false,
   };
   // Drill-in navigation replaces the old accordion toggle. On the index
@@ -709,13 +821,13 @@
   $: _onboardingCards = (() => {
     const cards = [];
     if (isNative && !getServerUrl()) {
-      cards.push({ key: 'serverConnection', icon: 'cloud_sync', label: 'Connect a Server', desc: 'Sync your workouts across devices.' });
+      cards.push({ key: 'serverConnection', icon: 'cloud_sync', labelKey: 'settings_main.onboarding.server', descKey: 'settings_main.onboarding.server_desc' });
     }
     if (_activeProgramLoaded && !$activeProgram) {
-      cards.push({ key: 'program',   icon: 'fitness_center', label: 'Pick a Program', desc: 'Start a training plan so the diary suggests today’s workout.', route: '/programs' });
+      cards.push({ key: 'program',   icon: 'fitness_center', labelKey: 'settings_main.onboarding.program', descKey: 'settings_main.onboarding.program_desc', route: '/programs' });
     }
     if (!$aiEnabled) {
-      cards.push({ key: 'trace',     icon: 'smart_toy', label: 'Set Up Trace', desc: 'Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.' });
+      cards.push({ key: 'trace',     icon: 'smart_toy', labelKey: 'settings_main.onboarding.trace', descKey: 'settings_main.onboarding.trace_desc' });
     }
     return cards.filter(c => !_onboardingDismissed.has(c.key));
   })();
@@ -772,7 +884,7 @@
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
 
-  <p class="settings-group-label">Data &amp; Tracking</p>
+  <p class="settings-group-label">{$_('settings_main.group_data')}</p>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'workout')} class:active={currentSection === 'workout'} aria-current={currentSection === 'workout' ? 'page' : undefined} on:click={() => toggleSection('workout')}>
     <span class="material-symbols-rounded si">fitness_center</span>
     <span>{$_('settings.workout.section')}</span>
@@ -811,7 +923,7 @@
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
 
-  <p class="settings-group-label">App</p>
+  <p class="settings-group-label">{$_('settings_main.group_app')}</p>
   {#if isNative}
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} class:active={currentSection === 'serverConnection'} aria-current={currentSection === 'serverConnection' ? 'page' : undefined} on:click={() => toggleSection('serverConnection')}>
       <span class="material-symbols-rounded si">cloud</span>
@@ -880,6 +992,14 @@
     </button>
   {/if}
 
+  <!-- Support + About: the app's own group, so they don't read as
+       members of the Admin group above them. -->
+  <p class="settings-group-label">LiftTrace</p>
+  <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'support')} class:active={currentSection === 'support'} aria-current={currentSection === 'support' ? 'page' : undefined} on:click={() => toggleSection('support')}>
+    <span class="material-symbols-rounded si">volunteer_activism</span>
+    <span>{$_('settings.support.section')}</span>
+    <span class="material-symbols-rounded chevron">chevron_right</span>
+  </button>
   <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'about')} class:active={currentSection === 'about'} aria-current={currentSection === 'about' ? 'page' : undefined} on:click={() => toggleSection('about')}>
     <span class="material-symbols-rounded si">info</span>
     <span>{$_('settings.about.section')}</span>
@@ -942,8 +1062,9 @@
          shell 1:1 so the family stays visually uniform. -->
     <div class="settings-two-pane" bind:this={paneEl} class:fold-snap={railSnap}
       style={railSnap ? `--rail-w:${foldRailW}px; --hinge:${hingeW}px` : ''}>
-      <aside class="settings-nav-rail" aria-label="Settings sections"
-             bind:this={_railEl}>
+      <aside class="settings-nav-rail" aria-label={$_('settings_main.sections_aria')}
+             bind:this={_railEl}
+             on:scroll={() => { _scrollMemo.railTop = _railEl.scrollTop; }}>
         <!-- Sliding highlight pill. Absolutely positioned; its
              translateY + height animate to the active rail button on
              every section change. Behind the button text (z-index:0). -->
@@ -956,10 +1077,10 @@
         {#if _railNoMatches}
           <div class="settings-nav-empty">
             <span class="material-symbols-rounded">search_off</span>
-            <p>No sections match "{settingsSearch}"</p>
+            <p>{$_('settings_main.no_sections_match', { values: { query: settingsSearch } })}</p>
             <button type="button" class="settings-nav-clear"
               on:click={() => settingsSearch = ''}>
-              Clear search
+              {$_('settings_main.clear_search_button')}
             </button>
           </div>
         {/if}
@@ -977,8 +1098,8 @@
       {@const _u = $currentUser || {}}
       {@const _nick = (_u.nickname || '').trim()}
       {@const _full = (_u.full_name || '').trim()}
+      {@const _hasName = !!(_nick || (_full && _full !== 'Local User'))}
       {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || $_('settings_main.profile_fallback')}
-      {@const _hasName = _displayName !== $_('settings_main.profile_fallback')}
       {@const _initial = (_displayName[0] || '?').toUpperCase()}
       <div class="settings-desktop-hero">
         <button class="profile-hero profile-hero-expander" on:click={_toggleProfileHero}
@@ -995,7 +1116,7 @@
           <div class="profile-hero-info">
             <span class="profile-hero-name">{_displayName}</span>
             {#if _hasName && _u.role === 'admin' && $userMgmtActive}
-              <span class="profile-hero-role">admin</span>
+              <span class="profile-hero-role">{$_('common.admin')}</span>
             {:else if !_hasName}
               <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
             {/if}
@@ -1020,7 +1141,7 @@
                disappear once the underlying thing is configured or
                the user × dismisses them. Ports NT's shape. -->
           <div class="settings-onboarding">
-            <p class="settings-onboarding-heading">Get Set Up</p>
+            <p class="settings-onboarding-heading">{$_('settings_main.onboarding.heading')}</p>
             <div class="settings-onboarding-grid">
               {#each _onboardingCards as card (card.key)}
                 <div class="settings-onboarding-card-wrap">
@@ -1028,14 +1149,14 @@
                     on:click={() => card.route ? push(card.route) : toggleSection(card.key)}>
                     <span class="material-symbols-rounded">{card.icon}</span>
                     <div class="settings-onboarding-copy">
-                      <span class="settings-onboarding-label">{card.label}</span>
-                      <span class="settings-onboarding-desc">{card.desc}</span>
+                      <span class="settings-onboarding-label">{$_(card.labelKey)}</span>
+                      <span class="settings-onboarding-desc">{$_(card.descKey)}</span>
                     </div>
                   </button>
                   <button type="button" class="settings-onboarding-dismiss"
                     on:click|stopPropagation={() => _dismissOnboarding(card.key)}
-                    aria-label="Dismiss {card.label}"
-                    title="Dismiss">
+                    aria-label={$_('settings_main.onboarding.dismiss_named', { values: { name: $_(card.labelKey) } })}
+                    title={$_('settings_main.onboarding.dismiss')}>
                     <span class="material-symbols-rounded">close</span>
                   </button>
                 </div>
@@ -1072,8 +1193,8 @@
     {@const _u = $currentUser || {}}
     {@const _nick = (_u.nickname || '').trim()}
     {@const _full = (_u.full_name || '').trim()}
-    {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || 'My Profile'}
-    {@const _hasName = _displayName !== 'My Profile'}
+    {@const _hasName = !!(_nick || (_full && _full !== 'Local User'))}
+    {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || $_('settings_main.profile_fallback')}
     {@const _initial = (_displayName[0] || '?').toUpperCase()}
     <button class="profile-hero mobile-profile-hero" on:click={() => push('/profile')}>
       <div class="profile-hero-avatar">
@@ -1088,7 +1209,7 @@
       <div class="profile-hero-info">
         <span class="profile-hero-name">{_displayName}</span>
         {#if _hasName && _u.role === 'admin' && $userMgmtActive}
-          <span class="profile-hero-role">admin</span>
+          <span class="profile-hero-role">{$_('common.admin')}</span>
         {:else if !_hasName}
           <span class="profile-hero-sub">{$_('settings_main.profile_hero_sub')}</span>
         {/if}
@@ -1123,7 +1244,7 @@
           {:else if currentSection === 'statistics'}
             <SettingsStatistics visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'catalog'}
-            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} />
+            <SettingsCatalog visible={true} expanded={true} onToggle={backToIndex} {localOnly} />
           {:else if currentSection === 'trace'}
             <SettingsTrace visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'radio'}
@@ -1168,6 +1289,8 @@
             </div>
           {:else if currentSection === 'email'}
             <SettingsEmail visible={true} expanded={true} onToggle={backToIndex} />
+          {:else if currentSection === 'support'}
+            <SettingsSupport visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'about'}
             <SettingsAbout visible={true} expanded={true} onToggle={backToIndex} />
           {:else if currentSection === 'updates'}
@@ -1228,7 +1351,7 @@
     />
 
     <!-- ═══ DATA & TRACKING (workout settings, charts — mirrors NutriTrace) -->
-    <p class="group-label">Data &amp; Tracking</p>
+    <p class="group-label">{$_('settings_main.group_data')}</p>
 
     <SettingsWorkout
       visible={sectionVisible(settingsQuery, 'workout')}
@@ -1245,13 +1368,15 @@
     <!-- ═══ INTEGRATIONS ══════════════════════════════════════════════════ -->
     <p class="group-label">{$_('settings_main.group_integrations')}</p>
 
-    {#if !localOnly}
-      <SettingsCatalog
-        visible={sectionVisible(settingsQuery, 'catalog')}
-        expanded={expanded.catalog}
-        onToggle={() => toggleSection('catalog')}
-      />
-    {/if}
+    <!-- Shown in local mode too (issue #133): every call it makes is answered
+         on the phone, and the setup wizard promises the library can be
+         changed "any time from Settings". -->
+    <SettingsCatalog
+      visible={sectionVisible(settingsQuery, 'catalog')}
+      expanded={expanded.catalog}
+      onToggle={() => toggleSection('catalog')}
+      {localOnly}
+    />
 
     <SettingsTrace
       visible={sectionVisible(settingsQuery, 'trace')}
@@ -1274,7 +1399,7 @@
     {/if}
 
     <!-- ═══ APP (server connection + notifications + data movement, app-level — visible to all) -->
-    <p class="group-label">App</p>
+    <p class="group-label">{$_('settings_main.group_app')}</p>
 
     <!-- ── Server Connection (native only — manages connection to a remote
          LiftTrace server). PWA users have no "server connection" concept;
@@ -1306,18 +1431,18 @@
               </div>
               <button class="btn btn-secondary" style="height:32px;font-size:12px;padding:0 12px;display:flex;align-items:center;gap:6px" on:click={manualSync} disabled={_syncing}>
                 <span class="material-symbols-rounded" class:spin={_syncing} style="font-size:16px">{_syncing ? 'autorenew' : 'sync'}</span>
-                {_syncing ? 'Syncing…' : 'Sync now'}
+                {_syncing ? $_('sync.syncing') : $_('settings_main.server.sync_now')}
               </button>
             </div>
             <div class="setting-divider"></div>
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-ghost w-full" on:click={logoutServer}>
                 <span class="material-symbols-rounded" style="font-size:18px">logout</span>
-                Log Out
+                {$_('common.log_out')}
               </button>
-              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer}>
-                <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
-                Disconnect &amp; Use Locally
+              <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer} disabled={disconnecting}>
+                <span class="material-symbols-rounded" style="font-size:18px">{disconnecting ? 'progress_activity' : 'link_off'}</span>
+                {#if disconnecting}{$_('sync.disconnecting')}{:else}{$_('settings_main.server.disconnect')}{/if}
               </button>
             </div>
           {:else}
@@ -1332,8 +1457,36 @@
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
               <div class="form-group" style="margin:0">
                 <label class="form-label">{$_('settings_main.server.server_url')}</label>
-                <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} />
+                <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} on:input={() => signinOptions.typed(serverUrlInput)} on:blur={() => signinOptions.left(serverUrlInput)} />
               </div>
+              <!-- The server's sign-in options (TraceApps/notetrace#36): SSO first,
+                   and a failure to read them said with Retry, never a quietly
+                   password-only form. -->
+              {#if signinState === 'checking'}
+                <div class="signin-checking">{$_('server_signin.checking')}</div>
+              {:else if signinState === 'failed'}
+                <div class="signin-note" role="alert">
+                  <span class="material-symbols-rounded">warning</span>
+                  <div class="signin-note-text">{signinError}</div>
+                  <button class="btn btn-secondary" on:click={() => signinOptions.retry()} disabled={serverConnecting}>{$_('server_signin.retry')}</button>
+                </div>
+              {/if}
+              {#if signinProviders.length}
+                {#each signinProviders as p (p.id)}
+                  <button class="btn btn-primary sso-btn" on:click={() => connectServerSso(p)} disabled={serverConnecting}>
+                    {#if p.logo_url}
+                      <img src={providerLogo(signinFor, p.logo_url)} alt="" class="sso-logo" on:error={e => e.target.style.display = 'none'} />
+                    {:else}
+                      <span class="material-symbols-rounded" style="font-size:20px">login</span>
+                    {/if}
+                    {$_('server_signin.sign_in_with', { values: { provider: p.display_name || p.name || p.id } })}
+                  </button>
+                {/each}
+                {#if signinPasswordEnabled}
+                  <div class="signin-or"><span>{$_('server_signin.or')}</span></div>
+                {/if}
+              {/if}
+              {#if signinPasswordEnabled}
               <div class="form-group" style="margin:0">
                 <label class="form-label">{$_('settings_main.server.username')}</label>
                 <input class="form-input" type="text" placeholder={$_('settings_main.server.username_ph')} bind:value={serverUsername} autocapitalize="off" />
@@ -1352,8 +1505,9 @@
                 </div>
               </div>
               <button class="btn btn-primary" style="width:100%;justify-content:center;height:42px" on:click={connectServer} disabled={serverConnecting}>
-                {serverConnecting ? 'Connecting…' : 'Connect to Server'}
+                {serverConnecting ? $_('settings_main.server.connecting') : $_('native_setup.connect_server')}
               </button>
+              {/if}
             </div>
           {/if}
         </div>
@@ -1476,7 +1630,15 @@
       />
     {/if}
 
-    <!-- ═══ ABOUT (standalone footer — always last) ════════════════════════ -->
+    <!-- ═══ LIFTTRACE (Support + About, always last) ══════════════════════ -->
+    <p class="group-label">LiftTrace</p>
+
+    <SettingsSupport
+      visible={sectionVisible(settingsQuery, 'support')}
+      expanded={expanded.support}
+      onToggle={() => toggleSection('support')}
+    />
+
     <SettingsAbout
       visible={sectionVisible(settingsQuery, 'about')}
       expanded={expanded.about}
@@ -1484,7 +1646,7 @@
     />
 
     {#if settingsQuery && !Object.values(expanded).some(v => v)}
-      <p class="empty-state">No settings match "{settingsSearch}"</p>
+      <p class="empty-state">{$_('settings_main.no_settings_match', { values: { query: settingsSearch } })}</p>
     {/if}
 
     <div style="height:24px"></div>
@@ -1500,18 +1662,19 @@
     <div class="merge-dialog">
       <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">{$_('settings_main.merge.title')}</h3>
       <p style="font-size:13px;color:var(--text-3);margin:0 0 12px;line-height:1.5">
-        You have data on this phone. How should it be handled when connecting?
+        {$_('settings_main.merge.intro')}
       </p>
       {#if localCounts && localCounts.total > 0}
         <div class="merge-counts" style="margin:0 0 16px">
-          <div class="merge-counts-title">On this phone:</div>
+          <div class="merge-counts-title">{$_('settings_main.merge.on_this_phone')}</div>
           <div class="merge-counts-grid">
-            {#if localCounts.workouts        > 0}<div><strong>{localCounts.workouts}</strong> {localCounts.workouts === 1 ? 'workout' : 'workouts'}</div>{/if}
-            {#if localCounts.bodyStats       > 0}<div><strong>{localCounts.bodyStats}</strong> body {localCounts.bodyStats === 1 ? 'stat' : 'stats'}</div>{/if}
-            {#if localCounts.programs        > 0}<div><strong>{localCounts.programs}</strong> {localCounts.programs === 1 ? 'program' : 'programs'}</div>{/if}
-            {#if localCounts.templates       > 0}<div><strong>{localCounts.templates}</strong> {localCounts.templates === 1 ? 'template' : 'templates'}</div>{/if}
-            {#if localCounts.customExercises > 0}<div><strong>{localCounts.customExercises}</strong> custom {localCounts.customExercises === 1 ? 'exercise' : 'exercises'}</div>{/if}
-            {#if localCounts.settings        > 0}<div><strong>{localCounts.settings}</strong> settings</div>{/if}
+            {#if localCounts.workouts        > 0}<div><strong>{localCounts.workouts}</strong> {$_('settings_main.merge.unit_workouts', { values: { count: localCounts.workouts } })}</div>{/if}
+            {#if localCounts.bodyStats       > 0}<div><strong>{localCounts.bodyStats}</strong> {$_('settings_main.merge.unit_body_stats', { values: { count: localCounts.bodyStats } })}</div>{/if}
+            {#if localCounts.programs        > 0}<div><strong>{localCounts.programs}</strong> {$_('settings_main.merge.unit_programs', { values: { count: localCounts.programs } })}</div>{/if}
+            {#if localCounts.templates       > 0}<div><strong>{localCounts.templates}</strong> {$_('settings_main.merge.unit_templates', { values: { count: localCounts.templates } })}</div>{/if}
+            {#if localCounts.customExercises > 0}<div><strong>{localCounts.customExercises}</strong> {$_('settings_main.merge.unit_custom_exercises', { values: { count: localCounts.customExercises } })}</div>{/if}
+            {#if localCounts.cardio          > 0}<div>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</div>{/if}
+            {#if localCounts.settings        > 0}<div><strong>{localCounts.settings}</strong> {$_('settings_main.merge.unit_settings', { values: { count: localCounts.settings } })}</div>{/if}
           </div>
         </div>
       {/if}
@@ -1520,21 +1683,21 @@
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_upload</span>
           <div>
             <div class="merge-option-title">{$_('settings_main.merge.upload')}</div>
-            <div class="merge-option-desc">Send this phone's workouts, programs, and settings to the server. Existing server data stays.</div>
+            <div class="merge-option-desc">{$_('settings_main.merge.upload_desc')}</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('download')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_download</span>
           <div>
             <div class="merge-option-title">{$_('settings_main.merge.download')}</div>
-            <div class="merge-option-desc">Replace this phone's data with everything from the server. Local data is discarded.</div>
+            <div class="merge-option-desc">{$_('settings_main.merge.download_desc')}</div>
           </div>
         </button>
         <button class="merge-option" on:click={() => _mergeAndConnect('merge')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">sync</span>
           <div>
             <div class="merge-option-title">{$_('settings_main.merge.merge')}</div>
-            <div class="merge-option-desc">Upload phone data to the server AND download server data. Nothing is lost, but duplicates are possible.</div>
+            <div class="merge-option-desc">{$_('settings_main.merge.merge_desc')}</div>
           </div>
         </button>
         <button class="btn btn-ghost" style="color:var(--text-3);margin-top:4px;width:100%;justify-content:center;height:40px" on:click={cancelMerge}>{$_('settings_main.merge.cancel')}</button>
@@ -1545,8 +1708,8 @@
   <div class="merge-overlay" use:portal use:closeOnBack={() => {}} transition:fade={{ duration: 150 }}>
     <div class="merge-dialog" style="text-align:center">
       <span class="material-symbols-rounded" style="font-size:36px;color:var(--accent);animation:settings-spin 1.2s linear infinite">sync</span>
-      <p style="font-size:15px;color:var(--text-1);margin:12px 0 4px;font-weight:600">Syncing…</p>
-      <p style="font-size:13px;color:var(--text-3);margin:0">{mergeProgress || 'Preparing…'}</p>
+      <p style="font-size:15px;color:var(--text-1);margin:12px 0 4px;font-weight:600">{$_('sync.syncing')}</p>
+      <p style="font-size:13px;color:var(--text-3);margin:0">{mergeProgress || $_('settings_main.merge.preparing')}</p>
       {#if mergeProgressPct > 0}
         <div class="merge-progress-bar" style="margin-top:14px">
           <div class="merge-progress-fill" style="width:{mergeProgressPct}%"></div>
@@ -1558,27 +1721,27 @@
   <div class="merge-overlay" use:portal use:closeOnBack={() => {}} transition:fade={{ duration: 150 }}>
     <div class="merge-dialog">
       <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">
-        {migrationSummary.errors.length === 0 ? 'Upload complete' : 'Upload finished with issues'}
+        {migrationSummary.errors.length === 0 ? $_('settings_main.merge.upload_complete') : $_('settings_main.merge.upload_issues')}
       </h3>
       <p style="font-size:13px;color:var(--text-3);margin:0 0 14px;line-height:1.5">
-        {migrationSummary.totalSuccess} of {migrationSummary.total} {migrationSummary.total === 1 ? 'item' : 'items'} uploaded successfully.
+        {$_('settings_main.merge.uploaded_of', { values: { done: migrationSummary.totalSuccess, total: migrationSummary.total } })}
       </p>
       <div class="merge-counts" style="margin:0 0 14px">
-        <div class="merge-counts-title">Uploaded to server:</div>
+        <div class="merge-counts-title">{$_('settings_main.merge.uploaded_to_server')}</div>
         <div class="merge-counts-grid">
-          {#if migrationSummary.success.workouts        > 0}<div><strong>{migrationSummary.success.workouts}</strong> {migrationSummary.success.workouts === 1 ? 'workout' : 'workouts'}</div>{/if}
-          {#if migrationSummary.success.bodyStats       > 0}<div><strong>{migrationSummary.success.bodyStats}</strong> body {migrationSummary.success.bodyStats === 1 ? 'stat' : 'stats'}</div>{/if}
-          {#if migrationSummary.success.programs        > 0}<div><strong>{migrationSummary.success.programs}</strong> {migrationSummary.success.programs === 1 ? 'program' : 'programs'}</div>{/if}
-          {#if migrationSummary.success.templates       > 0}<div><strong>{migrationSummary.success.templates}</strong> {migrationSummary.success.templates === 1 ? 'template' : 'templates'}</div>{/if}
-          {#if migrationSummary.success.customExercises > 0}<div><strong>{migrationSummary.success.customExercises}</strong> custom {migrationSummary.success.customExercises === 1 ? 'exercise' : 'exercises'}</div>{/if}
-          {#if migrationSummary.success.settings        > 0}<div><strong>{migrationSummary.success.settings}</strong> settings</div>{/if}
+          {#if migrationSummary.success.workouts        > 0}<div><strong>{migrationSummary.success.workouts}</strong> {$_('settings_main.merge.unit_workouts', { values: { count: migrationSummary.success.workouts } })}</div>{/if}
+          {#if migrationSummary.success.bodyStats       > 0}<div><strong>{migrationSummary.success.bodyStats}</strong> {$_('settings_main.merge.unit_body_stats', { values: { count: migrationSummary.success.bodyStats } })}</div>{/if}
+          {#if migrationSummary.success.programs        > 0}<div><strong>{migrationSummary.success.programs}</strong> {$_('settings_main.merge.unit_programs', { values: { count: migrationSummary.success.programs } })}</div>{/if}
+          {#if migrationSummary.success.templates       > 0}<div><strong>{migrationSummary.success.templates}</strong> {$_('settings_main.merge.unit_templates', { values: { count: migrationSummary.success.templates } })}</div>{/if}
+          {#if migrationSummary.success.customExercises > 0}<div><strong>{migrationSummary.success.customExercises}</strong> {$_('settings_main.merge.unit_custom_exercises', { values: { count: migrationSummary.success.customExercises } })}</div>{/if}
+          {#if migrationSummary.success.settings        > 0}<div><strong>{migrationSummary.success.settings}</strong> {$_('settings_main.merge.unit_settings', { values: { count: migrationSummary.success.settings } })}</div>{/if}
         </div>
       </div>
       {#if migrationSummary.errors.length > 0}
         <div style="margin:0 0 14px">
           <div class="merge-counts-title" style="color:var(--danger,#e57373)">
-            {migrationSummary.errors.length} {migrationSummary.errors.length === 1 ? 'error' : 'errors'}
-            {#if migrationSummary.errors.length > 5}(showing first 5){/if}
+            {$_('settings_main.merge.error_count', { values: { count: migrationSummary.errors.length } })}
+            {#if migrationSummary.errors.length > 5}{$_('settings_main.merge.showing_first', { values: { n: 5 } })}{/if}
           </div>
           <ul style="font-size:12px;color:var(--text-3);padding-left:18px;margin:6px 0 0;line-height:1.5">
             {#each migrationSummary.errors.slice(0, 5) as err}
@@ -1599,7 +1762,7 @@
       <span class="cp-preview-hex">{customHexInput}</span>
     </div>
     <div class="cp-slider-group">
-      <label class="form-label">Hue</label>
+      <label class="form-label">{$_('settings_main.color.hue')}</label>
       <div class="cp-slider-wrap">
         <input type="range" class="cp-slider cp-hue" min="0" max="360"
           bind:value={cpHue} on:input={cpUpdateFromSliders} />
@@ -1654,6 +1817,21 @@
 </Sheet>
 
 <style>
+  /* Settings → Server Connection: sign-in options, as on the setup screen */
+  .sso-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 42px; }
+  .sso-logo { width: 20px; height: 20px; object-fit: contain; }
+  .signin-or { display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 12px; }
+  .signin-or::before, .signin-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .signin-note {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 10px 12px;
+    background: color-mix(in srgb, #f59e0b 8%, transparent);
+    border-left: 3px solid #f59e0b; border-radius: 4px;
+    font-size: 13px; line-height: 1.5; color: var(--text-2);
+  }
+  .signin-note .material-symbols-rounded { font-size: 20px; color: #f59e0b; flex-shrink: 0; }
+  .signin-note-text { flex: 1; min-width: 160px; }
+  .signin-checking { font-size: 13px; color: var(--text-3); }
   .page {
     min-height: 100dvh;
     background: var(--bg);
@@ -1961,12 +2139,6 @@
   .about-desc { font-size: 13px; color: var(--text-2); line-height: 1.5; padding: 12px 16px; }
   .about-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-size: 14px; color: var(--text-1); }
   .about-feat-icon { font-size: 20px; color: var(--accent); flex-shrink: 0; }
-  .exp-badge {
-    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-    background: var(--warning); color: #0A0B0F;
-    padding: 2px 6px; border-radius: var(--radius-full);
-    vertical-align: middle; margin-left: 6px;
-  }
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-label { font-size: 13px; font-weight: 600; color: var(--text-2); }
   .form-input {
@@ -2328,6 +2500,10 @@
       gap: 24px;
       align-items: start;
     }
+    /* The pane's first card starts level with the rail's top edge.
+       .section-body's 12px top padding (right for the phone's stacked
+       view) pushed every section 12px below the rail here. */
+    :global(html.wide-content) .settings-pane :global(.section-body) { padding-top: 0; }
 
 
     /* Left rail — sticky below the header + search bar, own scroll if

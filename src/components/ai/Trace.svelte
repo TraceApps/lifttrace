@@ -1,4 +1,5 @@
 <script>
+  import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable } from 'svelte/store';
@@ -7,7 +8,7 @@
   import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { callAI, callAIProxy, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
-  import { TOOLS, runTool } from '../../lib/aiTools.js';
+  import { TOOLS, runTool, forgetToolReads } from '../../lib/aiTools.js';
   import { aiEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, dateFormat, weightUnit, weeklyWorkoutGoal, quickLogEnabled, smartLogVoiceLang } from '../../stores/settings.js';
 
   // Voice input language from Settings; 'auto' means the device locale.
@@ -22,6 +23,7 @@
   import { currentDate, todayLog, activeProgram, saveWorkout } from '../../stores/workout.js';
   import { isPlaying, currentTrack, getAudioForAnalyser } from '../../stores/player.js';
   import { showError } from '../../stores/toast.js';
+  import { createToolsNotice } from '../../lib/tool-support.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { parseInput as smartParse, matchExercises, mergeIntoWorkout } from '../../lib/smartLogWorkout.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
@@ -40,11 +42,10 @@
   let messages = [];
   let input = '';
   let sending = false;
+  // Says once per conversation that the model can't use tools (TraceApps/nutritrace#259).
+  const toolsNotice = createToolsNotice();
   let messagesEl;
   let pendingImages = [];
-  let fileInput;
-  let cameraInput;
-  let showAttachMenu = false;
   let hasUnread = false;
 
   $: botName = $aiAssistantName || 'Trace';
@@ -442,14 +443,14 @@
   }
 
   // ── Image attachment ───────────────────────────────────────────────────────
-  async function handleFiles(e) {
-    const files = Array.from(e.target.files || []);
+  // From the shared attach button: an array of image Files (several from
+  // the gallery, so progress shots can be compared).
+  async function handleFiles(files) {
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
       const dataUrl = await fileToDataUrl(f);
       pendingImages = [...pendingImages, { dataUrl, mediaType: f.type }];
     }
-    e.target.value = '';
   }
   function fileToDataUrl(file) {
     return new Promise((res, rej) => {
@@ -623,8 +624,9 @@ ${ctx}
 You have live tools for everything else. Prefer a tool call over guessing:
 - Reads: get_workouts, get_workout, get_exercises, get_exercise, get_programs, get_program, get_active_program, get_prs, get_body_stats, get_progress_photos, get_cardio, get_stats_overview, get_coach_prescription.
 - Writes: log_workout, add_exercise_to_diary, log_set, log_body_stat, log_cardio, start_workout_from_template, set_active_program, add_coach_prescription (coaches only).
+To go through a long stretch of training (every workout this year, all PRs), page through get_workouts or get_prs with offset until complete is true, and say whether you covered everything.
 
-Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
+Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session; when its status is "pending" the user hasn't accepted it yet, so say they can Accept or Decline it on the Diary and don't load it for them), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
 
 Timed exercises (plank, wall sit, dead hang, carries) are logged by duration, not reps: tool results show them with duration_sec, and log_set / log_workout take duration_sec in seconds instead of reps. Never report a hold's seconds as reps.
 
@@ -653,6 +655,15 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
       // either an API key OR an oai-compat config. Otherwise fall through
       // to the server-proxy path (env-locked install).
       const hasClientConfig = $aiApiKey || ($aiProvider === 'oai-compat' && $aiBaseUrl);
+      // The model can't use tools and answered without them: a note in the
+      // conversation says so, once (TraceApps/nutritrace#259). routed: the
+      // gateway picked a model for this request that can't, another may.
+      let toolsNote = null;
+      const onToolsUnsupported = ({ routed } = {}) => {
+        toolsNote = routed ? 'trace_ai.tools_unsupported_routed'
+          : hasClientConfig ? 'trace_ai.tools_unsupported' : 'trace_ai.tools_unsupported_server';
+      };
+      forgetToolReads();
       if (hasClientConfig) {
         reply = await callAI({
           provider: $aiProvider,
@@ -663,6 +674,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
           systemPrompt,
           tools: TOOLS,
           onToolCall: (name, args) => runTool(name, args),
+          onToolsUnsupported,
         });
       } else {
         reply = await callAIProxy({
@@ -670,11 +682,13 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
           systemPrompt,
           tools: TOOLS,
           onToolCall: (name, args) => runTool(name, args),
+          onToolsUnsupported,
         });
       }
 
       const aMsg = { role: 'assistant', content: reply, time: new Date().toISOString() };
       messages = [...messages, aMsg];
+      if (toolsNote) messages = toolsNotice.add(messages, $_(toolsNote));
 
       if (!panelOpen) hasUnread = true;
 
@@ -700,6 +714,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
       dangerous: true,
     })) return;
     messages = [];
+    toolsNotice.reset();
     fetch('/api/ai/history', { method: 'DELETE', credentials: 'include' }).catch(() => {});
   }
 
@@ -848,6 +863,12 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
 
           {#each messages as msg}
             {@const plan = msg.role === 'assistant' ? _extractPlan(msg.content) : null}
+            {#if msg.role === 'note'}
+              <div class="lb-note" role="status">
+                <span class="material-symbols-rounded">info</span>
+                <span>{msg.content}</span>
+              </div>
+            {:else}
             <div class="lb-msg" class:user={msg.role === 'user'}>
               {#if msg.role === 'assistant'}
                 <div class="lb-msg-avatar">
@@ -878,6 +899,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
                 {/if}
               </div>
             </div>
+            {/if}
           {/each}
 
           {#if sending}
@@ -910,23 +932,8 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
         {/if}
 
         <div class="lb-input-bar">
-          <div class="lb-attach-wrap">
-            <button class="lb-attach-btn" on:click={() => showAttachMenu = !showAttachMenu} title={$_('trace.attach_image')}>
-              <span class="material-symbols-rounded" style="font-size:20px">add_photo_alternate</span>
-            </button>
-            {#if showAttachMenu}
-              <div class="lb-attach-menu" transition:fade={{ duration: 120 }}>
-                <button class="lb-attach-option" on:click={() => { showAttachMenu = false; cameraInput.click(); }}>
-                  <span class="material-symbols-rounded">photo_camera</span> Camera
-                </button>
-                <button class="lb-attach-option" on:click={() => { showAttachMenu = false; fileInput.click(); }}>
-                  <span class="material-symbols-rounded">image</span> Gallery
-                </button>
-              </div>
-            {/if}
-          </div>
-          <input bind:this={fileInput}   type="file" accept="image/*" multiple style="display:none" on:change={handleFiles} />
-          <input bind:this={cameraInput} type="file" accept="image/*" capture="environment" style="display:none" on:change={handleFiles} />
+          <AttachImageButton multiple title={$_('trace.attach_image')}
+            on:files={e => handleFiles(e.detail)} />
           <textarea
             class="lb-textarea"
             rows="1"
@@ -1257,6 +1264,18 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   /* "Use This Workout", appears under any assistant reply whose text
      contains a PLAN: line. Tapping pipes the plan through the existing
      Smart Add modal so the user can review + edit before saving. */
+  /* A note from the app in the conversation, such as a model that can't
+     use tools (TraceApps/nutritrace#259). */
+  .lb-note {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin-left: 40px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px; line-height: 1.4; color: var(--text-2);
+  }
+  .lb-note .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
   .lb-plan-apply {
     align-self: flex-start;
     display: inline-flex; align-items: center; gap: 6px;
@@ -1355,31 +1374,4 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
   .lb-send-btn:not(:disabled):hover  { transform: scale(1.08); }
   .lb-send-btn:not(:disabled):active { transform: scale(0.94); }
 
-  .lb-attach-wrap { position: relative; }
-  .lb-attach-btn {
-    width: 40px; height: 40px; border-radius: 50%;
-    background: none; border: 1px solid var(--border);
-    color: var(--text-3); cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: all var(--dur-fast);
-  }
-  .lb-attach-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-  .lb-attach-menu {
-    position: absolute; bottom: 48px; left: 0;
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    z-index: 10; min-width: 140px;
-    overflow: hidden;
-  }
-  .lb-attach-option {
-    display: flex; align-items: center; gap: 8px;
-    width: 100%; padding: 10px 14px;
-    background: none; border: none;
-    color: var(--text-1); font-size: 14px;
-    cursor: pointer; text-align: left;
-  }
-  .lb-attach-option:hover { background: var(--surface-2); }
-  .lb-attach-option + .lb-attach-option { border-top: 1px solid var(--border); }
 </style>

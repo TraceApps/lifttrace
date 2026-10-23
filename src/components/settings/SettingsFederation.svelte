@@ -86,17 +86,17 @@
         lastConnectedUser = body.user?.username || body.user?.full_name || 'NutriTrace';
         ntFederationEnabled.set(true);
         ntConnectionVerified.set(true);
-        if (!silentOk) showSuccess(`Connected to NutriTrace as ${lastConnectedUser}`);
+        if (!silentOk) showSuccess($_('settings_federation.toast.connected_as', { values: { user: lastConnectedUser } }));
       } else {
         testStatus = 'fail';
-        lastError = body.error || 'Connection failed';
+        lastError = body.error || $_('settings_federation.toast.connection_failed');
         ntFederationEnabled.set(false);
         ntConnectionVerified.set(false);
         showError(lastError);
       }
     } catch (e) {
       testStatus = 'fail';
-      lastError = e.message || 'Connection failed';
+      lastError = e.message || $_('settings_federation.toast.connection_failed');
       ntFederationEnabled.set(false);
       ntConnectionVerified.set(false);
       showError(lastError);
@@ -135,7 +135,7 @@
           <div class="setting-row">
             <div class="setting-label-group">
               <span class="setting-hint" style="color: var(--warning, #f59e0b)">
-                Calorie estimation is off in Settings → Workout. Federation needs it on to have anything to send.
+                {$_('settings_federation.calories_off')}
               </span>
             </div>
           </div>
@@ -171,7 +171,7 @@
             </button>
             <button class="btn btn-primary save-btn" on:click={save}
               disabled={testing || !urlDraft.trim() || !tokenDraft.trim()}>
-              {saved ? 'Saved' : (testing ? 'Testing…' : $_('common.save'))}
+              {saved ? $_('settings_federation.saved') : (testing ? $_('connection_status.testing') : $_('common.save'))}
             </button>
           </div>
         </div>

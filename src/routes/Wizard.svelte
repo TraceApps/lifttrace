@@ -7,7 +7,10 @@
   import { _ } from 'svelte-i18n';
   import { DB } from '../lib/db.js';
   import { applyAppearance, applyAccentColor, loadServerSettings, bulkSet } from '../stores/settings.js';
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { get } from 'svelte/store';
+  import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
+  import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { showError, showSuccess } from '../stores/toast.js';
   import { LtApi } from '../lib/api.js';
   import { validatePassword } from '../lib/validation.js';
@@ -16,6 +19,16 @@
 
   // When setup_required (PWA, no users exist), force account creation — can't skip
   const forceAccountCreation = $setupRequired;
+
+  // A new account signs straight in, so a plain-HTTP page with an HTTPS-only
+  // cookie would loop here too. Say so on the account step (cookie-check.js).
+  let _authStatus = null;
+  if (!isNative) {
+    fetch('/api/auth/status', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { _authStatus = d; if (cookieBlockedByHttp(d)) signInProblem.set('http'); })
+      .catch(() => {});
+  }
   // Native standalone mode: no auth, no server, single device. Replaces the
   // users step with a single optional name input so we can still personalize
   // the UI (Sidebar header, Trace greetings, Profile, etc.) without a full
@@ -169,8 +182,15 @@
         setAuthToken(token);
       }
       localStorage.setItem('wl:userId', String(user.id));
-      currentUser.set(user);
+      if (isNative) currentUser.set(user);
       await loadAuthState();
+      // The account exists, but the browser didn't keep the sign-in cookie,
+      // so every later step would fail. Stop and say why.
+      if (!isNative && !get(currentUser)) {
+        signInProblem.set(droppedCookieReason(_authStatus));
+        umLoading = false;
+        return;
+      }
       step++;
     } catch(e) {
       umError = e.message;
@@ -371,6 +391,9 @@
 
         {#if enableUsers}
           <div class="um-form" transition:slide={{ duration: 180 }}>
+            {#if $signInProblem}
+              <CookieWarning reason={$signInProblem} />
+            {/if}
             <input class="wiz-input" type="text" bind:value={adminUser} placeholder={$_('wizard.users.username_placeholder')} />
             <input class="wiz-input" type="text" bind:value={adminName} placeholder={$_('wizard.users.fullname_placeholder')} />
             <input class="wiz-input" type="email" bind:value={adminEmail} placeholder={$_('wizard.users.email_placeholder')} />

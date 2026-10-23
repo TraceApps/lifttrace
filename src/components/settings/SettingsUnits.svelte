@@ -36,16 +36,16 @@
         <div class="setting-row">
           <span class="setting-label">{$_('settings_units.date_format')}</span>
           <select class="form-select-sm" bind:value={$dateFormat}>
-            <option value="US">US (MM/DD/YYYY)</option>
-            <option value="EU">EU (DD/MM/YYYY)</option>
-            <option value="ISO">ISO (YYYY-MM-DD)</option>
+            <option value="US">{$_('settings_units.date_us')}</option>
+            <option value="EU">{$_('settings_units.date_eu')}</option>
+            <option value="ISO">{$_('settings_units.date_iso')}</option>
           </select>
         </div>
         <div class="setting-row">
           <span class="setting-label">{$_('settings_units.time_format')}</span>
           <select class="form-select-sm" bind:value={$timeFormat}>
-            <option value="12h">12-hour</option>
-            <option value="24h">24-hour</option>
+            <option value="12h">{$_('settings_units.time_12h')}</option>
+            <option value="24h">{$_('settings_units.time_24h')}</option>
           </select>
         </div>
       </div>

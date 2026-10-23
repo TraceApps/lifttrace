@@ -36,7 +36,7 @@ object Pairing {
     private const val KEY_SETTINGS = "settings"
     private const val KEY_OUTBOX = "outbox"
     private const val KEY_SEQ = "outbox_seq"
-    private const val KEY_HOLD = "pending_hold"
+    const val KEY_HOLD = "pending_hold"
     const val KEY_TIMER = "timer"
     private const val KEY_REST_AT = "rest_at"
     const val KEY_SESSION = "session_timer"
@@ -44,6 +44,11 @@ object Pairing {
     private const val KEY_LASTS = "last_times"
     private const val KEY_LASTS_DAY = "last_times_day"
     private const val KEY_REFUSED = "refused_token"
+    /** When the phone last said it saved the day (an open app reads it again). */
+    const val KEY_DAY = "day_saved_at"
+    private const val KEY_PHONE_RELEASE = "phone_release"
+    /** A workout finished here whose summary hasn't been looked at: "date|id". */
+    const val KEY_FINISHED = "finished_unseen"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -59,6 +64,27 @@ object Pairing {
         }
         prefs(ctx).registerOnSharedPreferenceChangeListener(listener)
         return listener
+    }
+
+    /** The phone saved the day: noted, so an open app reads it again at once. */
+    fun noteDaySaved(ctx: Context) {
+        prefs(ctx).edit().putLong(KEY_DAY, System.currentTimeMillis()).apply()
+    }
+
+    /**
+     * This watch saved the day: the phone reads it again at once. Without
+     * this it found out at its next sync, up to half a minute later, and a
+     * set logged here wasn't there when you looked.
+     */
+    fun tellPhoneDaySaved(ctx: Context, date: String) {
+        val payload = date.toByteArray(Charsets.UTF_8)
+        runCatching {
+            Wearable.getNodeClient(ctx).connectedNodes.addOnSuccessListener { nodes ->
+                for (node in nodes) {
+                    Wearable.getMessageClient(ctx).sendMessage(node.id, PairingService.DAY_PATH, payload)
+                }
+            }
+        }.onFailure { Log.w(TAG, "couldn't tell the phone about the day: " + it.message) }
     }
 
     /** The saved link, or null when the phone hasn't paired yet. */
@@ -105,14 +131,20 @@ object Pairing {
         }
     }
 
-    fun save(ctx: Context, serverUrl: String, token: String) {
-        prefs(ctx).edit()
+    fun save(ctx: Context, serverUrl: String, token: String, phoneRelease: String = "") {
+        val edit = prefs(ctx).edit()
             .putString(KEY_URL, serverUrl.trim().trimEnd('/'))
             .putString(KEY_TOKEN, token.trim())
             // A fresh token: whatever was refused before is history.
             .remove(KEY_REFUSED)
-            .apply()
+        // A phone that doesn't say (an older app) has no release to follow.
+        if (phoneRelease.isNotBlank()) edit.putString(KEY_PHONE_RELEASE, phoneRelease.trim())
+        else edit.remove(KEY_PHONE_RELEASE)
+        edit.apply()
     }
+
+    /** The release the phone runs (v1.4.0-dev05), as it last said. */
+    fun phoneRelease(ctx: Context): String? = prefs(ctx).getString(KEY_PHONE_RELEASE, null)?.takeIf { it.isNotBlank() }
 
     /**
      * The token stopped working. The address, the cached session and anything
@@ -128,7 +160,8 @@ object Pairing {
     fun clear(ctx: Context) {
         prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_REFUSED)
             .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER)
-            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).remove(KEY_SESSION_AT).apply()
+            .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).remove(KEY_SESSION_AT)
+            .remove(KEY_FINISHED).apply()
     }
 
     // ── The last session the watch saw ───────────────────────────────────
@@ -197,14 +230,25 @@ object Pairing {
         val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
         val date = o.optString("date")
         if (date.isBlank()) return null
-        return SessionTimer(
+        val timer = SessionTimer(
             date = date,
             startTime = o.optLong("startTime", 0L),
             baseElapsedSec = o.optDouble("baseElapsed", 0.0),
             paused = o.optBoolean("paused", false),
             pausedElapsedSec = o.optDouble("pausedElapsed", 0.0),
         )
+        return if (sane(timer)) timer else null
     }
+
+    /**
+     * A timer that can't be right is no timer. The phone once sent a start
+     * time of 0 (its plugin dropped any number in milliseconds), so the watch
+     * counted from 1970: 497712 hours. One kept like that goes.
+     */
+    fun sane(timer: SessionTimer): Boolean =
+        if (timer.paused) timer.pausedElapsedSec in 0.0..1e7
+        // A pause or resume of one counting from 1970 carries it forward here.
+        else timer.startTime > 1_000_000_000_000L && timer.baseElapsedSec in 0.0..1e7
 
     /**
      * Something the phone (or this watch) said about the timer. Anything older
@@ -309,11 +353,25 @@ object Pairing {
      * The rest running right now, so raising your wrist again shows the count
      * still going rather than a blank app that lost it.
      */
-    data class Timer(val label: String, val total: Int, val endsAt: Long)
+    data class Timer(
+        val label: String,
+        val total: Int,
+        val endsAt: Long,
+        /**
+         * Paused: what was left, held still, and [endsAt] is 0. A deadline
+         * keeps moving closer while nobody is resting, so a paused rest has
+         * none; resuming makes one again from this.
+         */
+        val pausedLeftMs: Long = 0L,
+    ) {
+        val paused: Boolean get() = pausedLeftMs > 0L
+    }
 
     fun timer(ctx: Context): Timer? {
         val raw = prefs(ctx).getString(KEY_TIMER, null) ?: return null
         val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val left = o.optLong("pausedLeftMs", 0L)
+        if (left > 0L) return Timer(o.optString("label"), o.optInt("total", 0), 0L, left)
         val endsAt = o.optLong("endsAt", 0L)
         if (endsAt <= 0L) return null
         return Timer(o.optString("label"), o.optInt("total", 0), endsAt)
@@ -321,7 +379,34 @@ object Pairing {
 
     fun putTimer(ctx: Context, timer: Timer) {
         val o = JSONObject().put("label", timer.label).put("total", timer.total).put("endsAt", timer.endsAt)
+        if (timer.paused) o.put("pausedLeftMs", timer.pausedLeftMs)
         prefs(ctx).edit().putString(KEY_TIMER, o.toString()).apply()
+    }
+
+    /**
+     * What a /lifttrace/rest record from the phone means: a rest counting to
+     * a deadline, one paused with time left, or none (null).
+     *
+     * A paused rest arrives as cleared with paused beside it. A phone from
+     * before pausing never sends paused, so its records read exactly as they
+     * always did; and a watch from before pausing reads a paused rest as
+     * cleared, taking it down instead of buzzing in the middle of a pause.
+     */
+    fun restFrom(
+        cleared: Boolean,
+        paused: Boolean,
+        leftMs: Long,
+        label: String,
+        total: Int,
+        endsAt: Long,
+        now: Long,
+    ): Timer? {
+        if (paused) {
+            if (leftMs <= 0L) return null
+            return Timer(label, if (total > 0) total else ((leftMs + 999) / 1000).toInt(), 0L, leftMs)
+        }
+        if (cleared || endsAt <= now) return null
+        return Timer(label, total, endsAt)
     }
 
     /**
@@ -340,16 +425,27 @@ object Pairing {
         }.onFailure { Log.w(TAG, "couldn't say hello to the phone: " + it.message) }
     }
 
-    /** The wearer started, extended or skipped a rest. Tell the phone. */
+    /** The wearer started, extended, paused, resumed or skipped a rest. Tell the phone. */
     fun publishRest(ctx: Context, timer: Timer?) {
         val at = System.currentTimeMillis()
         prefs(ctx).edit().putLong(KEY_REST_AT, at).apply()
         val request = PutDataMapRequest.create(PairingService.REST_PATH)
         request.dataMap.apply {
-            if (timer == null || timer.endsAt <= at) {
+            if (timer != null && timer.paused) {
+                // Cleared, to a phone from before pausing: it stops its rest
+                // rather than ringing at a deadline that no longer exists.
                 putBoolean("cleared", true)
+                putBoolean("paused", true)
+                putLong("leftMs", timer.pausedLeftMs)
+                putString("label", timer.label)
+                putInt("total", timer.total)
+                putLong("endsAt", 0L)
+            } else if (timer == null || timer.endsAt <= at) {
+                putBoolean("cleared", true)
+                putBoolean("paused", false)
             } else {
                 putBoolean("cleared", false)
+                putBoolean("paused", false)
                 putString("label", timer.label)
                 putInt("total", timer.total)
                 putLong("endsAt", timer.endsAt)
@@ -370,15 +466,36 @@ object Pairing {
         val at = map.getLong("at", 0L)
         if (at > 0 && at < prefs(ctx).getLong(KEY_REST_AT, 0L)) return
         val now = System.currentTimeMillis()
-        val endsAt = map.getLong("endsAt", 0L)
-        if (map.getBoolean("cleared", false) || endsAt <= now) {
-            RestAlarm.cancel(ctx)
-            clearTimer(ctx)
-            RestOngoing.hide(ctx)
-        } else {
-            putTimer(ctx, Timer(map.getString("label").orEmpty(), map.getInt("total", 0), endsAt))
-            RestAlarm.schedule(ctx, endsAt)
-            RestOngoing.refresh(ctx)
+        val rest = restFrom(
+            cleared = map.getBoolean("cleared", false),
+            paused = map.getBoolean("paused", false),
+            leftMs = map.getLong("leftMs", 0L),
+            label = map.getString("label").orEmpty(),
+            total = map.getInt("total", 0),
+            endsAt = map.getLong("endsAt", 0L),
+            now = now,
+        )
+        when {
+            // A hold counting here is published as a rest, but it is a set
+            // being held: it logs itself at zero and is not paused from afar.
+            rest != null && rest.paused && holdArmed(ctx) -> return
+            rest == null -> {
+                RestAlarm.cancel(ctx)
+                clearTimer(ctx)
+                RestOngoing.hide(ctx)
+            }
+            rest.paused -> {
+                // Held: no buzz until it is resumed, and the count on the
+                // face stops where it is.
+                RestAlarm.cancel(ctx)
+                putTimer(ctx, rest)
+                RestOngoing.refresh(ctx)
+            }
+            else -> {
+                putTimer(ctx, rest)
+                RestAlarm.schedule(ctx, rest.endsAt)
+                RestOngoing.refresh(ctx)
+            }
         }
         prefs(ctx).edit().putLong(KEY_REST_AT, if (at > 0) at else now).apply()
     }
@@ -403,6 +520,9 @@ object Pairing {
         prefs(ctx).edit().remove(KEY_HOLD).apply()
     }
 
+    /** Is a hold still counting toward logging itself? */
+    fun holdArmed(ctx: Context): Boolean = prefs(ctx).contains(KEY_HOLD)
+
     /**
      * The hold is over: mark its set done in what the watch is showing and put
      * it on the queue. Safe to call twice, since the queue keeps one entry per
@@ -418,15 +538,82 @@ object Pairing {
             clearHold(ctx)
             return false
         }
+        // A hold that was the last set finishes the workout, as ticking the
+        // last set does anywhere else, with the app open or not.
+        var finishing: Session.Workout? = null
         cache(ctx)?.let { body ->
             runCatching {
                 val workout = Session.parse(body) ?: return@runCatching
-                putCache(ctx, JSONObject().put("workout", Session.applyChange(workout, change).raw).toString())
+                val after = Session.applyChange(workout, change)
+                putCache(ctx, JSONObject().put("workout", after.raw).toString())
+                if (workout.id == op.workoutId && workout.date == op.date && Session.finishes(workout, change)) {
+                    finishing = after
+                }
             }
         }
         queue(ctx, op)
+        finishing?.let { finish(ctx, it) }
+        // Last: clearing it tells an open app to catch up and send (it hears
+        // at once, on this thread), and by then the finish is queued too.
         clearHold(ctx)
         return true
+    }
+
+    // ── Finishing ────────────────────────────────────────────────────────
+
+    /**
+     * The workout is over, said on the wrist: what the phone does when you
+     * finish there (Diary.svelte finishWorkout), as far as a watch can.
+     *
+     * The length comes off the shared clock, which stops, and any rest stops
+     * on both devices. The end is queued like a set, so it holds with no
+     * signal and goes up with whatever else is waiting, and the summary is
+     * noted to be shown, so a workout finished by a hold with the app closed
+     * still shows it when the app is opened. The notification and the
+     * calories sent to NutriTrace are the server's to do once this arrives
+     * (server/lib/watch-finish.js).
+     *
+     * Returns the workout as finished, or null when it already was: that
+     * isn't finished, or celebrated, a second time.
+     */
+    fun finish(ctx: Context, workout: Session.Workout, now: Long = System.currentTimeMillis()): Session.Workout? {
+        if (workout.completed) return null
+        val date = workout.date.ifBlank { java.time.LocalDate.now().toString() }
+        val clock = session(ctx)?.takeIf { it.date == date }
+        val minutes = clock?.minutes(now)
+        // Queued and written down before anything else changes: an open app
+        // hears each change below as it's made, and reads and sends what's
+        // here when it does.
+        queue(ctx, Op(date, workout.id, minutes = minutes, finished = true))
+        val done = Session.finish(workout, minutes)
+        putCache(ctx, JSONObject().put("workout", done.raw).toString())
+        prefs(ctx).edit().putString(KEY_FINISHED, "$date|${workout.id}").apply()
+        if (clock != null) publishSession(ctx, null)
+        if (timer(ctx) != null) stopRest(ctx)
+        return done
+    }
+
+    /** The finished workout whose summary is waiting to be seen, if it's this one. */
+    fun finishedUnseen(ctx: Context, workout: Session.Workout?): Boolean {
+        val w = workout ?: return false
+        return prefs(ctx).getString(KEY_FINISHED, null) == "${w.date}|${w.id}"
+    }
+
+    fun clearFinished(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_FINISHED).apply()
+    }
+
+    /**
+     * The rest is over because the workout is: the alarm, the entry on the
+     * watch face and the phone's copy all go, and a hold that was counting
+     * won't log itself later.
+     */
+    fun stopRest(ctx: Context) {
+        RestAlarm.cancel(ctx)
+        clearTimer(ctx)
+        RestOngoing.hide(ctx)
+        publishRest(ctx, null)
+        clearHold(ctx)
     }
 
     // ── Changes made with no connection ──────────────────────────────────
@@ -504,6 +691,34 @@ object Pairing {
                 )
             }
         }
+    }
+
+    /**
+     * The session's own fields a batch changes, for X-Changed-Fields: the
+     * server keeps its own copy of every other one (server/lib/newer-wins.js),
+     * so the name, notes and the rest, sent back only because they were in
+     * the day the watch read, can't overwrite a newer edit made on the phone.
+     */
+    /**
+     * What's waiting laid over the server's copy of the day, for the screen:
+     * the sets, the length when the clock was stopped, and the finish. A send
+     * the server refused leaves them queued, and the workout must not look
+     * unfinished meanwhile, or Finish Workout would come back for a workout
+     * already finished here.
+     */
+    fun replay(workout: Session.Workout, ops: List<Op>): Session.Workout = ops.fold(workout) { acc, op ->
+        val change = op.change
+        when {
+            change != null -> Session.applyChange(acc, change)
+            op.finished -> Session.finish(acc, op.minutes)
+            op.minutes != null -> acc.copy(raw = JSONObject(acc.raw.toString()).put("duration_min", op.minutes))
+            else -> acc
+        }
+    }
+
+    fun changedFields(batch: List<Op>): List<String> = buildList {
+        if (batch.any { it.finished }) add("completed")
+        if (batch.any { it.minutes != null }) add("duration_min")
     }
 
     fun outbox(ctx: Context): List<Op> {

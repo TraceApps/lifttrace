@@ -1,15 +1,18 @@
 <script>
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import { restTimer, restRemaining, addRestTime, stopRest } from '../../stores/restTimer.js';
+  import { _ } from 'svelte-i18n';
+  import { restTimer, restRemaining, addRestTime, stopRest, pauseRest, resumeRest } from '../../stores/restTimer.js';
+  import { REST_ADD_SEC } from '../../lib/rest-state.js';
 
   $: state     = $restTimer;
   $: remaining = $restRemaining;
   $: active    = !!state;
+  $: paused    = !!state?.paused;
   $: displayMin = Math.floor(Math.max(remaining, 0) / 60);
   $: displaySec = Math.floor(Math.max(remaining, 0) % 60);
   $: progress   = state && state.total > 0 ? Math.min(1, 1 - remaining / state.total) : 0;
-  $: nearDone   = remaining <= 5;
+  $: nearDone   = !paused && remaining <= 5;
 
   // Publish the bar height to :root so WorkoutModeBar can stack above it.
   function _setHeightVar(on) {
@@ -20,20 +23,25 @@
 </script>
 
 {#if active}
-  <div class="rest-sticky" class:near-done={nearDone}
+  <div class="rest-sticky" class:near-done={nearDone} class:paused
     transition:fly={{ y: 40, duration: 240, easing: cubicOut }}>
     <div class="rest-progress" style="width:{progress * 100}%"></div>
     <div class="rest-content">
       <div class="rest-label-col">
-        <span class="rest-label">REST</span>
-        {#if state.exerciseName}<span class="rest-exercise">Next: {state.exerciseName}</span>{/if}
+        <span class="rest-label">{paused ? $_('rest_bar.paused_label') : $_('rest_bar.label')}</span>
+        {#if state.exerciseName}<span class="rest-exercise">{$_('rest_bar.next', { values: { name: state.exerciseName } })}</span>{/if}
       </div>
       <div class="rest-time-col">
         <span class="rest-time">{displayMin}:{String(displaySec).padStart(2, '0')}</span>
       </div>
       <div class="rest-actions">
-        <button class="rest-btn" on:click={() => addRestTime(30)} title="Add 30 seconds">+30s</button>
-        <button class="rest-btn skip" on:click={() => stopRest(false)} title="Skip rest">
+        <button class="rest-btn" on:click={() => addRestTime(REST_ADD_SEC)} title={$_('rest_bar.add_title', { values: { s: REST_ADD_SEC } })}>{$_('rest_bar.add', { values: { s: REST_ADD_SEC } })}</button>
+        <button class="rest-btn icon" on:click={() => (paused ? resumeRest() : pauseRest())}
+          title={paused ? $_('rest_bar.resume') : $_('rest_bar.pause')}
+          aria-label={paused ? $_('rest_bar.resume') : $_('rest_bar.pause')}>
+          <span class="material-symbols-rounded">{paused ? 'play_arrow' : 'pause'}</span>
+        </button>
+        <button class="rest-btn icon" on:click={() => stopRest(false)} title={$_('rest_bar.skip')} aria-label={$_('rest_bar.skip')}>
           <span class="material-symbols-rounded">skip_next</span>
         </button>
       </div>
@@ -87,6 +95,9 @@
     transition: background var(--dur-fast);
   }
   .rest-btn:hover { background: rgba(255,255,255,0.14); }
-  .rest-btn.skip { padding: 5px 8px; }
+  .rest-btn.icon { padding: 5px 8px; }
+  /* Held: the bar and the number stop, and the time reads as waiting. */
+  .rest-sticky.paused .rest-label { color: var(--text-3); }
+  .rest-sticky.paused .rest-time { color: var(--text-2); }
   .rest-btn .material-symbols-rounded { font-size: 18px; }
 </style>

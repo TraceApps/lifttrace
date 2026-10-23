@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
+import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -69,6 +70,10 @@ router.post('/', wrap((req, res) => {
   const dist = distance == null || distance === '' ? null : Number(distance);
   const hr = avg_hr == null || avg_hr === '' ? null : Math.floor(Number(avg_hr));
   const isTpl = is_template ? 1 : 0;
+  // Sent again after its answer was lost: the session it made (create-keys.js).
+  const before = createdBefore(req, userId, 'cardio_log');
+  if (before?.gone) return answerGone(res);
+  if (before) return res.json(before);
   const stmt = db.prepare(
     `INSERT INTO cardio_log (user_id, date, activity, duration_min, distance, distance_unit, avg_hr, notes, is_template)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -81,6 +86,7 @@ router.post('/', wrap((req, res) => {
     notes ? String(notes).trim() : null,
     isTpl,
   );
+  rememberCreated(req, userId, 'cardio_log', info.lastInsertRowid);
   const row = db.prepare('SELECT * FROM cardio_log WHERE id = ?').get(info.lastInsertRowid);
   res.json(row);
 }));
@@ -130,6 +136,17 @@ router.delete('/:id', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
+// A session's date is a calendar day: its week is found in UTC on the bare
+// date, as stats.js does (#101). Reading it as local time put Monday
+// sessions in the week before, west of UTC. A date stored with a time on
+// it counts by its day.
+function _weekStart(date) {
+  const d = new Date(`${String(date).slice(0, 10)}T00:00:00Z`);
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().slice(0, 10);
+}
+
 // GET /api/cardio/stats/weekly?start=YYYY-MM-DD&end=YYYY-MM-DD
 //   Weekly minutes total, ISO-week bucketed (Monday start), for the
 //   Statistics Cardio metric.
@@ -142,10 +159,7 @@ router.get('/stats/weekly', wrap((req, res) => {
     : db.prepare('SELECT date, duration_min FROM cardio_log WHERE user_id IS NULL AND date BETWEEN ? AND ?').all(start, end);
   const byWeek = {};
   for (const row of rows) {
-    const d = new Date(row.date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+    const weekStart = _weekStart(row.date);
     byWeek[weekStart] = (byWeek[weekStart] || 0) + row.duration_min;
   }
   res.json(Object.entries(byWeek).map(([week, minutes]) => ({ week, minutes })).sort((a, b) => a.week.localeCompare(b.week)));

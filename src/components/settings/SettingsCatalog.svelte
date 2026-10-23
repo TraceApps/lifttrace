@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import { LtApi } from '../../lib/api.js';
-  import { resolveAssetUrl } from '../../lib/platform.js';
+  import { resolveAssetUrl, isNative } from '../../lib/platform.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import ExerciseEditor from '../exercises/ExerciseEditor.svelte';
@@ -17,6 +17,35 @@
   export let expanded = false;
   export let visible = true;
   export let onToggle = () => {};
+  // The phone app with no server. Everything here works on the device except
+  // pre-caching media, which asks the server for the list of media URLs, and
+  // a source that needs an API key, which only a server can import (the
+  // setup wizard says so too). Both are left out rather than offered to fail.
+  export let localOnly = false;
+
+  // The phone's web view ignores a download link: tapping "Download
+  // template" did nothing. Save it the way exports are saved on Android,
+  // to the app's cache and out through the share sheet.
+  async function downloadTemplate(e) {
+    if (!isNative) return; // a browser downloads it through the link itself
+    e.preventDefault();
+    try {
+      const json = await (await fetch(location.origin + '/lifttrace-catalog-template.json')).text();
+      const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem');
+      const { Share } = await import('@capacitor/share');
+      const dir = 'lifttrace-exports';
+      try { await Filesystem.mkdir({ path: dir, directory: Directory.Cache, recursive: true }); } catch {}
+      const written = await Filesystem.writeFile({
+        path: `${dir}/lifttrace-catalog-template.json`,
+        data: json,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      try {
+        await Share.share({ title: $_('settings_catalog.share.template_title'), url: written?.uri, dialogTitle: $_('settings_catalog.share.save_template') });
+      } catch { /* dismissed; the file is still saved */ }
+    } catch (err) { showError(err?.message || String(err)); }
+  }
 
   let exerciseSources = [];
   let sourceBusy = {};
@@ -30,12 +59,12 @@
 
   async function importSource(src) {
     if (src.requiresKey && !sourceKeys[src.id]) {
-      showError(`${src.name} requires an API key`); return;
+      showError($_('settings_catalog.toast.requires_key', { values: { name: src.name } })); return;
     }
     sourceBusy = { ...sourceBusy, [src.id]: 'import' };
     try {
       const r = await LtApi.importExerciseSource(src.id, sourceKeys[src.id]);
-      showSuccess(`${src.name}: imported ${r.count}`);
+      showSuccess($_('settings_catalog.toast.source_imported', { values: { name: src.name, count: r.count } }));
       await loadExerciseSources();
     } catch(e) { showError(e.message); }
     sourceBusy = { ...sourceBusy, [src.id]: null };
@@ -57,12 +86,16 @@
       async function worker() {
         while (idx < urls.length) {
           const myIdx = idx++;
-          try { await fetch(urls[myIdx], { mode: 'no-cors', credentials: 'omit' }); } catch {}
+          // The browser's own credentials mode, not 'omit': a picture on this
+          // server sits behind whatever login a reverse proxy puts in front
+          // of the app, and without it the proxy answers with its sign-in
+          // page. Other sites' media gets no credentials either way.
+          try { await fetch(urls[myIdx], { mode: 'no-cors' }); } catch {}
           precacheProgress = { done: precacheProgress.done + 1, total: urls.length };
         }
       }
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-      showSuccess(`Cached ${urls.length} exercise media files for offline use`);
+      showSuccess($_('settings_catalog.toast.media_cached', { values: { count: urls.length } }));
     } catch(e) { showError(e.message); }
     precacheBusy = false;
     setTimeout(() => { precacheProgress = null; }, 3000);
@@ -78,7 +111,7 @@
     sourceBusy = { ...sourceBusy, [src.id]: 'clear' };
     try {
       const r = await LtApi.clearExerciseSource(src.id);
-      showSuccess(`${src.name}: cleared ${r.removed} exercises`);
+      showSuccess($_('settings_catalog.toast.source_cleared', { values: { name: src.name, count: r.removed } }));
       await loadExerciseSources();
     } catch(e) { showError(e.message); }
     sourceBusy = { ...sourceBusy, [src.id]: null };
@@ -129,17 +162,17 @@
         if (base) customCatalogName = base;
       }
     } catch (err) {
-      customCatalogError = `Could not read file: ${err?.message || err}`;
+      customCatalogError = $_('settings_catalog.errors.cant_read_file', { values: { error: err?.message || String(err) } });
     }
   }
 
   function _parseCatalogJson(text) {
     let parsed;
     try { parsed = JSON.parse(text); }
-    catch (e) { throw new Error('Invalid JSON: ' + (e?.message || 'parse error')); }
+    catch (e) { throw new Error($_('settings_catalog.errors.invalid_json', { values: { error: e?.message || $_('settings_catalog.errors.parse_error') } })); }
     // Accept either { exercises: [...] } or a bare array.
     let list = Array.isArray(parsed) ? parsed : parsed?.exercises;
-    if (!Array.isArray(list)) throw new Error('JSON must be an array of exercises, or { "exercises": [...] }');
+    if (!Array.isArray(list)) throw new Error($_('settings_catalog.errors.json_shape'));
     return list;
   }
 
@@ -147,12 +180,12 @@
     customCatalogError = '';
     customCatalogResult = null;
     const name = customCatalogName.trim();
-    if (!name) { customCatalogError = 'Catalog name is required'; return; }
-    if (!customCatalogJson.trim()) { customCatalogError = 'Paste JSON or pick a file first'; return; }
+    if (!name) { customCatalogError = $_('settings_catalog.errors.name_required'); return; }
+    if (!customCatalogJson.trim()) { customCatalogError = $_('settings_catalog.errors.no_json'); return; }
     let list;
     try { list = _parseCatalogJson(customCatalogJson); }
     catch (e) { customCatalogError = e.message; return; }
-    if (!list.length) { customCatalogError = 'JSON contains no exercises'; return; }
+    if (!list.length) { customCatalogError = $_('settings_catalog.errors.no_exercises'); return; }
 
     customCatalogImporting = true;
     try {
@@ -162,14 +195,14 @@
         body: JSON.stringify({ catalogName: name, exercises: list }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || `Import failed (${res.status})`);
+      if (!res.ok) throw new Error(data?.error || $_('settings_catalog.errors.import_failed_status', { values: { status: res.status } }));
       customCatalogResult = data;
-      showSuccess(`Imported ${data.count} exercises to "${data.catalogName}"`);
+      showSuccess($_('settings_catalog.toast.catalog_imported', { values: { count: data.count, name: data.catalogName } }));
       customCatalogJson = ''; customCatalogName = '';
       await loadExerciseSources();
       await loadImportedCatalogs();
     } catch (e) {
-      customCatalogError = e?.message || 'Import failed';
+      customCatalogError = e?.message || $_('settings_catalog.errors.import_failed');
       showError(customCatalogError);
     } finally {
       customCatalogImporting = false;
@@ -215,7 +248,7 @@
     })) return;
     try {
       const r = await LtApi.deleteAllCustomExercises();
-      showSuccess(`Deleted ${r.removed} custom exercises`);
+      showSuccess($_('settings_catalog.toast.custom_deleted', { values: { count: r.removed } }));
       await loadCustomExercises();
     } catch(e) { showError(e.message); }
   }
@@ -242,7 +275,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: cat.name }),
       });
-      showSuccess(`Deleted "${cat.name}"`);
+      showSuccess($_('settings_catalog.toast.catalog_deleted', { values: { name: cat.name } }));
       await loadExerciseSources();
       await loadImportedCatalogs();
     } catch(e) { showError(e.message); }
@@ -269,30 +302,25 @@
                 {#if src.count > 0}<span class="src-count">{src.count}</span>{/if}
               </div>
               <div class="src-desc">{src.description}</div>
-              {#if src.requiresKey && canManageLibrary}
+              {#if src.requiresKey && canManageLibrary && !localOnly}
                 <input class="form-input-sm src-key" type="password" placeholder={$_('settings_catalog.rapidapi_key_ph')} bind:value={sourceKeys[src.id]} />
-                <div class="src-byok-note">
-                  Bring your own RapidAPI key. By enabling this source you confirm you have an
-                  active subscription (free tier available) and accept RapidAPI's and the API
-                  provider's terms. LiftTrace is not affiliated with RapidAPI or ExerciseDB and
-                  has no relationship with either; you are the API consumer.
-                </div>
+                <div class="src-byok-note">{$_('settings_catalog.byok_note')}</div>
               {/if}
             </div>
             <div class="src-actions" style="flex-direction:row;align-items:center;gap:8px">
               {#if src.count > 0}
                 <Toggle checked={src.enabled} on:change={() => toggleSource(src)} />
               {/if}
-              {#if canManageLibrary}
+              {#if canManageLibrary && !(localOnly && src.requiresKey)}
               <button class="btn btn-secondary btn-sm" disabled={sourceBusy[src.id] === 'import'} on:click={() => importSource(src)}>
-                {sourceBusy[src.id] === 'import' ? 'Importing\u2026' : (src.count > 0 ? 'Re-import' : 'Import')}
+                {sourceBusy[src.id] === 'import' ? $_('settings_catalog.importing') : (src.count > 0 ? $_('settings_catalog.reimport') : $_('settings_catalog.import'))}
               </button>
               {/if}
               {#if src.count > 0 && canManageLibrary}
                 <button class="btn btn-secondary btn-sm src-clear" disabled={sourceBusy[src.id] === 'clear'} on:click={() => clearSource(src)}
-                  title="Clear {src.count} imported exercises (source stays available to re-import)">
+                  title={$_('settings_catalog.clear_source_title', { values: { count: src.count } })}>
                   <span class="material-symbols-rounded" style="font-size:16px">delete_sweep</span>
-                  {sourceBusy[src.id] === 'clear' ? 'Clearing\u2026' : 'Clear'}
+                  {sourceBusy[src.id] === 'clear' ? $_('settings_catalog.clearing') : $_('settings_catalog.clear')}
                 </button>
               {/if}
             </div>
@@ -301,11 +329,12 @@
       </div>
 
       <!-- Offline media pre-cache -->
+      {#if !localOnly}
       <div class="card" style="margin-top:12px">
         <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
           <div class="setting-label-group">
             <span class="setting-label">{$_('settings_catalog.offline_library')}</span>
-            <span class="setting-hint">Pre-download every exercise GIF / image to your device cache. Useful for gyms without signal or before going mobile. Re-run any time after importing a new source.</span>
+            <span class="setting-hint">{$_('settings_catalog.offline_library_hint')}</span>
           </div>
           {#if precacheProgress}
             <div class="precache-progress">
@@ -317,19 +346,20 @@
           {/if}
           <button class="btn btn-secondary" style="height:36px;font-size:13px;align-self:flex-start" on:click={precacheMedia} disabled={precacheBusy}>
             <span class="material-symbols-rounded" style="font-size:16px">{precacheBusy ? 'downloading' : 'download_for_offline'}</span>
-            {precacheBusy ? 'Caching\u2026' : 'Pre-cache media for offline'}
+            {precacheBusy ? $_('settings_catalog.caching') : $_('settings_catalog.precache')}
           </button>
         </div>
       </div>
 
+      {/if}
       <p class="sub-label">{$_('settings_catalog.my_exercises')}</p>
       <div class="card">
         <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px">
           <div style="font-size:12px;color:var(--text-3)">
-            {customExercises.length} exercise{customExercises.length === 1 ? '' : 's'} you've created
+            {$_('settings_catalog.my_exercises_count', { values: { count: customExercises.length } })}
           </div>
           <button class="btn btn-primary btn-sm" on:click={openCreate}>
-            <span class="material-symbols-rounded" style="font-size:16px">add</span> Create
+            <span class="material-symbols-rounded" style="font-size:16px">add</span> {$_('settings_catalog.create')}
           </button>
         </div>
         {#if customExercises.length > 0}
@@ -337,7 +367,7 @@
           {#each customExercises as ex (ex.id)}
             <div class="my-ex-row">
               {#if ex.img_url || ex.gif_url}
-                <img class="my-ex-thumb" src={ex.gif_url || ex.img_url} alt="" />
+                <img class="my-ex-thumb" src={resolveAssetUrl(ex.gif_url || ex.img_url)} alt="" />
               {:else if ex.video_url}
                 <span class="my-ex-thumb-fallback material-symbols-rounded">play_circle</span>
               {:else}
@@ -346,13 +376,13 @@
               <div class="my-ex-info">
                 <span class="my-ex-name">{ex.name}</span>
                 <span class="my-ex-meta">
-                  {ex.category || 'uncategorized'}{#if (ex.primary_muscles || []).length} · {(ex.primary_muscles || []).slice(0, 3).join(', ')}{/if}
+                  {ex.category || $_('settings_catalog.uncategorized')}{#if (ex.primary_muscles || []).length} · {(ex.primary_muscles || []).slice(0, 3).join(', ')}{/if}
                 </span>
               </div>
-              <button class="my-ex-btn" on:click={() => openEdit(ex)} title="Edit">
+              <button class="my-ex-btn" on:click={() => openEdit(ex)} title={$_('common.edit')}>
                 <span class="material-symbols-rounded">edit</span>
               </button>
-              <button class="my-ex-btn danger" on:click={() => removeCustom(ex)} title="Delete">
+              <button class="my-ex-btn danger" on:click={() => removeCustom(ex)} title={$_('common.delete')}>
                 <span class="material-symbols-rounded">delete</span>
               </button>
             </div>
@@ -361,7 +391,7 @@
           <div style="padding:10px 16px">
             <button class="btn btn-secondary btn-sm" style="color:var(--danger);border-color:color-mix(in srgb, var(--danger) 30%, var(--border))" on:click={removeAllCustom}>
               <span class="material-symbols-rounded" style="font-size:16px">delete_sweep</span>
-              Delete all my exercises
+              {$_('settings_catalog.delete_all_mine')}
             </button>
           </div>
         {/if}
@@ -369,25 +399,20 @@
 
       <p class="sub-label">{$_('settings_catalog.custom_catalog')}</p>
       <div class="card cc-card">
-        <p class="cc-intro">
-          Import your own exercises from JSON. Useful for sharing
-          curated catalogs between users, migrating from another app,
-          or pulling in data from a third-party source. Grab the
-          starter template below, fill it in, and pick or paste it
-          back in.
-        </p>
+        <p class="cc-intro">{$_('settings_catalog.custom_intro')}</p>
         <div class="cc-template-row">
           <a class="btn btn-secondary cc-template-btn"
             href={resolveAssetUrl('/lifttrace-catalog-template.json')}
-            download="lifttrace-catalog-template.json">
+            download="lifttrace-catalog-template.json"
+            on:click={downloadTemplate}>
             <span class="material-symbols-rounded" style="font-size:16px">download</span>
-            Download template
+            {$_('settings_catalog.download_template')}
           </a>
         </div>
         <details class="cc-format">
           <summary>
             <span class="material-symbols-rounded cc-format-chev">expand_more</span>
-            Expected JSON format
+            {$_('settings_catalog.expected_format')}
           </summary>
           <pre class="cc-format-example">{`{
   "exercises": [
@@ -405,15 +430,14 @@
   ]
 }`}</pre>
           <p class="cc-format-note">
-            Only <code>name</code> is required. A bare array (no
-            wrapper object) is also accepted.
+            {$_('settings_catalog.format_note_prefix')} <code>name</code> {$_('settings_catalog.format_note_suffix')}
           </p>
         </details>
 
         <label class="cc-field">
           <span class="cc-field-label">{$_('settings_catalog.catalog_name')}</span>
           <input class="form-input-sm cc-input" type="text" bind:value={customCatalogName}
-            placeholder="e.g. My Exercises" maxlength="60" />
+            placeholder={$_('settings_catalog.catalog_name_ph')} maxlength="60" />
         </label>
 
         <label class="cc-field">
@@ -425,14 +449,14 @@
         <div class="cc-actions">
           <label class="btn btn-secondary cc-file-btn">
             <span class="material-symbols-rounded" style="font-size:16px">upload_file</span>
-            Pick JSON file
+            {$_('settings_catalog.pick_json_file')}
             <input type="file" accept=".json,application/json" style="display:none"
               bind:this={customCatalogFile} on:change={_onCatalogFile} />
           </label>
           {#if customCatalogJson}
             <button class="btn btn-secondary cc-clear-btn"
               on:click={() => { customCatalogJson = ''; customCatalogError = ''; customCatalogResult = null; }}>
-              Clear
+              {$_('settings_catalog.clear')}
             </button>
           {/if}
           <div class="cc-actions-spacer"></div>
@@ -441,9 +465,9 @@
             disabled={customCatalogImporting || !customCatalogName.trim() || !customCatalogJson.trim()}>
             {#if customCatalogImporting}
               <span class="material-symbols-rounded spin" style="font-size:16px">autorenew</span>
-              Importing…
+              {$_('settings_catalog.importing')}
             {:else}
-              Import
+              {$_('settings_catalog.import')}
             {/if}
           </button>
         </div>
@@ -454,9 +478,9 @@
         {#if customCatalogResult}
           <p class="cc-result">
             <span class="cc-result-count">{customCatalogResult.count}</span>
-            imported to "{customCatalogResult.catalogName}"
-            {#if customCatalogResult.duplicates > 0}, <span style="color:var(--warning)">{customCatalogResult.duplicates}</span> duplicates skipped{/if}
-            {#if customCatalogResult.skipped > 0}, <span style="color:var(--text-3)">{customCatalogResult.skipped}</span> invalid rows skipped{/if}
+            {$_('settings_catalog.result.imported_to', { values: { name: customCatalogResult.catalogName } })}
+            {#if customCatalogResult.duplicates > 0}, <span style="color:var(--warning)">{customCatalogResult.duplicates}</span> {$_('settings_catalog.result.duplicates_skipped')}{/if}
+            {#if customCatalogResult.skipped > 0}, <span style="color:var(--text-3)">{customCatalogResult.skipped}</span> {$_('settings_catalog.result.invalid_skipped')}{/if}
           </p>
         {/if}
       </div>
@@ -474,7 +498,7 @@
               </div>
               <div class="src-actions" style="flex-direction:row;align-items:center">
                 <Toggle checked={cat.enabled} on:change={() => toggleCatalog(cat)} />
-                <button class="btn-icon-danger" on:click={() => deleteCatalog(cat)} title="Delete catalog">
+                <button class="btn-icon-danger" on:click={() => deleteCatalog(cat)} title={$_('settings_catalog.delete_catalog')}>
                   <span class="material-symbols-rounded" style="font-size:20px">delete</span>
                 </button>
               </div>

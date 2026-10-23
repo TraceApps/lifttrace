@@ -7,6 +7,17 @@
 
 import db from '../db.js';
 import { logger } from '../logger.js';
+import { fetchChecked, serviceBase } from './ssrf-guard.js';
+
+// Push services (Gotify, ntfy, Apprise) usually live on the home network,
+// so that's allowed for every account; the address is still checked on
+// every redirect hop, a redirect only followed on the same server (never
+// cloud metadata), and the connection pinned.
+async function _send(url, init) {
+  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+  try { await res.body?.cancel(); } catch {}
+  return res;
+}
 
 function _getSetting(userId, key) {
   if (userId) {
@@ -45,7 +56,7 @@ async function _pushToService(userId, title, message, priority = 5) {
       const url = _getSetting(userId, 'gotifyUrl');
       const token = _getSetting(userId, 'gotifyToken');
       if (!url || !token) return;
-      const res = await fetch(`${url}/message?token=${token}`, {
+      const res = await _send(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: fullTitle, message, priority }),
@@ -60,7 +71,7 @@ async function _pushToService(userId, title, message, priority = 5) {
       if (!topic) return;
       const headers = { 'Title': _encodeHeaderValue(fullTitle), 'Priority': String(Math.min(5, priority)) };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      const res = await fetch(`${url.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
+      const res = await _send(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
         method: 'POST', headers, body: message,
       });
       if (!res.ok) throw new Error(`ntfy ${res.status}`);
@@ -72,7 +83,7 @@ async function _pushToService(userId, title, message, priority = 5) {
       if (!url) return;
       const body = { title: fullTitle, body: message, type: priority >= 7 ? 'warning' : 'info' };
       if (tag) body.tag = tag;
-      const res = await fetch(`${url.replace(/\/+$/, '')}/notify`, {
+      const res = await _send(`${serviceBase(url) ?? url}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -95,5 +106,15 @@ async function _pushToService(userId, title, message, priority = 5) {
  * @param {number} priority — 1-10 (mapped to service-specific scale)
  */
 export async function pushNotify(userId, title, message, priority = 5) {
+  return _pushToService(userId, title, message, priority);
+}
+
+/**
+ * Send a push unless the person turned this kind off (on by default). For
+ * the coaching notifications: a missing setting means on.
+ */
+export async function pushNotifyDefaultOn(userId, settingKey, title, message, priority = 5) {
+  const v = _getSetting(userId, settingKey);
+  if (v === false || v === 'false') return;
   return _pushToService(userId, title, message, priority);
 }

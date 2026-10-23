@@ -1,4 +1,5 @@
 <script>
+  import { resolveAssetUrl } from '../../lib/platform.js';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { wideContent } from '../../lib/wide.js';
   import { LtApi } from '../../lib/api.js';
@@ -254,7 +255,7 @@
                    doesn't prefetch every demo. -->
               <div class="picker-thumb">
                 {#if ex.gif_url || ex.img_url}
-                  <img src={ex.gif_url || ex.img_url} alt="" loading="lazy" />
+                  <img src={resolveAssetUrl(ex.gif_url || ex.img_url)} alt="" loading="lazy" />
                 {:else}
                   <span class="material-symbols-rounded">fitness_center</span>
                 {/if}

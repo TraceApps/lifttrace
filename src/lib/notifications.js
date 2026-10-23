@@ -1,5 +1,5 @@
 import { DB } from './db.js';
-import { isNative } from './platform.js';
+import { isNative, getServerUrl } from './platform.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 // Verbose notification logs gated by dev OR opt-in verbose mode
@@ -15,9 +15,10 @@ const _dlog = import.meta.env.DEV
  *   - Web Notification API (PWA)
  *   - Capacitor LocalNotifications (Android / iOS)
  *
- * Push services (Apprise / Gotify / ntfy) go through the server proxy on
- * web, but direct via CapacitorHttp on native — the proxy isn't reachable
- * in standalone mode and adds latency in server mode.
+ * Push services (Apprise / Gotify / ntfy) go through the server
+ * (/api/notify) on the web and on Android signed in to a server with
+ * accounts. Android otherwise (on its own, a server without accounts, or a
+ * server it can't reach just then) sends them itself through CapacitorHttp.
  */
 
 // ── Permission ───────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ export async function notify(title, body, priority = 5) {
   if (pushService === 'none') return;
 
   if (isNative) {
-    // Direct call to push service from device — no server proxy needed.
+    if (_serverSends() && await _serverPush(title, body, priority)) return;
     await _nativePush(pushService, title, body, priority).catch(() => {});
   } else {
     try {
@@ -97,36 +98,99 @@ export async function notify(title, body, priority = 5) {
   }
 }
 
+// Android signed in to a server with accounts: the server sends it, as it
+// does for the web app, from the settings it keeps for the account. It
+// reaches a push service on the home network, which a release build of the
+// app can't (it only goes to https:// itself). Without accounts the server
+// keeps no settings, so the phone sends it.
+function _serverSends() {
+  try {
+    return !!getServerUrl() && localStorage.getItem('lt:userMgmt') === '1' && !!localStorage.getItem('wl:userId');
+  } catch { return false; }
+}
+
+// Whether the server took it. Not reached (no connection, the server down,
+// the session over): the phone sends it itself. Never queued for later
+// (apiFetch.js needsServerNow).
+async function _serverPush(title, body, priority) {
+  try {
+    const res = await fetch('/api/notify', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body, priority }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 async function _nativePush(service, title, body, priority) {
+  const req = nativePushRequest(service, key => DB.getSetting(key, ''), title, body, priority);
+  if (!req) return;
   const { CapacitorHttp } = await import('@capacitor/core');
+  const res = await CapacitorHttp.post(req);
+  if (res?.status < 200 || res?.status >= 300) _dlog(`[notifications] ${service} push answered ${res.status}`);
+}
+
+// A header value as plain ASCII: ntfy reads RFC 2047 (=?UTF-8?B?...?=), as
+// the server sends it (server/lib/push-notify.js).
+function _asciiHeader(v) {
+  const s = String(v);
+  if (/^[\x20-\x7E]*$/.test(s)) return s;
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return `=?UTF-8?B?${btoa(bin)}?=`;
+}
+
+// The service's address without a trailing slash, query or fragment, as the
+// server takes it (serviceBase in server/lib/ssrf-guard.js).
+function _serviceBase(url) {
+  try {
+    const u = new URL(String(url).trim());
+    if (u.protocol === 'http:' || u.protocol === 'https:') return (u.origin + u.pathname).replace(/\/+$/, '');
+  } catch { /* as typed */ }
+  return String(url).trim().replace(/\/+$/, '');
+}
+
+/**
+ * The CapacitorHttp request for a push through the person's service, or null
+ * when it isn't set up. `setting(key)` reads a setting by the names Settings,
+ * Notifications saves them under (stores/settings.js), the same ones the
+ * server reads; the phone read others (notifNtfyUrl and so on), never saved,
+ * so its own pushes never went. It's the request the server sends (the same
+ * address, token, body and priority), except that the server puts the app's
+ * name in front of the title. Capacitor sends no body at all without a
+ * Content-Type, so ntfy's says it's text.
+ */
+export function nativePushRequest(service, setting, title, body, priority = 5) {
   if (service === 'gotify') {
-    const url = DB.getSetting('notifGotifyUrl', '');
-    const token = DB.getSetting('notifGotifyToken', '');
-    if (!url || !token) return;
-    await CapacitorHttp.post({
-      url: `${url.replace(/\/$/, '')}/message?token=${encodeURIComponent(token)}`,
+    const url = setting('gotifyUrl');
+    const token = setting('gotifyToken');
+    if (!url || !token) return null;
+    return {
+      url: `${_serviceBase(url)}/message?token=${encodeURIComponent(token)}`,
       headers: { 'Content-Type': 'application/json' },
       data: { title, message: body, priority },
-    });
-  } else if (service === 'ntfy') {
-    const url = DB.getSetting('notifNtfyUrl', '');
-    const topic = DB.getSetting('notifNtfyTopic', '');
-    if (!url || !topic) return;
-    await CapacitorHttp.post({
-      url: `${url.replace(/\/$/, '')}/${encodeURIComponent(topic)}`,
-      headers: { 'Title': title, 'Priority': String(priority) },
-      data: body,
-    });
-  } else if (service === 'apprise') {
-    const url = DB.getSetting('notifAppriseUrl', '');
-    const tags = DB.getSetting('notifAppriseTags', '');
-    if (!url) return;
-    await CapacitorHttp.post({
-      url: url.replace(/\/$/, '') + '/notify',
-      headers: { 'Content-Type': 'application/json' },
-      data: { title, body, tag: tags || undefined, type: 'info' },
-    });
+    };
   }
+  if (service === 'ntfy') {
+    const url = setting('ntfyUrl') || 'https://ntfy.sh';
+    const topic = setting('ntfyTopic');
+    const token = setting('ntfyToken');
+    if (!topic) return null;
+    const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'Title': _asciiHeader(title), 'Priority': String(Math.min(5, priority)) };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return { url: `${_serviceBase(url)}/${encodeURIComponent(topic)}`, headers, data: body };
+  }
+  if (service === 'apprise') {
+    const url = setting('appriseUrl');
+    const tag = setting('appriseTag');
+    if (!url) return null;
+    const data = { title, body, type: priority >= 7 ? 'warning' : 'info' };
+    if (tag) data.tag = tag;
+    return { url: `${_serviceBase(url)}/notify`, headers: { 'Content-Type': 'application/json' }, data };
+  }
+  return null;
 }
 
 // ── Goal celebrations (unchanged from web build) ─────────────────────────
@@ -154,7 +218,9 @@ export function celebrateWorkoutComplete(workoutName) {
   if (!enabled) return;
   _celebratedToday.add(key);
   _saveCelebrated();
-  notify('💪 Workout Complete!', workoutName ? `Great session — "${workoutName}" is done!` : 'Great session — all sets complete!', 5);
+  // Worded as the server words it for a workout finished on the watch
+  // (server/lib/watch-finish.js).
+  notify('💪 Workout Complete!', workoutName ? `Great session. "${workoutName}" is done!` : 'Great session. All sets complete!', 5);
 }
 
 export function celebratePR(exerciseName, weight, unit, reps, type = 'weight') {

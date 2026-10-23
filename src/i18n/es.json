@@ -73,7 +73,6 @@
     "signing_out": "Cerrando sesión…",
     "admin": "admin",
     "hide": "Ocultar",
-    "experimental": "Experimental",
     "errors": {
       "cant_reach_server": "No se pudo conectar con el servidor",
       "failed": "Error",
@@ -565,18 +564,13 @@
   "settings_about": {
     "app_name": "LiftTrace",
     "open_source": "Código abierto",
-    "sister_app_prefix": "Aplicación hermana: ",
-    "sister_app_suffix": ", registro de nutrición",
-    "support_development": "Apoyar el desarrollo",
     "disclaimer_medical": "LiftTrace no es software médico, sanitario ni de profesionales del fitness. No ofrece consejo médico, diagnóstico, tratamiento ni prescripciones de entrenamiento personalizadas. El contenido de la biblioteca de ejercicios, el coaching de Trace AI, las plantillas de programas, las indicaciones del temporizador de descanso y cualquier salida analítica (volumen, PRs, frecuencia, tendencias de peso corporal) tienen únicamente fines informativos y de autorregistro.",
-    "donations_note": "LiftTrace es gratuito de autoalojar. Las donaciones se agradecen, pero nunca son obligatorias.",
     "disclaimer_risk": "El entrenamiento de fuerza conlleva un riesgo inherente de lesión. La selección de ejercicios, la carga, la técnica y la progresión pueden interactuar con condiciones médicas (afecciones cardíacas y cardiovasculares, hipertensión, cirugías previas, hernias, problemas articulares o de columna, osteoporosis, embarazo, trastornos del tejido conectivo, lesiones recientes o procesos de rehabilitación) de formas que esta app no puede evaluar. Consulta a un profesional sanitario cualificado, a un entrenador de fuerza certificado o a un fisioterapeuta titulado antes de empezar un programa de entrenamiento nuevo, volver de una lesión o hacer cambios significativos en tu rutina.",
     "disclaimer_heading": "Descargo de responsabilidad.",
     "feature_privacy": "Sin rastreo, sin anuncios, sin analíticas de terceros",
     "feature_pwa": "PWA: instalable en cualquier dispositivo",
     "disclaimer_ai": "Las respuestas de Trace AI pueden ser incorrectas o incompletas; trátalas como un punto de partida, no como sustituto del juicio humano o del consejo profesional. Los datos de la biblioteca de ejercicios proceden de bases de datos públicas (wger, Free Exercise DB y, opcionalmente, ExerciseDB vía RapidAPI) y pueden contener imprecisiones. Úsala bajo tu propia responsabilidad.",
     "description": "Registra cada repetición: tu registro personal de entrenamiento con pesas. LiftTrace es una aplicación de registro de entrenamientos autoalojada y pensada para la privacidad. Tus datos viven en tu servidor, no en la nube. Incluye diario de entrenamiento, creador de programas, biblioteca de ejercicios multifuente, coaching con IA, estadísticas y más.",
-    "kofi": "Ko-fi",
     "feature_self_hosted": "Autoalojado: tus datos, tu servidor"
   },
   "template_spec": {
@@ -707,7 +701,6 @@
     "cancel": "Cancelar"
   },
   "settings_workout_import": {
-    "experimental": "Experimental",
     "how_to_export": "Cómo exportar",
     "import_another_file": "Importar otro fichero",
     "ready_to_import": "Listo para importar",
@@ -793,8 +786,7 @@
       "workout_added": "Entrenamiento añadido",
       "workout_deleted": "Entrenamiento eliminado",
       "program_deleted": "Programa eliminado",
-      "duplicated": "Programa duplicado",
-      "member_fallback": "miembro"
+      "duplicated": "Programa duplicado"
     },
     "workouts": "Entrenamientos",
     "add_workout": "Añadir entrenamiento",
@@ -1082,8 +1074,7 @@
     "est_1rm": " · 1RM est. {v}",
     "total": "Total",
     "muscle_balance_desc": "Sombreado según las series efectivas, en relación con el músculo más trabajado de este rango.",
-    "effective_sets_one": "{n} series efectivas en {m} músculo.",
-    "effective_sets_many": "",
+    "effective_sets_one": "{n} serie efectiva en {m} músculo.",
     "effective_sets_other": "{n} series efectivas en {m} músculos.",
     "no_volume_range": "No hay volumen registrado en este rango.",
     "most_active": "Más activo: {day}",
@@ -1110,7 +1101,6 @@
       "range": "Rango",
       "vs_prior": "frente a {range} anterior",
       "prior_window_one": "Periodo anterior: {n} sesión",
-      "prior_window_many": "Periodo anterior: {n} sesiones",
       "prior_window_other": "Periodo anterior: {n} sesiones",
       "nav_aria": "Secciones de estadísticas",
       "aside_aria": "Rango y comparación"
@@ -1134,7 +1124,6 @@
   },
   "coaching": {
     "toast": {
-      "released": "{name} ya no está en tu lista",
       "program_active": "{program} es ahora el programa activo de {name}",
       "feedback_saved": "Comentario guardado",
       "feedback_removed": "Comentario eliminado",
@@ -1144,13 +1133,10 @@
       "pick_template": "Elige una plantilla de entrenamiento",
       "workout_prescribed": "Entrenamiento prescrito",
       "pick_program": "Elige un programa",
-      "member_added": "{name} añadido a tu lista",
       "prescription_updated": "Prescripción actualizada",
       "prescription_removed": "Prescripción eliminada"
     },
-    "add_coachee": "Añadir un alumno",
     "mark_all_seen": "Marcar todo como visto",
-    "no_members": "Todavía no hay miembros",
     "stat_streak": "Días seguidos",
     "stat_recent": "Entrenamientos recientes",
     "stat_active": "Programa activo",
@@ -1170,9 +1156,6 @@
     "notes": "Notas",
     "template": "Plantilla de entrenamiento",
     "confirm": {
-      "release_coachee_title": "¿Dar de baja al alumno?",
-      "release_coachee_msg": "¿Quitar a {name} de tu lista de alumnos? Su cuenta se mantiene; simplemente dejarás de ser su entrenador, y se eliminarán las prescripciones y las asignaciones de programa que le hayas dado.",
-      "release_confirm": "Dar de baja",
       "delete_note_title": "¿Eliminar esta nota?",
       "delete_workout_note_msg": "Tu comentario sobre esta sesión se eliminará.",
       "delete_exercise_note_msg": "Tu nota sobre este ejercicio se eliminará.",
@@ -1316,7 +1299,6 @@
       "enable_desc": "Añade un botón de chat flotante en todas las páginas",
       "provider": "Proveedor",
       "base_url": "URL base",
-      "base_url_desc": "Cualquier endpoint /v1/chat/completions compatible con OpenAI: Ollama, LM Studio, LocalAI, vLLM, el servidor de llama.cpp, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. No incluyas la ruta, solo el origen.",
       "base_url_ph": "http://localhost:11434  o  https://api.deepseek.com",
       "testing": "Probando…",
       "save": "Guardar",
@@ -1687,7 +1669,7 @@
       "copied": "Copiado al portapapeles.",
       "copy_failed": "No se pudo copiar. Copia el comando a mano.",
       "view_notes": "Ver las notas de la versión",
-      "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de imagen en tu docker-compose.yml (:latest, :1.0, :1, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
+      "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de imagen en tu docker-compose.yml (:latest, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
     },
     "banner_reload": "Recargar",
     "available_generic": "Hay una versión nueva disponible",

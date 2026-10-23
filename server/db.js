@@ -555,6 +555,8 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_prescriptions_member_date ON coach_prescriptions(member_id, date);
   CREATE INDEX IF NOT EXISTS idx_prescriptions_trainer ON coach_prescriptions(trainer_id);
+  -- Whether a day was prescribed to someone: asked per day on every pull.
+  CREATE INDEX IF NOT EXISTS idx_prescriptions_template_member ON coach_prescriptions(template_id, member_id);
 `);
 
 // Coach feedback — annotations a trainer leaves on a member's completed
@@ -876,6 +878,13 @@ db.exec(`
   END;
 `);
 
+// When each field of a row last changed (lib/newer-wins.js), so an edit made
+// offline never overwrites a later one made elsewhere.
+for (const t of ['programs', 'workout_templates', 'exercises', 'workout_log', 'body_stats_log', 'user_settings']) {
+  addColumnIfMissing(t, 'field_times', 'field_times TEXT');
+}
+
+
 // ── Backfill orphan user_id rows ───────────────────────────────────────────
 // When LiftTrace was first set up in single-user mode (before the user
 // activated user-management), per-user rows were created with user_id=NULL.
@@ -1151,5 +1160,163 @@ try {
 } catch (e) {
   console.warn('[db] workout uuid backfill failed:', e?.message || e);
 }
+
+// Deletions the sync pull has to carry (#139). Rows deleted outright on the
+// server never reached a phone's differential pull, so it kept showing
+// them: programs with their days and assignments, and also custom
+// exercises, workouts and body stats wiped by Clear Data or a replacing
+// import, and a cleared Trace chat. A trigger records each deletion,
+// cascades included, with the user it belonged to (NULL for shared rows:
+// programs and library exercises), and the pull sends it as a
+// { id, deleted_at } row, which the app already applies. Putting a row back
+// under the same id (a backup restore) clears its record. Created on every
+// start, after the migrations above that rebuild tables and their triggers.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sync_deletions (
+    tbl        TEXT NOT NULL,
+    row_id     INTEGER NOT NULL,
+    deleted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_id    INTEGER,
+    PRIMARY KEY (tbl, row_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_sync_deletions_at ON sync_deletions(tbl, deleted_at);
+`);
+if (!db.prepare('PRAGMA table_info(sync_deletions)').all().some(c => c.name === 'user_id')) {
+  db.exec('ALTER TABLE sync_deletions ADD COLUMN user_id INTEGER');
+}
+// table -> whose row it was (an SQL expression on OLD)
+const SYNC_DELETION_OWNER = {
+  programs:            'NULL',
+  workout_templates:   'NULL',
+  program_assignments: 'NULL',
+  exercises:           'CASE WHEN OLD.is_global = 1 THEN NULL ELSE OLD.created_by END',
+  workout_log:         'OLD.user_id',
+  body_stats_log:      'OLD.user_id',
+  ai_chat_history:     'OLD.user_id',
+};
+for (const [t, owner] of Object.entries(SYNC_DELETION_OWNER)) {
+  // The first three predate the owner column; recreate those so the
+  // definition matches (an older trigger left the owner empty, which is
+  // also what they record). A row of an account that is itself being
+  // deleted isn't recorded: there's no phone of it left to tell.
+  db.exec(`
+    DROP TRIGGER IF EXISTS ${t}_sync_deleted;
+    CREATE TRIGGER ${t}_sync_deleted AFTER DELETE ON ${t}
+    WHEN (${owner}) IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = (${owner}))
+    BEGIN INSERT OR REPLACE INTO sync_deletions (tbl, row_id, deleted_at, user_id) VALUES ('${t}', OLD.id, datetime('now'), ${owner}); END;
+    CREATE TRIGGER IF NOT EXISTS ${t}_sync_restored AFTER INSERT ON ${t}
+    BEGIN DELETE FROM sync_deletions WHERE tbl = '${t}' AND row_id = NEW.id; END;
+  `);
+}
+// A setting deleted (a key gone back to its default): recorded by its key,
+// under its own made-up id (the table keys records by id), for the
+// account's phones. Set again: no longer gone.
+if (!db.prepare('PRAGMA table_info(sync_deletions)').all().some(c => c.name === 'row_key')) {
+  db.exec('ALTER TABLE sync_deletions ADD COLUMN row_key TEXT');
+}
+db.exec(`
+  DROP TRIGGER IF EXISTS user_settings_sync_deleted;
+  CREATE TRIGGER user_settings_sync_deleted AFTER DELETE ON user_settings
+  WHEN EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id)
+  BEGIN
+    DELETE FROM sync_deletions WHERE tbl = 'user_settings' AND user_id = OLD.user_id AND row_key = OLD.key;
+    INSERT INTO sync_deletions (tbl, row_id, deleted_at, user_id, row_key)
+      VALUES ('user_settings', (SELECT COALESCE(MIN(row_id), 0) - 1 FROM sync_deletions WHERE tbl = 'user_settings'), datetime('now'), OLD.user_id, OLD.key);
+  END;
+  CREATE TRIGGER IF NOT EXISTS user_settings_sync_restored AFTER INSERT ON user_settings
+  BEGIN DELETE FROM sync_deletions WHERE tbl = 'user_settings' AND user_id = NEW.user_id AND row_key = NEW.key; END;
+`);
+// A year is far longer than any phone stays offline between syncs.
+db.exec(`DELETE FROM sync_deletions WHERE deleted_at < datetime('now', '-365 days')`);
+// Deletions from before the triggers existed, once: ids are never reused
+// (AUTOINCREMENT), so any id up to the highest one handed out that is no
+// longer in the table was deleted. A phone still showing it drops it on its
+// next pull, without an app update.
+try {
+  // v1 covered the program tables; v2 the rest. The owner of a row deleted
+  // before now isn't known, so these go to every device: a device holds
+  // ids only from this server, so all it can drop is the deleted row.
+  const backfill = (marker, tables) => {
+    if (db.prepare('SELECT 1 FROM app_config WHERE key = ?').get(marker)) return;
+    db.transaction(() => {
+      for (const t of tables) {
+        const seq = db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(t)?.seq || 0;
+        if (!seq) continue;
+        db.prepare(
+          `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+           INSERT OR IGNORE INTO sync_deletions (tbl, row_id, deleted_at)
+           SELECT ?, i, datetime('now') FROM n WHERE i NOT IN (SELECT id FROM ${t})`
+        ).run(seq, t);
+      }
+      db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run(marker, new Date().toISOString());
+    })();
+  };
+  backfill('sync_deletions_backfill_v1', ['programs', 'workout_templates', 'program_assignments']);
+  backfill('sync_deletions_backfill_v2', ['exercises', 'workout_log', 'body_stats_log', 'ai_chat_history']);
+} catch (e) {
+  console.warn('[db] sync deletions backfill failed:', e?.message || e);
+}
+
+// ── Coaching with consent ───────────────────────────────────────────────────
+// A coach and a client, the same table NutriTrace uses. The coach asks, the
+// client accepts or declines, and either side (or an admin) can end it. A
+// client can hold several requests (one per coach), so asking never reveals
+// who already has a coach, but only one active coach. The active pairing is
+// also users.trainer_id, which everything from before reads; pairings that
+// existed before this table are adopted as active at start-up
+// (lib/coaching.js adoptExistingPairings), with nothing to accept.
+// Both people cascade: deleting either account removes the pairing.
+// Only adds: no existing table is rebuilt and no column changed.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_clients (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    coach_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'declined', 'ended')),
+    note         TEXT,
+    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    responded_at TEXT,
+    ended_at     TEXT,
+    ended_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_id, status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_active
+    ON coach_clients(client_id) WHERE status = 'active';
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_request
+    ON coach_clients(coach_id, client_id) WHERE status = 'pending';
+`);
+// A prescription asks before it loads: the client accepts or declines it,
+// then loads it as before. Every prescription made before this counts as
+// accepted (the default), so nothing already given asks again.
+addColumnIfMissing('coach_prescriptions', 'status', "status TEXT NOT NULL DEFAULT 'accepted'");
+// An invite can name a coach: their request waits for the new account.
+addColumnIfMissing('invite_tokens', 'coach_id', 'coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
+addColumnIfMissing('coach_prescriptions', 'responded_at', 'responded_at TEXT');
+
+// One conversation per pairing, beside the notes on workouts (which stay as
+// they are): text and at most one photo per message, the same table as
+// NutriTrace's. `uuid` comes from the sending device, so a message sent
+// again after a dropped connection is stored once. Deleting a message keeps
+// the row ("Message deleted") and drops its text and photo. Messages go with
+// the pairing, and the pairing with either account. recommendation_id is
+// kept for the shape NutriTrace uses; LiftTrace leaves it empty.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid              TEXT NOT NULL UNIQUE,
+    pairing_id        INTEGER NOT NULL REFERENCES coach_clients(id) ON DELETE CASCADE,
+    sender_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body              TEXT,
+    image_url         TEXT,
+    recommendation_id INTEGER,
+    read_at           TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at        TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_pairing ON coach_messages(pairing_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_updated ON coach_messages(updated_at);
+`);
 
 export default db;

@@ -13,14 +13,9 @@
 import { isNative, getNativeMode } from './platform.js';
 import {
   localBackupSchedule, localBackupTime, localBackupRetention,
-  localBackupLastRun, localBackupLastError,
+  localBackupLastRun, localBackupLastError, localBackupSetAt,
 } from '../stores/settings.js';
-
-const INTERVAL_MS = {
-  daily:   22 * 60 * 60 * 1000,
-  weekly:  6.5 * 24 * 60 * 60 * 1000,
-  monthly: 28 * 24 * 60 * 60 * 1000,
-};
+import { isBackupDue, newestFirst } from '../../server/lib/backup-schedule.js';
 
 const AUTO_PREFIX = 'lifttrace-backup-auto-';
 const BACKUP_DIR  = 'lifttrace-backups';
@@ -63,22 +58,13 @@ async function _tick() {
 
   const schedule = localBackupSchedule.get();
   if (schedule === 'off') return;
-  const intervalMs = INTERVAL_MS[schedule];
-  if (!intervalMs) return;
-
-  const timeStr = localBackupTime.get() || '03:00';
-  const [hh, mm] = String(timeStr).split(':').map(n => parseInt(n, 10));
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return;
-
-  const now = new Date();
-  const scheduledMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0).getTime();
-  if (now.getTime() < scheduledMs) return;
-
-  const last = localBackupLastRun.get();
-  if (last) {
-    const lastMs = new Date(last).getTime();
-    if (Number.isFinite(lastMs) && now.getTime() - lastMs < intervalMs) return;
-  }
+  // The server's rule (TraceApps/notetrace#44), on this phone's own clock:
+  // the time set, at least half an interval after the last run, so runs don't drift.
+  const due = isBackupDue({
+    schedule, time: localBackupTime.get() || '03:00', timeZone: null,
+    lastAutoRun: localBackupLastRun.get() || null, setAt: localBackupSetAt.get() || null,
+  });
+  if (!due) return;
 
   await _runAutoBackup();
 }
@@ -90,7 +76,8 @@ async function _runAutoBackup() {
     const { buildBackup } = await import('./local-backup.js');
     const data = await buildBackup();
     const json = JSON.stringify(data);
-    const filename = `${AUTO_PREFIX}${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
+    const { localFileStamp } = await import('./file-stamp.js');
+    const filename = `${AUTO_PREFIX}${localFileStamp()}.json`;
     await _writeBackupFile(filename, json);
     await _pruneAutoBackups(parseInt(localBackupRetention.get(), 10) || 7);
     localBackupLastRun.set(new Date().toISOString());
@@ -121,9 +108,10 @@ async function _pruneAutoBackups(retention) {
   const { Filesystem, Directory } = await import('@capacitor/filesystem');
   try {
     const list = await Filesystem.readdir({ path: BACKUP_DIR, directory: Directory.Documents });
-    const autos = (list.files || [])
-      .filter(f => f.name && f.name.startsWith(AUTO_PREFIX) && f.name.endsWith('.json'))
-      .sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+    // Newest first by the time in the name (local with its offset since
+    // TraceApps/notetrace#44, UTC before), else the file's date.
+    const autos = newestFirst((list.files || [])
+      .filter(f => f.name && f.name.startsWith(AUTO_PREFIX) && f.name.endsWith('.json')));
     const toDelete = autos.slice(keep);
     for (const f of toDelete) {
       try {

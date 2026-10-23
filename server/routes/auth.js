@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -11,6 +12,11 @@ import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/p
 import { claimAnonymousData, releaseDataBeforeDisable, purgeUserRows } from '../lib/claim-anonymous-data.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
+import { deletePhotosForUser, deleteAllPhotos } from '../lib/coaching-messages.js';
+import {
+  COACHING_VERSION, coachingState, requestFromInvite, requestClient, endPairing, endAsClient,
+  endCoachingIfNotCoach, canCoach, roleOf, personName,
+} from '../lib/coaching.js';
 
 const router = Router();
 
@@ -92,7 +98,34 @@ const COOKIE_OPTS = {
   secure: !_insecureCookies,
 };
 
+// A browser drops a Secure cookie on a plain-HTTP page (localhost aside), so
+// signing in from one succeeds and then lands back on the login page with
+// nothing in the log to say why. The browser's Origin header shows the page
+// it was on, whatever proxy sits in between. Said once an hour at most. The
+// login page shows the same thing on screen.
+let _plainHttpWarnedAt = 0;
+function warnIfPlainHttp(req) {
+  if (_insecureCookies) return;
+  const origin = String(req.get('origin') || req.get('referer') || '');
+  if (!/^http:\/\//i.test(origin)) return;
+  if (/^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(origin)) return;
+  if (Date.now() - _plainHttpWarnedAt < 60 * 60 * 1000) return;
+  _plainHttpWarnedAt = Date.now();
+  let page = origin;
+  try { page = new URL(origin).origin; } catch {}
+  console.warn(`[WARN] Sign-in from a plain-HTTP page (${page}). The sign-in cookie only works over HTTPS, so the browser drops it and the user lands back on the login page. Serve LiftTrace over HTTPS, or set INSECURE_COOKIES=1 on a trusted LAN. See https://traceapps.github.io/docs/getting-started/lan-http/`);
+}
+
 function safeUser(u) { const { password_hash, ...rest } = u; return rest; }
+
+// This server's random id (see /status), made once and kept in app_config.
+// Made again if a restore emptied app_config.
+function serverInstanceId() {
+  const row = db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get();
+  if (row?.value) return row.value;
+  db.prepare(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('instance_id', ?)`).run(crypto.randomUUID());
+  return db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get()?.value || null;
+}
 
 router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
@@ -122,13 +155,25 @@ router.get('/status', wrap((req, res) => {
     password_policy: policy,                  // 'standard' | 'strong'
     password_min_score: policy === 'strong' ? STRONG_MIN_SCORE : 0,
     oidc: { providers, enable_email_password_login },
+    // Whether the sign-in cookie is HTTPS-only, so the login page can say up
+    // front that signing in from a plain-HTTP page will not stick.
+    secure_cookies: !_insecureCookies,
+    // A random id for this server, so the Android app can tell the same
+    // server at another address (LAN IP, domain) from a different one.
+    instance_id: serverInstanceId(),
+    // Coaching with consent. Servers before it report none, and the app
+    // hides what is new there.
+    coaching: COACHING_VERSION,
   });
 }));
 
 router.get('/me', wrap((req, res) => {
   if (!req.user) return res.json({ user: null });
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  res.json({ user: user ? safeUser(user) : null });
+  // Where this person stands in coaching, so the app knows whether to show
+  // the Coach tab without asking again.
+  const coaching = user && userMgmtActive() ? coachingState(user.id) : null;
+  res.json({ user: user ? safeUser(user) : null, coaching });
 }));
 
 router.post('/login', rateLimitLogin, wrap((req, res) => {
@@ -147,6 +192,7 @@ router.post('/login', rateLimitLogin, wrap((req, res) => {
   // body (native Capacitor path stores the bearer in localStorage and sends
   // it as Authorization: Bearer on every request).
   const token = signToken(user);
+  warnIfPlainHttp(req);
   res.cookie('lt_token', token, cookieOpts);
   res.json({ user: safeUser(user), token });
 }));
@@ -160,33 +206,47 @@ router.post('/register', wrap((req, res) => {
   const { username, password, full_name, nickname, birthday, gender, role, email } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   { const pwErr = validatePassword(password, [username, email, full_name].filter(Boolean)); if (pwErr) return res.status(400).json({ error: pwErr }); }
-  const hash = bcrypt.hashSync(password, BCRYPT_COST);
   const assignedRole = isFirst ? 'admin' : (role || 'member');
-  // Default: whoever creates a member is their trainer. Reversible from the
-  // admin dropdown if that's wrong.
-  const defaultTrainerId = (!isFirst && assignedRole === 'member' && req.user
-    && (req.user.role === 'trainer' || req.user.role === 'admin'))
-    ? req.user.id : null;
+  // A coach chosen on the form (never implied by who created the account).
+  const coachId = isFirst ? null : _chosenCoach(req.body?.coach_id, assignedRole);
+  if (coachId === false) return res.status(400).json({ error: 'That person can\'t coach.' });
+  const hash = bcrypt.hashSync(password, BCRYPT_COST);
   const result = db.prepare(
-    `INSERT INTO users (username, password_hash, full_name, nickname, birthday, gender, role, email, trainer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(username.trim().toLowerCase(), hash, full_name || null, nickname || null, birthday || null, gender || null, assignedRole, email ? email.trim().toLowerCase() : null, defaultTrainerId);
+    `INSERT INTO users (username, password_hash, full_name, nickname, birthday, gender, role, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(username.trim().toLowerCase(), hash, full_name || null, nickname || null, birthday || null, gender || null, assignedRole, email ? email.trim().toLowerCase() : null);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  // Whoever creates a member used to become their trainer. Now an account
+  // gets a coaching request only when a coach was chosen for it, from that
+  // coach; it waits for the first sign-in and shares nothing until accepted.
+  if (coachId) requestFromInvite(coachId, user.id);
   let token = null;
   if (isFirst) {
     claimAnonymousData(user.id);
     token = signToken(user);
+    warnIfPlainHttp(req);
     res.cookie('lt_token', token, COOKIE_OPTS);
   }
   res.json({ user: safeUser(user), token });
 }));
 
 router.put('/profile', requireAuth, wrap((req, res) => {
-  const { full_name, nickname, birthday, gender, email } = req.body;
+  const body = req.body || {};
+  const before = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id) || {};
+  // A field the request leaves out stays as it is. Profile always sends all
+  // of them (an empty one clears it); the first-run setup sends only gender
+  // and birthday, and used to wipe the name and email just registered
+  // (TraceApps/nutritrace#269).
+  const given = (k) => Object.prototype.hasOwnProperty.call(body, k) && body[k] !== undefined;
+  const full_name = given('full_name') ? body.full_name : before.full_name;
+  const nickname = given('nickname') ? body.nickname : before.nickname;
+  const birthday = given('birthday') ? body.birthday : before.birthday;
+  const gender = given('gender') ? body.gender : before.gender;
+  const email = given('email') ? body.email : before.email;
   // A picture chosen with no connection arrives embedded in this request,
   // since there was nowhere to upload it to. It becomes a file here.
-  const avatar_url = localizeDataUrl(req.body?.avatar_url);
+  const avatar_url = given('avatar_url') ? localizeDataUrl(body.avatar_url) : before.avatar_url;
   db.prepare('UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?')
-    .run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null, email ? email.trim().toLowerCase() : null, req.user.id);
+    .run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null, email ? String(email).trim().toLowerCase() : null, req.user.id);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: safeUser(user) });
 }));
@@ -214,7 +274,17 @@ router.put('/password', requireAuth, wrap((req, res) => {
 }));
 
 router.get('/users', requireAuth, requireAdmin, wrap((req, res) => {
-  res.json(db.prepare('SELECT * FROM users ORDER BY created_at').all().map(safeUser));
+  // Coaching requests waiting for each member's answer, so Users shows them
+  // (the trainer picker sends one) without a request of its own.
+  const pending = new Map();
+  for (const r of db.prepare(`
+    SELECT cc.id, cc.client_id, u.id AS coach_id, u.full_name, u.nickname, u.username
+      FROM coach_clients cc JOIN users u ON u.id = cc.coach_id WHERE cc.status = 'pending' ORDER BY cc.id
+  `).all()) {
+    if (!pending.has(r.client_id)) pending.set(r.client_id, []);
+    pending.get(r.client_id).push({ id: r.id, coach: { id: r.coach_id, name: personName(r) } });
+  }
+  res.json(db.prepare('SELECT * FROM users ORDER BY created_at').all().map(u => ({ ...safeUser(u), coaching_requests: pending.get(u.id) || [] })));
 }));
 
 router.delete('/me', requireAuth, wrap((req, res) => {
@@ -233,6 +303,9 @@ router.delete('/me', requireAuth, wrap((req, res) => {
   // so would any cascade that removed the rows before this ran.
   deleteMediaForUser(id);
   deleteSetMediaForUser(id);
+  // Coaching conversations go with the pairing (it cascades); their photo
+  // files go here, first, while the rows still say which they are.
+  deletePhotosForUser(id);
   db.prepare('DELETE FROM workout_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM body_stats_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM program_assignments WHERE assigned_to = ?').run(id);
@@ -255,6 +328,9 @@ router.delete('/users/:id', requireAuth, requireAdmin, wrap((req, res) => {
   // so would any cascade that removed the rows before this ran.
   deleteMediaForUser(id);
   deleteSetMediaForUser(id);
+  // Coaching conversations go with the pairing (it cascades); their photo
+  // files go here, first, while the rows still say which they are.
+  deletePhotosForUser(id);
   db.prepare('DELETE FROM workout_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM body_stats_log WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM program_assignments WHERE assigned_to = ?').run(id);
@@ -282,32 +358,47 @@ router.put('/users/:id/role', requireAuth, requireAdmin, wrap((req, res) => {
   if (!['admin', 'trainer', 'member'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (id === req.user.id) return res.status(400).json({ error: 'Cannot change your own role' });
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
-  // If role flipped away from member, detach any trainer_id; if away from trainer, detach all members
-  if (role !== 'member') db.prepare('UPDATE users SET trainer_id = NULL WHERE id = ?').run(id);
-  if (role !== 'trainer') db.prepare('UPDATE users SET trainer_id = NULL WHERE trainer_id = ?').run(id);
-  res.json({ ok: true });
+  // Only Members are coached: anyone else leaves their coach (and their
+  // requests end). Someone who can no longer coach (made a Member) stops
+  // coaching. An admin can coach, so a Trainer made an admin keeps clients.
+  const endedAsClient = role !== 'member' ? endAsClient(id, req.user.id) : 0;
+  const endedAsCoach = endCoachingIfNotCoach(id, req.user.id);
+  res.json({ ok: true, coaching_ended: endedAsClient + endedAsCoach });
 }));
 
-// PUT /api/auth/users/:id/trainer — admin assigns a trainer to a member
+// PUT /api/auth/users/:id/trainer: an admin's pairing control. Choosing a
+// trainer sends that trainer's request, which the member accepts or
+// declines (an admin used to pair them outright). No trainer ends the
+// member's coaching and any request waiting for them.
 router.put('/users/:id/trainer', requireAuth, requireAdmin, wrap((req, res) => {
   const id = parseInt(req.params.id);
   const { trainer_id } = req.body;
   const user = db.prepare('SELECT role FROM users WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (user.role !== 'member') return res.status(400).json({ error: 'Only members can be assigned a trainer' });
-  if (trainer_id != null) {
-    const trainer = db.prepare('SELECT role FROM users WHERE id = ?').get(trainer_id);
-    if (!trainer) return res.status(400).json({ error: 'Trainer not found' });
-    if (trainer.role !== 'trainer' && trainer.role !== 'admin') return res.status(400).json({ error: 'Selected user is not a trainer' });
+  if (trainer_id == null || trainer_id === '') {
+    const open = db.prepare(`SELECT id FROM coach_clients WHERE client_id = ? AND status IN ('pending', 'active')`).all(id);
+    for (const r of open) endPairing(r.id, req.user.id);
+    db.prepare('UPDATE users SET trainer_id = NULL WHERE id = ?').run(id);
+    return res.json({ ok: true, status: null });
   }
-  db.prepare('UPDATE users SET trainer_id = ? WHERE id = ?').run(trainer_id || null, id);
-  res.json({ ok: true });
+  const trainerId = parseInt(trainer_id);
+  const trainer = db.prepare('SELECT role FROM users WHERE id = ?').get(trainerId);
+  if (!trainer) return res.status(400).json({ error: 'Trainer not found' });
+  if (trainer.role !== 'trainer' && trainer.role !== 'admin') return res.status(400).json({ error: 'Selected user is not a trainer' });
+  const own = db.prepare(`SELECT status FROM coach_clients WHERE coach_id = ? AND client_id = ? AND status IN ('pending', 'active')`).get(trainerId, id);
+  if (own) return res.json({ ok: true, status: own.status });
+  try { requestClient(trainerId, id); }
+  catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+  res.json({ ok: true, status: 'pending' });
 }));
 
 router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
   // Hand the sole account's data back to single-user mode before dropping
   // accounts, otherwise it keeps a user id nothing can read again.
   releaseDataBeforeDisable();
+  // Coaching goes with the accounts (it cascades); so do its photos.
+  deleteAllPhotos();
   db.prepare('DELETE FROM users').run();
   // Persist intent: this was an explicit disable, not a fresh install.
   // /status uses this to keep setup_required=false so the client doesn't
@@ -333,6 +424,8 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
   } catch {}
   if (!ok) return res.status(403).json({ error: 'Invalid recovery token' });
   releaseDataBeforeDisable();
+  // Coaching goes with the accounts (it cascades); so do its photos.
+  deleteAllPhotos();
   db.prepare('DELETE FROM users').run();
   // Same single_user_mode flag as DELETE /management — recovery is an
   // intentional disable, not a fresh install.
@@ -362,9 +455,8 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
-    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-    const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
-    await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
+    const baseUrl = linkBase(req);
+    if (baseUrl) await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
   } catch (e) {
     // Don't surface email-send errors to the client — it would leak existence.
     console.warn('[forgot-password] send failed:', e?.message);
@@ -387,14 +479,25 @@ router.post('/reset-password', wrap((req, res) => {
   res.json({ user: safeUser(user), token: token2 });
 }));
 
+// The coach chosen for a new account: null when none, false when the
+// person chosen can't coach (or the new account won't be a Member).
+function _chosenCoach(raw, role) {
+  if (raw == null || raw === '') return null;
+  const id = parseInt(raw);
+  if (!Number.isInteger(id) || role !== 'member' || !canCoach(roleOf(id))) return false;
+  return id;
+}
+
 router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   const { email, role = 'member' } = req.body;
+  const coachId = _chosenCoach(req.body?.coach_id, role);
+  if (coachId === false) return res.status(400).json({ error: 'That person can\'t coach.' });
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
-    .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires);
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at, coach_id) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires, coachId);
+  const baseUrl = linkBase(req);
+  if (!baseUrl) return res.status(500).json({ error: 'The app\'s address is unknown. Set PUBLIC_URL, then try again.' });
   const inviteUrl = `${baseUrl}/#/accept-invite?token=${token}`;
   if (email && isEmailConfigured()) {
     const inviter = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
@@ -409,7 +512,7 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
 // ── Admin: list pending invites (not used, not expired) ───────────────────
 router.get('/invites', requireAuth, requireAdmin, wrap((req, res) => {
   const rows = db.prepare(
-    `SELECT token, email, role, expires_at, created_by
+    `SELECT token, email, role, expires_at, created_by, coach_id
      FROM invite_tokens
      WHERE used = 0 AND expires_at > datetime('now')
      ORDER BY expires_at DESC`
@@ -432,18 +535,14 @@ router.post('/accept-invite', wrap((req, res) => {
   if (!invite || invite.used) return res.status(400).json({ error: 'Invalid or already used invite link' });
   if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'Invite link has expired' });
   const hash = bcrypt.hashSync(password, BCRYPT_COST);
-  // If invited as member by a trainer/admin, inherit inviter as default trainer
-  let inviterTrainerId = null;
-  if (invite.role === 'member' && invite.created_by) {
-    const inviter = db.prepare('SELECT role FROM users WHERE id = ?').get(invite.created_by);
-    if (inviter && (inviter.role === 'trainer' || inviter.role === 'admin')) {
-      inviterTrainerId = invite.created_by;
-    }
-  }
-  const result = db.prepare('INSERT INTO users (username, password_hash, full_name, role, email, trainer_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(username.trim().toLowerCase(), hash, full_name || null, invite.role, invite.email || null, inviterTrainerId);
+  const result = db.prepare('INSERT INTO users (username, password_hash, full_name, role, email) VALUES (?, ?, ?, ?, ?)')
+    .run(username.trim().toLowerCase(), hash, full_name || null, invite.role, invite.email || null);
   db.prepare('UPDATE invite_tokens SET used = 1 WHERE token = ?').run(token);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  // A member invited by a trainer or admin used to get the inviter as their
+  // trainer. Now only a coach chosen on the invite asks, and their request
+  // waits here; nothing is shared until it's accepted.
+  if (invite.role === 'member' && invite.coach_id) requestFromInvite(invite.coach_id, user.id);
   const issued = signToken(user);
   res.cookie('lt_token', issued, COOKIE_OPTS);
   res.json({ user: safeUser(user), token: issued });

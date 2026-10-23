@@ -11,7 +11,6 @@ import androidx.work.NetworkType;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 
-import java.io.File;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -58,57 +57,47 @@ public class WorkerScheduler {
                 request);
     }
 
-    /** Read a boolean setting from the JS app's SQLite user_settings table. */
-    static boolean readBoolSetting(Context context, String key) {
-        File dbFile = context.getDatabasePath(DB_FILENAME);
-        if (!dbFile.exists()) return false;
-        SQLiteDatabase db = null;
-        Cursor c = null;
-        try {
-            db = SQLiteDatabase.openDatabase(
-                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
-            c = db.rawQuery(
-                "SELECT value FROM user_settings WHERE key = ? LIMIT 1",
-                new String[]{key});
-            if (c.moveToFirst()) {
-                String v = c.getString(0);
-                if (v == null) return false;
-                v = v.replace("\"", "").trim();
-                return "true".equalsIgnoreCase(v) || "1".equals(v);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "setting read failed for " + key + ": " + e.getMessage());
-        } finally {
-            if (c != null) c.close();
-            if (db != null) db.close();
-        }
-        return false;
+    /**
+     * A boolean setting from the JS app's SQLite user_settings table: true or
+     * false, false when it isn't set, and null when it couldn't be read (see
+     * LocalDb), which callers must not take for false.
+     */
+    static Boolean readBoolSetting(Context context, String key) {
+        String v = readRawSetting(context, key);
+        if (v == ERROR) return null;
+        if (v == null) return false;
+        v = v.replace("\"", "").trim();
+        return "true".equalsIgnoreCase(v) || "1".equals(v);
     }
 
-    /** Read a string setting (e.g. "17:00") from user_settings. */
+    /** A string setting (e.g. "17:00") from user_settings; the fallback when unset or unreadable. */
     static String readStringSetting(Context context, String key, String fallback) {
-        File dbFile = context.getDatabasePath(DB_FILENAME);
-        if (!dbFile.exists()) return fallback;
+        String v = readRawSetting(context, key);
+        if (v == null || v == ERROR) return fallback;
+        v = v.replace("\"", "").trim();
+        return v.isEmpty() ? fallback : v;
+    }
+
+    private static final String ERROR = new String("<error>");
+
+    /** The raw value, null when unset, ERROR when the read failed. */
+    private static String readRawSetting(Context context, String key) {
         SQLiteDatabase db = null;
         Cursor c = null;
         try {
-            db = SQLiteDatabase.openDatabase(
-                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+            db = LocalDb.open(context);
+            if (db == null) return null;
             c = db.rawQuery(
                 "SELECT value FROM user_settings WHERE key = ? LIMIT 1",
                 new String[]{key});
-            if (c.moveToFirst()) {
-                String v = c.getString(0);
-                if (v == null) return fallback;
-                v = v.replace("\"", "").trim();
-                return v.isEmpty() ? fallback : v;
-            }
+            return c.moveToFirst() ? c.getString(0) : null;
         } catch (Exception e) {
+            if (LocalDb.isMissingTable(e)) return null;
             Log.w(TAG, "setting read failed for " + key + ": " + e.getMessage());
+            return ERROR;
         } finally {
             if (c != null) c.close();
             if (db != null) db.close();
         }
-        return fallback;
     }
 }

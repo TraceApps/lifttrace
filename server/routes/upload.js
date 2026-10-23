@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
+import crypto from 'crypto';
 import fs from 'fs';
 import { safeUploadExtension } from '../lib/upload-paths.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -13,16 +14,29 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsPath),
   filename: (req, file, cb) => {
     const ext = safeUploadExtension(file.mimetype, file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    cb(null, `${Date.now()}-${crypto.randomBytes(12).toString('hex')}${ext}`);
   },
 });
+
+// A refused or oversized file is the caller's mistake, not the server falling
+// over, so it answers 415 or 413 instead of reaching the error handler as a 500.
+function refusedType(message) {
+  return Object.assign(new Error(message), { status: 415 });
+}
+function uploadError(err, next, maxMb) {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return next(Object.assign(new Error(`That file is larger than this server accepts (${maxMb} MB).`), { status: 413 }));
+  }
+  if (err?.name === 'MulterError' && !err.status) err.status = 400;
+  return next(err);
+}
 
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Images only'));
+    else cb(refusedType('Images only'));
   },
 });
 
@@ -30,7 +44,7 @@ const router = Router();
 
 router.post('/', requireAuth, (req, res, next) => {
   upload.single('file')(req, res, (err) => {
-    if (err) return next(err);
+    if (err) return uploadError(err, next, 10);
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     // Magic-byte validation — never trust the client-sent mimetype.
     // SVG is excluded by the allowlist (script-execution risk).
@@ -54,7 +68,7 @@ const exerciseMediaStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = safeUploadExtension(file.mimetype, file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    cb(null, `${Date.now()}-${crypto.randomBytes(12).toString('hex')}${ext}`);
   },
 });
 
@@ -63,14 +77,14 @@ const exerciseMediaUpload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB — covers videos
   fileFilter: (req, file, cb) => {
     const ok = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/');
-    if (!ok) return cb(new Error('Images, GIFs, and videos only'));
+    if (!ok) return cb(refusedType('Images, GIFs, and videos only'));
     cb(null, true);
   },
 });
 
 router.post('/exercise-media', requireAuth, (req, res, next) => {
   exerciseMediaUpload.single('file')(req, res, (err) => {
-    if (err) return next(err);
+    if (err) return uploadError(err, next, 100);
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     // Magic-byte validation — re-check actual bytes against known image
     // and video signatures. The client-sent MIME type is untrusted.
@@ -105,7 +119,7 @@ const bodyStatMediaStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = safeUploadExtension(file.mimetype, file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    cb(null, `${Date.now()}-${crypto.randomBytes(12).toString('hex')}${ext}`);
   },
 });
 
@@ -114,7 +128,7 @@ const bodyStatMediaUpload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Images only'));
+    else cb(refusedType('Images only'));
   },
 });
 
@@ -137,7 +151,7 @@ const setVideoStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = safeUploadExtension(file.mimetype, file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    cb(null, `${Date.now()}-${crypto.randomBytes(12).toString('hex')}${ext}`);
   },
 });
 
@@ -199,7 +213,7 @@ router.post('/set-video', requireAuth, (req, res, next) => {
 
 router.post('/body-stats', requireAuth, (req, res, next) => {
   bodyStatMediaUpload.single('file')(req, res, (err) => {
-    if (err) return next(err);
+    if (err) return uploadError(err, next, 20);
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     // Magic-byte validation, same as the routes above: the client-sent
     // mimetype is untrusted and SVG stays off the allowlist.

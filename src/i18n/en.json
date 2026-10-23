@@ -1,4 +1,10 @@
 {
+  "trace_reply": {
+    "stopped_length": "The reply was cut off before the end, so it wasn't used. Try again, or ask for less at once.",
+    "stopped_thinking": "The model gave its reasoning but no answer. Try again, or turn its reasoning down.",
+    "timed_out": "Trace didn't get an answer in time. Try again, or ask for less at once.",
+    "out_of_rounds": "That took more steps than one answer allows, and nothing came back. Ask for less at once, such as a shorter stretch of time or one exercise."
+  },
   "nav": {
     "diary":      "Diary",
     "exercises":  "Exercises",
@@ -14,6 +20,22 @@
     "sign_out_waiting_title": "Changes are still waiting",
     "sign_out_waiting": "{count, plural, one {# change has not reached your server yet. Signing out now discards it. Connect and try again to keep it.} other {# changes have not reached your server yet. Signing out now discards them. Connect and try again to keep them.}}",
     "sign_out_anyway": "Sign Out Anyway",
+    "waiting_title": "Changes Not Sent Yet",
+    "disconnect_waiting": "{count, plural, one {# change has not reached your server yet and couldn't be sent now. Disconnecting discards it. Stay connected and try again later to keep it.} other {# changes have not reached your server yet and couldn't be sent now. Disconnecting discards them. Stay connected and try again later to keep them.}}",
+    "disconnect_anyway": "Disconnect Anyway",
+    "download_waiting": "{count, plural, one {# change made while this phone was connected to a server never reached it. Downloading replaces it with the server's data. Choose Upload or Merge to keep it.} other {# changes made while this phone was connected to a server never reached it. Downloading replaces them with the server's data. Choose Upload or Merge to keep them.}}",
+    "download_anyway": "Download Anyway",
+    "switch_account_waiting_title": "Another Account's Changes Are Waiting",
+    "switch_account_waiting": "{count, plural, one {# change made on this device by the account signed in before has not reached the server. Signing in now discards it. To keep it, sign in as that account first.} other {# changes made on this device by the account signed in before have not reached the server. Signing in now discards them. To keep them, sign in as that account first.}}",
+    "switch_account_anyway": "Sign In Anyway",
+    "account_check_failed_title": "Couldn't Open Your Data",
+    "account_check_failed": "This device couldn't check whose data it holds, so nothing is shown yet. Try again, or sign out.",
+    "same_server_title": "Same Server as Before?",
+    "same_server": "This phone holds data from {before}, under the same account number as this sign-in. Is {now} the same server? If it is, the data stays and syncs with it. If not, it's treated as another account's: the phone's data is cleared first, and you're asked before anything not yet sent is discarded.",
+    "same_server_yes": "Same Server",
+    "same_server_no": "Different Server",
+    "disconnecting": "Disconnecting…",
+    "count_cardio": "{count, plural, one {# cardio session} other {# cardio sessions}}",
     "pending_web": "{count, plural, =0 {Offline. Your workouts still save here.} one {Offline. # change is waiting to go up.} other {Offline. # changes are waiting to go up.}}",
     "sync_offline": "Offline",
     "sync_failing": "Can't reach the server",
@@ -62,7 +84,6 @@
     "signing_out":  "Signing out…",
     "admin":        "admin",
     "hide":         "Hide",
-    "experimental": "Experimental",
     "errors": {
       "cant_reach_server":      "Could not reach server",
       "failed":                 "Failed",
@@ -73,6 +94,11 @@
       "voice_unsupported":      "Voice input not supported in this browser",
       "cant_start_mic":         "Couldn't start microphone"
     }
+  },
+  "attach_image": {
+    "button": "Attach Image",
+    "camera": "Camera",
+    "gallery": "Gallery"
   },
   "login": {
     "subtitle":             "Sign in to your account",
@@ -89,6 +115,13 @@
     },
     "continue_with":     "Continue with {provider}",
     "or":                "or",
+    "cookie_warning": {
+      "http_title": "Signing in won't work on this address",
+      "http_body": "This page uses plain HTTP, but the server only sends its sign-in cookie over HTTPS, so your browser throws it away and signing in sends you back to the sign-in page. Open LiftTrace over HTTPS, or, on a trusted home network, set INSECURE_COOKIES=1 on the server and restart it.",
+      "dropped_title": "Your browser didn't keep you signed in",
+      "dropped_body": "Your password was right, but the browser didn't keep the sign-in cookie. Check that cookies are allowed for this site, and if LiftTrace is behind a reverse proxy, that the proxy passes cookies through.",
+      "fix_link": "How to fix it"
+    },
     "recovery": {
       "token_missing":     "Enter your recovery token",
       "explainer":         "If you never set up user accounts intentionally, you can disable user management. <strong>This will delete all user accounts.</strong> Your workout data will be kept.",
@@ -155,6 +188,25 @@
     }
   },
   "diary": {
+    "prescription": {
+      "title":            "Coach {name} prescribed:",
+      "your_coach":       "your coach",
+      "a_workout":        "a workout",
+      "coach_pick":       "Coach Pick",
+      "from":             "from {name}",
+      "accept":           "Accept",
+      "decline":          "Decline",
+      "decline_title":    "Decline This Workout?",
+      "decline_message":  "{name} will see that you declined it.",
+      "accepted":         "Workout accepted",
+      "declined":         "Workout declined",
+      "load":             "Load",
+      "loaded":           "Loaded",
+      "waiting_head":     "Waiting for Your Answer",
+      "suggested_head":   "Suggested by Your Coach",
+      "from_card":        "From {name}",
+      "prescribed_workout": "Prescribed workout"
+    },
     "workout_name_placeholder": "Workout name...",
     "tap_to_rename":            "Tap to rename",
     "nav": {
@@ -375,6 +427,7 @@
     "account_deleted":       "Account deleted",
     "errors": {
       "save_failed":            "Could not save profile",
+      "not_kept":               "This browser could not keep your profile to send later. Check that it has free space and allows this site to store data, then try again.",
       "upload_failed":          "Upload failed",
       "password_change_failed": "Could not change password",
       "unlink_failed":          "Unlink failed",
@@ -477,6 +530,16 @@
       "err_could_not_revoke":  "Could not revoke invite",
       "invite_revoked":        "Invite revoked",
       "trainer_assigned":      "Trainer assigned",
+      "trainer_requested":        "Request sent. {name} accepts or declines it.",
+      "coaching_pending":         "Waiting for an answer to {coach}'s request",
+      "coaching_cancel":          "Cancel Request",
+      "coaching_cancel_title":    "Cancel This Request?",
+      "coaching_cancel_message":  "{name} will no longer see {coach}'s request.",
+      "coaching_cancelled":       "Request canceled",
+      "new_coach":                "Coach",
+      "new_coach_none":           "No Coach",
+      "new_coach_hint":           "The new account gets a request from this coach to accept or decline.",
+      "new_coach_meta":           "Coach: {name}",
       "trainer_removed":       "Trainer removed",
       "err_invite_email":      "Enter a valid email or leave blank to generate a shareable link",
       "err_failed_create_invite": "Failed to create invite",
@@ -507,12 +570,19 @@
       "generate_invite_link":  "Generate Invite Link",
       "coach_option":          "Coach {name}",
       "delete_user":           "Delete User",
-      "strong_passwords_desc": "Reject weak passwords (zxcvbn score below 3) on top of the standard 8-char + mixed-case + number + symbol rules. Affects new sign-ups, invites, and password changes. Existing passwords aren't re-checked."
+      "strong_passwords_desc": "Reject weak passwords (zxcvbn score below 3) on top of the standard 8-char + mixed-case + number + symbol rules. Affects new sign-ups, invites, and password changes. Existing passwords aren't re-checked.",
+      "assigned_trainer": "Assigned Trainer",
+      "invite_email_hint": "Enter a valid email address, or clear the field to generate a shareable link.",
+      "invite_link_only": "Link-only (no email)",
+      "invite_expires": "expires {date}",
+      "revoke_invite": "Revoke Invite",
+      "policy_saved": "Saved."
     },
     "server":          { "section": "Server Connection" },
     "workout_import":  { "section": "Import Workouts" },
     "diagnostics":     { "section": "Diagnostics" },
     "updates":         { "section": "Updates" },
+    "support":         { "section": "Support" },
     "about":           { "section": "About" }
   },
   "workout_editor_ss": {
@@ -533,19 +603,28 @@
   "settings_about": {
     "app_name":              "LiftTrace",
     "open_source":           "Open source",
-    "sister_app_prefix":     "Sister app: ",
-    "sister_app_suffix":     ", nutrition tracker",
-    "support_development":   "Support Development",
+    "family_line_prefix":    "Part of the ",
+    "family_line_suffix":    " family",
     "description":           "Track Every Rep — Personal Weightlifting Tracker. LiftTrace is a self-hosted workout tracker built for privacy. Your data lives on your server, not in the cloud. Features workout diary, program builder, multi-source exercise library, AI coaching, statistics, and more.",
     "feature_self_hosted":   "Self-hosted — your data, your server",
     "feature_pwa":           "PWA — installable on any device",
     "feature_privacy":       "No tracking, no ads, no third-party analytics",
-    "kofi":                  "Ko-fi",
-    "donations_note":        "LiftTrace is free to self-host, always. The current goal is a Mac and an iPhone so the Trace apps can run properly on iOS.",
     "disclaimer_heading":    "Disclaimer.",
     "disclaimer_medical":    "LiftTrace is not medical, health, or fitness-professional software. It does not provide medical advice, diagnosis, treatment, or personalized training prescriptions. Exercise library content, Trace AI coaching, program templates, rest-timer guidance, and any analytical output (volume, PRs, frequency, body-weight trends) are for informational and self-tracking purposes only.",
     "disclaimer_risk":       "Resistance training carries inherent risk of injury. Exercise selection, load, technique, and progression can interact with medical conditions (heart and cardiovascular conditions, high blood pressure, prior surgery, hernias, joint or spinal issues, osteoporosis, pregnancy, connective-tissue disorders, recent injury or rehabilitation status) in ways this app cannot assess. Consult a qualified healthcare professional, certified strength coach, or licensed physical therapist before starting a new training program, returning from injury, or making significant changes to your routine.",
     "disclaimer_ai":         "Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a substitute for human judgment or professional advice. Exercise library data is sourced from public databases (wger, Free Exercise DB, optionally ExerciseDB via RapidAPI) and may contain inaccuracies. Use at your own risk."
+  },
+  "settings_support": {
+    "lead":                  "LiftTrace is free and always will be. Support is optional and never unlocks anything.",
+    "kofi":                  "Ko-fi",
+    "github_sponsors":       "GitHub Sponsors",
+    "other_ways":            "Other Ways to Help",
+    "star":                  "Star on GitHub",
+    "star_desc":             "Stars are how self-hosted projects get found.",
+    "report_bug":            "Report a Bug",
+    "report_bug_desc":       "A clear report fixes it for everyone who hits the same thing.",
+    "translate":             "Help Translate",
+    "translate_desc":        "Make LiftTrace usable in your language, on Weblate."
   },
   "template_spec": {
     "auto":                  "Auto",
@@ -617,13 +696,37 @@
     "open_date":      "Open {date} to stop",
     "set_not_found":  "Couldn't find that set. You held {time}."
   },
+  "rest_bar": {
+    "label":          "REST",
+    "paused_label":   "PAUSED",
+    "title":          "Rest",
+    "next":           "Next: {name}",
+    "add":            "+{s}s",
+    "add_title":      "Add {s} seconds",
+    "skip":           "Skip Rest",
+    "pause":          "Pause",
+    "resume":         "Resume",
+    "paused":         "Paused",
+    "paused_left":    "Rest paused, {time} left",
+    "set_of":         "Set {n} of {count} · {name}",
+    "round_of":       "Round {n} of {count} · {name}",
+    "warmup":         "Warm-Up · {name}",
+    "reps":           "{n} reps",
+    "last_time":      "Last time {set}"
+  },
   "trace_ai": {
+    "unreachable": "Couldn't get an answer from {host}. Check the Base URL in Settings → AI Assistant. If it's right, that server has to allow requests from {origin} on every answer, errors included (with nginx, add_header … always), or Trace can be set up on the LiftTrace server instead.",
+    "unreachable_insecure": "This page is on HTTPS, so the browser won't call {host} over plain HTTP. Give your provider an https:// address, or set Trace up on the LiftTrace server instead.",
+    "unreachable_official": "{host} didn't answer. Check this device's connection.",
     "voice_error":           "Voice error: {reason}",
     "voice_unknown":         "unknown",
     "mic_error":             "Could not start mic: {reason}",
     "smart_log_failed":      "Smart Log parse failed: {reason}",
     "smart_log_unknown":     "unknown error",
-    "ai_coach":              "AI Lifting Coach"
+    "ai_coach":              "AI Lifting Coach",
+    "tools_unsupported":     "This model can't use tools: it can answer, but it can't log workouts or look up your data. Pick a model with tool support in Settings.",
+    "tools_unsupported_server": "This model can't use tools: it can answer, but it can't log workouts or look up your data. Your admin can set a model with tool support.",
+    "tools_unsupported_routed": "The model that answered can't use tools, so nothing was logged or looked up."
   },
   "exercises_page": {
     "all_equipment":         "All Equipment",
@@ -646,7 +749,12 @@
   "settings_units": {
     "weight_unit":           "Weight Unit",
     "date_format":           "Date Format",
-    "time_format":           "Time Format"
+    "time_format":           "Time Format",
+    "date_us": "US (MM/DD/YYYY)",
+    "date_eu": "EU (DD/MM/YYYY)",
+    "date_iso": "ISO (YYYY-MM-DD)",
+    "time_12h": "12-hour",
+    "time_24h": "24-hour"
   },
   "superset_card": {
     "superset":              "Superset",
@@ -731,7 +839,13 @@
     "access_token_hint_prefix": "Generate in NutriTrace under Settings → User Management → API Tokens with the",
     "access_token_hint_suffix": "scope.",
     "wearable_priority":     "Wearable Priority",
-    "wearable_priority_hint": "If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → \"Prefer Wearable Data Over LiftTrace\"."
+    "wearable_priority_hint": "If you wear a Fitbit / Garmin / Health Connect during your lift, NutriTrace prefers the wearable's calories-burned total to avoid double-counting. Workouts still show in NutriTrace's Workout History either way. Toggle in NutriTrace → Settings → Wellness → \"Prefer Wearable Data Over LiftTrace\".",
+    "calories_off": "Calorie estimation is off in Settings → Workout. Federation needs it on to have anything to send.",
+    "saved": "Saved",
+    "toast": {
+      "connected_as": "Connected to NutriTrace as {user}",
+      "connection_failed": "Connection failed"
+    }
   },
   "settings_api_tokens": {
     "intro_before": "Personal access tokens let an external MCP client (like Claude Desktop",
@@ -774,7 +888,8 @@
       "expires_ph": "Leave empty to never expire",
       "cancel": "Cancel",
       "create": "Create Token",
-      "creating": "Creating…"
+      "creating": "Creating…",
+      "mcp_status": "MCP on this server:"
     },
     "confirm": {
       "revoke_title": "Revoke \"{name}\"?",
@@ -856,7 +971,22 @@
     "view_logs_hint_prefix": "Last 500 lines from the app's console. Useful for bug reports — copy or share to a",
     "view_logs_hint_suffix": ". The buffer holds in-memory only; nothing is sent anywhere automatically.",
     "view_logs_button":      "View logs",
-    "github_issue":          "GitHub issue"
+    "github_issue":          "GitHub issue",
+    "no_lines": "(no log lines captured yet)",
+    "cleared": "(cleared)",
+    "share_title": "LiftTrace diagnostic logs",
+    "share_dialog_title": "Share LiftTrace logs",
+    "foldable": "Foldable",
+    "fold_flat": "Open flat. Hinge at {start}-{end}px, so columns can line up with it.",
+    "fold_half_book": "Half open, like a book. Crease at {start}-{end}px.",
+    "fold_half_laptop": "Half open, like a laptop. Crease at {start}-{end}px.",
+    "fold_none": "No hinge reported: not a foldable, or the system does not report one here.",
+    "logs_title": "Diagnostic Logs",
+    "logs_hint": "Last 500 lines captured. Copy or share into a bug report.",
+    "copied": "Copied",
+    "copy": "Copy",
+    "share": "Share",
+    "clear": "Clear"
   },
   "smart_log": {
     "voice_failed":          "Voice input failed: {reason}",
@@ -891,7 +1021,6 @@
     "cancel":                "Cancel"
   },
   "settings_workout_import": {
-    "experimental":          "Experimental",
     "how_to_export":         "How to Export",
     "import_another_file":   "Import Another File",
     "ready_to_import":       "Ready to Import",
@@ -901,7 +1030,45 @@
       "duplicate_dates_msg":   "Skip the imported copies of those days, or replace your existing workouts with the imported ones?",
       "replace_existing":      "Replace existing",
       "skip_duplicates":       "Skip duplicates"
-    }
+    },
+    "intro": "Bring in your workout history from another gym app via CSV, or a Garmin strength-training session via its raw FIT file. Your exercises are auto-matched against your LiftTrace library; anything without a match stays as free-text so nothing is lost.",
+    "sources": {
+      "strong": "Semicolon CSV · set-level + RPE",
+      "hevy": "Comma CSV · supersets preserved",
+      "fitnotes": "Android CSV · per-day organization",
+      "jefit": "Web export · flexible header layout",
+      "garmin": "FIT file · strength workouts from your watch"
+    },
+    "steps": {
+      "strong_open": "Open Strong → Profile → Settings → Export Data",
+      "strong_export": "Choose Export as CSV and save the file",
+      "hevy_open": "Open Hevy (web or mobile) → Profile → Settings → Export Data",
+      "hevy_download": "Download the workouts.csv file",
+      "fitnotes_open": "Open FitNotes → settings / side menu → Export to CSV",
+      "fitnotes_share": "Share the file to this device (email, cloud, direct)",
+      "jefit_open": "Log in to Jefit web → Account → Export Data",
+      "jefit_download": "Pick Workout Log (CSV) and download",
+      "garmin_open": "Open Garmin Connect on web → Activities → pick a strength-training activity",
+      "garmin_export": "Click the gear icon (top-right) → Export Original",
+      "garmin_pick": "The download is a .fit file: tap the button below and pick it",
+      "pick_file": "Tap the button below and pick the file"
+    },
+    "preview_failed": "Preview failed",
+    "import_failed": "Import failed",
+    "imported": "Imported {count, plural, one {# workout} other {# workouts}}",
+    "reading": "Reading…",
+    "choose_file": "Choose {source} {kind} file",
+    "skipped_existing": "{count} skipped (existing)",
+    "replaced": "{count} replaced",
+    "start_over": "Start Over",
+    "stat_workouts": "workouts",
+    "stat_sets": "sets",
+    "stat_matched": "matched",
+    "duplicate_dates": "{count, plural, one {# date already has} other {# dates already have}} workouts logged. You'll choose skip or replace on commit.",
+    "unmatched_summary": "{count, plural, one {# exercise} other {# exercises}} not matched to your library (click to see)",
+    "unmatched_hint": "These will be stored as free-text. You can link them to library exercises later via the \"not-linked → Replace\" flow on any affected workout.",
+    "importing": "Importing…",
+    "import_count": "Import {count, plural, one {# workout} other {# workouts}}"
   },
   "settings_statistics": {
     "default_chart_type":    "Default Chart Type",
@@ -935,7 +1102,58 @@
       "delete_all_msg":       "This cannot be undone. Workout history keeps its records — only library links break.",
       "delete_all_confirm":   "Delete all",
       "delete_catalog_msg":   "All {count} exercises from this catalog will be hidden from your library. Workout history keeps its links — re-importing the same catalog later restores them in place."
-    }
+    },
+    "share": {
+      "template_title": "LiftTrace catalog template",
+      "save_template": "Save Template"
+    },
+    "toast": {
+      "requires_key": "{name} requires an API key",
+      "source_imported": "{name}: imported {count}",
+      "media_cached": "{count, plural, one {Cached # exercise media file for offline use} other {Cached # exercise media files for offline use}}",
+      "source_cleared": "{count, plural, one {{name}: cleared # exercise} other {{name}: cleared # exercises}}",
+      "catalog_imported": "{count, plural, one {Imported # exercise to \"{name}\"} other {Imported # exercises to \"{name}\"}}",
+      "custom_deleted": "{count, plural, one {Deleted # custom exercise} other {Deleted # custom exercises}}",
+      "catalog_deleted": "Deleted \"{name}\""
+    },
+    "errors": {
+      "cant_read_file": "Could not read file: {error}",
+      "invalid_json": "Invalid JSON: {error}",
+      "parse_error": "parse error",
+      "json_shape": "JSON must be an array of exercises, or an object with an \"exercises\" array",
+      "name_required": "Catalog name is required",
+      "no_json": "Paste JSON or pick a file first",
+      "no_exercises": "JSON contains no exercises",
+      "import_failed_status": "Import failed ({status})",
+      "import_failed": "Import failed"
+    },
+    "byok_note": "Bring your own RapidAPI key. By enabling this source you confirm you have an active subscription (free tier available) and accept RapidAPI's and the API provider's terms. LiftTrace is not affiliated with RapidAPI or ExerciseDB and has no relationship with either; you are the API consumer.",
+    "import": "Import",
+    "importing": "Importing…",
+    "reimport": "Re-Import",
+    "clear": "Clear",
+    "clearing": "Clearing…",
+    "clear_source_title": "{count, plural, one {Clear # imported exercise (source stays available to re-import)} other {Clear # imported exercises (source stays available to re-import)}}",
+    "offline_library_hint": "Pre-download every exercise GIF / image to your device cache. Useful for gyms without signal or before going mobile. Re-run any time after importing a new source.",
+    "caching": "Caching…",
+    "precache": "Pre-Cache Media for Offline",
+    "my_exercises_count": "{count, plural, one {# exercise you've created} other {# exercises you've created}}",
+    "create": "Create",
+    "uncategorized": "uncategorized",
+    "delete_all_mine": "Delete All My Exercises",
+    "custom_intro": "Import your own exercises from JSON. Useful for sharing curated catalogs between users, migrating from another app, or pulling in data from a third-party source. Grab the starter template below, fill it in, and pick or paste it back in.",
+    "download_template": "Download Template",
+    "expected_format": "Expected JSON Format",
+    "format_note_prefix": "Only",
+    "format_note_suffix": "is required. A bare array (no wrapper object) is also accepted.",
+    "catalog_name_ph": "e.g. My Exercises",
+    "pick_json_file": "Pick JSON File",
+    "result": {
+      "imported_to": "imported to \"{name}\"",
+      "duplicates_skipped": "duplicates skipped",
+      "invalid_skipped": "invalid rows skipped"
+    },
+    "delete_catalog": "Delete Catalog"
   },
   "settings_radio": {
     "self_hosted":           "Self-Hosted Music",
@@ -950,7 +1168,28 @@
     "crossfade":             "Crossfade",
     "crossfade_hint":        "Blend tracks together during transitions",
     "off":                   "Off",
-    "highest_quality":       "Highest Quality Playback"
+    "highest_quality":       "Highest Quality Playback",
+    "plex_token": "Plex Token",
+    "plex_token_ph": "Token from plex.tv/claim",
+    "username": "Username",
+    "username_ph": "username",
+    "api_key": "API Key",
+    "api_key_ph": "API key from Emby dashboard",
+    "password": "Password",
+    "password_ph": "password",
+    "crossfade_seconds": "{s}s",
+    "highest_quality_hint": "Stream original format when your library is homogeneous; falls back automatically for mixed queues",
+    "banner": {
+      "configured": "Configured",
+      "test_ok": "Last test succeeded; click Test again to re-verify",
+      "test_hint": "Click Test to verify these credentials",
+      "test_failed_named": "{provider} test failed. Check the URL and credentials below.",
+      "test_failed": "Server test failed. Check the URL and credentials below."
+    },
+    "toast": {
+      "connected_to": "Connected to {provider}",
+      "connected": "Connected to your music server"
+    }
   },
   "settings_email": {
     "smtp_host_required":    "SMTP test failed: host required",
@@ -968,7 +1207,30 @@
     "from_address_ph":       "LiftTrace <noreply@example.com>",
     "send_test_email":       "Send Test Email",
     "cancel":                "Cancel",
-    "send":                  "Send"
+    "send":                  "Send",
+    "smtp_host_ph": "e.g. smtp.example.com",
+    "send_test": "Send Test",
+    "change": "Change",
+    "change_password": "Change Password",
+    "show": "Show",
+    "show_password": "Show Password",
+    "hide_password": "Hide Password",
+    "password_saved_hint": "Password saved. Tap Change to replace it.",
+    "saved": "Saved",
+    "test_where": "Where should we send the test?",
+    "banner": {
+      "configured": "Configured",
+      "last_test_sent": "Last Test Sent",
+      "sent_to": "Sent to {to}. Use Send Test again any time to re-verify.",
+      "send_again": "Use Send Test again any time to re-verify",
+      "no_test_yet": "No test has been sent yet",
+      "check_settings": "Check host, credentials, and from address"
+    },
+    "toast": {
+      "test_sent": "SMTP test email sent to {to}",
+      "test_failed": "SMTP test failed: {detail}",
+      "network_error": "network error"
+    }
   },
   "program_detail": {
     "toast": {
@@ -980,11 +1242,14 @@
       "workout_deleted":     "Workout deleted",
       "program_deleted":     "Program deleted",
       "duplicated":          "Program duplicated",
-      "member_fallback":     "member"
+      "client_fallback":     "your client"
     },
     "workouts":              "Workouts",
     "add_workout":           "Add Workout",
-    "assign_hint":           "Pick a member to assign {name} to:",
+    "assign_hint":           "Pick a client to assign {name} to:",
+    "assign_to_client":      "Assign to Client",
+    "no_clients":            "You don't have any clients yet.",
+    "no_clients_hint":       "Ask someone to be your client from Programs, Coaching, Add.",
     "advance_week_by":       "Advance the Week By",
     "option_sessions":       "Sessions Completed",
     "past_final_week":       "Past the Final Week",
@@ -1080,6 +1345,19 @@
     "merge_both":              "Merge Both",
     "migration_complete":      "Migration complete",
     "continue":                "Continue"
+  },
+  "server_signin": {
+    "web_page":                "Something other than LiftTrace answered with a web page: often a sign-in proxy (Authentik, Authelia, Cloudflare Access), or this isn't your server's address. Let the app reach /api on your server.",
+    "options_failed":          "Couldn't load this server's sign-in options. Retry, or sign in with your password if the server allows it.",
+    "token_refused":           "This sign-in couldn't be checked, so it was stopped. If your server is older than LiftTrace 1.4, update it, or connect with your password.",
+    "sso_expired":             "That sign-in took too long. Start again from Settings → Server Connection.",
+    "retry":                   "Retry",
+    "unreachable":             "Can't reach your server right now. Check that it's running, then Retry.",
+    "server_error":            "Your server answered with an error. Try again in a moment.",
+    "proxy_sign_in":           "Something in front of your server is asking you to sign in. Sign in there, then reload this page.",
+    "checking":                "Checking sign-in options…",
+    "sign_in_with":            "Sign In with {provider}",
+    "or":                      "or"
   },
   "radio": {
     "toast": {
@@ -1379,7 +1657,7 @@
   },
   "coaching": {
     "toast": {
-      "released":              "{name} released from your roster",
+      "ended":                 "Coaching with {name} ended",
       "program_active":        "{program} is now {name}'s active program",
       "feedback_saved":        "Feedback saved",
       "feedback_removed":      "Feedback removed",
@@ -1389,13 +1667,34 @@
       "pick_template":         "Pick a workout template",
       "workout_prescribed":    "Workout prescribed",
       "pick_program":          "Pick a program",
-      "member_added":          "{name} added to your roster",
       "prescription_updated":  "Prescription updated",
       "prescription_removed":  "Prescription removed"
     },
-    "add_coachee":             "Add a Coachee",
+    "add":                     "Add",
+    "add_client":              "Add Client",
+    "badge_aria":              "Coaching has something waiting for you",
+    "end_coaching":            "End Coaching",
     "mark_all_seen":           "Mark All Seen",
-    "no_members":              "No members yet",
+    "recent_activity":         "Recent Activity",
+    "no_clients":              "No clients yet",
+    "no_clients_hint":         "Tap Add to ask someone to be your client. They accept or decline, and you see nothing of theirs until they accept.",
+    "no_clients_hint_old":     "Tap Add to add someone as your client.",
+    "client_fallback":         "Client",
+    "client_number":           "Client #{id}",
+    "client_not_loaded":       "Couldn't load this client.",
+    "loading":                 "Loading…",
+    "loading_clients":         "Loading clients…",
+    "loading_overview":        "Loading overview…",
+    "needs_connection":        "This needs a connection. Try again once you're back online.",
+    "something_failed":        "That didn't work. Try again.",
+    "last_workout":            "Last: {when}",
+    "this_week":               "· {n} this week",
+    "no_specific_day":         "No specific day",
+    "note_left":               "You left a note",
+    "note_replied":            "Your client replied to your note",
+    "note_other_coach":        "Another coach has a note",
+    "prescribe_hint":          "Pick a workout template and optionally a date. If no date is set, your client can start it whenever.",
+    "edit_prescription_hint":  "Update the date or add notes. Leave the date empty for an anytime prescription your client can do on their own schedule.",
     "stat_streak":             "Day Streak",
     "stat_recent":             "Recent Workouts",
     "stat_active":             "Active Program",
@@ -1404,6 +1703,9 @@
     "prescribed":              "Prescribed Workouts",
     "completed":               "Completed",
     "missed":                  "Missed",
+    "px_waiting":              "Waiting for an Answer",
+    "px_accepted":             "Accepted",
+    "px_declined":             "Declined",
     "recent_workouts":         "Recent Workouts",
     "assign_hint":             "Pick one of your programs to assign to {name}.",
     "program_label":           "Program",
@@ -1414,10 +1716,118 @@
     "feedback_ph":             "Form, intensity, what to push next…",
     "notes":                   "Notes",
     "template":                "Workout Template",
+    "tabs": {
+      "aria":                  "Programs and Coaching",
+      "coach":                 "Coach",
+      "coaching":              "Coaching"
+    },
+    "sheets": {
+      "assign_program":        "Assign a Program",
+      "workout":               "Workout",
+      "edit_prescription":     "Edit Prescription",
+      "prescribe":             "Prescribe a Workout",
+      "coach_feedback":        "Coach Feedback"
+    },
+    "activity": {
+      "a_workout":             "a workout",
+      "completed":             "completed {workout}",
+      "missed":                "missed {workout} on {date}",
+      "replied":               "replied: \"{text}\"",
+      "replied_note":          "replied to your note"
+    },
+    "time": {
+      "just_now":              "just now",
+      "minutes":               "{n}m ago",
+      "hours":                 "{n}h ago",
+      "days":                  "{n}d ago",
+      "weeks":                 "{n}w ago",
+      "never":                 "never",
+      "today":                 "today",
+      "yesterday":             "yesterday"
+    },
+    "requests": {
+      "title":                 "Requests",
+      "waiting":               "Waiting for an answer",
+      "declined":              "Declined your request",
+      "left":                  "Coaching ended",
+      "cancel":                "Cancel Request",
+      "cancel_title":          "Cancel Your Request to {name}?",
+      "cancel_message":        "{name} will no longer see it. You can ask again later.",
+      "cancelled":             "Request canceled"
+    },
+    "request": {
+      "title":                 "Add Client",
+      "intro":                 "Choose who to coach. They get a request to accept or decline, and you see nothing of theirs until they accept.",
+      "intro_old":             "Choose who to coach.",
+      "search":                "Search people",
+      "people":                "People",
+      "nobody":                "No one to add.",
+      "note_label":            "Note (Optional)",
+      "note_placeholder":      "Say hello or why you're reaching out",
+      "send":                  "Send Request",
+      "send_to":               "Send Request to {name}",
+      "sent":                  "Request sent to {name}",
+      "add":                   "Add Client",
+      "added":                 "{name} is now your client"
+    },
+    "client": {
+      "request_title":         "{name} wants to be your coach.",
+      "request_body":          "{name} will see your workouts, the programs you follow and your set videos, and can assign programs, prescribe workouts and leave notes.",
+      "accept":                "Accept",
+      "decline":               "Decline",
+      "decline_title":         "Decline {name}?",
+      "decline_message":       "{name} won't see anything. They can ask again later.",
+      "accepted":              "{name} is now your coach",
+      "declined":              "Request declined",
+      "your_coach":            "Your Coach",
+      "since":                 "Since {date}",
+      "coach_sees":            "{name} sees your workouts, the programs you follow and your set videos.",
+      "leave":                 "Leave Coach",
+      "leave_title":           "Leave {name}?",
+      "leave_message":         "{name} will no longer see your workouts, programs or set videos. The prescriptions and programs {name} gave you are removed.",
+      "left":                  "You left {name}",
+      "none":                  "You don't have a coach.",
+      "leave_first":           "You can have one coach at a time. Leave {coach} before you accept {name}.",
+      "past_title":            "Past Coaching",
+      "past_body":             "Your coaching with {name} ended on {date}. The conversation stays here for you."
+    },
+    "unread":                  "{n} unread",
+    "chat": {
+      "title":                 "Conversation",
+      "aria":                  "Conversation with {name}",
+      "empty":                 "No messages yet. Say hello to {name}.",
+      "empty_closed":          "No messages.",
+      "closed":                "This coaching has ended. The conversation can be read but not added to.",
+      "placeholder":           "Message {name}",
+      "send":                  "Send",
+      "add_photo":             "Add Photo",
+      "remove_photo":          "Remove Photo",
+      "photo":                 "Photo",
+      "photo_offline":         "Shown when you're back online",
+      "photo_unreadable":      "That photo couldn't be read.",
+      "too_long":              "A message can be up to {max} characters.",
+      "count":                 "{n} of {max}",
+      "sending":               "Sending",
+      "waiting":               "Waiting for a connection",
+      "not_sent":              "Not sent",
+      "try_again":             "Try Again",
+      "photo_gone":            "This photo is no longer available",
+      "read":                  "Read",
+      "deleted":               "Message deleted",
+      "delete":                "Delete Message",
+      "delete_title":          "Delete This Message?",
+      "delete_message":        "{name} will see \"Message deleted\" in its place.",
+      "offline":               "You're offline. Messages you write now are sent when you're back online."
+    },
+    "needs_server": {
+      "title":                 "Coaching Needs a Server",
+      "body":                  "A coach and a client are two accounts on one LiftTrace server. Connect this app to a server to use coaching.",
+      "connect":               "Connect to a Server"
+    },
     "confirm": {
-      "release_coachee_title":     "Release coachee?",
-      "release_coachee_msg":       "Remove {name} from your coaching roster? Their account stays — you'll just no longer be their coach, and any prescriptions or program assignments you've given them will be removed.",
-      "release_confirm":           "Release",
+      "end_title":                 "End Coaching with {name}?",
+      "end_msg":                   "{name} will no longer be your client. You'll stop seeing their workouts, and the prescriptions and programs you gave them are removed.",
+      "end_confirm":               "End Coaching",
       "delete_note_title":         "Delete this note?",
       "delete_workout_note_msg":   "Your workout-level feedback for this session will be removed.",
       "delete_exercise_note_msg":  "Your note on this exercise will be removed.",
@@ -1425,7 +1835,7 @@
       "remove_program_msg":        "Remove {program} from {name}'s assigned programs?",
       "remove_confirm":            "Remove",
       "remove_prescription_title": "Remove prescription?",
-      "remove_prescription_msg":   "The member will no longer see this prescription in their diary."
+      "remove_prescription_msg":   "Your client will no longer see this prescription in their diary."
     }
   },
   "settings_main": {
@@ -1456,7 +1866,10 @@
       "username":               "Username",
       "username_ph":            "Your username",
       "password":               "Password",
-      "password_ph":            "Your password"
+      "password_ph":            "Your password",
+      "sync_now": "Sync Now",
+      "connecting": "Connecting…",
+      "disconnect": "Disconnect & Use Locally"
     },
     "merge": {
       "title":                  "Sync Options",
@@ -1464,14 +1877,67 @@
       "download":               "Download Server to Phone",
       "merge":                  "Merge Both",
       "cancel":                 "Cancel",
-      "continue":               "Continue"
+      "continue":               "Continue",
+      "intro": "You have data on this phone. How should it be handled when connecting?",
+      "on_this_phone": "On this phone:",
+      "upload_desc": "Send this phone's workouts, programs, and settings to the server. Existing server data stays.",
+      "download_desc": "Replace this phone's data with everything from the server. Local data is discarded.",
+      "merge_desc": "Upload phone data to the server AND download server data. Nothing is lost, but duplicates are possible.",
+      "unit_workouts": "{count, plural, one {workout} other {workouts}}",
+      "unit_body_stats": "{count, plural, one {body stat} other {body stats}}",
+      "unit_programs": "{count, plural, one {program} other {programs}}",
+      "unit_templates": "{count, plural, one {template} other {templates}}",
+      "unit_custom_exercises": "{count, plural, one {custom exercise} other {custom exercises}}",
+      "unit_settings": "{count, plural, one {setting} other {settings}}",
+      "stage": {
+        "settings": "settings",
+        "workouts": "workouts",
+        "body_stats": "body stats",
+        "programs": "programs",
+        "templates": "templates",
+        "custom_exercises": "custom exercises"
+      },
+      "uploading": "Uploading {stage} ({current} / {total})",
+      "preparing": "Preparing…",
+      "upload_complete": "Upload Complete",
+      "upload_issues": "Upload Finished with Issues",
+      "uploaded_of": "{done} of {total, plural, one {# item} other {# items}} uploaded successfully.",
+      "uploaded_to_server": "Uploaded to server:",
+      "error_count": "{count, plural, one {# error} other {# errors}}",
+      "showing_first": "(showing first {n})"
     },
     "color": {
       "title":                  "Custom Color",
       "saturation":             "Saturation",
       "lightness":              "Lightness",
       "hex_code":               "Hex Code",
-      "apply":                  "Apply Color"
+      "apply":                  "Apply Color",
+      "hue": "Hue"
+    },
+    "group_data": "Data & Tracking",
+    "group_app": "App",
+    "sections_aria": "Settings sections",
+    "no_sections_match": "No sections match \"{query}\"",
+    "no_settings_match": "No settings match \"{query}\"",
+    "clear_search_button": "Clear Search",
+    "time": {
+      "never": "never",
+      "just_now": "just now",
+      "sec_ago": "{n}s ago",
+      "min_ago": "{n}m ago",
+      "hr_ago": "{n}h ago",
+      "day_ago": "{n}d ago"
+    },
+    "onboarding": {
+      "heading": "Get Set Up",
+      "server": "Connect a Server",
+      "server_desc": "Sync your workouts across devices.",
+      "program": "Pick a Program",
+      "program_desc": "Start a training plan so the diary suggests today’s workout.",
+      "trace": "Set Up Trace",
+      "trace_desc": "Connect Claude, GPT, Gemini, or an OpenAI-compatible endpoint.",
+      "dismiss": "Dismiss",
+      "dismiss_named": "Dismiss {name}"
     }
   },
   "settings_backup": {
@@ -1481,7 +1947,10 @@
       "cant_reach_load":        "Couldn't reach the server to load backups",
       "backup_created":         "Backup created",
       "settings_reset":         "Settings reset to defaults",
-      "data_cleared":           "All workout data cleared"
+      "data_cleared":           "All workout data cleared",
+      "backup_failed": "Backup failed",
+      "restore_failed": "Restore failed",
+      "file_too_large": "File too large"
     },
     "sections": {
       "auto_backup":            "Auto Backup",
@@ -1502,6 +1971,8 @@
       "last_success":           "Last auto-backup: {when}",
       "next":                   "Next: {when}",
       "next_when_open":         "Next: {when} (fires when app is open)",
+      "zone_differs":           "Backups run at {time} in {zone}, which is {local} where you are. Use My Time Zone runs them at {time} on your clock.",
+      "use_my_zone":            "Use My Time Zone",
       "retention_note":         "Keeps the {n} newest backup, older archives prune automatically after each run.",
       "retention_note_plural":  "Keeps the {n} newest backups, older archives prune automatically after each run.",
       "retention_note_local":         "Keeps the {n} newest auto-backup, manual exports are never pruned.",
@@ -1542,6 +2013,16 @@
       "clear_settings_msg":     "This will reset all preferences (appearance, units, notifications, integrations) back to their defaults. Your workout data will not be touched.",
       "clear_settings_confirm": "Clear All Settings",
       "cancel":                 "Cancel"
+    },
+    "relative": {
+      "minutes_ago": "{n} min ago",
+      "hours_ago": "{n} hr ago",
+      "days_ago": "{n, plural, one {# day ago} other {# days ago}}"
+    },
+    "progress": {
+      "restoring": "Restoring…",
+      "uploading": "Uploading…",
+      "restore_complete": "Restore complete, reloading…"
     }
   },
   "settings_trace": {
@@ -1549,7 +2030,8 @@
       "connected":         "Trace AI connected, assistant is ready",
       "empty_response":    "Empty response from AI",
       "test_failed":       "Test failed",
-      "fill_required":     "Fill in provider, API key, and model first"
+      "fill_required":     "Fill in provider, API key, and model first",
+      "fill_required_custom": "Fill in the Base URL and model first"
     },
     "provider_env_locked": "Environment-locked",
     "env_lock_banner": "Configured via environment variables, changes are disabled.",
@@ -1562,7 +2044,11 @@
       "enable_desc":       "Adds a floating chat button to all pages",
       "provider":          "Provider",
       "base_url":          "Base URL",
-      "base_url_desc":     "Any OpenAI Compatible /v1/chat/completions endpoint, Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. Don't include the path, just the origin.",
+      "base_url_desc":     "Any OpenAI Compatible /v1/chat/completions endpoint, Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. With or without /v1.",
+      "test_connection":   "Test Connection",
+      "test_connection_desc": "Checks that Trace can reach your provider.",
+      "test_connection_desc_locked": "Checks that Trace can reach the server's AI provider.",
+      "test":              "Test",
       "base_url_ph":       "http://localhost:11434  or  https://api.deepseek.com",
       "testing":           "Testing…",
       "save":              "Save",
@@ -1699,6 +2185,16 @@
     "confirm": {
       "delete_provider":              "Delete provider \"{name}\"? Linked users will lose this sign-in option.",
       "disable_password":             "Disable password login? Users without an OIDC link will not be able to sign in until you re-enable it. RECOVERY_TOKEN will still work."
+    },
+    "presets": {
+      "custom_name": "Custom / Generic OIDC",
+      "auth0_help": "Auth0 adds custom claims under a namespaced URL like \"https://lifttrace.app/roles\". Leave the admin claim blank for now and contact your tenant admin to set up a rule that exposes role membership.",
+      "authelia_help": "Authelia's issuer URL is the root URL where Authelia is served, with no path suffix.",
+      "authentik_help": "Issuer URL is the \"OpenID Configuration Issuer\" shown on the Provider page in Authentik. Make sure your Application uses an OAuth2/OIDC Provider and you've added the redirect URI shown above to its allowed list.",
+      "google_help": "Google's issuer URL is fixed. Group/role claims are not available with standard scopes, so admin role mapping is hidden for this provider; promote Google users manually after first login.",
+      "keycloak_help": "Add a \"groups\" mapper to your client's default scope so the groups claim is included in the ID token.",
+      "pocket_id_help": "Pocket ID uses passkeys for primary auth, so your users won't need a password at the IdP either. Add the redirect URI shown above to the OIDC client in Pocket ID admin.",
+      "custom_help": "Any OpenID Connect 1.0 compliant provider that supports Authorization Code Flow + PKCE + Discovery should work here."
     }
   },
   "settings_appearance": {
@@ -1768,7 +2264,9 @@
       "calorie_est":      "Show Calorie Estimate",
       "calorie_est_desc": "Approximate kcal per workout (Mifflin-St Jeor BMR + MET). Needs height, weight, date of birth, and sex set in Profile. Resistance-training estimates are loose by ±25%, treated as an \"~est\" badge in the UI, not a hard number.",
       "track_cardio":      "Track Cardio",
-      "track_cardio_desc": "Log cardio sessions (bike, run, row, etc.) from the Diary and see weekly minutes on Statistics. Off by default so pure lifters aren't cluttered. Manual entry only; device sync stays in NutriTrace."
+      "track_cardio_desc": "Log cardio sessions (bike, run, row, etc.) from the Diary and see weekly minutes on Statistics. Off by default so pure lifters aren't cluttered. Manual entry only; device sync stays in NutriTrace.",
+      "weekly_cardio": "Weekly Cardio Minutes",
+      "weekly_cardio_desc": "Target line on the Statistics Cardio chart. Set to 0 to hide the target."
     },
     "logging": {
       "autofill":              "Auto-Fill Last Weights",
@@ -1808,6 +2306,8 @@
       "tone_style":        "Tone Style",
       "tone_style_desc":   "Tap a row to select, tap ▶ to preview",
       "preview":           "Preview",
+      "dnd":               "Play Through Do Not Disturb",
+      "dnd_desc":          "Plays the rest alert like an alarm, at your alarm volume, so you still hear it with Do Not Disturb on",
       "tones": {
         "classic":         "Classic",
         "classic_desc":    "880 Hz beeps, higher chirp at 0",
@@ -1910,12 +2410,20 @@
       "coach_feedback_desc": "Ping when your coach leaves a note on a workout"
     },
     "coach": {
-      "member_completes":       "Member Completes Prescribed Workout",
-      "member_completes_desc":  "Push when a member finishes a workout you prescribed for that day",
-      "member_missed":          "Member Missed a Prescription",
+      "member_completes":       "Client Completes Prescribed Workout",
+      "member_completes_desc":  "Push when a client finishes a workout you prescribed for that day",
+      "member_missed":          "Client Missed a Prescription",
       "member_missed_desc":     "Push the morning after a dated prescription's day passes without a completed workout",
-      "member_reply":           "Member Replied to Feedback",
-      "member_reply_desc":      "Push when a coachee replies to one of your notes"
+      "member_reply":           "Client Replied to Feedback",
+      "member_reply_desc":      "Push when a client replies to one of your notes",
+      "recommendation":         "New Recommendation",
+      "recommendation_desc":    "When a coach asks to coach you, or your coach prescribes a workout. Says who, never a note.",
+      "message":                "New Message",
+      "message_desc":           "When your coach or a client sends you a message. Says who wrote, not what.",
+      "email":                  "Email Me Too",
+      "email_desc":             "At most one email per conversation every 30 minutes, saying who wrote. Needs an email on your account and email set up on the server.",
+      "answer":                 "Client's Answer",
+      "answer_desc":            "When someone accepts or declines your request or a workout you prescribed, or leaves."
     },
     "summaries": {
       "weekly":            "Weekly Summary",
@@ -1971,6 +2479,7 @@
     "no_release_notes":      "No release notes were published for this build.",
     "view_on_github":        "View on GitHub",
     "download_install":      "Download & Install",
+    "install_downloaded":    "Install",
     "downloading":           "Downloading… {percent}%",
     "install_starting":      "Opening installer…",
     "install_failed":        "Install failed. Try again.",
@@ -1997,7 +2506,15 @@
       "copied":           "Copied to clipboard.",
       "copy_failed":      "Copy failed. Copy the command manually.",
       "view_notes":       "View Release Notes",
-      "channel_note":     "To switch server channels, change your docker-compose.yml image tag (:latest, :1.0, :1, :dev) and re-run docker-compose pull && docker-compose up -d."
+      "channel_note":     "To switch server channels, change your docker-compose.yml image tag (:latest, :dev) and re-run docker-compose pull && docker-compose up -d."
     }
+  },
+  "connection_status": {
+    "connected": "Connected",
+    "not_connected": "Not connected",
+    "not_connected_error": "Not connected: {error}",
+    "test": "Test",
+    "testing": "Testing…",
+    "testing_connection": "Testing connection…"
   }
 }

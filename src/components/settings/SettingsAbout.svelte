@@ -59,27 +59,8 @@
         </div>
         <div class="setting-divider"></div>
         <div class="about-row">
-          <span class="material-symbols-rounded about-feat-icon">link</span>
-          <span>{$_('settings_about.sister_app_prefix')}<a href="https://github.com/TraceApps/nutritrace" target="_blank" rel="noopener" class="about-link">NutriTrace</a>{$_('settings_about.sister_app_suffix')}</span>
-        </div>
-        <div class="setting-divider"></div>
-        <div class="about-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="material-symbols-rounded about-feat-icon">volunteer_activism</span>
-            <span>{$_('settings_about.support_development')}</span>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;padding-left:30px">
-            <!-- GitHub Sponsors button hidden until the traceapps org Sponsors profile is approved.
-                 Re-enable by uncommenting the <a> below (and the github: line in .github/FUNDING.yml).
-            <a href="https://github.com/sponsors/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
-              <span class="material-symbols-rounded" style="font-size:14px">favorite</span> GitHub Sponsors
-            </a>
-            -->
-            <a href="https://ko-fi.com/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
-              <span class="material-symbols-rounded" style="font-size:14px">coffee</span> {$_('settings_about.kofi')}
-            </a>
-          </div>
-          <div class="setting-desc" style="padding-left:30px;font-size:11px">{$_('settings_about.donations_note')}</div>
+          <span class="material-symbols-rounded about-feat-icon">apps</span>
+          <span>{$_('settings_about.family_line_prefix')}<a href="https://traceapps.github.io/docs/" target="_blank" rel="noopener" class="about-link">TraceApps</a>{$_('settings_about.family_line_suffix')}</span>
         </div>
         <div class="setting-divider"></div>
         <div class="about-desc" style="font-size:11px;color:var(--text-3);line-height:1.5">

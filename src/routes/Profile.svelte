@@ -263,11 +263,14 @@
       const { user } = await LtApi.updateProfile({
         full_name: fullName, nickname, email, birthday, gender, avatar_url: avatarUrl,
       });
-      if (user) currentUser.set(user);
+      // A save kept to send later answers with only the fields sent: keep
+      // the rest of who is signed in (id, role).
+      if (user) currentUser.set({ ...get(currentUser), ...user });
       showSuccess($_('profile.saved'));
       push('/settings');
     } catch(e) {
-      showError(e.message);
+      // This device could not keep it to send later (TraceApps/nutritrace#269).
+      showError(e?.storage ? $_('profile.errors.not_kept') : e.message);
     } finally {
       saving = false;
     }

@@ -108,15 +108,26 @@ export default defineConfig({
             // account that signs in on the browser profile, and its entries
             // outlive sign-out, so caching them here would reopen exactly the
             // leak the authenticated photo route closes.
+            // Under the worker's own scope, so a BASE_URL subpath
+            // (/lifttrace/uploads/...) is kept too, not only the root.
             urlPattern: ({ url, sameOrigin }) =>
               sameOrigin
-              && url.pathname.startsWith('/uploads/')
+              && url.pathname.startsWith(new URL(self.registration.scope).pathname + 'uploads/')
               && !url.pathname.includes('/body-stats/'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'uploads-cache',
               expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 90 },
-              cacheableResponse: { statuses: [0, 200] },
+              // A picture or video, never a page standing in for one: kept
+              // here, it would show broken for 90 days, online too. An opaque
+              // answer (status 0) is a login proxy's sign-in page on another
+              // address; a page is the same proxy's sign-in on this address,
+              // or the app's own page for a file that isn't there.
+              cacheableResponse: { statuses: [200] },
+              plugins: [{
+                cacheWillUpdate: async ({ response }) =>
+                  /^text\/html/i.test(response.headers.get('Content-Type') || '') ? null : response,
+              }],
             },
           },
         ]

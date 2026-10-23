@@ -13,6 +13,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -32,15 +33,46 @@ function _config(userId) {
   const token = _getSetting(userId, 'ntInstanceToken');
   const enabled = _getSetting(userId, 'ntFederationEnabled');
   if (!url || !token) return null;
-  if (!/^https?:\/\//.test(url)) return null;
-  return { url: url.replace(/\/$/, ''), token, enabled: !!enabled };
+  const base = serviceBase(url);
+  if (!base) return null;
+  return { url: base, token, enabled: !!enabled };
+}
+
+// Only the name the Settings page shows, not whatever the address answered.
+function _who(body) {
+  const u = body?.user;
+  if (!u || typeof u !== 'object') return null;
+  const str = v => (typeof v === 'string' ? v.slice(0, 200) : null);
+  return { username: str(u.username), full_name: str(u.full_name) };
+}
+
+// NutriTrace's own short error ("invalid token"), never the raw reply.
+async function _ntErrorMessage(res) {
+  const raw = await res.text().catch(() => '');
+  try {
+    const e = JSON.parse(raw)?.error;
+    if (typeof e === 'string' && e) return `: ${e.slice(0, 200)}`;
+  } catch {}
+  return '';
+}
+
+// What went wrong, without the other server's words.
+function _linkError(e) {
+  const m = String(e?.message || '');
+  if (/addresses are not allowed|addresses are blocked/.test(m)) return m;
+  if (e?.name === 'AbortError' || /aborted/i.test(m)) return 'NutriTrace didn\'t answer in time';
+  return 'Could not reach NutriTrace';
 }
 
 async function _ntFetch(cfg, path, opts = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 8000);
   try {
-    return await fetch(cfg.url + path, {
+    // NutriTrace usually lives on the home network, so that's allowed for
+    // every account; the address is still checked (never cloud metadata),
+    // on every redirect hop (only followed on the same server), and the
+    // connection pinned to it.
+    return await fetchChecked(cfg.url + path, {
       ...opts,
       headers: {
         'Authorization': `Bearer ${cfg.token}`,
@@ -48,7 +80,7 @@ async function _ntFetch(cfg, path, opts = {}) {
         ...(opts.headers || {}),
       },
       signal: ctrl.signal,
-    });
+    }, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
   } finally { clearTimeout(t); }
 }
 
@@ -57,16 +89,15 @@ async function _ntFetch(cfg, path, opts = {}) {
 // test before the saved values reflect what the user typed.
 router.post('/test', wrap(async (req, res) => {
   const u = uid(req);
-  const url = (req.body?.url || _getSetting(u, 'ntInstanceUrl') || '').replace(/\/$/, '');
+  const raw = req.body?.url || _getSetting(u, 'ntInstanceUrl') || '';
   const token = req.body?.token || _getSetting(u, 'ntInstanceToken');
-  if (!url || !token) return res.status(400).json({ ok: false, error: 'URL and token required' });
-  if (!/^https?:\/\//.test(url)) return res.status(400).json({ ok: false, error: 'URL must start with http(s)://' });
+  if (!raw || !token) return res.status(400).json({ ok: false, error: 'URL and token required' });
+  const url = serviceBase(raw);
+  if (!url) return res.status(400).json({ ok: false, error: 'URL must start with http(s)://' });
   try {
     const ntRes = await _ntFetch({ url, token }, '/api/v1/me');
     if (!ntRes.ok) {
-      const text = await ntRes.text().catch(() => '');
-      const detail = text && text.length < 240 ? `: ${text}` : '';
-      return res.json({ ok: false, error: `NutriTrace returned ${ntRes.status}${detail}` });
+      return res.json({ ok: false, error: `NutriTrace returned ${ntRes.status}${await _ntErrorMessage(ntRes)}` });
     }
     const body = await ntRes.json().catch(() => ({}));
     // Surface the token's scopes so the UI can warn if write:workouts is missing.
@@ -75,35 +106,35 @@ router.post('/test', wrap(async (req, res) => {
       return res.json({
         ok: false,
         error: 'Token is missing the write:workouts scope. Edit the token in NutriTrace and re-check the box.',
-        user: body.user || null,
+        user: _who(body),
       });
     }
-    return res.json({ ok: true, user: body.user || null });
+    return res.json({ ok: true, user: _who(body) });
   } catch (e) {
-    return res.json({ ok: false, error: e.message || 'Connection failed' });
+    return res.json({ ok: false, error: _linkError(e) });
   }
 }));
 
-// POST /log-workout — forward a completed workout summary to NT.
-// Body shape (passed straight through after light validation):
-//   { date, name, duration_min, calories_burned, external_id, start_time? }
-// Server-side gates: federation must be enabled and configured.
-router.post('/log-workout', wrap(async (req, res) => {
-  const u = uid(req);
-  const cfg = _config(u);
-  if (!cfg || !cfg.enabled) return res.status(503).json({ error: 'Federation not enabled' });
-  const { date, name, duration_min, calories_burned, external_id, start_time } = req.body || {};
+/**
+ * Send a finished workout's calories to the account's NutriTrace. The app
+ * asks for it through POST /log-workout below; a workout finished on the
+ * watch has the server ask for it itself (lib/watch-finish.js). Returns
+ * { status, body }: what the route answers with.
+ */
+export async function logWorkoutToNt(userId, { date, name, duration_min, calories_burned, external_id, start_time } = {}) {
+  const cfg = _config(userId);
+  if (!cfg || !cfg.enabled) return { status: 503, body: { error: 'Federation not enabled' } };
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
-    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    return { status: 400, body: { error: 'date must be YYYY-MM-DD' } };
   }
   if (!external_id) {
-    return res.status(400).json({ error: 'external_id required' });
+    return { status: 400, body: { error: 'external_id required' } };
   }
   const kcal = Number(calories_burned);
   if (!Number.isFinite(kcal) || kcal <= 0) {
     // 0 kcal would just dirty the NT row for no value; reject so the
     // client knows it doesn't have a usable estimate yet.
-    return res.status(400).json({ error: 'calories_burned must be > 0' });
+    return { status: 400, body: { error: 'calories_burned must be > 0' } };
   }
   try {
     const ntRes = await _ntFetch(cfg, '/api/v1/workouts', {
@@ -119,12 +150,23 @@ router.post('/log-workout', wrap(async (req, res) => {
     });
     const body = await ntRes.json().catch(() => ({}));
     if (!ntRes.ok) {
-      return res.status(502).json({ error: body?.error || `NutriTrace returned ${ntRes.status}`, code: body?.code });
+      const error = typeof body?.error === 'string' && body.error ? body.error.slice(0, 200) : `NutriTrace returned ${ntRes.status}`;
+      return { status: 502, body: { error, code: typeof body?.code === 'string' ? body.code.slice(0, 60) : undefined } };
     }
-    res.json(body);
+    // The app only needs to know it worked; nothing else of the reply goes back.
+    return { status: 200, body: { ok: true } };
   } catch (e) {
-    res.status(502).json({ error: e.message || 'Federation request failed' });
+    return { status: 502, body: { error: _linkError(e) } };
   }
+}
+
+// POST /log-workout: forward a completed workout summary to NT.
+// Body shape (passed straight through after light validation):
+//   { date, name, duration_min, calories_burned, external_id, start_time? }
+// Server-side gates: federation must be enabled and configured.
+router.post('/log-workout', wrap(async (req, res) => {
+  const { status, body } = await logWorkoutToNt(uid(req), req.body || {});
+  res.status(status).json(body);
 }));
 
 export default router;

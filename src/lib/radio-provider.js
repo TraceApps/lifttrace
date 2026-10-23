@@ -130,7 +130,9 @@ const jellyfin = {
 // ── Plex ──────────────────────────────────────────────────────────────────────
 const plex = {
   async ping() {
-    await _proxyJson('/plex/');
+    // /identity answers with the server's id; the proxy forwards only the
+    // API paths the app uses, and an empty path isn't one.
+    await _proxyJson('/plex/identity');
     return true;
   },
   async getArtists() {

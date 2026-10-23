@@ -4,7 +4,13 @@
 
 async function _json(res) {
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    // What the offline layer says went wrong, for the screen to say it.
+    if (data.storage) err.storage = true;
+    if (data.offline) err.offline = true;
+    throw err;
+  }
   return data;
 }
 
@@ -71,7 +77,15 @@ export const LtApi = {
   deleteWorkout: (date, id = null) => fetch(`/api/workout/${date}${id != null ? `?id=${id}` : ''}`, { ...opts, method: 'DELETE' }).then(_json),
   getCoachFeedbackInbox: () => fetch('/api/coach-feedback/inbox', opts).then(_json),
   markCoachFeedbackSeen: (id = null) => fetch('/api/coach-feedback/seen', { ...jsonOpts, method: 'POST', body: JSON.stringify(id ? { id } : {}) }).then(_json),
-  getUnreadCoachFeedbackDates: () => fetch('/api/coach-feedback/unread-dates', opts).then(_json),
+  // Carries where this person stands in coaching as a header (stores/coaching.js),
+  // so a new request shows up without a request of its own.
+  getUnreadCoachFeedbackDates: () => fetch('/api/coach-feedback/unread-dates', opts).then((res) => {
+    try {
+      const sig = res.headers.get('X-LT-Coaching');
+      if (sig) import('../stores/coaching.js').then(m => m.noteCoachingSignature(sig)).catch(() => {});
+    } catch { /* an older server */ }
+    return _json(res);
+  }),
   replyToCoachFeedback: (id, reply) => fetch(`/api/coach-feedback/${id}/reply`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ reply }) }).then(_json),
   saveWorkout: (date, data) => fetch(`/api/workout/${date}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
   getRecentWorkouts: (limit = 30) => fetch(`/api/workout/recent?limit=${limit}`, opts).then(_json),

@@ -270,9 +270,16 @@ export function calcVolume(exercises, _weightUnit = 'lbs') {
  * Time row shows these, warm-ups included) and the completed working sets
  * (what auto-fill copies, since a warm-up weight is not a working weight).
  * Null when there is no such session.
+ *
+ * `before` is the diary's date. History includes that day, so the session
+ * being logged came back as its own "last time" once a set was ticked, and a
+ * day viewed in the past compared itself with later ones. Only days before it
+ * count, as on the watch's "Last time"; the PR badges and celebrations leave
+ * the day out too, so a second session the same day is not "last time" either.
  */
-export function lastCompletedSession(history) {
+export function lastCompletedSession(history, { before } = {}) {
   for (const entry of history || []) {
+    if (before && !(typeof entry?.date === 'string' && entry.date < before)) continue;
     const completed = (entry?.sets || []).filter(s => s?.completed);
     const working = completed.filter(s => !s.warmup);
     if (working.length) return { ...entry, completed, working };

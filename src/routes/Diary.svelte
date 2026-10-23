@@ -13,7 +13,8 @@
   import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, requestPermission } from '../lib/notifications.js';
   import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName, lastCompletedSession } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
-  import { startRest as startRestTimer, stopRest } from '../stores/restTimer.js';
+  import { startRest as startRestTimer, stopRest, noteRestLastTime } from '../stores/restTimer.js';
+  import { nextUp, lastTimeFor } from '../lib/rest-next.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
   import GymTools from '../components/diary/GymTools.svelte';
   import { showSuccess, showError } from '../stores/toast.js';
@@ -38,6 +39,7 @@
   import SmartLogModal from '../components/diary/SmartLogModal.svelte';
   import Sheet from '../components/ui/Sheet.svelte';
   import { portal } from '../lib/portal.js';
+  import { wideContent } from '../lib/wide.js';
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
@@ -333,18 +335,42 @@
     _persistRailMode();
   }
   function railToggleOverlay() {
-    if (_railMode !== 'hidden') return;
+    if (_railPinnedShown) return;
     _railOverlay = !_railOverlay;
   }
 
-  // Viewport-width tracker so the edge tab + overlay only show
-  // where the desktop grid actually rendered. Same media query
-  // the .diary-body layout uses.
-  let _wideViewport = false;
-  function _syncWideViewport() {
-    if (typeof window === 'undefined') return;
-    _wideViewport = window.matchMedia('(min-width: 1280px)').matches;
-  }
+  // Room for the three-column desktop grid: session column, an exercise
+  // column at least 720px wide and the 340px Overview rail, with the gaps
+  // and page padding (the grid rule below). Measured from .diary-body
+  // itself, so a pinned sidebar and the scrollbar count. A 1280px viewport
+  // was the old gate: with less width than this the rail sat over the
+  // exercise list (100px of it in a 1280px window, more beside a sidebar).
+  const HUD_COL = 280, CENTER_MIN = 720, RAIL_COL = 340, GRID_GAP = 24;
+  const _pagePx = () => {
+    if (typeof document === 'undefined') return 16;
+    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--page-px')) || 16;
+  };
+  // A first guess from the window and the pinned sidebar, so the first
+  // frame is already right; _measureRail replaces it with the real width.
+  let _bodyW = typeof window === 'undefined' ? 0
+    : window.innerWidth - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')) || 0);
+  $: _railRoom = _bodyW >= HUD_COL + CENTER_MIN + RAIL_COL + 2 * GRID_GAP + 2 * _pagePx();
+  // Two columns (no rail): is the exercise column still 720px wide? Below
+  // that its cards stay linear (history above the sets, not beside them).
+  $: _centerRoom = _bodyW >= HUD_COL + CENTER_MIN + 20 + 2 * _pagePx();  // the two-column gap is 20px
+  // The pinned Overview rail is on screen: wide-content, room for its
+  // column, and the rail pinned. It carries Load Workout, Body Stats, Gym
+  // Tools and Workout Actions inline, so the page header holds only Add and
+  // Coach Feedback. Everywhere else (phones, tablets, phone landscape, an
+  // open foldable, a narrow desktop window, a hidden rail) the top-right
+  // strip carries every tool instead.
+  $: _railPinnedShown = $wideContent && _railRoom && _railMode === 'pinned';
+  // Wherever the pinned rail is not up at a wide-content width (rail hidden,
+  // or no room for its column), the edge tab opens the same widgets as an
+  // overlay, so This Week, Recent and the program card stay one tap away.
+  // An overlay left open closes when the pinned rail takes over, or when the
+  // window gets too narrow for it.
+  $: if ((_railPinnedShown || !$wideContent) && _railOverlay) _railOverlay = false;
 
   // Rail measurement — the pinned rail is portaled to document.body
   // so position:fixed resolves against the viewport (not against
@@ -361,6 +387,7 @@
   function _measureRail() {
     if (!_diaryBodyEl) return;
     const gridRect = _diaryBodyEl.getBoundingClientRect();
+    if (Math.round(gridRect.width) !== _bodyW) _bodyW = Math.round(gridRect.width);
     const colWidth = _railFixedWidthPx;
     const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
     const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
@@ -567,14 +594,20 @@
   // today — until this lands they were created server-side and rendered
   // nowhere on the member's diary.
   let suggestedPrescriptions = [];
+  // Every prescription waiting for an answer, dated ones too (the dot on
+  // Programs counts them, so they are all answerable here, on any day).
+  let askingPrescriptions = [];
   async function loadSuggestedPrescriptions() {
     try {
       const all = await LtApi.getMyUpcomingPrescriptions();
-      // Filter to UNDATED only — dated ones already show via the existing
-      // todayPrescription banner on their assigned day.
-      suggestedPrescriptions = (all || []).filter(p => !p.date);
-    } catch { suggestedPrescriptions = []; }
+      // Undated and accepted: dated ones show in the banner on their day.
+      // (The server leaves out declined ones.)
+      suggestedPrescriptions = (all || []).filter(p => !p.date && p.status !== 'declined' && pxStatus(p) === 'accepted');
+      askingPrescriptions = (all || []).filter(p => pxStatus(p) === 'pending');
+    } catch { suggestedPrescriptions = []; askingPrescriptions = []; }
   }
+  // The one in today's banner asks there.
+  $: askingShown = askingPrescriptions.filter(p => p.id !== $todayPrescription?.id);
 
   // Coach feedback for the current date. Loaded separately because the
   // diary's workout GET is served local-first from SQLite which has no
@@ -722,6 +755,7 @@
 
   let showCoachInbox = false;
   let inboxRows = [];
+  $: showCoachInboxButton = !!$currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0;
   let inboxLoading = false;
   async function openCoachInbox() {
     showCoachInbox = true;
@@ -763,6 +797,43 @@
     loadUnreadFeedback();
   }
 
+  // A prescription asks first: Accept, then Load as before; Decline and it
+  // goes. A server from before this sends no status: accepted. Answering
+  // works offline (it waits and goes when the connection is back).
+  const pxStatus = (px) => px?.status || 'accepted';
+  async function answerPrescription(px, answer) {
+    const coach = px.trainer_name || $_('diary.prescription.your_coach');
+    if (answer === 'decline' && !await confirmDialog({
+      title: $_('diary.prescription.decline_title'),
+      message: $_('diary.prescription.decline_message', { values: { name: coach } }),
+      confirmText: $_('diary.prescription.decline'),
+      cancelText: $_('common.cancel'),
+    })) return;
+    const show = (status) => {
+      todayPrescription.update(p => (p && p.id === px.id ? (status === 'declined' ? null : { ...p, status }) : p));
+      askingPrescriptions = askingPrescriptions.filter(p => p.id !== px.id);
+      if (status === 'accepted' && !px.date) suggestedPrescriptions = [...suggestedPrescriptions.filter(p => p.id !== px.id), { ...px, status }];
+    };
+    try {
+      const res = await fetch(`/api/prescriptions/${px.id}/answer`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) });
+      const r = await res.json().catch(() => ({}));
+      // Answered already (on another device): show that answer.
+      if (res.status === 409 && r?.prescription?.status) { show(r.prescription.status); showError(r.error); return; }
+      if (!res.ok) throw new Error(r?.error || `HTTP ${res.status}`);
+      const status = r?.status || (answer === 'accept' ? 'accepted' : 'declined');
+      show(status);
+      showSuccess(status === 'accepted' ? $_('diary.prescription.accepted') : $_('diary.prescription.declined'));
+      // Answered on the server: read again, so the copies kept for a dead
+      // zone are the answered ones. Kept for later (no connection): what is
+      // shown stays (the phone's own copy has no prescriptions to read).
+      if (!r?.queued) {
+        LtApi.getMyPrescriptionForDate($currentDate).then(p => { if ($currentDate) todayPrescription.set(p || null); }).catch(() => {});
+        loadSuggestedPrescriptions();
+      }
+      import('../stores/coaching.js').then(m => m.refreshCoaching()).catch(() => {});
+    } catch (e) { showError(e.message); }
+  }
+
   async function startSuggestedPrescription(px) {
     let exs;
     if (px.template_id) {
@@ -777,7 +848,7 @@
     }
     await loadTemplate({
       exercises: exs,
-      name: px.template_name || px.name || 'Coach pick',
+      name: px.template_name || px.name || $_('diary.prescription.coach_pick'),
       id: px.template_id || null,
     }, 'diary.confirm.replace_suggested_msg');
   }
@@ -787,12 +858,16 @@
     // when the store already holds the target date causes a visible flash
     // on the meal cards. Skip the refetch if the store is already on the
     // right date.
-    const targetDate = localDateStr();
+    // Opened from the rest notification: that workout's day, not today's.
+    const targetDate = _takeOpenDate() || localDateStr();
     if ($currentDate !== targetDate || !$todayLog) {
       await loadWorkout(targetDate);
     } else {
       currentDate.set(targetDate);
     }
+    // A tap on the rest notification that arrived during the load above.
+    const lateDate = _takeOpenDate();
+    if (lateDate && lateDate !== $currentDate) await loadWorkout(lateDate);
     notes = $todayLog?.notes || '';
     loading = false;
     loadActiveProgram();
@@ -838,7 +913,33 @@
     if (isNative && getServerUrl()) {
       window.addEventListener('lt:sync-complete', _onSyncComplete);
     }
+    window.addEventListener('lt:workout-opened', _onWorkoutOpened);
   });
+
+  // Another workout opened from outside the Diary (Trace starting one from a
+  // template): the notes box shows its notes, not the last one's, which a
+  // tap away would have saved onto it.
+  function _onWorkoutOpened() {
+    notes = $todayLog?.notes || '';
+  }
+
+  // The rest notification names the day its workout is on (App.svelte).
+  // Listened for from the start, not after onMount's first load: a tap that
+  // arrives while that load is under way would otherwise be lost.
+  if (typeof window !== 'undefined') window.addEventListener('lt:diary-open-date', _onOpenDate);
+  function _takeOpenDate() {
+    try {
+      const d = sessionStorage.getItem('lt:diary-open-date');
+      if (d) sessionStorage.removeItem('lt:diary-open-date');
+      return /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null;
+    } catch { return null; }
+  }
+  function _onOpenDate() {
+    // Still loading: onMount takes the day when that is done.
+    if (loading) return;
+    const d = _takeOpenDate();
+    if (d && d !== $currentDate) goToDiaryDate(d);
+  }
 
   // Pull-to-refresh: track touch deltas while at scrollY 0. Past a
   // threshold the user gets a brief loading indicator + a refresh
@@ -875,6 +976,15 @@
     // reflected in todayLog. preferFresher makes loadWorkout itself
     // refuse to apply anything older than what's already shown, as a
     // second line of defense.
+    // A sync that brought nothing: only what lives on the server (the
+    // coach's feedback and suggestions) is asked for again; the local reads
+    // below would start another sync each (apiFetch.js) for nothing.
+    if (e?.detail?.changed === false) {
+      if ($currentDate) loadCoachFeedback($currentDate);
+      loadUnreadFeedback();
+      loadSuggestedPrescriptions();
+      return;
+    }
     const t = e?.detail?.tables;
     const workoutRelevant = t && ((t.workouts || 0) > 0 || (t.workoutTombstones || 0) > 0);
     if ($currentDate && workoutRelevant) {
@@ -893,6 +1003,8 @@
     // Only disable if the user had auto-enable setting on (they can toggle manually too)
     document.removeEventListener('visibilitychange', handleVisibility);
     window.removeEventListener('lt:sync-complete', _onSyncComplete);
+    window.removeEventListener('lt:workout-opened', _onWorkoutOpened);
+    window.removeEventListener('lt:diary-open-date', _onOpenDate);
     _stopDayTick();
   });
 
@@ -1032,6 +1144,9 @@
     const yesterdayStr = localDateStr(d);
     // Temporarily load yesterday to grab exercises
     const currentDateBackup = $currentDate;
+    // Come back to the workout that was open, not the date's first one
+    // (issue #142): the copy is saved into whatever is loaded.
+    const sessionBackup = $currentSessionId;
     try {
       await loadWorkout(yesterdayStr);
       const yesterdayExercises = ($todayLog?.exercises || []).map(ex => ({
@@ -1040,7 +1155,7 @@
       }));
       const yesterdayName = $todayLog?.name || '';
       // Reload current date
-      await loadWorkout(currentDateBackup);
+      await loadWorkout(currentDateBackup, { sessionId: sessionBackup });
       if (yesterdayExercises.length === 0) {
         showError($_('diary.errors.no_workout_yesterday'));
         return;
@@ -1053,7 +1168,7 @@
       notes = $todayLog?.notes || '';
       showSuccess($_('diary.toast.copied_yesterday'));
     } catch (e) {
-      await loadWorkout(currentDateBackup);
+      await loadWorkout(currentDateBackup, { sessionId: sessionBackup });
       showError($_('diary.errors.copy_failed'));
     }
   }
@@ -1330,7 +1445,7 @@
     try {
       await loadTemplate({
         exercises: exs,
-        name: px.template_name || px.name || 'Prescribed workout',
+        name: px.template_name || px.name || $_('diary.prescription.prescribed_workout'),
         id: px.template_id || null,
       }, 'diary.confirm.replace_prescribed_msg');
     } finally {
@@ -1361,13 +1476,13 @@
   // Rail measurement + viewport-width tracking. Kept in its own
   // onMount/onDestroy pair so the whole port stays self-contained.
   onMount(() => {
-    _syncWideViewport();
+    _measureRail();
     requestAnimationFrame(() => requestAnimationFrame(_measureRail));
     try {
       _railResizeObs = new ResizeObserver(_measureRail);
       if (_diaryBodyEl) _railResizeObs.observe(_diaryBodyEl);
     } catch { /* ResizeObserver unavailable — one-shot measurement stands */ }
-    const onResize = () => { _syncWideViewport(); _measureRail(); };
+    const onResize = () => { _measureRail(); };
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
@@ -1422,7 +1537,8 @@
     try {
       // The last session with completed working sets, as the Last Time row
       // uses, not just the newest entry (issue #103); warm-ups aren't copied.
-      const last = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId));
+      // Days before the one being logged only, as the row.
+      const last = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId), { before: $currentDate });
       if (last) return withWarmups ? last.completed : last.working;
     } catch {}
     return null;
@@ -1595,6 +1711,7 @@
   async function updateExercise(idx, ex) {
     const old = exercises[idx];
     let setJustCompleted = false;
+    let prCheck = null;
 
     if (old && ex.sets && old.sets) {
       // Only WORKING sets trigger post-set logic (rest timer, PR check,
@@ -1612,91 +1729,114 @@
           //   - Standalone exercise: same exercise (next set of it)
           //   - Superset: the FIRST exercise in the group (start of round N+1)
           //     not the last one completed. "Finished A2, next up is A1 again."
+          const updatedExercises = exercises.map((e, i) => i === idx ? ex : e);
           let nextEx = ex;
           if (ex.superset_id != null && ex.superset_size > 1) {
-            const updatedExercises = exercises.map((e, i) => i === idx ? ex : e);
             const firstInGroup = updatedExercises.find(e => e.superset_id === ex.superset_id);
             if (firstInGroup) nextEx = firstInGroup;
           }
-          startRestTimer({
+          // The set itself, for the rest bar and the rest notification: the
+          // same lift's next set, the next round of a superset, or, once this
+          // one is done, the next lift in the session (rest-next.js).
+          const next = nextUp(updatedExercises, idx);
+          const restDay = $currentDate;
+          const rest = startRestTimer({
             exerciseId:   nextEx.exercise_id || null,
-            exerciseName: nextEx.exercise_name || '',
+            exerciseName: next?.name || nextEx.exercise_name || '',
             // A plan's per-exercise rest (issue #13) overrides the global
             // default when present; otherwise fall back to the user's setting.
             durationSec:  Number(nextEx.rest_sec) > 0 ? Number(nextEx.rest_sec) : $restDuration,
+            date:         restDay,
+            next,
           });
+          // What you did on that set last time, by the Diary's own rule
+          // (lastCompletedSession), once the history is in.
+          if (rest && next && !next.warmup && next.exerciseId) {
+            LtApi.getWorkoutHistory(next.exerciseId)
+              .then(history => noteRestLastTime(rest.startedAt, lastTimeFor(history, {
+                before: restDay, number: next.number, timed: next.timed, t: $_,
+              })))
+              .catch(() => {});
+          }
         }
 
-        // PR check — compare to PRIOR workouts only (not today), skip
-        // celebrations when planning ahead (future date)
-        const justCompletedSet = ex.sets.find((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
-        const justCompletedTimed = !!justCompletedSet && isTimedSet(ex, justCompletedSet);
-        if (!isFuture && justCompletedTimed && !justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0 && ex.exercise_id) {
-          // Timed set (issue #89): celebrate the longest hold, or a heavier
-          // load held, against prior timed sessions only.
-          try {
-            const history = await LtApi.getWorkoutHistory(ex.exercise_id);
-            let priorDur = 0, priorDurW = 0, priorCount = 0;
-            for (const h of history) {
-              if (h.date === $currentDate) continue;
-              for (const s of h.sets || []) {
-                if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
-                const d = Number(s.duration_sec) || 0;
-                if (d <= 0) continue;
-                priorCount++;
-                if (d > priorDur) priorDur = d;
-                if ((s.weight || 0) > priorDurW) priorDurW = s.weight || 0;
-              }
-            }
-            const d = Number(justCompletedSet.duration_sec);
-            const w = justCompletedSet.weight || 0;
-            if (priorCount > 0 && (d > priorDur || (w > 0 && w > priorDurW))) {
-              celebrateHoldPR(ex.exercise_name, d, w, $weightUnit);
-            }
-          } catch {}
-        } else if (!isFuture && justCompletedSet && !justCompletedTimed && justCompletedSet.weight > 0 && ex.exercise_id) {
-          try {
-            const history = await LtApi.getWorkoutHistory(ex.exercise_id);
-            // Collect prior completed sets, EXCLUDING today — otherwise your
-            // first set becomes the baseline and later sets never beat it.
-            let priorMax = 0;
-            let priorE1rm = 0;
-            let priorSetCount = 0;
-            for (const h of history) {
-              if (h.date === $currentDate) continue;
-              for (const s of h.sets || []) {
-                if (s.completed && s.weight > 0 && !isTimedSet({ set_type: h.set_type }, s)) {
-                  priorSetCount++;
-                  if (s.weight > priorMax) priorMax = s.weight;
-                  const e1 = calc1RM(s.weight, s.reps);
-                  if (e1 > priorE1rm) priorE1rm = e1;
+        // PR check, once the set is saved: it awaits the history, and a
+        // save built after that from the exercise as it was before put back
+        // whatever arrived meanwhile (the watch ticking another set of it).
+        prCheck = async () => {
+          // Compared to PRIOR workouts only (not today), skipping
+          // celebrations when planning ahead (future date)
+          const justCompletedSet = ex.sets.find((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
+          const justCompletedTimed = !!justCompletedSet && isTimedSet(ex, justCompletedSet);
+          if (!isFuture && justCompletedTimed && !justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0 && ex.exercise_id) {
+            // Timed set (issue #89): celebrate the longest hold, or a heavier
+            // load held, against prior timed sessions only.
+            try {
+              const history = await LtApi.getWorkoutHistory(ex.exercise_id);
+              let priorDur = 0, priorDurW = 0, priorCount = 0;
+              for (const h of history) {
+                if (h.date === $currentDate) continue;
+                for (const s of h.sets || []) {
+                  if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
+                  const d = Number(s.duration_sec) || 0;
+                  if (d <= 0) continue;
+                  priorCount++;
+                  if (d > priorDur) priorDur = d;
+                  if ((s.weight || 0) > priorDurW) priorDurW = s.weight || 0;
                 }
               }
-            }
-            // Only celebrate if there's a baseline (≥1 prior workout) AND
-            // the new lift beats it
-            if (priorSetCount > 0) {
-              const newE1rm = calc1RM(justCompletedSet.weight, justCompletedSet.reps);
-              const isWeightPR = justCompletedSet.weight > priorMax;
-              const isE1rmPR = newE1rm > priorE1rm;
-              if (isWeightPR || isE1rmPR) {
-                celebratePR(
-                  ex.exercise_name,
-                  justCompletedSet.weight,
-                  $weightUnit,
-                  justCompletedSet.reps,
-                  isWeightPR ? 'weight' : 'e1rm',
-                );
+              const d = Number(justCompletedSet.duration_sec);
+              const w = justCompletedSet.weight || 0;
+              if (priorCount > 0 && (d > priorDur || (w > 0 && w > priorDurW))) {
+                celebrateHoldPR(ex.exercise_name, d, w, $weightUnit);
               }
-            }
-          } catch {}
-        }
+            } catch {}
+          } else if (!isFuture && justCompletedSet && !justCompletedTimed && justCompletedSet.weight > 0 && ex.exercise_id) {
+            try {
+              const history = await LtApi.getWorkoutHistory(ex.exercise_id);
+              // Collect prior completed sets, EXCLUDING today, otherwise your
+              // first set becomes the baseline and later sets never beat it.
+              let priorMax = 0;
+              let priorE1rm = 0;
+              let priorSetCount = 0;
+              for (const h of history) {
+                if (h.date === $currentDate) continue;
+                for (const s of h.sets || []) {
+                  if (s.completed && s.weight > 0 && !isTimedSet({ set_type: h.set_type }, s)) {
+                    priorSetCount++;
+                    if (s.weight > priorMax) priorMax = s.weight;
+                    const e1 = calc1RM(s.weight, s.reps);
+                    if (e1 > priorE1rm) priorE1rm = e1;
+                  }
+                }
+              }
+              // Only celebrate if there's a baseline (≥1 prior workout) AND
+              // the new lift beats it
+              if (priorSetCount > 0) {
+                const newE1rm = calc1RM(justCompletedSet.weight, justCompletedSet.reps);
+                const isWeightPR = justCompletedSet.weight > priorMax;
+                const isE1rmPR = newE1rm > priorE1rm;
+                if (isWeightPR || isE1rmPR) {
+                  celebratePR(
+                    ex.exercise_name,
+                    justCompletedSet.weight,
+                    $weightUnit,
+                    justCompletedSet.reps,
+                    isWeightPR ? 'weight' : 'e1rm',
+                  );
+                }
+              }
+            } catch {}
+          }
+        };
       }
     }
 
     const updated = [...exercises];
     updated[idx] = ex;
-    await saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
+    const saving = saveWorkout($currentDate, { ...($todayLog || {}), exercises: updated });
+    if (prCheck) await prCheck();
+    await saving;
 
     // Workout completion check — skip when planning ahead
     if (setJustCompleted && !isFuture) {
@@ -2232,7 +2372,15 @@
     }
   }
 
+  // What the notes box held when it was focused. Leaving it untouched saves
+  // nothing: saved anyway, a box showing older notes (changed on the web, by
+  // Trace or on another device since it was filled) put them back.
+  let _notesAtFocus = null;
+  function notesFocused() { _notesAtFocus = notes; }
   async function saveNotes() {
+    const typed = _notesAtFocus == null || notes !== _notesAtFocus;
+    _notesAtFocus = null;
+    if (!typed) { notes = $todayLog?.notes || ''; return; }
     await saveWorkout($currentDate, { ...($todayLog || {}), notes });
   }
 
@@ -2243,9 +2391,37 @@
 
 <div class="page">
   <!-- Action icons — fixed at top-right, same level as hamburger (NutriTrace pattern).
-       Mobile-only: hidden at ≥1280px because the desktop rail owns Gym Tools,
-       Body Stats, and the More menu; see .diary-topbar-actions display:none rule. -->
+       Up wherever the pinned Overview rail is not on screen, so every
+       Diary tool is a visible control at every width; where the rail
+       shows, it carries these tools and the page header has Add and
+       Coach Feedback (see _railPinnedShown). -->
+  {#if !_railPinnedShown}
   <div use:portal class="diary-topbar-actions">
+    <!-- Add: the FAB hides at html.wide-content, so from there up to the
+         pinned rail Add lives here; one Add at every width. It opens the
+         menu itself: handleAddFabClick skips the click that ends a FAB
+         drag, and keeps skipping until the FAB is touched again. -->
+    {#if $wideContent && exercises.length > 0}
+      <button class="btn-icon accent" on:click={() => showAddMenu = true}
+              aria-label={$_('diary_extra.add_menu_title')} title={$_('diary_extra.add_menu_title')}>
+        <span class="material-symbols-rounded">add</span>
+      </button>
+    {/if}
+    <!-- Coach Feedback joins this strip wherever the strip is up: in the
+         page header it sat under the strip's buttons. The header copy
+         below takes over where the pinned rail shows. -->
+    {#if showCoachInboxButton}
+      <button class="btn-icon accent diary-topbar-coach"
+              on:click={openCoachInbox}
+              aria-label={$_('coaching.sheets.coach_feedback')} title={$_('coaching.sheets.coach_feedback')}>
+        <span class="material-symbols-rounded">
+          {unreadFeedbackCount > 0 ? 'mark_email_unread' : 'forum'}
+        </span>
+        {#if unreadFeedbackCount > 0}
+          <span class="diary-topbar-badge">{unreadFeedbackCount}</span>
+        {/if}
+      </button>
+    {/if}
     <button class="btn-icon accent" on:click={() => showGymTools = true} aria-label={$_('diary.actions.gym_tools')} title={$_('diary.actions.gym_tools_long')}>
       <span class="material-symbols-rounded">calculate</span>
     </button>
@@ -2256,6 +2432,7 @@
       <span class="material-symbols-rounded">more_vert</span>
     </button>
   </div>
+  {/if}
 
 
   <!-- Sticky-top container — keeps the page header AND the date sub-bar
@@ -2266,23 +2443,21 @@
   <!-- Page header — same pattern as Exercises/Programs/Statistics/Settings -->
   <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.diary.title')}</h1>
-    <!-- Desktop-only Add-exercise header action — sits in the same
-         header slot the Coach Feedback button uses so it reads with
-         the app's canonical header-action styling. The mobile FAB
-         (position:fixed bottom-right) is the primary affordance
-         below 1280px; hidden here on narrow viewports so mobile
-         users see one clear affordance, not two. -->
-    {#if _wideViewport && exercises.length > 0}
+    <!-- Header actions only where the pinned rail shows; everywhere else
+         the top-right strip owns this corner and carries them. The
+         FAB is Add below html.wide-content, the strip's Add from there
+         to the rail, this one with the rail: never none and never two. -->
+    {#if _railPinnedShown && exercises.length > 0}
       <button class="diary-header-action diary-header-add"
-              on:click={handleAddFabClick}
-              title="Add" aria-label="Add">
+              on:click={() => showAddMenu = true}
+              title={$_('diary_extra.add_menu_title')} aria-label={$_('diary_extra.add_menu_title')}>
         <span class="material-symbols-rounded">add</span>
       </button>
     {/if}
-    {#if $currentUser?.trainer_id || unreadFeedbackCount > 0 || inboxRows.length > 0}
+    {#if _railPinnedShown && showCoachInboxButton}
       <button class="diary-header-action" class:dim={unreadFeedbackCount === 0}
               on:click={openCoachInbox}
-              title="Coach Feedback" aria-label="Coach feedback">
+              title={$_('coaching.sheets.coach_feedback')} aria-label={$_('coaching.sheets.coach_feedback')}>
         <span class="material-symbols-rounded">
           {unreadFeedbackCount > 0 ? 'mark_email_unread' : 'forum'}
         </span>
@@ -2334,7 +2509,7 @@
        .diary-right-rail is display:none. Gated by
        html:not(.force-mobile-layout) so the desktop opt-out toggle
        still delivers the mobile flow at any width. -->
-  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'} bind:this={_diaryBodyEl}>
+  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'} class:rail-room={_railRoom} class:center-room={_centerRoom} bind:this={_diaryBodyEl}>
 
   <!-- Left column wrapper (desktop only via grid; mobile just stacks).
        Groups the session HUD (summary-bar + now-strip) into one grid
@@ -2448,6 +2623,7 @@
           class="hud-notes-input"
           placeholder={$_('diary_extra.notes_ph')}
           bind:value={notes}
+          on:focus={notesFocused}
           on:blur={saveNotes}
           rows="4"
         ></textarea>
@@ -2504,28 +2680,33 @@
   {/if}
 
 
-  {#if $todayPrescription && ($todayPrescription.id || $todayPrescription.template_id || $todayPrescription.exercises)}
+  {#if $todayPrescription && ($todayPrescription.id || $todayPrescription.template_id || $todayPrescription.exercises) && pxStatus($todayPrescription) !== 'declined'}
     {@const px = $todayPrescription}
     {@const alreadyLoaded = $todayLog?.template_id && $todayLog.template_id === px.template_id && ($todayLog?.exercises?.length > 0)}
-    <div class="coach-banner" class:loaded={alreadyLoaded}>
+    <div class="coach-banner" class:loaded={alreadyLoaded && pxStatus(px) !== 'pending'} class:asking={pxStatus(px) === 'pending'}>
       <span class="material-symbols-rounded coach-icon">supervisor_account</span>
       <div class="coach-body">
         <div class="coach-title">
-          Coach {px.trainer_name || 'your trainer'} prescribed:
-          <strong>{px.template_name || px.name || 'a workout'}</strong>
+          {$_('diary.prescription.title', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}
+          <strong>{px.template_name || px.name || $_('diary.prescription.a_workout')}</strong>
         </div>
         {#if px.notes}
           <div class="coach-notes">{px.notes}</div>
         {/if}
       </div>
-      {#if alreadyLoaded}
+      {#if pxStatus(px) === 'pending'}
+        <div class="coach-answer">
+          <button class="btn btn-secondary coach-btn" on:click={() => answerPrescription(px, 'decline')}>{$_('diary.prescription.decline')}</button>
+          <button class="btn btn-primary coach-btn" on:click={() => answerPrescription(px, 'accept')}>{$_('diary.prescription.accept')}</button>
+        </div>
+      {:else if alreadyLoaded}
         <span class="coach-loaded-chip">
           <span class="material-symbols-rounded" style="font-size:14px">check_circle</span>
-          Loaded
+          {$_('diary.prescription.loaded')}
         </span>
       {:else}
         <button class="btn btn-primary coach-btn" on:click={loadFromPrescription}>
-          Load
+          {$_('diary.prescription.load')}
         </button>
       {/if}
     </div>
@@ -2587,19 +2768,46 @@
     {/each}
   {/if}
 
+  {#if askingShown.length > 0}
+    <!-- Waiting for an answer: on any day, so the dot always leads somewhere. -->
+    <div class="suggested-section">
+      <div class="suggested-head">
+        <span class="material-symbols-rounded suggested-icon">assignment</span>
+        {$_('diary.prescription.waiting_head')}
+      </div>
+      {#each askingShown as px (px.id)}
+        <div class="suggested-row asking">
+          <div class="suggested-body">
+            <span class="suggested-title">{px.template_name || px.name || $_('diary.prescription.coach_pick')}</span>
+            <span class="suggested-sub">
+              {#if px.date}{formatDateHeader(px.date)} · {/if}
+              {#if px.program_name}{px.program_name} · {/if}
+              {$_('diary.prescription.from', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}
+              {#if px.notes} · {px.notes}{/if}
+            </span>
+          </div>
+          <div class="coach-answer">
+            <button class="btn btn-secondary coach-btn" on:click={() => answerPrescription(px, 'decline')}>{$_('diary.prescription.decline')}</button>
+            <button class="btn btn-primary coach-btn" on:click={() => answerPrescription(px, 'accept')}>{$_('diary.prescription.accept')}</button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   {#if suggestedPrescriptions.length > 0 && exercises.length === 0 && !isFuture}
     <div class="suggested-section">
       <div class="suggested-head">
         <span class="material-symbols-rounded suggested-icon">recommend</span>
-        Suggested by your coach
+        {$_('diary.prescription.suggested_head')}
       </div>
       {#each suggestedPrescriptions as px (px.id)}
         <button class="suggested-row" on:click={() => startSuggestedPrescription(px)}>
           <div class="suggested-body">
-            <span class="suggested-title">{px.template_name || px.name || 'Coach pick'}</span>
+            <span class="suggested-title">{px.template_name || px.name || $_('diary.prescription.coach_pick')}</span>
             <span class="suggested-sub">
               {#if px.program_name}{px.program_name} · {/if}
-              from {px.trainer_name || 'your coach'}
+              {$_('diary.prescription.from', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}
               {#if px.notes} · {px.notes}{/if}
             </span>
           </div>
@@ -2669,11 +2877,12 @@
               <span class="qc-meta">{$_('diary_extra.tap_pick_workout')}</span>
             </button>
           {/if}
-          {#each suggestedPrescriptions.slice(0, 1) as px (px.id)}
+          <!-- Only one the client accepted: a waiting one asks first, above. -->
+          {#each suggestedPrescriptions.filter(p => pxStatus(p) === 'accepted').slice(0, 1) as px (px.id)}
             <button class="quick-card coach" on:click={() => startSuggestedPrescription(px)}>
               <span class="qc-tag">{$_('diary_extra.coach_pick')}</span>
-              <span class="qc-title">{px.template_name || px.name || 'Coach workout'}</span>
-              <span class="qc-meta">From {px.trainer_name || 'your coach'}</span>
+              <span class="qc-title">{px.template_name || px.name || $_('diary.prescription.coach_pick')}</span>
+              <span class="qc-meta">{$_('diary.prescription.from_card', { values: { name: px.trainer_name || $_('diary.prescription.your_coach') } })}</span>
             </button>
           {/each}
           {#each recentWorkouts.slice(0, 1) as rw (rw.id)}
@@ -2829,6 +3038,7 @@
             class="notes-input"
             placeholder={$_('diary_extra.notes_ph')}
             bind:value={notes}
+            on:focus={notesFocused}
             on:blur={saveNotes}
             rows="2"
           ></textarea>
@@ -2873,15 +3083,15 @@
 
   </div><!-- /.diary-main-col -->
 
-  <!-- Right rail — program context. Only renders visibly at >=1280px
-       (mobile CSS sets display:none). NT-parity: pinned mode portals
+  <!-- Right rail, program context. Only renders where the grid has room
+       for its column and it is pinned (_railPinnedShown). NT-parity: pinned mode portals
        to document.body so position:fixed resolves against the viewport
        (not against .page-transition, which has will-change:transform
        and breaks fixed positioning for descendants). Hidden+overlay
        mode renders the same {@render railWidgets()} snippet as a
        fixed overlay outside .diary-body. The snippet itself is
        defined at outer scope below so both call sites can reach it. -->
-  {#if _railMode === 'pinned'}
+  {#if _railPinnedShown}
     <aside
       use:portal
       class="diary-right-rail"
@@ -2894,10 +3104,10 @@
 
   </div><!-- /.diary-body -->
 
-  <!-- Portaled edge tab: only visible on wide viewports when the rail
-       is hidden. Tap toggles the overlay open/closed. Chevron flips
+  <!-- Portaled edge tab: at wide-content widths wherever the pinned rail
+       is not up (hidden, or no room for its column). Tap toggles the overlay open/closed. Chevron flips
        to signal which action the tab performs next. -->
-  {#if _railMode === 'hidden' && _wideViewport}
+  {#if $wideContent && !_railPinnedShown}
     <button
       use:portal
       type="button"
@@ -2916,7 +3126,7 @@
   <!-- Hidden+overlay: portaled fixed slide-in that reuses the same
        widget snippet. Only mounts when the overlay is actually open
        so widgets don't double-instantiate under the pinned aside. -->
-  {#if _railMode === 'hidden' && _railOverlay && _wideViewport}
+  {#if _railOverlay && $wideContent && !_railPinnedShown}
     <aside use:portal class="diary-right-rail diary-right-rail-overlay" use:closeOnBack={() => _railOverlay = false} aria-label="Program context">
       {@render railWidgets()}
     </aside>
@@ -2930,7 +3140,7 @@
   <header class="rail-title">
     <span class="rail-title-text">Overview</span>
     <div class="rail-title-actions">
-      {#if _railMode === 'pinned'}
+      {#if _railPinnedShown}
         <button
           type="button"
           class="rail-ctrl-btn"
@@ -2941,6 +3151,8 @@
           <span class="material-symbols-rounded">right_panel_close</span>
         </button>
       {:else}
+        <!-- Pin only where the grid has room for the rail's column. -->
+        {#if _railRoom}
         <button
           type="button"
           class="rail-ctrl-btn"
@@ -2950,6 +3162,7 @@
         >
           <span class="material-symbols-rounded">push_pin</span>
         </button>
+        {/if}
         <button
           type="button"
           class="rail-ctrl-btn"
@@ -3044,6 +3257,9 @@
          column already owns session progress; two Session displays
          on one screen was redundant. Live stats stay in the summary
          bar over there.) -->
+    <!-- The tools below only in the pinned rail: wherever the overlay opens
+         instead, the top-right strip already has every one of them. -->
+    {#if _railPinnedShown}
     <button class="rail-action" on:click={openLoadWorkout}>
       <span class="material-symbols-rounded">library_books</span>
       Load Workout
@@ -3083,6 +3299,7 @@
         {/each}
       </div>
     </div>
+    {/if}
 {/snippet}
 
   <!-- Add FAB (visible only mid-workout — empty state has its own buttons).
@@ -3419,7 +3636,7 @@
 <!-- Coach Feedback Inbox — list every note the member's coach has left.
      Tapping a row marks that specific row seen and jumps to the workout's
      date. "Mark All Seen" clears the inbox without navigating. -->
-<Sheet open={showCoachInbox} on:close={() => showCoachInbox = false} title="Coach Feedback">
+<Sheet open={showCoachInbox} on:close={() => showCoachInbox = false} title={$_('coaching.sheets.coach_feedback')}>
   <div class="inbox-sheet">
     {#if !inboxLoading && inboxRows.some(r => !r.seen_by_member_at)}
       <div class="inbox-toolbar">
@@ -3966,10 +4183,25 @@
     background: var(--surface-2); border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 6px 10px;
+    min-height: 40px;  /* the row's 40px tap target, same as the hamburger and the strip */
     color: var(--text-2); cursor: pointer;
     display: flex; align-items: center; gap: 4px;
   }
   .diary-header-action:hover { color: var(--accent); border-color: var(--accent); }
+  /* Full strength like its neighbors, not dimmed as in the header: a dim
+     icon in this row reads as disabled. The icon and badge carry unread. */
+  .diary-topbar-coach { position: relative; }
+  .diary-topbar-badge {
+    position: absolute; top: -6px; right: -2px;  /* stays inside the 2px gap */
+    min-width: 18px; height: 18px; padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: var(--radius-full);
+    border: 2px solid var(--bg);
+    background: var(--accent); color: white;
+    font-size: 10px; font-weight: 700; line-height: 14px;
+    text-align: center;
+    pointer-events: none;
+  }
   /* Only the first .diary-header-action needs the margin-left:auto to
      push the button group to the right; subsequent siblings sit next
      to it with a small gap. */
@@ -4113,6 +4345,12 @@
   .coach-title strong { font-weight: 700; }
   .coach-notes { font-size: 12px; color: var(--text-3); line-height: 1.3; font-style: italic; }
   .coach-btn { height: 36px; padding: 0 16px; font-size: 13px; flex-shrink: 0; }
+  .coach-answer { display: flex; gap: 8px; flex-shrink: 0; margin-left: auto; }
+  /* Asking: the buttons go under the title when there isn't room beside it. */
+  .coach-banner.asking { flex-wrap: wrap; }
+  .coach-banner.asking .coach-body { min-width: min(180px, 100%); }
+  .suggested-row.asking { cursor: default; flex-wrap: wrap; }
+  .suggested-row.asking:hover { background: none; }
   .coach-loaded-chip {
     display: inline-flex; align-items: center; gap: 4px;
     padding: 5px 10px; border-radius: var(--radius-full);
@@ -4828,7 +5066,9 @@
     :global(html.wide-content) .diary-right-rail-overlay {
       top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
       right: 12px;
-      bottom: 12px;
+      /* As tall as its cards, and never into the bottom nav or the rest
+         and hold timers (the pinned rail's max-height leaves the same room). */
+      bottom: auto;
       left: auto;
       width: 380px;
       max-width: calc(100vw - 24px);
@@ -4839,7 +5079,8 @@
       box-shadow: 0 20px 50px -20px rgba(0,0,0,0.35);
       padding: 12px;
       overflow-y: auto;
-      max-height: none;
+      max-height: calc(100dvh - var(--page-top, var(--safe-top)) - 60px - var(--hamburger-row, 0px)
+        - 12px - var(--nav-bar-h, 0px) - var(--safe-bottom, 0px) - var(--bottom-overlays, 0px));
       align-self: auto;
       animation: rail-slide-in 200ms ease-out;
     }
@@ -4893,6 +5134,12 @@
       border-color: var(--border);
     }
     :global(html.wide-content) .rail-ctrl-btn .material-symbols-rounded { font-size: 16px; }
+    /* On a touch screen (a tablet, an open foldable) the overlay's Close and
+       Pin get a full 40px target. */
+    @media (pointer: coarse) {
+      :global(html.wide-content) .rail-ctrl-btn { width: 40px; height: 40px; }
+      :global(html.wide-content) .rail-ctrl-btn .material-symbols-rounded { font-size: 20px; }
+    }
     /* Desktop empty-state card in the left HUD column. */
     :global(html.wide-content) .diary-body > .diary-hud-col > .hud-empty-card {
       display: flex;
@@ -5016,17 +5263,11 @@
       margin-top: -2px;
     }
 
-    /* Hide the portaled top-right icon strip at wide widths — the
-       right rail's Tools group now carries these three actions
-       (Gym Tools / Body Stats / More). Mirrors NT's diary pattern
-       of dropping mobile top surfaces when the rail owns them. */
-    :global(html.wide-content) :global(.diary-topbar-actions) {
-      display: none;
-    }
     /* Hide the bottom-right FAB stack on wide viewports — the Add
-       button now lives inline in the page header (.diary-header-add),
-       and the FAB overlaps the pinned rail column (and gets covered
-       outright by the overlay, which sits at z-index 40). */
+       button now lives in the top-right strip, or in the page header
+       (.diary-header-add) where the pinned rail shows, and the FAB
+       overlaps the pinned rail column (and gets covered outright by
+       the overlay, which sits at z-index 40). */
     :global(html.wide-content) .fab-group {
       display: none;
     }
@@ -5206,26 +5447,30 @@
   }
 
 
-  /* Two of the three columns below the desktop tier: desktop wants
-     280 + 720 + 340 = 1388px and a foldable open flat has 820. The session
-     column is what is in use while training, so it keeps its place beside the
-     exercise list, and the Overview rail stays a phone-style overlay. */
+  /* Two of the three columns wherever the grid has no room for the rail:
+     desktop wants 280 + 720 + 340 plus gaps and padding (1420px of
+     .diary-body, see _railRoom), and a foldable open flat has 820. The
+     session column is what is in use while training, so it keeps its place
+     beside the exercise list; the top-right strip carries the rail's tools.
+     A 1280px viewport used to be the gate, so a 1280px window, or any window
+     beside a pinned sidebar up to 1700px, put the rail over the exercises.
+     The pinned rail itself is not rendered without room (_railPinnedShown). */
+  :global(html.wide-content) .diary-body:not(.rail-room) {
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 20px;
+  }
+  /* The exercise card's own two-column split (history beside the sets) needs
+     the desktop center column. Below 1280px the center is about 520px on a
+     foldable, so the sets were left roughly 210px and the weight and reps
+     boxes clipped their own numbers; beside a pinned sidebar a desktop window
+     can have as little. The card stays linear and the inputs get the full
+     width. */
   @media (max-width: 1279px) {
-    :global(html.wide-content) .diary-body {
-      grid-template-columns: 280px minmax(0, 1fr);
-      gap: 20px;
-    }
-    /* The pinned rail is portaled to document.body, so a child selector on
-       .diary-body never reaches it. The overlay variant stays, since that is
-       the one the edge tab opens on purpose. */
-    :global(html.wide-content .diary-right-rail:not(.diary-right-rail-overlay)) { display: none; }
-
-    /* The exercise card's own two-column split (history beside the sets) needs
-       the desktop centre column. Here the centre is about 520px, so the sets
-       were left roughly 210px and the weight and reps boxes clipped their own
-       numbers. The card stays linear and the inputs get the full width. */
     :global(html.wide-content) .diary-body .exercise-list :global(.ex-card.standalone) {
       display: block;
     }
+  }
+  :global(html.wide-content) .diary-body:not(.center-room) .exercise-list :global(.ex-card.standalone) {
+    display: block;
   }
 </style>

@@ -28,6 +28,10 @@ export function isOfflineError(err) {
 }
 
 /** The path without its query, for matching. */
+// Marks an answer the offline layer made from what it kept, rather than the
+// server's: Trace reads it to know a list may be shorter than it asked for.
+export const OFFLINE_HEADER = 'X-LiftTrace-Offline';
+
 export const pathOf = (url) => String(url).split('?')[0].replace(/^https?:\/\/[^/]+/, '');
 /** What a mirrored answer is filed under: the path and its query together. */
 export const mirrorKey = (url) => String(url).replace(/^https?:\/\/[^/]+/, '');
@@ -63,6 +67,10 @@ export const MIRRORED_GETS = [
   /^\/api\/trainer\/members\/\d+\/workout\/\d{4}-\d{2}-\d{2}$/,
   /^\/api\/trainer\/members\/\d+\/prescriptions$/,
   /^\/api\/trainer\/activity$/,
+  // Where you stand in coaching, and the requests a coach sent: read-only
+  // here (asking, answering and leaving need the server, see writeOp).
+  /^\/api\/coaching\/state$/,
+  /^\/api\/coaching\/requests$/,
   // Who is signed in, and how. Without these the app reads an unreachable
   // server as "nobody is signed in" and starts forgetting what depends on it,
   // and Settings greets you with an error instead of your own profile.
@@ -142,6 +150,10 @@ export function writeOp(method, url, body) {
   if (path === '/api/trainer/activity/seen' && m === 'POST') return { kind: 'seen', key: 'seen:activity' };
   match = path.match(/^\/api\/trainer\/members\/(\d+)\/prescriptions$/);
   if (match && m === 'POST') return { kind: 'prescription-create', key: null };
+  // A client's answer to a prescription (Accept, Decline): their own
+  // answer, so it queues like their notes; the last one written goes up.
+  match = path.match(/^\/api\/prescriptions\/(\d+)\/answer$/);
+  if (match && m === 'POST') return { kind: 'prescription-answer', key: `prescription-answer:${match[1]}`, id: Number(match[1]) };
   match = path.match(/^\/api\/trainer\/prescriptions\/(-?\d+)$/);
   if (match && (m === 'PUT' || m === 'DELETE')) {
     return { kind: m === 'PUT' ? 'prescription-update' : 'prescription-delete', key: `prescription:${match[1]}`, id: Number(match[1]) };
@@ -184,9 +196,13 @@ const _tombs = (body) => {
 export function collapseOps(ops) {
   const byKey = new Map();
   const tombs = new Map();
+  // What each of a workout's queued saves said it changed, together. One
+  // that didn't say (queued by an earlier version) makes the merged one say
+  // nothing, so the server takes all of it, as it did then.
+  const changes = new Map();
   const out = [];
 
-  for (const op of ops || []) {
+  for (let op of ops || []) {
     if (!op) continue;
     // A create is keyed by the temporary id it was given when it was queued,
     // which is what a later edit or removal of that row carries too.
@@ -202,6 +218,19 @@ export function collapseOps(ops) {
         t.sets.set(ex, set);
       }
       tombs.set(op.key, t);
+      const listed = op.body?.changed_uuids;
+      const c = changes.has(op.key) ? changes.get(op.key) : { exercises: new Set(), sets: new Map() };
+      if (c === null || !listed || typeof listed !== 'object' || !Array.isArray(listed.exercises)) {
+        changes.set(op.key, null);
+      } else {
+        for (const uuid of listed.exercises) c.exercises.add(uuid);
+        for (const [ex, uuids] of Object.entries(listed.sets || {})) {
+          const set = c.sets.get(ex) || new Set();
+          for (const uuid of uuids || []) set.add(uuid);
+          c.sets.set(ex, set);
+        }
+        changes.set(op.key, c);
+      }
     }
 
     const prev = byKey.get(op.key);
@@ -214,22 +243,45 @@ export function collapseOps(ops) {
         continue;
       }
     }
+    // A new workout of the day made here and then changed again: still one
+    // new workout, with the newest values. Made and then deleted: it never
+    // happened. Without this the change went up alone, carrying an id the
+    // server never had, and landed in the day's first workout.
+    if (prev?.kind === 'workout' && prev.body?.new_session && prev.tempId != null) {
+      if (op.kind === 'workout-delete') { byKey.delete(op.key); continue; }
+      if (op.kind === 'workout') {
+        byKey.set(op.key, { ...op, body: { ...op.body, new_session: true, client_key: prev.body.client_key }, tempId: prev.tempId, changed: null });
+        continue;
+      }
+    }
+    // A later change of the same thing goes up in its place: it carries
+    // what both changed, made as late as the later one. When either can't
+    // say what it changed (no copy to tell by, or queued by an earlier
+    // version), the merged one counts all it sends: a narrower list would
+    // drop the earlier change's other fields.
+    if (prev) {
+      op = { ...op, changed: Array.isArray(prev.changed) && Array.isArray(op.changed) ? [...new Set([...prev.changed, ...op.changed])] : null };
+      // A day's first workout made here keeps the temporary id it was made
+      // under, so the replay still learns the server's id for it.
+      if (op.kind === 'workout' && prev.kind === 'workout' && op.tempId == null && prev.tempId != null) op.tempId = prev.tempId;
+    }
     byKey.set(op.key, op);
   }
 
   for (const op of byKey.values()) {
     if (op.kind !== 'workout') { out.push(op); continue; }
     const t = tombs.get(op.key);
-    out.push({
-      ...op,
-      body: {
-        ...op.body,
-        deleted_uuids: {
-          exercises: [...t.exercises],
-          sets: Object.fromEntries([...t.sets].map(([ex, set]) => [ex, [...set]])),
-        },
+    const c = changes.get(op.key);
+    const body = {
+      ...op.body,
+      deleted_uuids: {
+        exercises: [...t.exercises],
+        sets: Object.fromEntries([...t.sets].map(([ex, set]) => [ex, [...set]])),
       },
-    });
+    };
+    if (c) body.changed_uuids = { exercises: [...c.exercises], sets: Object.fromEntries([...c.sets].map(([ex, set]) => [ex, [...set]])) };
+    else delete body.changed_uuids;
+    out.push({ ...op, body });
   }
   return out.sort((a, b) => (a.seq || 0) - (b.seq || 0));
 }
@@ -248,11 +300,61 @@ export function sentSeqs(ops, doneKeys) {
 
 // ── What the screens see while work is waiting ──────────────────────
 
+/** A queued save as a screen shows it: never with the request's own flags.
+ *  The Diary saves what it shows back whole, and with `new_session` still on
+ *  every save of a workout started here started yet another one. */
+function _asShown(workout) {
+  delete workout.new_session;
+  delete workout.client_key;
+  return workout;
+}
+
+/**
+ * A queued save of a workout by a temporary id the server never gave its own
+ * id for (its creation refused, or lost): sent as it is, the server put it in
+ * the day's first workout, over what was there. It goes up as a new workout
+ * of the day instead. Not when the queue holds a day's first workout queued
+ * by an earlier version, with no temporary id: that is what such an id meant.
+ */
+export function orphanWorkoutSave(op, map, ops) {
+  if (op?.kind !== 'workout' || op.body?.new_session) return null;
+  const id = op.body?.id;
+  if (id == null || !isTempId(id) || map?.[Number(id)] != null) return null;
+  const date = String(op.key).slice('workout:'.length).split('#')[0];
+  if ((ops || []).some(o => o.kind === 'workout' && o.key === `workout:${date}#default` && o.tempId == null)) return null;
+  const body = { ...op.body, new_session: true, client_key: `web-workout${id}` };
+  delete body.id;
+  return body;
+}
+
+/**
+ * What is queued for one workout of a day. `want`: the workout asked for by
+ * id, or null for the day's first. `firstId`: the day's first workout as held
+ * here, when known. A save sent with no id is about the day's first, which
+ * is also the one made by a day's first save made here.
+ */
+function _opsForWorkout(ops, date, want, firstId) {
+  const ofDay = (ops || []).filter(op => (op.kind === 'workout' || op.kind === 'workout-delete') && op.key.startsWith(`workout:${date}#`));
+  const sessionOf = (op) => op.key.slice(op.key.indexOf('#') + 1);
+  // New workouts of the day started here, under their temporary ids.
+  const made = new Set(ofDay.filter(op => op.body?.new_session && op.tempId != null).map(op => String(op.tempId)));
+  const firstMadeHere = ofDay.find(op => sessionOf(op) === 'default' && op.tempId != null)?.tempId;
+  // Nothing else known for the day: the first new workout started here is
+  // its first (on the server it is, on a day that had none).
+  const first = firstId ?? firstMadeHere ?? ofDay.find(op => op.body?.new_session && op.tempId != null)?.tempId;
+  const isFirst = (id) => (first != null ? String(first) === String(id) : !made.has(String(id)));
+  return ofDay.filter(op => {
+    const s = sessionOf(op);
+    if (want != null) return s === String(want) || (s === 'default' && isFirst(want));
+    return s === 'default' || (first != null ? s === String(first) : !made.has(s));
+  });
+}
+
 /**
  * The mirrored answer with queued work applied, so a day edited offline
  * shows what you typed rather than what the server last knew.
  */
-export function answerWithOps(url, mirrored, ops) {
+export function answerWithOps(url, mirrored, ops, firstId = undefined) {
   const path = pathOf(url);
   if (path === '/api/stats/muscle-recovery-adjustments') {
     const changed = collapseOps(ops || []).filter(op => op.kind === 'recovery-adjustment');
@@ -274,14 +376,53 @@ export function answerWithOps(url, mirrored, ops) {
     }
     return [...rows.values()].sort((a, b) => a.muscle.localeCompare(b.muscle));
   }
+  // A prescription answered here: shown answered until the server has it.
+  if (/^\/api\/prescriptions\/my\//.test(path)) {
+    const answers = new Map((ops || []).filter(op => op.kind === 'prescription-answer')
+      .sort((a, b) => (a.seq || 0) - (b.seq || 0))
+      .map(op => [op.id, op.body?.answer === 'accept' ? 'accepted' : 'declined']));
+    if (!answers.size || mirrored == null) return mirrored;
+    const apply = (r) => (r && answers.has(r.id) ? { ...r, status: answers.get(r.id) } : r);
+    return Array.isArray(mirrored) ? mirrored.map(apply) : apply(mirrored);
+  }
   const day = path.match(/^\/api\/workout\/(\d{4}-\d{2}-\d{2})$/);
   if (day) {
-    const queued = (ops || []).filter(op => op.kind === 'workout' && op.key.startsWith(`workout:${day[1]}#`));
-    const removed = (ops || []).some(op => op.kind === 'workout-delete' && op.key.startsWith(`workout:${day[1]}#`));
+    // A day can hold more than one workout (#76): only what was queued for
+    // the one asked for applies. `firstId`: the day's first workout, as held
+    // here, for a read by id.
+    const want = new URLSearchParams(String(url).split('?')[1] || '').get('id');
+    const mine = _opsForWorkout(ops, day[1], want, want == null ? mirrored?.workout?.id : firstId);
+    const queued = mine.filter(op => op.kind === 'workout');
+    const removed = mine.some(op => op.kind === 'workout-delete');
     if (removed && !queued.length) return { workout: null };
     if (!queued.length) return mirrored;
     const last = queued[queued.length - 1];
-    return { workout: { ...(mirrored?.workout || {}), ...last.body, _pending: true } };
+    const workout = _asShown({ ...(mirrored?.workout || {}), ...last.body, _pending: true });
+    // Made here: its temporary id, until the server gives it its own.
+    if (workout.id == null && last.tempId != null) workout.id = last.tempId;
+    return { workout };
+  }
+  // The day's tabs: a workout started here shows as one, a deleted one goes.
+  const tabs = path.match(/^\/api\/workout\/(\d{4}-\d{2}-\d{2})\/sessions$/);
+  if (tabs) {
+    const work = (ops || []).filter(op => (op.kind === 'workout' || op.kind === 'workout-delete') && op.key.startsWith(`workout:${tabs[1]}#`))
+      .sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    if (!work.length) return mirrored;
+    const held = Array.isArray(mirrored?.sessions) ? mirrored.sessions : mirrored === undefined ? [] : null;
+    if (held === null) return mirrored;
+    let rows = [...held];
+    for (const op of work) {
+      const session = op.key.slice(op.key.indexOf('#') + 1);
+      const at = session === 'default' ? (rows.length ? 0 : -1) : rows.findIndex(r => String(r.id) === session);
+      // With no id named, the server deletes the day's first.
+      if (op.kind === 'workout-delete') {
+        rows = rows.filter((r, i) => i !== at);
+        continue;
+      }
+      if (at >= 0 && !op.body?.new_session) rows[at] = _asShown({ ...rows[at], ...op.body, id: rows[at].id, _pending: true });
+      else if (at < 0) rows.push(_asShown({ ...op.body, date: tabs[1], id: op.body?.id ?? op.tempId ?? -(op.seq || 1), _pending: true }));
+    }
+    return { ...(mirrored || {}), sessions: rows };
   }
   // The recent list feeds the Diary's dots, week strip and streak and the
   // Statistics heatmap, so a day logged, cleared or deleted offline has to
@@ -299,8 +440,10 @@ export function answerWithOps(url, mirrored, ops) {
       // With no session named, a save goes to the day's first session and a
       // delete takes the day, as on the day itself.
       const onDay = rows.filter(r => r.date === date);
+      // With no session named, a save or a delete is about the day's first,
+      // as on the server.
       const mine = session === 'default'
-        ? (op.kind === 'workout-delete' ? onDay : onDay.sort((a, b) => (a.session_seq || 0) - (b.session_seq || 0)).slice(0, 1))
+        ? onDay.sort((a, b) => (a.session_seq || 0) - (b.session_seq || 0)).slice(0, 1)
         : onDay.filter(r => String(r.id) === session);
       if (op.kind === 'workout-delete') { rows = rows.filter(r => !mine.includes(r)); continue; }
       if (mine.length && !op.body?.new_session) {
@@ -392,8 +535,11 @@ export function answerWithOps(url, mirrored, ops) {
 
 /** The reply a queued workout save hands back, shaped like the route's own. */
 export function queuedWorkoutReply(mirrored, body, tempId) {
-  const workout = { ...(mirrored?.workout || {}), ...body, _pending: true };
-  if (workout.id == null) workout.id = tempId;
+  // A new workout of the day is a row of its own: nothing of the one held
+  // here, which answered with that one's id, so the next save went there.
+  const made = !!body?.new_session && body?.id == null;
+  const workout = _asShown({ ...(made ? {} : (mirrored?.workout || {})), ...body, _pending: true });
+  if (made || workout.id == null) workout.id = tempId;
   return { workout, tombstones: [], queued: true, offline: true };
 }
 
@@ -435,6 +581,8 @@ export function queuedReply(op, body, tempId) {
         },
         ...queued,
       };
+    case 'prescription-answer':
+      return { id: op.id, status: body?.answer === 'accept' ? 'accepted' : 'declined', ...queued };
     default:
       return { ok: true, ...(body || {}), ...queued };
   }
@@ -478,12 +626,13 @@ export function describeOp(op) {
     case 'recovery-adjustment': return 'a muscle recovery adjustment you changed';
     case 'program-activate': return 'the program you started';
     case 'program-week':     return 'the program week you moved to';
-    case 'coach-note':       return 'the note you left for your member';
+    case 'coach-note':       return 'the note you left for your client';
     case 'coach-reply':      return 'your reply to your coach';
     case 'seen':             return 'marking notes as read';
     case 'prescription-create': return 'the work you prescribed';
     case 'prescription-update': return 'a prescription you changed';
     case 'prescription-delete': return 'a prescription you removed';
+    case 'prescription-answer': return 'your answer to a prescription';
     case 'profile':          return 'your profile';
     case 'photo-add':        return 'the progress photo you took';
     case 'photo-delete':     return 'a progress photo you removed';
@@ -542,10 +691,28 @@ export function remapIds(value, map) {
   return walk(value);
 }
 
+/**
+ * Queued work as it stands now some temporary ids have their real ones (a
+ * replay that stopped partway): filed under the real id, so a read of that
+ * workout still finds what is queued for it.
+ */
+export function opsAsKnown(ops, map) {
+  if (!map || !Object.keys(map).length) return ops;
+  const real = (id) => (id != null && map[Number(id)] != null ? map[Number(id)] : id);
+  return (ops || []).map(op => {
+    const m = String(op.key || '').match(/^(workout:\d{4}-\d{2}-\d{2}#)(-\d+)$/);
+    if (!m || map[Number(m[2])] == null) return op;
+    return { ...op, key: `${m[1]}${map[Number(m[2])]}`, tempId: real(op.tempId), body: remapIds(op.body, map) };
+  });
+}
+
 /** A path that still names a temporary id, pointed at the real one. */
 export function remapPath(path, map) {
   return String(path).replace(/\/(-\d+)(\b|$)/, (all, id) => {
     const real = map?.[Number(id)];
     return real != null ? `/${real}` : all;
+  }).replace(/([?&]id=)(-\d+)(?=&|$)/, (all, key, id) => {
+    const real = map?.[Number(id)];
+    return real != null ? `${key}${real}` : all;
   });
 }
