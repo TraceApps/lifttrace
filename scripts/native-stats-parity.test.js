@@ -34,6 +34,22 @@ test('body-map muscle load: the server and phone copies give identical results',
   }
 });
 
+test('personal muscle loads are independent, canonical, and identical on server and phone', () => {
+  const input = { chest: 1, triceps: 0.55, deltoids: 0, biceps: 0.333 };
+  const expected = { chest: 1, triceps: 0.55, biceps: 0.33 };
+  assert.deepEqual(serverLoad.validateMuscleLoads(input), expected);
+  assert.deepEqual(clientLoad.validateMuscleLoads(input), expected);
+  assert.deepEqual(serverLoad.musclesOf({ loads: input, primary: ['Quadriceps'] }), expected,
+    'a personal profile replaces, rather than adds to, catalog defaults');
+  assert.deepEqual(clientLoad.musclesOf({ loads: input, primary: ['Quadriceps'] }), expected);
+
+  for (const invalid of [null, [], {}, { unknown: 1 }, { chest: -0.1 }, { chest: 1.1 },
+    { chest: Infinity }, { chest: '0.5' }, { chest: null }]) {
+    assert.throws(() => serverLoad.validateMuscleLoads(invalid));
+    assert.throws(() => clientLoad.validateMuscleLoads(invalid));
+  }
+});
+
 test('muscle groups: the server and phone copies give identical results', () => {
   for (const n of NAMES) assert.equal(clientGroups.normalizeMuscle(n), serverGroups.normalizeMuscle(n), n);
 });

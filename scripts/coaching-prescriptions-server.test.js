@@ -12,7 +12,8 @@
  * - Offline: an answer queues on the web and shows answered (offline-edits).
  */
 import assert from 'node:assert/strict';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer as netServer } from 'node:net';
 import http from 'node:http';
@@ -24,6 +25,7 @@ import test from 'node:test';
 import { writeOp, answerWithOps, queuedReply } from '../src/lib/offline-edits.js';
 
 const serverRequire = createRequire(new URL('../server/package.json', import.meta.url));
+const execFileAsync = promisify(execFile);
 let ready = false;
 try { serverRequire('better-sqlite3'); ready = true; } catch { /* server packages missing: skip */ }
 
@@ -202,8 +204,9 @@ test('a declined prescription is never reported as missed', { skip: !ready }, as
   const accepted = d.prepare(`INSERT INTO coach_prescriptions (trainer_id, member_id, name, exercises, date, status) VALUES (?, ?, 'Forgot', '[]', '2026-01-06', 'accepted')`).run(ids.coach2, ids.other).lastInsertRowid;
   d.close();
   // The scheduler's daily check, run as the scheduler runs it.
-  execFileSync(process.execPath, ['--input-type=module', '-e', "const m = await import('./lib/coach-activity.js'); m.checkMissedPrescriptions();"], {
-    cwd: serverDir, env: { ...cleanEnv(), DB_PATH: join(dir, 'lt.db'), JWT_SECRET, NODE_ENV: 'test', LOG_LEVEL: 'error', UPLOADS_PATH: join(dir, 'uploads') }, stdio: 'ignore',
+  // The child may notify our ntfy mock: keep this process free to answer it.
+  await execFileAsync(process.execPath, ['--input-type=module', '-e', "const m = await import('./lib/coach-activity.js'); m.checkMissedPrescriptions();"], {
+    cwd: serverDir, env: { ...cleanEnv(), DB_PATH: join(dir, 'lt.db'), JWT_SECRET, NODE_ENV: 'test', LOG_LEVEL: 'error', UPLOADS_PATH: join(dir, 'uploads') }, timeout: 10000,
   });
   const d2 = db();
   const kinds = (id) => d2.prepare(`SELECT kind FROM coach_activity WHERE prescription_id = ?`).all(id).map(r => r.kind);

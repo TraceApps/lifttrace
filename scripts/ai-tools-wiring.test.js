@@ -80,6 +80,7 @@ const EXEMPT = {
   coach_feedback:        'returned inside get_workout detail',
   body_stat_media:       'covered by get_progress_photos',
   set_media:             'video Trace cannot watch; the coach note on a clip is returned inside get_workout detail',
+  muscle_recovery_adjustments: 'subjective UI state, not an objective coaching measurement',
   coach_clients:         'who coaches whom: consent between two people, not training data Trace reasons about',
   coach_messages:        'a conversation between two people: another person\'s words are never sent to an AI provider',
 };
@@ -89,6 +90,7 @@ const COVERED = {
   body_stats_log:      /\/api\/body-stats/,
   cardio_log:          /\/api\/cardio/,
   exercises:           /\/api\/exercises/,
+  exercise_muscle_overrides: /\/api\/exercises/,
   programs:            /\/api\/programs/,
   workout_log:         /\/api\/workout/,
   workout_templates:   /\/api\/(templates|workout)/,

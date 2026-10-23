@@ -105,8 +105,15 @@
         aria-label={r.label}
         on:mouseenter={() => dispatch('focus', r.key)}
         on:mouseleave={() => dispatch('blur')}
-        on:click={() => dispatch('focus', r.key)}
-        on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dispatch('focus', r.key); } }}
+        on:focus={() => dispatch('focus', r.key)}
+        on:click={() => { dispatch('focus', r.key); dispatch('select', r.key); }}
+        on:keydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            dispatch('focus', r.key);
+            dispatch('select', r.key);
+          }
+        }}
       />
     {/each}
   </g>

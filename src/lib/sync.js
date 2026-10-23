@@ -518,6 +518,8 @@ async function _applyCoaching(pull) {
 
 async function _applyPull(pull, result, guard) {
   await _applyExercises(pull.exercises, result, guard);
+  await _applyExerciseMuscleOverrides(pull.exercise_muscle_overrides, result, guard);
+  await _applyMuscleRecoveryAdjustments(pull.muscle_recovery_adjustments, result, guard);
   await _applyPrograms(pull.programs, result, guard);
   await _applyTemplates(pull.workout_templates, result, guard);
   if (pull.solo_active !== undefined) await _applySoloActive(pull.solo_active, result, guard);
@@ -652,6 +654,7 @@ async function _remapStatements(maps) {
   if (has('workout_templates')) { ref('workout_log', 'template_id', 'workout_templates'); ref('coach_prescriptions', 'template_id', 'workout_templates'); }
   if (has('workout_log')) ref('workout_tombstones', 'workout_id', 'workout_log');
   if (has('exercises')) {
+    ref('exercise_muscle_overrides', 'exercise_id', 'exercises');
     for (const t of ['workout_log', 'workout_templates', 'coach_prescriptions']) {
       add(`UPDATE ${t} SET exercises = (
           SELECT json_group_array(CASE
@@ -1170,6 +1173,99 @@ async function _applyExercises(rows, result, guard = _NO_GUARD) {
     );
   }
   result.tables.exercises = rows.length;
+}
+
+async function _queuedMuscleOverrideIds() {
+  const rows = await dbQuery(
+    `SELECT table_name FROM sync_queue WHERE table_name LIKE '/api/exercises/%/muscle-load'`, []
+  );
+  const ids = new Set();
+  for (const row of rows) {
+    const match = String(row.table_name || '').match(/^\/api\/exercises\/(-?\d+)\/muscle-load$/);
+    if (match) ids.add(Number(match[1]));
+  }
+  return ids;
+}
+
+async function _applyExerciseMuscleOverrides(rows, result, guard = _NO_GUARD) {
+  if (!rows?.length) { result.tables.exerciseMuscleOverrides = 0; return; }
+  const queued = await _queuedMuscleOverrideIds();
+  for (const row of rows) {
+    _assertAlive();
+    const exerciseId = Number(row.exercise_id);
+    if (queued.has(exerciseId)) { guard.skip(row.updated_at); continue; }
+    if (row.deleted_at) {
+      await dbRun(`DELETE FROM exercise_muscle_overrides WHERE user_id = 1 AND exercise_id = ?`, [exerciseId]);
+      continue;
+    }
+    await dbRun(
+      `INSERT INTO exercise_muscle_overrides
+         (user_id, exercise_id, muscle_loads, created_at, updated_at, deleted_at)
+       VALUES (1, ?, ?, ?, ?, NULL)
+       ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+         muscle_loads = excluded.muscle_loads,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at,
+         deleted_at = NULL`,
+      [
+        exerciseId,
+        typeof row.muscle_loads === 'string' ? row.muscle_loads : JSON.stringify(row.muscle_loads || {}),
+        row.created_at || new Date().toISOString(),
+        row.updated_at || new Date().toISOString(),
+      ]
+    );
+  }
+  result.tables.exerciseMuscleOverrides = rows.length;
+}
+
+async function _queuedRecoveryMuscles() {
+  const rows = await dbQuery(
+    `SELECT table_name FROM sync_queue
+      WHERE table_name LIKE '/api/stats/muscle-recovery-adjustments/%'`, []
+  );
+  const muscles = new Set();
+  for (const row of rows) {
+    const match = String(row.table_name || '').match(/^\/api\/stats\/muscle-recovery-adjustments\/([a-z-]+)$/);
+    if (match) muscles.add(match[1]);
+  }
+  return muscles;
+}
+
+async function _applyMuscleRecoveryAdjustments(rows, result, guard = _NO_GUARD) {
+  if (!rows?.length) { result.tables.muscleRecoveryAdjustments = 0; return; }
+  const queued = await _queuedRecoveryMuscles();
+  for (const row of rows) {
+    _assertAlive();
+    const muscle = String(row.muscle || '');
+    if (!muscle) continue;
+    if (queued.has(muscle)) { guard.skip(row.updated_at); continue; }
+    if (row.deleted_at) {
+      await dbRun(`DELETE FROM muscle_recovery_adjustments WHERE user_id = 1 AND muscle = ?`, [muscle]);
+      continue;
+    }
+    await dbRun(
+      `INSERT INTO muscle_recovery_adjustments
+         (user_id, muscle, effective_age_hours, adjusted_at, basis_workout_timestamp,
+          created_at, updated_at, deleted_at)
+       VALUES (1, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(user_id, muscle) DO UPDATE SET
+         effective_age_hours = excluded.effective_age_hours,
+         adjusted_at = excluded.adjusted_at,
+         basis_workout_timestamp = excluded.basis_workout_timestamp,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at,
+         deleted_at = NULL`,
+      [
+        muscle,
+        Number(row.effective_age_hours),
+        row.adjusted_at,
+        row.basis_workout_timestamp ?? null,
+        row.created_at || new Date().toISOString(),
+        row.updated_at || new Date().toISOString(),
+      ]
+    );
+  }
+  result.tables.muscleRecoveryAdjustments = rows.length;
 }
 
 // Devices that pulled an assignment before the server learned to send the
