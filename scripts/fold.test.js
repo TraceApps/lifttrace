@@ -173,3 +173,24 @@ test('uneven pages still place every card on a page', () => {
   assert.deepEqual(row, ['1', '3', '4', '5', '1']);
   assert.ok(!row.includes('2'), 'the hinge track is never used');
 });
+
+test('a menu opened above a field hangs from the field, so a shorter list stays against it', () => {
+  // A field near the bottom of a 900px screen: no room below, so above.
+  const menu = placeAnchoredMenu({ anchorTop: 800, anchorBottom: 840, viewportHeight: 900 });
+  assert.equal(menu.above, true);
+  // Its bottom edge is 4px over the field's top, whatever the list's height.
+  assert.equal(menu.bottom, 900 - (800 - 4));
+  assert.equal(menu.edge, 'bottom:104px;');
+  const below = placeAnchoredMenu({ anchorTop: 100, anchorBottom: 140, viewportHeight: 900 });
+  assert.equal(below.edge, 'top:144px;');
+  assert.equal(below.bottom, null);
+});
+
+test('every menu that can open above uses the bottom edge, not a fixed top', async () => {
+  const { readFileSync } = await import('node:fs');
+  for (const f of ['src/components/diary/SetRow.svelte', 'src/components/programs/TemplateSpecRow.svelte', 'src/components/ui/LoadTypeMenu.svelte']) {
+    const s = readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+    assert.match(s, /place\.edge/, f);
+    assert.doesNotMatch(s, /place\.top/, f);
+  }
+});

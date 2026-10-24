@@ -51,7 +51,7 @@
   const MARGIN = 14;  // smallest distance kept from any screen edge
 
   let menuEl;
-  let pos = { top: 0, left: 0, width: 260, maxHeight: null };
+  let pos = { edge: 'top:0px;', left: 0, width: 260, maxHeight: null };
   // The menu has to be in the DOM to be measured, so it is laid out once
   // invisibly and only shown once it knows where it belongs.
   let placed = false;
@@ -68,7 +68,7 @@
     const left = Math.min(Math.max(MARGIN, rect.left), Math.max(MARGIN, vw - width - MARGIN));
 
     placed = false;
-    pos = { top: rect.bottom + GAP, left, width, maxHeight: null };
+    pos = { edge: `top:${rect.bottom + GAP}px;`, left, width, maxHeight: null };
     await tick();
 
     const height = menuEl?.offsetHeight || 0;
@@ -87,7 +87,8 @@
       ? keepOffCrease({ pos: left, size: width, start: crease.start, end: crease.end, min: MARGIN, max: vw - MARGIN })
       : left;
     pos = {
-      top: place.top, left: x, width,
+      // Above the trigger it hangs from its bottom edge, against the trigger.
+      edge: place.edge, left: x, width,
       maxHeight: height && place.maxHeight >= height ? null : place.maxHeight,
     };
     placed = true;
@@ -100,7 +101,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div use:portal class="ltm-backdrop" on:click|stopPropagation={close} use:closeOnBack={close}></div>
 <div use:portal class="ltm" role="menu" bind:this={menuEl} on:click|stopPropagation
-     style="top:{pos.top}px; left:{pos.left}px; width:{pos.width}px;
+     style="{pos.edge} left:{pos.left}px; width:{pos.width}px;
             {pos.maxHeight ? `max-height:${pos.maxHeight}px; overflow-y:auto;` : ''}
             visibility:{placed ? 'visible' : 'hidden'}">
   <div class="ltm-head">{$_('workout_editor.load_type')}</div>
