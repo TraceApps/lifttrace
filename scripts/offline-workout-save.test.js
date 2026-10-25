@@ -82,8 +82,8 @@ test('a write kept for retry holds later writes to the same thing, and only thos
 });
 
 test('the device-copy update runs behind the save reply, and device reads wait for it', () => {
-  assert.match(apiFetch, /_localWrites = _localWrites\s*\n\s*\.then\(\(\) => Promise\.race\(\[_mirrorWorkoutWrite\(url, method, copy, gen\)/);
-  assert.doesNotMatch(apiFetch, /if \(isWrite && res\.ok\) await _mirrorWorkoutWrite/);
+  assert.match(apiFetch, /_localWrites = _localWrites\s*\n\s*\.then\(\(\) => Promise\.race\(\[_mirrorSuccessfulWrite\(url, method, init, copy, gen\)/);
+  assert.doesNotMatch(apiFetch, /if \(isWrite && res\.ok\) await _mirrorSuccessfulWrite/);
   assert.equal((apiFetch.match(/await _localWrites;\s*\n\s*(const cached = )?(await|return) _dispatchLocal/g) || []).length, 2);
 });
 
@@ -96,7 +96,7 @@ test('the id swap takes device ids (below zero) anywhere, earlier versions\' ids
 
 test('after an online delete, reads never wait on the network', () => {
   assert.match(apiFetch, /await forgetDeletedWorkout\(date, id != null && id !== '' \? Number\(id\) : null, gen\);\s*\n\s*reconcileWorkoutDate\(date, \[\], gen\)\.catch\(\(\) => \{\}\);/);
-  assert.match(apiFetch, /Promise\.race\(\[_mirrorWorkoutWrite\(url, method, copy, gen\), new Promise\(r => setTimeout\(r, 3000\)\)\]\)/);
+  assert.match(apiFetch, /Promise\.race\(\[_mirrorSuccessfulWrite\(url, method, init, copy, gen\), new Promise\(r => setTimeout\(r, 3000\)\)\]\)/);
   assert.match(sync, /export async function forgetDeletedWorkout\(date, id, gen = accountGen\(\)\)/);
 });
 
@@ -111,4 +111,8 @@ test('the server deletes the first live session when no id is given', () => {
   const server = readFileSync(new URL('../server/routes/workout.js', import.meta.url), 'utf8');
   const del = server.slice(server.indexOf("router.delete('/:date'"));
   assert.match(del, /_resolveWorkout\(userId, date, explicitId, \{ excludeDeleted: true \}\)/);
+});
+
+test('an online muscle-load change is mirrored into the Android device copy', () => {
+  assert.match(apiFetch, /await LtApiNative\.handle\(method, path, body, \{\}\);/);
 });

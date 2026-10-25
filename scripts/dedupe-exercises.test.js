@@ -72,6 +72,34 @@ function dedupeExercisesOnce(db, { force = false } = {}) {
     return touched;
   }
 
+  function rewriteMuscleOverrides(remap) {
+    let touched = 0;
+    for (const [duplicateId, survivorId] of remap) {
+      const rows = db.prepare('SELECT * FROM exercise_muscle_overrides WHERE exercise_id = ?').all(duplicateId);
+      for (const row of rows) {
+        const existing = db.prepare(
+          'SELECT * FROM exercise_muscle_overrides WHERE exercise_id = ? AND user_id IS ? LIMIT 1'
+        ).get(survivorId, row.user_id);
+        if (!existing) {
+          db.prepare('UPDATE exercise_muscle_overrides SET exercise_id = ? WHERE id = ?').run(survivorId, row.id);
+        } else {
+          const rowWins = (!!existing.deleted_at && !row.deleted_at)
+            || (!!existing.deleted_at === !!row.deleted_at
+              && String(row.updated_at || row.created_at || '') > String(existing.updated_at || existing.created_at || ''));
+          if (rowWins) {
+            db.prepare(`UPDATE exercise_muscle_overrides
+                           SET muscle_loads = ?, created_at = ?, updated_at = ?, deleted_at = ?
+                         WHERE id = ?`)
+              .run(row.muscle_loads, row.created_at, row.updated_at, row.deleted_at, existing.id);
+          }
+          db.prepare('DELETE FROM exercise_muscle_overrides WHERE id = ?').run(row.id);
+        }
+        touched++;
+      }
+    }
+    return touched;
+  }
+
   const remap = new Map();
   let groups = 0;
   let stats = { wl: 0, wt: 0, cp: 0 };
@@ -105,6 +133,7 @@ function dedupeExercisesOnce(db, { force = false } = {}) {
     const wl = rewriteBlobs('workout_log', remap);
     const wt = rewriteBlobs('workout_templates', remap);
     const cp = rewriteBlobs('coach_prescriptions', remap);
+    const muscle = rewriteMuscleOverrides(remap);
     if (remap.size > 0) {
       const del = db.prepare(`DELETE FROM exercises WHERE id = ?`);
       for (const id of remap.keys()) del.run(id);
@@ -112,7 +141,7 @@ function dedupeExercisesOnce(db, { force = false } = {}) {
     db.prepare(`INSERT INTO app_config (key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
       .run(MARK, new Date().toISOString());
-    stats = { wl, wt, cp };
+    stats = { wl, wt, cp, muscle };
     };
     body();
     db.exec('COMMIT');
@@ -140,6 +169,17 @@ function mkdb() {
     CREATE TABLE workout_log (id INTEGER PRIMARY KEY AUTOINCREMENT, exercises TEXT);
     CREATE TABLE workout_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, exercises TEXT);
     CREATE TABLE coach_prescriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, exercises TEXT);
+    CREATE TABLE exercise_muscle_overrides (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      exercise_id INTEGER NOT NULL,
+      muscle_loads TEXT NOT NULL,
+      created_at TEXT,
+      updated_at TEXT,
+      deleted_at TEXT
+    );
+    CREATE UNIQUE INDEX idx_test_muscle_user ON exercise_muscle_overrides(user_id, exercise_id) WHERE user_id IS NOT NULL;
+    CREATE UNIQUE INDEX idx_test_muscle_null ON exercise_muscle_overrides(exercise_id) WHERE user_id IS NULL;
   `);
   return { db, cleanup: () => { db.close(); try { fs.unlinkSync(p); } catch {} } };
 }
@@ -182,6 +222,28 @@ test('dedupe: merges non-null user edits onto survivor', () => {
     assert.equal(s.video_url, 'https://youtu.be/x');
     assert.equal(s.load_type, 'unilateral');
     assert.equal(s.tips, 'lock knees out');
+  } finally { cleanup(); }
+});
+
+test('dedupe: remaps personal muscle loads and resolves same-user collisions without losing a live profile', () => {
+  const { db, cleanup } = mkdb();
+  try {
+    db.exec(`INSERT INTO exercises (id, name, source, is_global, external_id) VALUES
+      (10, 'Lunge', 'free-db', 1, 'lunge-1'),
+      (20, 'Lunge', 'free-db', 1, 'lunge-1');
+      INSERT INTO exercise_muscle_overrides
+        (id, user_id, exercise_id, muscle_loads, created_at, updated_at, deleted_at) VALUES
+        (1, 1, 10, '{"quadriceps":1}', '2026-01-01', '2026-01-01', '2026-02-01'),
+        (2, 1, 20, '{"gluteal":1}', '2026-03-01', '2026-03-01', NULL),
+        (3, 2, 20, '{"hamstring":0.5}', '2026-03-01', '2026-03-01', NULL);`);
+    const res = dedupeExercisesOnce(db);
+    assert.equal(res.muscle, 2);
+    const rows = db.prepare('SELECT * FROM exercise_muscle_overrides ORDER BY user_id').all();
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every(r => r.exercise_id === 10));
+    assert.equal(rows[0].muscle_loads, '{"gluteal":1}');
+    assert.equal(rows[0].deleted_at, null);
+    assert.equal(rows[1].muscle_loads, '{"hamstring":0.5}');
   } finally { cleanup(); }
 });
 

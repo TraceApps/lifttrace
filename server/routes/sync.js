@@ -146,6 +146,26 @@ router.get('/pull', wrap((req, res) => {
         `SELECT * FROM exercises WHERE updated_at >= ? ORDER BY updated_at`
       ).all(sinceSql).map(parseRow);
 
+  const exercise_muscle_overrides = u != null
+    ? db.prepare(
+        `SELECT * FROM exercise_muscle_overrides
+          WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at`
+      ).all(sinceSql, u).map(parseRow)
+    : db.prepare(
+        `SELECT * FROM exercise_muscle_overrides
+          WHERE updated_at >= ? AND user_id IS NULL ORDER BY updated_at`
+      ).all(sinceSql).map(parseRow);
+
+  const muscle_recovery_adjustments = u != null
+    ? db.prepare(
+        `SELECT * FROM muscle_recovery_adjustments
+          WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at`
+      ).all(sinceSql, u).map(parseRow)
+    : db.prepare(
+        `SELECT * FROM muscle_recovery_adjustments
+          WHERE updated_at >= ? AND user_id IS NULL ORDER BY updated_at`
+      ).all(sinceSql).map(parseRow);
+
   // programs has created_by, not user_id. The programs this account may
   // see (program-access.js): its own, ones assigned to it, and the
   // starters. A deleted account's programs have no maker either, but stay
@@ -301,10 +321,12 @@ router.get('/pull', wrap((req, res) => {
     coachingOut.coaching = { pairings };
   }
 
-  logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
+  logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} muscle_overrides=${exercise_muscle_overrides.length} recovery_adjustments=${muscle_recovery_adjustments.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
 
   sendMaybeGzipped(req, res, {
     exercises,
+    exercise_muscle_overrides,
+    muscle_recovery_adjustments,
     programs,
     workout_templates,
     program_assignments,

@@ -168,6 +168,31 @@ async function _createSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
     CREATE INDEX IF NOT EXISTS idx_exercises_source   ON exercises(source);
 
+    CREATE TABLE IF NOT EXISTS exercise_muscle_overrides (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL DEFAULT 1,
+      exercise_id  INTEGER NOT NULL,
+      muscle_loads TEXT NOT NULL DEFAULT '{}',
+      created_at   TEXT DEFAULT (datetime('now')),
+      updated_at   TEXT DEFAULT (datetime('now')),
+      deleted_at   TEXT,
+      UNIQUE(user_id, exercise_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_emo_exercise ON exercise_muscle_overrides(exercise_id);
+
+    CREATE TABLE IF NOT EXISTS muscle_recovery_adjustments (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id                  INTEGER NOT NULL DEFAULT 1,
+      muscle                   TEXT NOT NULL,
+      effective_age_hours      REAL NOT NULL,
+      adjusted_at              TEXT NOT NULL,
+      basis_workout_timestamp  TEXT,
+      created_at               TEXT DEFAULT (datetime('now')),
+      updated_at               TEXT DEFAULT (datetime('now')),
+      deleted_at               TEXT,
+      UNIQUE(user_id, muscle)
+    );
+
     -- ── Programs & Templates ───────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS programs (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -700,7 +725,8 @@ export async function dbCountUnsynced() {
  *  One-time markers in sync_meta (migrations) stay. */
 const CLEARED_TABLES = ['exercises', 'programs', 'workout_templates', 'program_assignments', 'workout_log',
   'workout_tombstones', 'body_stats_log', 'cardio_log', 'coach_prescriptions', 'ai_chat_history',
-  'user_settings', 'sync_queue', 'row_origin', 'id_remap', 'coach_messages'];
+  'user_settings', 'sync_queue', 'row_origin', 'id_remap', 'coach_messages',
+  'exercise_muscle_overrides', 'muscle_recovery_adjustments'];
 export async function dbClearUserData() {
   // One statement per call: the Android plugin runs only the first
   // statement of each line it's given.
