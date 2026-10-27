@@ -135,14 +135,18 @@ test('checkApiCardioInput refuses what the app route would quietly drop or chang
   assert.doesNotThrow(() => checkApiCardioInput(ok));
   assert.doesNotThrow(() => checkApiCardioInput({ activity: 'Row', duration_min: 20 }));
   assert.doesNotThrow(() => checkApiCardioInput({ ...ok, distance: null, avg_hr: null, notes: null, external_id: 42 }));
+  assert.doesNotThrow(() => checkApiCardioInput({ ...ok, avg_hr: 142.3 }), 'a watch average with decimals is rounded, not refused');
   const refused = [
     [{ ...ok, distance_unit: 'miles' }, /distance_unit must be "km" or "mi"/],
     [{ ...ok, distance: -1 }, /distance must be a number/],
     [{ ...ok, distance: '2.4' }, /distance must be a number/],
     [{ ...ok, duration_min: '33' }, /duration_min must be a number/],
     [{ ...ok, duration_min: 0.5 }, /duration_min must be a number/],
-    [{ ...ok, avg_hr: 138.5 }, /avg_hr must be a whole number/],
-    [{ ...ok, avg_hr: 400 }, /avg_hr must be a whole number/],
+    [{ ...ok, avg_hr: 400 }, /avg_hr must be a number from 1 to 300/],
+    [{ ...ok, avg_hr: '140' }, /avg_hr must be a number/],
+    [{ ...ok, duration_min: 3600 }, /duration_min must be a number of minutes from 1 to 1440/],
+    [{ ...ok, distance: 5000 }, /distance must be a number from 0 to 2000/],
+    [{ ...ok, external_id: '   ' }, /external_id must not be blank/],
     [{ ...ok, activity: '  ' }, /activity required/],
     [{ ...ok, activity: 7 }, /activity required/],
     [{ ...ok, activity: 'x'.repeat(101) }, /activity must be at most 100/],

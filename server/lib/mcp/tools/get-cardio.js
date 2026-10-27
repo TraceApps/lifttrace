@@ -22,6 +22,9 @@ import {
  * GET /api/v1/cardio. Throws a plain Error on bad input.
  */
 export function getCardioCore(userId, { start, end, activity } = {}) {
+  if (activity != null && (typeof activity !== 'string' || activity.length > 100)) {
+    throw new Error('activity must be text of at most 100 characters');
+  }
   const { start: rangeStart, end: rangeEnd } = resolveDateRange(start, end);
   const rangeError = validateDateRange(rangeStart, rangeEnd);
   if (rangeError) throw new Error(rangeError);

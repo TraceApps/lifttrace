@@ -38,7 +38,7 @@ signatures on the receiving end and cannot be retrieved again later.
 | `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
 | `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise. Uses the same record definition the Statistics page and `/api/v1/records` already use. |
 | `program.advanced` | An active program moves to its next week. |
-| `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. |
+| `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. Moving an Android app's own data to a server sends one for each session it brings, as `workout.completed` does for workouts. |
 
 ## Payload
 

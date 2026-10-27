@@ -21,6 +21,10 @@ export const CARDIO_OFF_MESSAGE =
 export const MAX_ACTIVITY_LENGTH = 100;
 export const MAX_NOTES_LENGTH = 2000;
 export const MAX_AVG_HR = 300;
+// A day's worth of minutes, and more distance than anyone covers in one
+// session: seconds sent as minutes, or meters as km, are refused.
+export const MAX_DURATION_MIN = 1440;
+export const MAX_DISTANCE = 2000;
 
 /**
  * Stricter checks for a session logged from outside the app (the public API
@@ -34,17 +38,19 @@ export function checkApiCardioInput(input = {}) {
   if (activity.trim().length > MAX_ACTIVITY_LENGTH) {
     throw new Error(`activity must be at most ${MAX_ACTIVITY_LENGTH} characters`);
   }
-  if (typeof duration_min !== 'number' || !Number.isFinite(duration_min) || duration_min < 1) {
-    throw new Error('duration_min must be a number of minutes, 1 or more');
+  if (typeof duration_min !== 'number' || !Number.isFinite(duration_min) || duration_min < 1 || duration_min > MAX_DURATION_MIN) {
+    throw new Error(`duration_min must be a number of minutes from 1 to ${MAX_DURATION_MIN}`);
   }
-  if (distance != null && (typeof distance !== 'number' || !Number.isFinite(distance) || distance < 0)) {
-    throw new Error('distance must be a number, 0 or more');
+  if (distance != null && (typeof distance !== 'number' || !Number.isFinite(distance) || distance < 0 || distance > MAX_DISTANCE)) {
+    throw new Error(`distance must be a number from 0 to ${MAX_DISTANCE}`);
   }
   if (distance_unit != null && distance_unit !== 'km' && distance_unit !== 'mi') {
     throw new Error('distance_unit must be "km" or "mi"');
   }
-  if (avg_hr != null && (!Number.isInteger(avg_hr) || avg_hr < 1 || avg_hr > MAX_AVG_HR)) {
-    throw new Error(`avg_hr must be a whole number from 1 to ${MAX_AVG_HR}`);
+  // Rounded down to whole beats when stored, as the app does (a watch's
+  // average is often 142.3).
+  if (avg_hr != null && (typeof avg_hr !== 'number' || !Number.isFinite(avg_hr) || avg_hr < 1 || avg_hr > MAX_AVG_HR)) {
+    throw new Error(`avg_hr must be a number from 1 to ${MAX_AVG_HR}`);
   }
   if (notes != null && typeof notes !== 'string') throw new Error('notes must be text');
   if (typeof notes === 'string' && notes.length > MAX_NOTES_LENGTH) {
@@ -52,6 +58,10 @@ export function checkApiCardioInput(input = {}) {
   }
   if (external_id != null && typeof external_id !== 'string' && !Number.isFinite(external_id)) {
     throw new Error('external_id must be text');
+  }
+  // Sent blank, it would quietly log a new copy on every re-send.
+  if (external_id != null && !String(external_id).trim()) {
+    throw new Error('external_id must not be blank; leave it out instead');
   }
 }
 

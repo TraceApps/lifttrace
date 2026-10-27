@@ -202,7 +202,7 @@ Off by default; opt in with `MCP_ENABLED=1` and a new `mcp:read` scope on the to
 Natural tool set (~11):
 
 - **Read**: `get_current_program`, `get_workout_history`, `get_exercise_prs`, `get_body_stats`, `list_exercises`
-- **Write**: `log_workout`, `log_set`, `log_body_stat`, `add_cardio_entry`
+- **Write**: `log_workout`, `log_set`, `log_body_stat`, `log_cardio` (done in #134, with `get_cardio`)
 - **Destructive**: `delete_workout`, `edit_set`, `create_custom_exercise`
 
 Wait until NT's MCP has real usage feedback before porting so any design tweaks land in NT first. Roughly 2-4 days; see NT's `server/lib/mcp/` layout for the exact pattern.
