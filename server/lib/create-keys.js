@@ -24,7 +24,19 @@ db.exec(`
     PRIMARY KEY (owner, client_key)
   );
 `);
-db.exec(`DELETE FROM create_keys WHERE created_at < datetime('now', '-30 days')`);
+
+// Keys past 30 days go: at start, and while the server runs, on the next
+// key noted at most once an hour (a server left running for months, and a
+// delete by key notes one too), so nothing has to wake up just for this.
+const PRUNE_EVERY_MS = 60 * 60 * 1000;
+let _prunedAt = 0;
+function _prune() {
+  const now = Date.now();
+  if (now - _prunedAt < PRUNE_EVERY_MS) return;
+  _prunedAt = now;
+  db.prepare(`DELETE FROM create_keys WHERE created_at < datetime('now', '-30 days')`).run();
+}
+_prune();
 
 const owner = (userId) => (userId == null ? 'solo' : String(userId));
 const keyOf = (req) => {
@@ -52,6 +64,7 @@ export function answerGone(res) {
 export function rememberCreated(req, userId, table, rowId) {
   const key = keyOf(req);
   if (!key || rowId == null) return;
+  _prune();
   db.prepare('INSERT OR IGNORE INTO create_keys (owner, client_key, table_name, row_id) VALUES (?, ?, ?, ?)')
     .run(owner(userId), key, table, Number(rowId));
 }
@@ -68,6 +81,7 @@ export function rememberCreated(req, userId, table, rowId) {
 export function rowForKey(userId, table, key) {
   if (typeof key !== 'string' || key.length < 8 || key.length > 100) return null;
   const who = owner(userId);
+  _prune();
   // Row id 0 is never a row: a create arriving after this finds none.
   db.prepare('INSERT OR IGNORE INTO create_keys (owner, client_key, table_name, row_id) VALUES (?, ?, ?, 0)').run(who, key, table);
   const hit = db.prepare('SELECT table_name, row_id FROM create_keys WHERE owner = ? AND client_key = ?').get(who, key);

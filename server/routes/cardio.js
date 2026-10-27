@@ -124,9 +124,12 @@ function _deleteSession(id, userId) {
   return (userId != null ? stmt.run(id, userId) : stmt.run(id)).changes > 0;
 }
 
+// Already gone is still a success, as for workouts: a delete
+// sent again (a second tab, a double tap, a replayed queue, by an id the
+// server never had) is done, not refused. Another account's session
+// answers the same, so nobody learns which ids are someone else's.
 router.delete('/:id', wrap((req, res) => {
-  if (!_deleteSession(Number(req.params.id), uid(req))) return res.status(404).json({ error: 'not found' });
-  res.json({ ok: true });
+  res.json({ ok: true, deleted: _deleteSession(Number(req.params.id), uid(req)) });
 }));
 
 // DELETE /api/cardio/by-key/:key  the session a create with this client_key

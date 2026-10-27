@@ -522,3 +522,72 @@ test('changed or deleted while its create is on its way up: the change still goe
   assert.deepEqual(rows.map(r => [r.notes, r.duration_min]), [['changed meanwhile', 41]]);
   assert.equal(await exercisesNamed('Curl 0415'), 0);
 });
+
+// Deleted a second time (another tab, a double tap) while the replay sending
+// the first delete waited for the server's answer: the second waited for the
+// next replay and went as a delete of a row already gone, by a temporary id
+// the server never had when the first went by key, or by the id the first
+// just deleted. The server answered "not found", and the person was told
+// their server refused deleting a cardio session (found in review).
+test('deleted again while the first delete is on its way up: done, not refused', opts, async () => {
+  // By key: made, its answer lost, then deleted twice.
+  {
+    const { mod, env, send } = await page();
+    drops.push({ method: 'POST', path: '/api/cardio' }, { method: 'POST', path: '/api/cardio' });
+    const first = await (await send('POST', '/api/cardio', run('2026-04-16'))).json();
+    for (let i = 0; i < 200 && drops.length; i++) await sleep(25);
+    assert.equal(drops.length, 0, 'the server made it, and both answers were lost');
+    await sleep(100);
+    assert.equal(await cardioOn('2026-04-16'), 1);
+    const key = env.outbox()[0].body.client_key;
+    const g = holdAnswer('DELETE', `/api/cardio/by-key/${encodeURIComponent(key)}`);
+    await mod.offlineFetch(`/api/cardio/${first.id}`, { method: 'DELETE' }, browserFetch);
+    const flushing = mod.flushOutbox();
+    for (let i = 0; i < 200 && !g.hit; i++) await sleep(25);
+    assert.equal(g.hit, true, 'the delete by key reached the server, its answer held');
+    await mod.offlineFetch(`/api/cardio/${first.id}`, { method: 'DELETE' }, browserFetch);
+    g.open();
+    await flushing;
+    await drained(mod, env);
+    assert.equal(await cardioOn('2026-04-16'), 0);
+    assert.deepEqual(await mod.refusedChanges(), [], 'by key: nobody is told their delete was refused');
+  }
+  // By id: a session the server's id is known for, deleted with no
+  // connection, then again while that delete goes up.
+  {
+    const { mod, env, send } = await page();
+    const made = await (await send('POST', '/api/cardio', run('2026-04-17'))).json();
+    assert.ok(made.id > 0);
+    setOnline(false);
+    await send('DELETE', `/api/cardio/${made.id}`);
+    setOnline(true);
+    const g = holdAnswer('DELETE', `/api/cardio/${made.id}`);
+    const flushing = mod.flushOutbox();
+    for (let i = 0; i < 200 && !g.hit; i++) await sleep(25);
+    assert.equal(g.hit, true, 'the delete reached the server, its answer held');
+    await send('DELETE', `/api/cardio/${made.id}`);
+    g.open();
+    await flushing;
+    await drained(mod, env);
+    assert.equal(await cardioOn('2026-04-17'), 0);
+    assert.deepEqual(await mod.refusedChanges(), [], 'by id: nobody is told their delete was refused');
+  }
+  // Another account's session: answered as one already gone, and kept.
+  {
+    const mine = await call('POST', '/api/cardio', run('2026-04-18'));
+    const reg = await (await fetch(base + '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ username: 'other0418', password: PW }) })).json();
+    const other = reg.token || (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'other0418', password: PW }) })).json()).token;
+    assert.ok(other);
+    const del = async (who, id) => {
+      const r = await fetch(`${base}/api/cardio/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${who}` } });
+      return { status: r.status, data: await r.json() };
+    };
+    const theirs = await del(other, mine.id);
+    assert.deepEqual(theirs, await del(other, 999999), "someone else's reads as no such session");
+    assert.deepEqual(theirs, { status: 200, data: { ok: true, deleted: false } });
+    assert.equal(await cardioOn('2026-04-18'), 1, 'still there');
+    assert.deepEqual(await del(token, mine.id), { status: 200, data: { ok: true, deleted: true } });
+    assert.deepEqual(await del(token, mine.id), { status: 200, data: { ok: true, deleted: false } });
+    assert.equal(await cardioOn('2026-04-18'), 0);
+  }
+});
