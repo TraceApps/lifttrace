@@ -366,8 +366,11 @@ function restoreFromZip(zip) {
     // so `data.cardio_log || []` handles the gap silently. Wipe first so
     // restore is authoritative rather than merge-append.
     db.prepare('DELETE FROM cardio_log').run();
-    const insCardio = db.prepare(`INSERT OR IGNORE INTO cardio_log (id,user_id,date,activity,duration_min,distance,distance_unit,avg_hr,notes,is_template,created_at,updated_at) VALUES (@id,@user_id,@date,@activity,@duration_min,@distance,@distance_unit,@avg_hr,@notes,@is_template,@created_at,@updated_at)`);
-    for (const c of data.cardio_log || []) insCardio.run({ is_template: 0, ...c });
+    const insCardio = db.prepare(`INSERT OR IGNORE INTO cardio_log (id,user_id,date,activity,duration_min,distance,distance_unit,avg_hr,notes,is_template,external_id,created_at,updated_at) VALUES (@id,@user_id,@date,@activity,@duration_min,@distance,@distance_unit,@avg_hr,@notes,@is_template,@external_id,@created_at,@updated_at)`);
+    // external_id (#134) comes back with its session, so a script that logs
+    // through the API still finds what it sent before the restore; a backup
+    // from before it has none.
+    for (const c of data.cardio_log || []) insCardio.run({ is_template: 0, external_id: null, ...c });
 
     const insSettings = db.prepare(`INSERT OR IGNORE INTO user_settings (user_id,key,value) VALUES (@user_id,@key,@value)`);
     for (const s of data.user_settings || []) insSettings.run(s);

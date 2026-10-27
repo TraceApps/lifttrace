@@ -60,6 +60,7 @@ a token lacking the required scope returns `403`.
 | GET | `/api/v1/body-stats?start=&end=` | The same measurements for every logged date in an inclusive range. Both bounds omitted means the last 90 days; one bound leaves the other open. Dates with nothing logged are absent. |
 | GET | `/api/v1/body-stats/photos?start=&end=` | Progress photos with their dates, newest first. Range defaults to the last year. Each photo has a `file_url` to fetch its image with the same token. |
 | GET | `/api/v1/body-stats/photos/:id/file` | The image itself, for a photo you own. Returns 409 for a photo attached by external URL, which has no local file. |
+| GET | `/api/v1/cardio?start=&end=&activity=` | Cardio sessions (runs, rides, rows, walks, swims) in an inclusive date range, oldest first. Both bounds omitted means the last 90 days; one bound leaves the other open. `activity` is an optional case-insensitive substring, so `run` matches `Running` and `Trail run`. Each session includes the `external_id` it was logged with, if any, and the response's `cardio_enabled` says whether the user has cardio turned on. |
 
 ### Write (require `mcp:write` and `PUBLIC_API_WRITE_ENABLED=1`)
 
@@ -68,11 +69,32 @@ a token lacking the required scope returns `403`.
 | POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight?, rpe?, warmup?, completed?}` or `{exercise_id, duration_sec, weight?, ...}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. For a timed exercise (plank, wall sit, dead hang, carry) send `duration_sec` in whole seconds instead of `reps`; `weight` then means a weighted hold. An exercise already logged by reps that day rejects `duration_sec`, and the reverse, rather than mixing the two. |
 | PUT | `/api/v1/body-stats/:date` | `{weight?, weight_unit?, bodyFat?, waist?, hips?, neck?, chest?, biceps?, thighs?, calves?}` | Merges the given values into that day's stats; omitted fields are left alone. `weight_unit: "lb"` converts to kg before storing. |
 | POST | `/api/v1/body-stats/photos` | `{url, date?}` | Attaches an already-hosted image to a date as a progress photo. `date` defaults to today. |
+| POST | `/api/v1/cardio` | `{activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, date?, external_id?}` | Logs one cardio session. `activity` is up to 100 characters; `duration_min` is minutes, 1 to 1,440, rounded down to whole minutes; `distance` is in km unless `distance_unit` is `mi`, up to 2,000; `avg_hr` is beats per minute up to 300, rounded down to a whole number; `notes` is up to 2,000 characters. `date` defaults to today. Numbers must be sent as JSON numbers, and any other unit than `km` or `mi` is refused rather than guessed. Refused with a 400 while the user has cardio turned off (see [Cardio](#cardio) below). Pass `external_id`, your own id for the session (up to 200 characters), to make the call safe to repeat: if that user already logged a session with the id, it comes back unchanged with `created: false` instead of a second copy. |
 
 `POST /api/v1/body-stats/photos` takes a URL, not a file: nothing in this
 API handles multipart uploads. Point it at an image you already host, or
 upload through the app, which posts to its own session-authenticated
 upload route first and then calls this with the URL that returns.
+
+### Cardio
+
+Cardio is opt-in in LiftTrace, and the API follows the same switch:
+`POST /api/v1/cardio` and the `log_cardio` MCP tool refuse to log while
+**Track Cardio** (Settings > Workout) is off for the token's account, so
+nothing is logged that the app wouldn't show. Reading still works, and
+`GET /api/v1/cardio` says whether it's on in `cardio_enabled`.
+
+The switch syncs to your server, which is how the API knows. Up to 1.4.0
+it was kept on each device only; a device that has it on tells the server
+the first time it opens after updating. An Android app from 1.4.0 or
+earlier never does, so if you turned it on there and the API still says
+cardio is off, update the app, or turn on Track Cardio in LiftTrace in a
+browser too. Until it's updated, that app also takes the switch from the
+server each time it opens, so turning it on or off there doesn't stay;
+use the browser or an updated app.
+
+`external_id` belongs to the session it was logged with. Deleting that
+session in the app frees the id, so sending it again logs a new one.
 
 Not yet exposed here: deleting a workout. That stays MCP-only for now
 (see `delete_workout` in the MCP setup guide), since it is an
@@ -102,4 +124,13 @@ curl -H "Authorization: Bearer lt_pat_..." \
 # Weigh-ins since the start of the year (no end bound)
 curl -H "Authorization: Bearer lt_pat_..." \
   "https://your-lifttrace.example.com/api/v1/body-stats?start=2026-01-01"
+
+# Log a run, safe to re-send: the same external_id never logs it twice
+curl -X POST -H "Authorization: Bearer lt_pat_..." -H "Content-Type: application/json" \
+  -d '{"date": "2026-09-28", "activity": "Running", "duration_min": 33, "distance": 2.47, "distance_unit": "mi", "avg_hr": 138, "external_id": "strava:20368911854"}' \
+  https://your-lifttrace.example.com/api/v1/cardio
+
+# Runs in September
+curl -H "Authorization: Bearer lt_pat_..." \
+  "https://your-lifttrace.example.com/api/v1/cardio?start=2026-09-01&end=2026-09-30&activity=run"
 ```

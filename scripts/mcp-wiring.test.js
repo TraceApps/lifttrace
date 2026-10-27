@@ -104,6 +104,7 @@ test('All read tools are registered in registerReadTools', () => {
     'registerGetActiveProgram',
     'registerGetBodyStat',
     'registerGetBodyStats',
+    'registerGetCardio',
   ];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);
@@ -111,7 +112,7 @@ test('All read tools are registered in registerReadTools', () => {
 });
 
 test('All write tools are registered in registerWriteTools', () => {
-  const expected = ['registerLogSet', 'registerLogBodyStat'];
+  const expected = ['registerLogSet', 'registerLogBodyStat', 'registerLogCardio'];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);
   }

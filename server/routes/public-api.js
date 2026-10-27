@@ -51,6 +51,8 @@ import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 import { logSetCore } from '../lib/mcp/tools/log-set.js';
 import { logBodyStatCore } from '../lib/mcp/tools/log-body-stat.js';
+import { getCardioCore } from '../lib/mcp/tools/get-cardio.js';
+import { logCardioCore } from '../lib/mcp/tools/log-cardio.js';
 import { resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 
 const router = Router();
@@ -175,6 +177,14 @@ router.get('/body-stats/:date', requireScope('mcp:read'), core(req =>
   getBodyStatCore(req.apiUser.id, { date: req.params.date })
 ));
 
+router.get('/cardio', requireScope('mcp:read'), core(req =>
+  getCardioCore(req.apiUser.id, {
+    start: req.query.start,
+    end: req.query.end,
+    activity: req.query.activity,
+  })
+));
+
 router.post('/workouts/:date/sets', requireWriteEnabled, requireScope('mcp:write'), core(req =>
   logSetCore(req.apiUser.id, { ...req.body, date: req.params.date })
 ));
@@ -188,6 +198,12 @@ router.post('/body-stats/photos', requireWriteEnabled, requireScope('mcp:write')
 
 router.put('/body-stats/:date', requireWriteEnabled, requireScope('mcp:write'), core(req =>
   logBodyStatCore(req.apiUser.id, { ...req.body, date: req.params.date })
+));
+
+// Refused while the user has cardio turned off; a repeated external_id
+// returns the session already logged under it with created: false.
+router.post('/cardio', requireWriteEnabled, requireScope('mcp:write'), core(req =>
+  logCardioCore(req.apiUser.id, req.body || {})
 ));
 
 export default router;

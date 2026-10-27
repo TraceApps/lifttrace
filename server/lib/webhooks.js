@@ -3,8 +3,8 @@
  *
  * Outgoing webhooks (issue #79). When a subscribed event happens
  * (workout completed, a PR set, a program week advanced, a body stat
- * logged), fire a signed HTTP POST to each of the user's enabled
- * webhooks subscribed to that event. Off by default (WEBHOOKS_ENABLED=1
+ * logged, a cardio session logged), fire a signed HTTP POST to each of
+ * the user's enabled webhooks subscribed to that event. Off by default (WEBHOOKS_ENABLED=1
  * to turn on).
  *
  * The shared secret is encrypted at rest via token-crypto.js's
@@ -52,6 +52,7 @@ export const WEBHOOK_EVENT_DESCRIPTIONS = {
   'progress_photo.logged': 'A progress photo is attached to a date.',
   'pr.set':            'A new personal record (max weight or estimated 1-rep max) is set on an exercise.',
   'program.advanced':  'An active program moves to its next week.',
+  'cardio.logged':     'A cardio session (a run, ride, row, walk or swim) is logged.',
 };
 
 export const KNOWN_WEBHOOK_EVENTS = new Set(Object.keys(WEBHOOK_EVENT_DESCRIPTIONS));
