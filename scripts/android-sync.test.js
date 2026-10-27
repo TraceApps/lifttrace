@@ -492,6 +492,18 @@ test('a create whose answer was lost, then an edit to the server\'s copy: one ro
   assert.deepEqual(out, { phone: ['Phone Plan edited'], server: ['Phone Plan edited'], queue: 0 });
 });
 
+test('made offline, answers lost, then changed or deleted under the phone\'s id: the server\'s rows follow', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('lostAnswerChangeDelete');
+  assert.deepEqual(out.before, { lost: 5, phoneIds: true, server: 2 }, 'the server made each, and the phone never heard');
+  assert.deepEqual(out.cardio, [['Phone Kept', 25, 'edited offline']], 'the change is kept, the deleted one is gone');
+  assert.deepEqual(out.exercises, ['Phone Hammer Curl']);
+  assert.deepEqual(out.workouts, []);
+  assert.deepEqual(out.onlineBefore, { phoneIds: true, server: 2 }, 'online too');
+  assert.deepEqual(out.online, [['Online Kept', 'edited online']]);
+  assert.equal(out.queue, 0);
+  assert.equal(out.refused, 0);
+});
+
 test('the next account never sees or saves what the app held for the last one', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('storesReset');
   assert.deepEqual(out.seen, { gotify: '', radio: '', favorites: [], rest: {}, workout: null });

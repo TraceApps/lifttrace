@@ -1313,6 +1313,71 @@ const scenarios = {
     };
   },
 
+  // Made offline, sent by a sync whose answers were all lost on the way
+  // back (the server made each), then changed or deleted here while still
+  // known by the phone's id: the change and the delete reach the server's
+  // rows, as the web app's queue now does too (offline-create-keys.test.js).
+  async lostAnswerChangeDelete() {
+    me();
+    await syncNow();
+    offline(true);
+    const kept = await api.createCardio({ date: '2026-10-06', activity: 'Phone Kept', duration_min: 20 });
+    const doomed = await api.createCardio({ date: '2026-10-06', activity: 'Phone Doomed', duration_min: 15 });
+    const ex = await api.createExercise({ name: 'Phone Curl' });
+    const exGone = await api.createExercise({ name: 'Phone Shrug' });
+    const w = (await api.saveWorkout('2026-10-06', { name: 'Phone Pull', new_session: true, completed: false, exercises: [] })).workout;
+    offline(false);
+    const lost = [];
+    globalThis.__httpHook = async (method, o) => {
+      const path = o.url.replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+      const create = (method === 'POST' && /^\/api\/(cardio|exercises)$/.test(path)) || (method === 'PUT' && path === '/api/workout/2026-10-06' && o.data?.new_session);
+      // Each create's first send; one waits behind another to the same place.
+      if (create && !lost.includes(o.data?.client_key)) {
+        lost.push(o.data?.client_key);
+        await realFetch(o.url, { method, headers: o.headers, body: JSON.stringify(o.data) });
+        throw new TypeError('Failed to fetch');
+      }
+      return null;
+    };
+    for (let i = 0; i < 5 && lost.length < 5; i++) await syncRaw();
+    globalThis.__httpHook = null;
+    const before = {
+      lost: lost.length,
+      phoneIds: [kept.id, doomed.id, ex.id, exGone.id, w.id].every(id => id < 0),
+      server: (await web('phone', 'GET', '/api/cardio/2026-10-06')).length,
+    };
+    offline(true);
+    await api.updateCardio(kept.id, { notes: 'edited offline', duration_min: 25 });
+    await api.deleteCardio(doomed.id);
+    await api.updateExercise(ex.id, { name: 'Phone Hammer Curl' });
+    await api.deleteExercise(exGone.id);
+    await api.deleteWorkout('2026-10-06', w.id);
+    offline(false);
+    await syncNow(); await syncNow();
+    // Online, the answer lost on the way back, then changed and deleted
+    // before a sync: each waits behind its create, which the key repeats.
+    let lose = 2;
+    globalThis.__fetchHook = (u, i) => (lose > 0 && String(u).endsWith('/api/cardio') && i?.method === 'POST')
+      ? (lose--, realFetch(u, i).then(() => { throw new TypeError('Failed to fetch'); })) : null;
+    const onlineKept = await api.createCardio({ date: '2026-10-07', activity: 'Online Kept', duration_min: 20 });
+    const onlineGone = await api.createCardio({ date: '2026-10-07', activity: 'Online Gone', duration_min: 15 });
+    globalThis.__fetchHook = null;
+    const onlineBefore = { phoneIds: onlineKept.id < 0 && onlineGone.id < 0, server: (await web('phone', 'GET', '/api/cardio/2026-10-07')).length };
+    await api.updateCardio(onlineKept.id, { notes: 'edited online' });
+    await api.deleteCardio(onlineGone.id);
+    await syncNow(); await syncNow();
+    const exercises = await web('phone', 'GET', '/api/exercises');
+    return {
+      before, onlineBefore,
+      online: (await web('phone', 'GET', '/api/cardio/2026-10-07')).map(c => [c.activity, c.notes]),
+      cardio: (await web('phone', 'GET', '/api/cardio/2026-10-06')).map(c => [c.activity, c.duration_min, c.notes]),
+      exercises: (Array.isArray(exercises) ? exercises : exercises.exercises).filter(e => /^Phone /.test(e.name)).map(e => e.name).sort(),
+      workouts: (await web('phone', 'GET', '/api/workout/2026-10-06/sessions')).sessions.map(s => s.name),
+      queue: (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n,
+      refused: refused.length,
+    };
+  },
+
   // A create whose answer was lost: the pull brings the server's copy, which
   // is then edited offline. Sent again, it finds that same row: one copy.
   async lostAnswerEdit() {
