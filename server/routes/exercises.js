@@ -6,7 +6,7 @@ import { requireAuth, uid, userMgmtActive } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
 import { foldText } from '../lib/search-text.js';
-import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
+import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
 
 const router = Router();
@@ -269,20 +269,31 @@ router.delete('/custom/all', wrap((req, res) => {
 }));
 
 // DELETE /api/exercises/:id
-router.delete('/:id', wrap((req, res) => {
-  const id = parseInt(req.params.id);
+router.delete('/:id', wrap((req, res) => _deleteExercise(req, res, parseInt(req.params.id))));
+
+// DELETE /api/exercises/by-key/:key  the exercise a create with this
+// client_key made, deleted before its maker learned its id (create-keys.js
+// rowForKey). Made by no create yet: one arriving later makes nothing.
+router.delete('/by-key/:key', wrap((req, res) => {
+  const found = rowForKey(uid(req), 'exercises', req.params.key);
+  if (!found) return res.status(400).json({ error: 'client_key required' });
+  if (found.id == null) return res.json({ ok: true, by_key: true, deleted: false });
+  return _deleteExercise(req, res, found.id, { by_key: true });
+}));
+
+function _deleteExercise(req, res, id, extra = {}) {
   const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
   // Already gone (or cleared: soft-deleted) is still a success, so a delete
   // replayed from a phone or the offline queue does not come back as a
   // refusal, or as "kept".
-  if (!row || row.deleted_at) return res.json({ ok: true });
+  if (!row || row.deleted_at) return res.json({ ok: true, ...extra });
   // Only your own custom exercises; this used to delete anyone's by id.
   if (!canChangeExercise(row, uid(req))) return res.status(404).json({ error: 'Exercise not found' });
   const later = deleteLoses(req, row);
   if (later) return refuseDelete(res, row, later);
   db.prepare('DELETE FROM exercises WHERE id = ?').run(id);
-  res.json({ ok: true });
-}));
+  res.json({ ok: true, ...extra });
+}
 
 // ── Catalog source management ────────────────────────────────────────────────
 

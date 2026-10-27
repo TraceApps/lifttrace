@@ -8,7 +8,7 @@ import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, orphanWorkoutSave, opsAsKnown,
-  newClientKey, takesClientKey,
+  newClientKey, takesClientKey, isKeyedCreate, deleteOfSent, byKeyPath, deletePathWithId,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -706,4 +706,63 @@ test('a change to a create with a key rides with it and is kept apart to go afte
   // Queued by an earlier version, with no key: as before, nothing apart.
   const [old] = collapseOps([{ ...create, body: { ...create.body, client_key: undefined } }, edit1]);
   assert.equal(old.edits, undefined);
+});
+
+test('deleted while a create that was tried still waits: the delete goes, by its key', () => {
+  const create = { seq: 1, method: 'POST', path: '/api/cardio', body: { date: '2026-04-09', activity: 'Run', duration_min: 30, client_key: 'k-0123456789' }, kind: 'cardio-create', key: 'cardio:-9', tempId: -9, id: -9, editedAt: 'a', changed: null };
+  const edit = { seq: 2, method: 'PUT', path: '/api/cardio/-9', body: { notes: 'x' }, kind: 'cardio-update', key: 'cardio:-9', id: -9, editedAt: 'b', changed: ['notes'] };
+  const del = { seq: 3, method: 'DELETE', path: '/api/cardio/-9', body: null, kind: 'cardio-delete', key: 'cardio:-9', id: -9, editedAt: 'c' };
+  // Never tried: neither goes, as before.
+  assert.deepEqual(collapseOps([create, edit, del]), []);
+  // Tried (straight away, or by a replay): the delete goes, by the key.
+  for (const ops of [[{ ...create, sent: true }, edit, del], [create, { ...edit, sent: true }, del]]) {
+    const out = collapseOps(ops);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].kind, 'cardio-delete');
+    assert.equal(out[0].seq, 3);
+    assert.equal(out[0].byKey.key, 'k-0123456789');
+    assert.equal(out[0].byKey.path, '/api/cardio');
+    assert.equal(out[0].byKey.editedAt, 'a', 'a repeat of the create is dated as the create');
+    assert.equal(byKeyPath(out[0]), '/api/cardio/by-key/k-0123456789');
+    assert.equal(deletePathWithId(out[0], 41), '/api/cardio/41');
+    // Once it has gone, every request of it is done with.
+    assert.deepEqual(sentSeqs(ops, ['cardio:-9']).sort(), [1, 2, 3]);
+  }
+  // A create from before keys can't be found by one: as before.
+  assert.deepEqual(collapseOps([{ ...create, sent: true, body: { ...create.body, client_key: undefined } }, del]), []);
+  // Nor can a coach's prescription (no key).
+  const rx = { seq: 1, method: 'POST', path: '/api/trainer/members/3/prescriptions', body: { note: 'x', client_key: 'k-0123456789' }, kind: 'prescription-create', key: 'prescription:-4', tempId: -4, id: -4, sent: true };
+  assert.equal(isKeyedCreate(rx), false);
+  assert.deepEqual(collapseOps([rx, { seq: 2, method: 'DELETE', path: '/api/trainer/prescriptions/-4', kind: 'prescription-delete', key: 'prescription:-4', id: -4 }]), []);
+});
+
+test('an exercise or a new workout deleted after its create was tried goes by its key too', () => {
+  const ex = { seq: 1, method: 'POST', path: '/lt/api/exercises', body: { name: 'Curl', client_key: 'k-ex-0123456789' }, kind: 'exercise-create', key: 'exercise:-5', tempId: -5, id: -5, sent: true };
+  const [exDel] = collapseOps([ex, { seq: 2, method: 'DELETE', path: '/lt/api/exercises/-5', kind: 'exercise-delete', key: 'exercise:-5', id: -5 }]);
+  assert.equal(byKeyPath(exDel), '/lt/api/exercises/by-key/k-ex-0123456789', 'under the base path');
+  const w = { ...made(1, -77, { name: 'Legs' }), sent: true };
+  const later = op(2, 'PUT', `/api/workout/${DAY2}`, { id: -77, name: 'Legs', exercises: [{ uuid: 'sq' }] });
+  const merged = collapseOps([w, later]);
+  assert.equal(merged[0].sent, true, 'tried stays tried through later saves');
+  const [wDel] = collapseOps([w, later, op(3, 'DELETE', `/api/workout/${DAY2}?id=-77`)]);
+  assert.equal(wDel.kind, 'workout-delete');
+  assert.equal(byKeyPath(wDel), '/api/workout/by-key/web-workout-77');
+  assert.equal(deletePathWithId(wDel, 12), `/api/workout/${DAY2}?id=12`);
+  assert.equal(wDel.byKey.body.new_session, true);
+  // Never tried: as before.
+  assert.deepEqual(collapseOps([made(1, -77, { name: 'Legs' }), op(2, 'DELETE', `/api/workout/${DAY2}?id=-77`)]), []);
+});
+
+test('a delete by key stands: a second delete or a late save of the row does not take its place', () => {
+  const create = { seq: 1, method: 'POST', path: '/api/cardio', body: { activity: 'Run', client_key: 'k-0123456789' }, kind: 'cardio-create', key: 'cardio:-9', tempId: -9, id: -9, sent: true };
+  const del = (seq) => ({ seq, method: 'DELETE', path: '/api/cardio/-9', body: null, kind: 'cardio-delete', key: 'cardio:-9', id: -9 });
+  const twice = collapseOps([create, del(2), del(3)]);
+  assert.equal(twice.length, 1);
+  assert.equal(twice[0].byKey.key, 'k-0123456789');
+  const w = { ...made(1, -77, { name: 'Legs' }), sent: true };
+  const late = collapseOps([w, op(2, 'DELETE', `/api/workout/${DAY2}?id=-77`), op(3, 'PUT', `/api/workout/${DAY2}`, { id: -77, name: 'Legs', exercises: [] })]);
+  assert.equal(late.length, 1);
+  assert.equal(late[0].kind, 'workout-delete');
+  assert.equal(late[0].byKey.key, 'web-workout-77');
+  assert.deepEqual(sentSeqs([w, op(2, 'DELETE', `/api/workout/${DAY2}?id=-77`), op(3, 'PUT', `/api/workout/${DAY2}`, { id: -77 })], [`workout:${DAY2}#-77`]).sort(), [1, 2, 3]);
 });

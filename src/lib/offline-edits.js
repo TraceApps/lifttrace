@@ -185,6 +185,41 @@ export function takesClientKey(op, body) {
   return op.kind === 'workout' && !!body.new_session && body.id == null;
 }
 
+/** A create that carries a key and makes a row the server can delete by it
+ *  (server/lib/create-keys.js rowForKey). */
+export function isKeyedCreate(op) {
+  if (!op?.body?.client_key || typeof op.body.client_key !== 'string') return false;
+  if (op.kind === 'cardio-create' || op.kind === 'exercise-create') return true;
+  return op.kind === 'workout' && !!op.body.new_session && op.tempId != null;
+}
+
+/**
+ * Deleted while its create still waits, known only by its temporary id. A
+ * create never tried can go with it, as if never made. One that was tried
+ * (`sent`: sent straight away, or by a replay) may be on the server with its
+ * answer lost, webhook and all, so the delete still goes: by the create's
+ * key, which the server knows the row by (offline-api.js sends it). Null
+ * when both can simply go.
+ */
+export function deleteOfSent(create, del) {
+  if (!create?.sent || !isKeyedCreate(create)) return null;
+  return { ...del, byKey: { key: create.body.client_key, method: create.method, path: create.path, body: create.body, editedAt: create.editedAt, changed: create.changed } };
+}
+
+/** Where a delete by a create's key goes: the kind's own
+ *  `/by-key/:key` route, next to the one it deletes by id at. */
+export function byKeyPath(op) {
+  const path = pathOf(op.path);
+  const base = op.kind === 'workout-delete' ? path.replace(/\/\d{4}-\d{2}-\d{2}$/, '') : path.replace(/\/-?\d+$/, '');
+  return `${base}/by-key/${encodeURIComponent(op.byKey.key)}`;
+}
+
+/** The delete's own path, naming the row by the id the server gave it. */
+export function deletePathWithId(op, id) {
+  if (op.kind === 'workout-delete') return `${pathOf(op.path)}?id=${id}`;
+  return pathOf(op.path).replace(/\/-?\d+$/, `/${id}`);
+}
+
 /** Tombstones from a workout save, in the shape the route accepts. */
 const _tombs = (body) => {
   const raw = body?.deleted_uuids;
@@ -246,12 +281,21 @@ export function collapseOps(ops) {
     }
 
     const prev = byKey.get(op.key);
+    // Deleted by its create's key (below): that stands. A second delete
+    // (another tab, a double tap) or a late save of the deleted row, put in
+    // its place, would go by a temporary id the server never had.
+    if (prev?.byKey) continue;
     if (prev?.kind === 'exercise-create' || prev?.kind === 'cardio-create' || prev?.kind === 'prescription-create') {
       // Made offline and then changed again: still one create, with the
-      // newest values. Made and then removed: it never happened.
-      if (op.kind === 'exercise-delete' || op.kind === 'cardio-delete' || op.kind === 'prescription-delete') { byKey.delete(op.key); continue; }
+      // newest values. Made and then removed: it never happened, unless it
+      // may have reached the server already (below).
+      if (op.kind === 'exercise-delete' || op.kind === 'cardio-delete' || op.kind === 'prescription-delete') {
+        const del = deleteOfSent(prev, op);
+        if (del) byKey.set(op.key, del); else byKey.delete(op.key);
+        continue;
+      }
       if (op.kind === 'exercise-update' || op.kind === 'cardio-update' || op.kind === 'prescription-update') {
-        const merged = { ...prev, body: { ...prev.body, ...op.body }, seq: op.seq };
+        const merged = { ...prev, body: { ...prev.body, ...op.body }, seq: op.seq, ...(prev.sent || op.sent ? { sent: true } : {}) };
         // A create with a key may have been made already (its answer lost),
         // and a repeat is answered with the row as first made, so the change
         // goes up after it as well, as the edit it was (offline-api.js).
@@ -270,9 +314,13 @@ export function collapseOps(ops) {
     // happened. Without this the change went up alone, carrying an id the
     // server never had, and landed in the day's first workout.
     if (prev?.kind === 'workout' && prev.body?.new_session && prev.tempId != null) {
-      if (op.kind === 'workout-delete') { byKey.delete(op.key); continue; }
+      if (op.kind === 'workout-delete') {
+        const del = deleteOfSent(prev, op);
+        if (del) byKey.set(op.key, del); else byKey.delete(op.key);
+        continue;
+      }
       if (op.kind === 'workout') {
-        byKey.set(op.key, { ...op, body: { ...op.body, new_session: true, client_key: prev.body.client_key }, tempId: prev.tempId, changed: null });
+        byKey.set(op.key, { ...op, body: { ...op.body, new_session: true, client_key: prev.body.client_key }, tempId: prev.tempId, changed: null, ...(prev.sent || op.sent ? { sent: true } : {}) });
         continue;
       }
     }

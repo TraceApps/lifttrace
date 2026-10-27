@@ -5,7 +5,7 @@ import { requireAuth, uid } from '../middleware/auth.js';
 import { normalizeCardioInput, normalizeExternalId } from '../lib/cardio-log.js';
 import { saveCardioSession } from '../lib/mcp/tools/log-cardio.js';
 import { isHistoryUpload } from '../lib/log-webhooks.js';
-import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
+import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -117,15 +117,27 @@ router.put('/:id', wrap((req, res) => {
   res.json(row);
 }));
 
-router.delete('/:id', wrap((req, res) => {
-  const id = Number(req.params.id);
-  const userId = uid(req);
+function _deleteSession(id, userId) {
   const stmt = userId != null
     ? db.prepare('DELETE FROM cardio_log WHERE id = ? AND user_id = ?')
     : db.prepare('DELETE FROM cardio_log WHERE id = ? AND user_id IS NULL');
-  const info = userId != null ? stmt.run(id, userId) : stmt.run(id);
-  if (info.changes === 0) return res.status(404).json({ error: 'not found' });
+  return (userId != null ? stmt.run(id, userId) : stmt.run(id)).changes > 0;
+}
+
+router.delete('/:id', wrap((req, res) => {
+  if (!_deleteSession(Number(req.params.id), uid(req))) return res.status(404).json({ error: 'not found' });
   res.json({ ok: true });
+}));
+
+// DELETE /api/cardio/by-key/:key  the session a create with this client_key
+// made, deleted before its maker learned its id (create-keys.js rowForKey).
+// Made by no create yet: one arriving later makes nothing.
+router.delete('/by-key/:key', wrap((req, res) => {
+  const userId = uid(req);
+  const found = rowForKey(userId, 'cardio_log', req.params.key);
+  if (!found) return res.status(400).json({ error: 'client_key required' });
+  const deleted = found.id != null && _deleteSession(found.id, userId);
+  res.json({ ok: true, by_key: true, deleted });
 }));
 
 // A session's date is a calendar day: its week is found in UTC on the bare

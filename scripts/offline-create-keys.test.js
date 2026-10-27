@@ -56,6 +56,12 @@ let base = null, through = null, token = null, secret = null;
 const deliveries = [];
 // Requests matching one of these reach the server, and its answer is lost.
 const drops = [];
+// Requests matching one of these never reach the server.
+const blocks = [];
+// While set, a delete by key is answered as a server from before that route
+// answers it (no such route).
+let oldServer = false;
+const sent = [];
 
 async function call(method, path, body) {
   const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: body == null ? undefined : JSON.stringify(body) });
@@ -63,16 +69,32 @@ async function call(method, path, body) {
   try { return JSON.parse(text); } catch { return text; }
 }
 
+// While set, the answer to a matching request is held until `gate.open()`.
+let gate = null;
+
 /** The browser's fetch as the offline layer sees it, through the proxy. */
 async function browserFetch(url, init = {}) {
   const headers = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
+  let res;
   try {
-    return await fetch(through + String(url), { ...init, headers });
+    res = await fetch(through + String(url), { ...init, headers });
   } catch {
     // What a browser says when the connection drops.
     throw new TypeError('Failed to fetch');
   }
+  const g = gate;
+  if (g && !g.hit && g.method === (init.method || 'GET') && String(url).split('?')[0] === g.path) {
+    g.hit = true;
+    await g.held;
+  }
+  return res;
 }
+const holdAnswer = (method, path) => {
+  let open;
+  gate = { method, path, hit: false, held: new Promise((r) => { open = r; }) };
+  gate.open = () => { gate = null; open(); };
+  return gate;
+};
 
 let loads = 0;
 const pages = [];
@@ -148,6 +170,14 @@ test.before(async () => {
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       const path = req.url.split('?')[0];
+      sent.push(`${req.method} ${req.url} ${Buffer.concat(chunks).toString()}`);
+      const blocked = blocks.findIndex(d => d.method === req.method && d.path === path);
+      if (blocked >= 0) { blocks.splice(blocked, 1); req.socket.destroy(); return; }
+      if (oldServer && req.method === 'DELETE' && path.includes('/by-key/')) {
+        res.writeHead(404, { 'Content-Type': 'text/html', connection: 'close' });
+        res.end(`Cannot DELETE ${path}`);
+        return;
+      }
       const at = drops.findIndex(d => d.method === req.method && d.path === path);
       const drop = at >= 0 ? drops.splice(at, 1)[0] : null;
       const up = http.request(base + req.url, { method: req.method, headers: req.headers }, (ur) => {
@@ -317,4 +347,178 @@ test('ordinary logs, online and offline, still send once', opts, async () => {
   assert.equal(await cardioOn('2026-04-07'), 1);
   assert.equal((await workoutsOn('2026-04-06')).length, 1);
   assert.deepEqual(await hooksSince(from), ['cardio.logged', 'cardio.logged', 'workout.completed']);
+});
+
+// Made, its answer lost on the way back, and deleted before the server's id
+// was known: both used to be dropped here as if never made, and the
+// server kept what it had made (and its webhook had gone).
+test('deleted before its lost answer came back: deleted on the server too', opts, async () => {
+  const left = {};
+  for (const [path, made, gone, count] of [
+    ['/api/cardio', run('2026-04-09'), (id) => `/api/cardio/${id}`, () => cardioOn('2026-04-09')],
+    ['/api/exercises', { name: 'Curl 0409' }, (id) => `/api/exercises/${id}`, async () => {
+      const all = await call('GET', '/api/exercises');
+      return (Array.isArray(all) ? all : all.exercises).filter(e => e.name === 'Curl 0409').length;
+    }],
+    ['/api/workout/2026-04-09', { name: 'Pull 0409', new_session: true, completed: true, exercises: [] }, (id) => `/api/workout/2026-04-09?id=${id}`,
+      async () => (await workoutsOn('2026-04-09')).filter(w => w.name === 'Pull 0409').length],
+  ]) {
+    const { mod, env, send } = await page();
+    const from = deliveries.length;
+    const method = path.startsWith('/api/workout/') ? 'PUT' : 'POST';
+    drops.push({ method, path }, { method, path });
+    const first = await (await send(method, path, made)).json();
+    assert.equal(first.queued, true, path);
+    for (let i = 0; i < 200 && drops.length; i++) await sleep(25);
+    assert.equal(drops.length, 0, 'the server made it, and both answers were lost');
+    await sleep(100);
+    assert.equal(await count(), 1, `${path}: on the server`);
+    const id = first.workout?.id ?? first.id;
+    assert.ok(id < 0, 'still known by its temporary id');
+    await mod.offlineFetch(gone(id), { method: 'DELETE' }, browserFetch);
+    await mod.flushOutbox();
+    await drained(mod, env);
+    left[path] = await count();
+    assert.deepEqual(await mod.refusedChanges(), []);
+    // Its webhook went when it was made, and no second one since.
+    if (path === '/api/cardio') assert.deepEqual(await hooksSince(from), ['cardio.logged']);
+    if (method === 'PUT') assert.deepEqual(await hooksSince(from), ['workout.completed']);
+  }
+  assert.deepEqual(left, { '/api/cardio': 0, '/api/exercises': 0, '/api/workout/2026-04-09': 0 }, 'deleted on the server as well');
+});
+
+const exercisesNamed = async (name) => {
+  const all = await call('GET', '/api/exercises');
+  return (Array.isArray(all) ? all : all.exercises).filter(e => e.name === name).length;
+};
+
+test('logged offline, sent by a replay whose answer was lost, then deleted: deleted on the server too', opts, async () => {
+  const { mod, env, send } = await page();
+  setOnline(false);
+  const first = await (await send('POST', '/api/cardio', run('2026-04-10'))).json();
+  assert.equal(env.outbox()[0].sent, undefined, 'not tried yet');
+  setOnline(true);
+  drops.push({ method: 'POST', path: '/api/cardio' });
+  await mod.flushOutbox();
+  assert.equal(env.outbox()[0].sent, true, 'noted as tried, where it is kept');
+  assert.equal(await cardioOn('2026-04-10'), 1);
+  await mod.offlineFetch(`/api/cardio/${first.id}`, { method: 'DELETE' }, browserFetch);
+  await drained(mod, env);
+  assert.equal(await cardioOn('2026-04-10'), 0);
+});
+
+test('made and deleted before it was ever tried: neither goes up', opts, async () => {
+  const { mod, env, send } = await page();
+  const from = deliveries.length;
+  const before = sent.length;
+  setOnline(false);
+  const c = await (await send('POST', '/api/cardio', run('2026-04-11'))).json();
+  const e = await (await send('POST', '/api/exercises', { name: 'Curl 0411' })).json();
+  const w = (await (await send('PUT', '/api/workout/2026-04-11', { name: 'Never 0411', new_session: true, completed: true, exercises: [] })).json()).workout;
+  await send('DELETE', `/api/cardio/${c.id}`);
+  await send('DELETE', `/api/exercises/${e.id}`);
+  await mod.offlineFetch(`/api/workout/2026-04-11?id=${w.id}`, { method: 'DELETE' }, browserFetch);
+  setOnline(true);
+  await drained(mod, env);
+  // (Another test's page may still be retrying its own.)
+  assert.deepEqual(sent.slice(before).filter(r => !r.startsWith('GET ') && /0411|2026-04-11/.test(r)), [], 'nothing of these sent at all');
+  assert.equal(await cardioOn('2026-04-11'), 0);
+  assert.equal(await exercisesNamed('Curl 0411'), 0);
+  assert.deepEqual(await hooksSince(from), []);
+});
+
+test('tried but never arrived, then deleted: nothing made, no webhook, and a late arrival makes nothing', opts, async () => {
+  const { mod, env, send } = await page();
+  const from = deliveries.length;
+  blocks.push({ method: 'POST', path: '/api/cardio' }, { method: 'POST', path: '/api/cardio' });
+  const first = await (await send('POST', '/api/cardio', run('2026-04-12'))).json();
+  assert.equal(first.queued, true);
+  for (let i = 0; i < 200 && blocks.length; i++) await sleep(25);
+  assert.equal(blocks.length, 0, 'tried twice, and neither arrived');
+  await sleep(100);
+  const create = env.outbox()[0];
+  assert.equal(create.sent, true);
+  await mod.offlineFetch(`/api/cardio/${first.id}`, { method: 'DELETE' }, browserFetch);
+  await drained(mod, env);
+  assert.equal(await cardioOn('2026-04-12'), 0);
+  // The create, held up on the way, arrives after all.
+  const late = await fetch(base + '/api/cardio', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(create.body) });
+  assert.equal(late.status, 410);
+  assert.equal(await cardioOn('2026-04-12'), 0, 'not made late');
+  assert.deepEqual(await hooksSince(from), [], 'no webhook for something never kept');
+});
+
+test('a server from before deletes by key: the create goes again and its row is deleted by id', opts, async () => {
+  oldServer = true;
+  try {
+    for (const [path, made, gone, count] of [
+      ['/api/cardio', run('2026-04-13'), (id) => `/api/cardio/${id}`, () => cardioOn('2026-04-13')],
+      ['/api/exercises', { name: 'Curl 0413' }, (id) => `/api/exercises/${id}`, () => exercisesNamed('Curl 0413')],
+      ['/api/workout/2026-04-13', { name: 'Old 0413', new_session: true, completed: true, exercises: [] }, (id) => `/api/workout/2026-04-13?id=${id}`,
+        async () => (await workoutsOn('2026-04-13')).filter(w => w.name === 'Old 0413').length],
+    ]) {
+      const { mod, env, send } = await page();
+      const method = path.startsWith('/api/workout/') ? 'PUT' : 'POST';
+      drops.push({ method, path }, { method, path });
+      const first = await (await send(method, path, made)).json();
+      for (let i = 0; i < 200 && drops.length; i++) await sleep(25);
+      await sleep(100);
+      assert.equal(await count(), 1, path);
+      await mod.offlineFetch(gone(first.workout?.id ?? first.id), { method: 'DELETE' }, browserFetch);
+      await drained(mod, env);
+      assert.equal(await count(), 0, `${path}: deleted on the server as well`);
+      assert.deepEqual(await mod.refusedChanges(), []);
+    }
+  } finally { oldServer = false; }
+});
+
+test('a delete by key reaches only your own row, once', opts, async () => {
+  const made = await call('POST', '/api/cardio', { ...run('2026-04-14'), client_key: 'web-mine-0123456789' });
+  assert.ok(made.id > 0);
+  const reg = await (await fetch(base + '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ username: 'other0414', password: PW }) })).json();
+  const other = reg.token || (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'other0414', password: PW }) })).json()).token;
+  assert.ok(other);
+  const as = async (who, method, path, body) => {
+    const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${who}` }, body: body == null ? undefined : JSON.stringify(body) });
+    return { status: r.status, data: await r.json().catch(() => null) };
+  };
+  // Another account with the same key deletes nothing of yours.
+  assert.deepEqual((await as(other, 'DELETE', '/api/cardio/by-key/web-mine-0123456789')).data, { ok: true, by_key: true, deleted: false });
+  assert.equal(await cardioOn('2026-04-14'), 1);
+  // A key for another kind of row deletes nothing either.
+  assert.deepEqual((await as(token, 'DELETE', '/api/exercises/by-key/web-mine-0123456789')).data, { ok: true, by_key: true, deleted: false });
+  assert.equal(await cardioOn('2026-04-14'), 1);
+  // Yours: deleted, and asked again, already gone.
+  assert.deepEqual((await as(token, 'DELETE', '/api/cardio/by-key/web-mine-0123456789')).data, { ok: true, by_key: true, deleted: true });
+  assert.deepEqual((await as(token, 'DELETE', '/api/cardio/by-key/web-mine-0123456789')).data, { ok: true, by_key: true, deleted: false });
+  assert.equal(await cardioOn('2026-04-14'), 0);
+  // The create sent again is answered as deleted since, not made again.
+  assert.equal((await as(token, 'POST', '/api/cardio', { ...run('2026-04-14'), client_key: 'web-mine-0123456789' })).status, 410);
+  assert.equal(await cardioOn('2026-04-14'), 0);
+  assert.equal((await as(token, 'DELETE', '/api/cardio/by-key/short')).status, 400);
+});
+
+// Changed or deleted while the replay sending its create waited for the
+// server's answer: the change was queued during the replay, under the same
+// temporary id, and cleared with the create once its answer came, never sent
+// (found in review of the fix above).
+test('changed or deleted while its create is on its way up: the change still goes', opts, async () => {
+  const { mod, env, send } = await page();
+  setOnline(false);
+  const kept = await (await send('POST', '/api/cardio', { ...run('2026-04-15'), activity: 'Kept 0415' })).json();
+  const doomed = await (await send('POST', '/api/exercises', { name: 'Curl 0415' })).json();
+  setOnline(true);
+  const g = holdAnswer('POST', '/api/cardio');
+  const flushing = mod.flushOutbox();
+  for (let i = 0; i < 200 && !g.hit; i++) await sleep(25);
+  assert.equal(g.hit, true, 'the create reached the server, its answer held');
+  // Made while the replay waits.
+  await send('PUT', `/api/cardio/${kept.id}`, { notes: 'changed meanwhile', duration_min: 41 });
+  await send('DELETE', `/api/exercises/${doomed.id}`);
+  g.open();
+  await flushing;
+  await drained(mod, env);
+  const rows = await call('GET', '/api/cardio/2026-04-15');
+  assert.deepEqual(rows.map(r => [r.notes, r.duration_min]), [['changed meanwhile', 41]]);
+  assert.equal(await exercisesNamed('Curl 0415'), 0);
 });

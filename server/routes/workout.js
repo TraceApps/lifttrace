@@ -10,7 +10,7 @@ import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
 import { isHistoryUpload, recordsBeforeSave, sendNewRecords } from '../lib/log-webhooks.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 import { cleanWorkoutRefs, workoutProgramVisible } from '../lib/program-access.js';
-import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
+import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, stampMerged, createdTimes } from '../lib/newer-wins.js';
 
 const router = Router();
@@ -440,7 +440,24 @@ router.delete('/:date', wrap((req, res) => {
   // Without an id, delete the first LIVE session: the first row overall can
   // be one deleted earlier, which left the session on screen untouched.
   const existing = _resolveWorkout(userId, date, explicitId, { excludeDeleted: true });
-  if (!existing) return res.json({ ok: true, deleted: false });
+  return _deleteWorkout(req, res, existing);
+}));
+
+// DELETE /api/workout/by-key/:key  the session a new_session save with this
+// client_key made, deleted before its maker learned its id (create-keys.js
+// rowForKey). Made by no save yet: one arriving later makes nothing.
+router.delete('/by-key/:key', wrap((req, res) => {
+  const userId = uid(req);
+  const found = rowForKey(userId, 'workout_log', req.params.key);
+  if (!found) return res.status(400).json({ error: 'client_key required' });
+  const existing = found.id == null ? null : userId != null
+    ? db.prepare('SELECT * FROM workout_log WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(found.id, userId)
+    : db.prepare('SELECT * FROM workout_log WHERE id = ? AND user_id IS NULL AND deleted_at IS NULL').get(found.id);
+  return _deleteWorkout(req, res, existing, { by_key: true });
+}));
+
+function _deleteWorkout(req, res, existing, extra = {}) {
+  if (!existing) return res.json({ ok: true, deleted: false, ...extra });
   // Deleted offline before an edit made elsewhere: the edit is newer, the
   // session stays (lib/newer-wins.js).
   const later = deleteLoses(req, existing);
@@ -455,7 +472,7 @@ router.delete('/:date', wrap((req, res) => {
   // deleted_at, and the PUT handler above already knows how to clear
   // deleted_at again on an explicit save to resurrect one.
   db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
-  res.json({ ok: true, deleted: true });
-}));
+  res.json({ ok: true, deleted: true, ...extra });
+}
 
 export default router;

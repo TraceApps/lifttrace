@@ -23,6 +23,7 @@ import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs, OFFLINE_HEADER,
   answerWithOps, queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, orphanWorkoutSave, opsAsKnown,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, newClientKey, takesClientKey,
+  isKeyedCreate, byKeyPath, deletePathWithId,
 } from './offline-edits.js';
 // Loaded with everything else, never fetched on demand: a picture is kept
 // exactly when there is no connection to fetch a separate file with, and a
@@ -497,6 +498,11 @@ async function _flushOnce() {
   _publish({ syncing: true });
 
   const send = _fetch || ((...a) => fetch(...a));
+  // What this run sends. A change queued while it runs joins the same list
+  // (_queue) but is not part of this run: it waits for the next, even when
+  // it is of something this run sent (a delete or an edit of a row whose
+  // create is on its way up), or it was cleared with it, never sent.
+  const mine = new Set(ops.map(o => o.seq));
   await _loadSwapped();
   const done = new Set();
   const refused = [];
@@ -508,6 +514,29 @@ async function _flushOnce() {
 
   for (const op of collapseOps(ops)) {
     const path = remapPath(op.path, map);
+    // Deleted before its create's answer came back, the create tried and
+    // maybe made (offline-edits.js deleteOfSent): by the create's key while
+    // the server's id for it is still unknown here.
+    if (op.byKey && /\/-\d+$|[?&]id=-\d+(&|$)/.test(path)) {
+      let outcome;
+      try {
+        outcome = await _deleteByKey(op, send, map);
+      } catch (err) {
+        stopped = isOfflineError(err) ? { offline: true } : { error: err.message || 'failed' };
+        break;
+      }
+      if (outcome.retry) { stopped = { error: outcome.retry }; break; }
+      if (outcome.refused) {
+        refused.push({ at: Date.now() * 1000 + (_refusedSeq = (_refusedSeq + 1) % 1000), what: describeOp(op), reason: outcome.refused });
+        console.error(`[offline] your server refused ${describeOp(op)}: ${outcome.refused} (${op.method} ${op.path})`);
+      }
+      if (op.key) done.add(op.key);
+      continue;
+    }
+    // A create that may reach the server from here on (its answer could be
+    // lost): noted before it goes, so deleting it here later can't simply
+    // drop it (offline-edits.js deleteOfSent).
+    if (isKeyedCreate(op)) await _noteSent(ops, op.key);
     const orphan = orphanWorkoutSave(op, map, ops);
     const body = op.body == null ? undefined : JSON.stringify(remapIds(orphan ?? op.body, map));
     let res;
@@ -597,7 +626,7 @@ async function _flushOnce() {
     _announceIds(map);
   }
 
-  const cleared = new Set(sentSeqs(ops, [...done]));
+  const cleared = new Set(sentSeqs(ops.filter(o => mine.has(o.seq)), [...done]));
   if (cleared.size) {
     await _tx('outbox', 'readwrite', s => { for (const seq of cleared) s.delete(seq); });
     _ops = ops.filter(op => !cleared.has(op.seq));
@@ -627,6 +656,67 @@ async function _flushOnce() {
   _publish();
   if (_ops.length) _scheduleFlush(0);
   return !(_ops?.length);
+}
+
+/** Every queued request of this thing marked as tried, here and stored. */
+async function _noteSent(ops, key) {
+  const fresh = (ops || []).filter(o => o.key === key && !o.sent);
+  if (!fresh.length) return;
+  for (const o of fresh) o.sent = true;
+  // Only rows still there as they were: one cleared meanwhile (another
+  // account signing in, another tab done with it) must not come back.
+  await _tx('outbox', 'readwrite', s => {
+    for (const o of fresh) {
+      const got = s.get(o.seq);
+      got.onsuccess = () => { const row = got.result; if (row && row.key === key) s.put({ ...row, sent: true }); };
+    }
+  });
+}
+
+/**
+ * A delete of a row whose create was tried but whose answer never came, so
+ * the server's id for it is unknown: sent by the create's key, which finds
+ * the row that create made, or, if it never arrived, makes sure it makes
+ * none when it does (server/lib/create-keys.js rowForKey). A server from
+ * before that route answers 404: the create goes again, which its key makes
+ * harmless (the server answers with the row it made, or makes it), and the
+ * row it names is deleted by id. Answers `{}` when done, `{ retry }` to try
+ * again later, `{ refused }` with the server's reason.
+ */
+async function _deleteByKey(op, send, map) {
+  const headers = op.editedAt ? { 'X-Edited-At': op.editedAt } : {};
+  const failed = async (res) => {
+    let message = `HTTP ${res.status}`;
+    try { message = (await res.clone().json())?.error || message; } catch { /* not json */ }
+    return shouldRetryStatus(res.status) ? { retry: message } : { refused: message };
+  };
+  const res = await send(byKeyPath(op), { method: 'DELETE', credentials: 'include', headers });
+  let answer = null;
+  try { answer = await res.clone().json(); } catch { /* not json */ }
+  if (res.ok && answer?.by_key === true) return {};
+  if (!res.ok && res.status !== 404) return failed(res);
+  // Dated as the create was, as a replay of it is: dated now, it would
+  // count as an edit made after the delete, which then loses to it.
+  const again = { 'Content-Type': 'application/json' };
+  if (op.byKey.editedAt) again['X-Edited-At'] = op.byKey.editedAt;
+  if (Array.isArray(op.byKey.changed)) again['X-Changed-Fields'] = op.byKey.changed.join(',');
+  const made = await send(op.byKey.path, {
+    method: op.byKey.method, credentials: 'include', headers: again,
+    body: JSON.stringify(remapIds(op.byKey.body, map)),
+  });
+  if (!made.ok) {
+    // Deleted since it was made: nothing left to delete.
+    let gone = null;
+    try { gone = await made.clone().json(); } catch { /* not json */ }
+    if (made.status === 410 && gone?.gone === true) return {};
+    return failed(made);
+  }
+  let id = null;
+  try { id = createdId(await made.clone().json()); } catch { /* not json */ }
+  if (id == null) return { refused: 'The server did not say which row it made.' };
+  const del = await send(deletePathWithId(op, id), { method: 'DELETE', credentials: 'include', headers });
+  if (del.ok || del.status === 404) return {};
+  return failed(del);
 }
 
 /**
@@ -941,6 +1031,8 @@ export async function offlineFetch(url, init, origFetch) {
   const date = op.kind === 'workout' ? pathOf(target).split('/').pop() : null;
   const at = Date.now();
   const stored = await _queue({
+    // Tried just now: it may have reached the server, answer lost.
+    ...(tried ? { sent: true } : {}),
     method,
     path: remapPath(String(url), _swapped),
     // Sent twice (its answer lost on the way back), a new workout is still

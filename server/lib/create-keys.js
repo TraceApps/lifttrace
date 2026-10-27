@@ -55,3 +55,21 @@ export function rememberCreated(req, userId, table, rowId) {
   db.prepare('INSERT OR IGNORE INTO create_keys (owner, client_key, table_name, row_id) VALUES (?, ?, ?, ?)')
     .run(owner(userId), key, table, Number(rowId));
 }
+
+/**
+ * A delete that names a row by the key of the create that made it: the web
+ * app's queue, when the row was deleted there before the create's answer
+ * (and so its id) came back. `{ id }`: the row that create made, for the
+ * route to delete as it would by id. `{ id: null }`: none, because the
+ * create never arrived (or made a row of another kind): the key is noted
+ * as made and gone, so a create still on its way is answered as deleted
+ * since (createdBefore) and makes nothing. `null`: not a usable key.
+ */
+export function rowForKey(userId, table, key) {
+  if (typeof key !== 'string' || key.length < 8 || key.length > 100) return null;
+  const who = owner(userId);
+  // Row id 0 is never a row: a create arriving after this finds none.
+  db.prepare('INSERT OR IGNORE INTO create_keys (owner, client_key, table_name, row_id) VALUES (?, ?, ?, 0)').run(who, key, table);
+  const hit = db.prepare('SELECT table_name, row_id FROM create_keys WHERE owner = ? AND client_key = ?').get(who, key);
+  return { id: hit && hit.table_name === table && hit.row_id > 0 ? hit.row_id : null };
+}

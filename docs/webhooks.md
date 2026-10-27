@@ -49,7 +49,10 @@ Webhooks are for something logged now. These send them:
   they reach the server. A change either app sends again (its answer was
   lost on the way back) doesn't send a second `workout.completed`,
   `pr.set` or `cardio.logged`, and makes no second workout or cardio
-  session; `body_stat.logged` is sent on every save, as above.
+  session; `body_stat.logged` is sent on every save, as above. A workout
+  or cardio session deleted in the web app before the answer to logging
+  it came back is deleted on the server too; its webhook was sent when
+  the server logged it.
 - The MCP tools (`log_set`, `log_body_stat`, `add_progress_photo`,
   `log_cardio`) and the [public REST API](public-api.md).
 
