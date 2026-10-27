@@ -8,6 +8,7 @@ import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, orphanWorkoutSave, opsAsKnown,
+  newClientKey, takesClientKey,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -432,7 +433,7 @@ test('two changes of the same thing queued offline go up as one, with what both 
 test('the browser\'s queued changes carry when they were made, on the server\'s clock, and what they changed', async () => {
   const { readFileSync } = await import('node:fs');
   const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
-  assert.match(offline, /editedAt: _serverNow\(at\),[\s\S]{0,200}changed: newWorkout \? null : \(_callerChanged\(init\) \?\? await _changedFields\(method, target, body\)\),/);
+  assert.match(offline, /editedAt: _serverNow\(at\),[\s\S]{0,200}changed: newWorkout \|\| firstMadeHere \? null : \(_callerChanged\(init\) \?\? await _changedFields\(method, target, body\)\),/);
   assert.match(offline, /if \(op\.editedAt\) headers\['X-Edited-At'\] = op\.editedAt;/);
   assert.match(offline, /if \(Array\.isArray\(op\.changed\)\) headers\['X-Changed-Fields'\] = op\.changed\.join\(','\);/);
   assert.match(offline, /res\?\.headers\?\.get\?\.\('x-server-time'\)/);
@@ -565,7 +566,7 @@ test('a new workout started on an empty day is the day, read by date', () => {
 test('a save that names its workout is a change of it, never a new workout', async () => {
   const { readFileSync } = await import('node:fs');
   const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
-  assert.match(offline, /const newWorkout = op\.kind === 'workout' && body\?\.id == null && \(!!body\?\.new_session \|\| !day\?\.workout\);/);
+  assert.match(offline, /const newWorkout = !sentAsFirst && op\.kind === 'workout' && body\?\.id == null && \(!!body\?\.new_session \|\| !day\?\.workout\);/);
 });
 
 test('a workout started here reads back without the flag that made it, so saving it back is a change, not another workout', () => {
@@ -659,4 +660,50 @@ test("a workout's queued saves go up saying everything any of them changed", () 
   // One queued by an earlier version says nothing, so the merged one says nothing.
   const [two] = collapseOps([save(1, null), save(2, { exercises: [], sets: { a: ['s2'] } })]);
   assert.equal(two.body.changed_uuids, undefined);
+});
+
+test('creates the server keeps a key for take one: cardio, an exercise, a new workout of the day (#134)', () => {
+  const take = (method, url, body) => takesClientKey(writeOp(method, url, body), body);
+  assert.equal(take('POST', '/api/cardio', { date: '2026-04-01', activity: 'Run' }), true);
+  assert.equal(take('POST', '/api/exercises', { name: 'Curl' }), true);
+  assert.equal(take('PUT', '/api/workout/2026-04-01', { new_session: true, exercises: [] }), true);
+  // A save of a workout, even one still carrying new_session from an earlier answer.
+  assert.equal(take('PUT', '/api/workout/2026-04-01', { exercises: [] }), false);
+  assert.equal(take('PUT', '/api/workout/2026-04-01', { id: 4, new_session: true }), false);
+  // Edits, and creates the server keeps no key for.
+  assert.equal(take('PUT', '/api/cardio/5', { notes: 'x' }), false);
+  assert.equal(take('POST', '/api/trainer/members/3/prescriptions', { name: 'Legs' }), false);
+  assert.equal(take('PUT', '/api/settings', { key: 'units', value: 'kg' }), false);
+  assert.equal(takesClientKey(null, {}), false);
+});
+
+test('a create key is fresh each time, and made by hand where randomUUID is missing (plain http)', () => {
+  const a = newClientKey(), b = newClientKey();
+  assert.notEqual(a, b);
+  // The server takes 8 to 100 characters (server/lib/create-keys.js).
+  for (const k of [a, b]) assert.ok(k.length >= 8 && k.length <= 100, k);
+  const real = globalThis.crypto;
+  Object.defineProperty(globalThis, 'crypto', { value: {}, configurable: true, writable: true });
+  try {
+    const c = newClientKey(), d = newClientKey();
+    assert.notEqual(c, d);
+    for (const k of [c, d]) assert.ok(k.length >= 8 && k.length <= 100, k);
+  } finally {
+    Object.defineProperty(globalThis, 'crypto', { value: real, configurable: true, writable: true });
+  }
+});
+
+test('a change to a create with a key rides with it and is kept apart to go after it (#134)', () => {
+  const create = { seq: 1, method: 'POST', path: '/api/cardio', body: { date: '2026-04-08', activity: 'Run', duration_min: 30, client_key: 'k-0123456789' }, kind: 'cardio-create', key: 'cardio:-9', tempId: -9, id: -9, editedAt: 'a' };
+  const edit1 = { seq: 2, method: 'PUT', path: '/api/cardio/-9', body: { notes: 'felt good' }, kind: 'cardio-update', key: 'cardio:-9', id: -9, editedAt: 'b', changed: ['notes'] };
+  const edit2 = { seq: 3, method: 'PUT', path: '/api/cardio/-9', body: { duration_min: 35 }, kind: 'cardio-update', key: 'cardio:-9', id: -9, editedAt: 'c', changed: ['duration_min'] };
+  const [one] = collapseOps([create, edit1, edit2]);
+  assert.equal(one.kind, 'cardio-create');
+  assert.deepEqual(one.body, { ...create.body, notes: 'felt good', duration_min: 35 });
+  assert.deepEqual(one.edits, { notes: 'felt good', duration_min: 35 });
+  assert.equal(one.editsAt, 'c');
+  assert.deepEqual(one.editsChanged, ['notes', 'duration_min']);
+  // Queued by an earlier version, with no key: as before, nothing apart.
+  const [old] = collapseOps([{ ...create, body: { ...create.body, client_key: undefined } }, edit1]);
+  assert.equal(old.edits, undefined);
 });

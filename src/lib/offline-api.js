@@ -22,7 +22,7 @@ import { writable } from 'svelte/store';
 import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs, OFFLINE_HEADER,
   answerWithOps, queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, orphanWorkoutSave, opsAsKnown,
-  describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply,
+  describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, newClientKey, takesClientKey,
 } from './offline-edits.js';
 // Loaded with everything else, never fetched on demand: a picture is kept
 // exactly when there is no connection to fetch a separate file with, and a
@@ -531,7 +531,12 @@ async function _flushOnce() {
     }
     if (!res.ok) {
       let message = `HTTP ${res.status}`;
-      try { message = (await res.clone().json())?.error || message; } catch { /* not json */ }
+      let answer = null;
+      try { answer = await res.clone().json(); message = answer?.error || message; } catch { /* not json */ }
+      // A create sent again whose row was deleted since (its key told the
+      // server it had made it, create-keys.js): what it asked for was done,
+      // so it goes quietly rather than as a refusal.
+      if (res.status === 410 && answer?.gone === true) { if (op.key) done.add(op.key); continue; }
       // A server that is struggling deserves another go later, and everything
       // behind this waits with it so nothing arrives out of order.
       if (shouldRetryStatus(res.status)) { stopped = { error: message }; break; }
@@ -553,6 +558,31 @@ async function _flushOnce() {
       let created = null;
       try { created = createdId(await res.clone().json()); } catch { /* not json */ }
       if (created != null) map[Number(madeAs)] = created;
+    }
+    // Changed again before it went up: if the server had made it already
+    // (its answer lost), it answered with the row as first made. The change
+    // goes after it as its own edit, and if that can't go yet, all of it
+    // stays to go again (the create's key makes the repeat harmless).
+    const real = madeAs != null ? map[Number(madeAs)] : null;
+    if (op.edits && real != null) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (op.editsAt) headers['X-Edited-At'] = op.editsAt;
+      if (Array.isArray(op.editsChanged)) headers['X-Changed-Fields'] = op.editsChanged.join(',');
+      let edit;
+      try {
+        const { client_key, ...edits } = op.edits;
+        edit = await send(`${pathOf(path)}/${real}`, { method: 'PUT', credentials: 'include', headers, body: JSON.stringify(remapIds(edits, map)) });
+      } catch (err) {
+        stopped = isOfflineError(err) ? { offline: true } : { error: err.message || 'failed' };
+        break;
+      }
+      if (!edit.ok) {
+        let message = `HTTP ${edit.status}`;
+        try { message = (await edit.clone().json())?.error || message; } catch { /* not json */ }
+        if (shouldRetryStatus(edit.status)) { stopped = { error: message }; break; }
+        refused.push({ at: Date.now() * 1000 + (_refusedSeq = (_refusedSeq + 1) % 1000), what: describeOp({ ...op, kind: op.kind.replace('-create', '-update') }), reason: message });
+        console.error(`[offline] your server refused ${describeOp({ ...op, kind: op.kind.replace('-create', '-update') })}: ${message} (PUT ${pathOf(path)}/${real})`);
+      }
     }
     if (op.key) done.add(op.key);
   }
@@ -833,6 +863,16 @@ export async function offlineFetch(url, init, origFetch) {
     }
   }
 
+  // A create carries a key made here before it is first tried, and keeps it
+  // in the queue: sent again because its answer was lost (tried straight
+  // away, or replayed), the server answers with the row it made instead of
+  // making a second, and sends no second webhook (server/lib/create-keys.js),
+  // as for the Android app. A server from before keys ignores it.
+  if (!body?.client_key && takesClientKey(op, body)) {
+    body = { ...body, client_key: newClientKey() };
+    init = { ...init, body: JSON.stringify(body) };
+  }
+
   _changedSomething = true;
   const queued = await _loadOps();
   const direct = async () => {
@@ -885,8 +925,18 @@ export async function offlineFetch(url, init, origFetch) {
     body = { ...body, id };
     op.key = `workout:${pathOf(target).split('/').pop()}#${id}`;
   }
-  const newWorkout = op.kind === 'workout' && body?.id == null && (!!body?.new_session || !day?.workout);
-  const tempId = MAKES_A_ROW.includes(op.kind) || newWorkout ? newTempId() : null;
+  // Unless it was just sent that way and its answer never came: the server
+  // may have made it already, as the day's first, and a new workout of the
+  // day would be a second one. It goes again as it was sent, which saves
+  // into the one it made (or makes it, if it never arrived), and keeps a
+  // temporary id so what is saved into it next follows it. A failure here
+  // can't tell "never arrived" from "answer lost", so one that never arrived
+  // also goes as it was sent: into the day's first workout on the server,
+  // as it would have gone had it arrived.
+  const sentAsFirst = tried && op.kind === 'workout' && body?.id == null && !body?.new_session;
+  const firstMadeHere = sentAsFirst && !day?.workout;
+  const newWorkout = !sentAsFirst && op.kind === 'workout' && body?.id == null && (!!body?.new_session || !day?.workout);
+  const tempId = MAKES_A_ROW.includes(op.kind) || newWorkout || firstMadeHere ? newTempId() : null;
   if (newWorkout) body = { ...body, new_session: true, client_key: body.client_key || `web-workout${tempId}` };
   const date = op.kind === 'workout' ? pathOf(target).split('/').pop() : null;
   const at = Date.now();
@@ -900,9 +950,10 @@ export async function offlineFetch(url, init, origFetch) {
     editedAt: _serverNow(at),
     // What the caller says it changed, else what differs from the copy here.
     // A new workout is all new.
-    changed: newWorkout ? null : (_callerChanged(init) ?? await _changedFields(method, target, body)),
+    changed: newWorkout || firstMadeHere ? null : (_callerChanged(init) ?? await _changedFields(method, target, body)),
     ...op,
     ...(tempId == null ? {}
+      : firstMadeHere ? { tempId }
       : op.kind === 'workout' ? { tempId, key: `workout:${date}#${tempId}` }
       : { tempId, id: tempId, key: `${op.kind.replace('-create', '')}:${tempId}` }),
   });

@@ -46,10 +46,10 @@ Webhooks are for something logged now. These send them:
 
 - The web app, the Android app connected to a server, and the watch.
   Changes the Android app or the web app made offline send theirs when
-  they reach the server. A change the Android app sends again (its answer
-  was lost on the way back) doesn't send a second `workout.completed`,
-  `pr.set` or `cardio.logged`; `body_stat.logged` is sent on every save,
-  as above.
+  they reach the server. A change either app sends again (its answer was
+  lost on the way back) doesn't send a second `workout.completed`,
+  `pr.set` or `cardio.logged`, and makes no second workout or cardio
+  session; `body_stat.logged` is sent on every save, as above.
 - The MCP tools (`log_set`, `log_body_stat`, `add_progress_photo`,
   `log_cardio`) and the [public REST API](public-api.md).
 

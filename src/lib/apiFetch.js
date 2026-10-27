@@ -16,6 +16,7 @@
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
 import { LtApiNative } from './api-native.js';
 import { installOffline, offlineFetch } from './offline-api.js';
+import { newClientKey } from './offline-edits.js';
 import { isInterceptable, ownOrigins } from './api-route.js';
 import { accountGen, copyMoving } from './account-gen.js';
 
@@ -253,10 +254,8 @@ export function needsServerNow(fullPath, method) {
 // Creates that go into the queue carry a key made here once, so one sent
 // again after its answer was lost makes one row (server/lib/create-keys.js).
 const _QUEUED_CREATE = /^\/api\/(programs|templates|exercises|cardio)$/;
-const _clientKey = () => {
-  try { if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID(); } catch { /* fall back */ }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-};
+// The web app's offline layer makes its keys the same way (offline-edits.js).
+const _clientKey = newClientKey;
 
 /** A request that makes a row: a program, program workout, exercise,
  *  cardio session, or a new workout session. */

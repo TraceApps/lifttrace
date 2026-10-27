@@ -165,6 +165,26 @@ export function writeOp(method, url, body) {
   return null;
 }
 
+/**
+ * A key for a create, made once where it is first sent and kept with it
+ * however often it goes again. The server notes the row it made under it and
+ * answers a repeat with that row (server/lib/create-keys.js), so a create
+ * whose answer was lost on the way back makes one row and one webhook.
+ * Without randomUUID (a page on plain http) it is made by hand.
+ */
+export const newClientKey = () => {
+  try { if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID(); } catch { /* fall back */ }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+};
+
+/** Does this write make a row the server keeps a key for: a cardio
+ *  session, an exercise, or a new workout of the day (`new_session`)? */
+export function takesClientKey(op, body) {
+  if (!op || !body || typeof body !== 'object' || Array.isArray(body)) return false;
+  if (op.kind === 'cardio-create' || op.kind === 'exercise-create') return true;
+  return op.kind === 'workout' && !!body.new_session && body.id == null;
+}
+
 /** Tombstones from a workout save, in the shape the route accepts. */
 const _tombs = (body) => {
   const raw = body?.deleted_uuids;
@@ -231,7 +251,17 @@ export function collapseOps(ops) {
       // newest values. Made and then removed: it never happened.
       if (op.kind === 'exercise-delete' || op.kind === 'cardio-delete' || op.kind === 'prescription-delete') { byKey.delete(op.key); continue; }
       if (op.kind === 'exercise-update' || op.kind === 'cardio-update' || op.kind === 'prescription-update') {
-        byKey.set(op.key, { ...prev, body: { ...prev.body, ...op.body }, seq: op.seq });
+        const merged = { ...prev, body: { ...prev.body, ...op.body }, seq: op.seq };
+        // A create with a key may have been made already (its answer lost),
+        // and a repeat is answered with the row as first made, so the change
+        // goes up after it as well, as the edit it was (offline-api.js).
+        if (prev.body?.client_key) {
+          merged.edits = { ...(prev.edits || {}), ...op.body };
+          merged.editsAt = op.editedAt ?? prev.editsAt;
+          const before = prev.edits ? prev.editsChanged : [];
+          merged.editsChanged = Array.isArray(before) && Array.isArray(op.changed) ? [...new Set([...before, ...op.changed])] : null;
+        }
+        byKey.set(op.key, merged);
         continue;
       }
     }
@@ -524,8 +554,11 @@ export function queuedReply(op, body, tempId) {
       return { stats: { date: op.key?.split(':')[1] || null, stats: body?.stats || {}, updated_at: now }, ...queued };
     case 'cardio-create':
     case 'exercise-create':
-    case 'prescription-create':
-      return { ...(body || {}), id: tempId, created_at: now, updated_at: now, ...queued };
+    case 'prescription-create': {
+      // The key is the request's, never the row's (as for a workout, _asShown).
+      const { client_key, ...shown } = body || {};
+      return { ...shown, id: tempId, created_at: now, updated_at: now, ...queued };
+    }
     case 'cardio-update':
     case 'exercise-update':
     case 'prescription-update':
