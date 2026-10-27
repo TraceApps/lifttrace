@@ -64,7 +64,9 @@ test('the server works out a workout\'s calories exactly as the app does', () =>
 
 const serverRequire = createRequire(new URL('../server/package.json', import.meta.url));
 let ready = false;
-try { serverRequire('better-sqlite3'); ready = true; } catch { /* server packages missing: skip */ }
+// Opened, not just required: a binding built for another Node version
+// loads only when a database opens.
+try { const D = serverRequire('better-sqlite3'); new D(':memory:').close(); ready = true; } catch { /* server packages missing: skip */ }
 
 const freePort = () => new Promise((res) => { const s = createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => res(p)); }); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -133,9 +135,14 @@ test.before(async () => {
   await setting('heightCm', 180);
 });
 test.after(async () => {
-  if (proc) await new Promise((r) => { proc.once('exit', r); proc.kill(); });
-  if (stand) await new Promise((r) => stand.close(r));
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  // A server that already exited (it failed to start) never says so again:
+  // waiting for it hung here, and the folder stayed behind.
+  try {
+    if (proc && proc.exitCode == null && proc.signalCode == null) await new Promise((r) => { proc.once('exit', r); proc.kill(); });
+    if (stand) await new Promise((r) => stand.close(r));
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 const exercises = (date, doneUpTo) => [

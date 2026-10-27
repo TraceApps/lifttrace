@@ -36,8 +36,13 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 function scratchDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-cardio-'));
-  const db = new Database(path.join(dir, 'test.db'));
-  db.exec(`
+  const remove = () => fs.rmSync(dir, { recursive: true, force: true });
+  let db = null;
+  // A better-sqlite3 built for another Node version fails only here, when
+  // the database opens: the folder goes then too, rather than staying behind.
+  try {
+    db = new Database(path.join(dir, 'test.db'));
+    db.exec(`
     CREATE TABLE user_settings (
       user_id INTEGER, key TEXT NOT NULL, value TEXT,
       PRIMARY KEY (user_id, key)
@@ -61,8 +66,13 @@ function scratchDb() {
     CREATE UNIQUE INDEX idx_cardio_log_user_external
       ON cardio_log(user_id, external_id)
       WHERE external_id IS NOT NULL;
-  `);
-  return { db, cleanup: () => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
+    `);
+  } catch (e) {
+    try { db?.close(); } catch { /* not open */ }
+    remove();
+    throw e;
+  }
+  return { db, cleanup: () => { try { db.close(); } finally { remove(); } } };
 }
 
 const setCardio = (db, userId, value) => db

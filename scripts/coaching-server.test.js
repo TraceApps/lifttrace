@@ -26,7 +26,9 @@ import test from 'node:test';
 
 const serverRequire = createRequire(new URL('../server/package.json', import.meta.url));
 let ready = false;
-try { serverRequire('better-sqlite3'); ready = true; } catch { /* server packages missing: skip */ }
+// Opened, not just required: a binding built for another Node version
+// loads only when a database opens.
+try { const D = serverRequire('better-sqlite3'); new D(':memory:').close(); ready = true; } catch { /* server packages missing: skip */ }
 
 const freePort = () => new Promise((res) => { const s = createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => res(p)); }); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -69,6 +71,8 @@ async function boot() {
 async function stop() {
   if (!proc) return;
   const p = proc; proc = null;
+  // A server that already exited never says so again: waiting for it hung.
+  if (p.exitCode != null || p.signalCode != null) return;
   await new Promise((r) => { p.once('exit', r); p.kill(); });
 }
 
@@ -114,7 +118,7 @@ test.before(async () => {
   await makeUser('coach2', 'trainer', 'Kim Coach');
   for (const [n, f] of [['client1', 'Cleo Client'], ['client2', 'Dev Client'], ['client3', 'Eli Client'], ['client4', 'Fay Client'], ['plain', 'Pat Plain']]) await makeUser(n, 'member', f);
 });
-test.after(async () => { await stop(); if (dir) rmSync(dir, { recursive: true, force: true }); });
+test.after(async () => { try { await stop(); } finally { if (dir) rmSync(dir, { recursive: true, force: true }); } });
 
 // Any object that looks like a person must be { id, name } and nothing else.
 const ROW_KEYS = ['password_hash', 'email', 'username', 'birthday', 'gender', 'avatar_url', 'nickname', 'trainer_id', 'created_at'];

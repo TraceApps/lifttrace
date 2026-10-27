@@ -25,7 +25,9 @@ import { writeOp, answerWithOps, queuedReply } from '../src/lib/offline-edits.js
 
 const serverRequire = createRequire(new URL('../server/package.json', import.meta.url));
 let ready = false;
-try { serverRequire('better-sqlite3'); ready = true; } catch { /* server packages missing: skip */ }
+// Opened, not just required: a binding built for another Node version
+// loads only when a database opens.
+try { const D = serverRequire('better-sqlite3'); new D(':memory:').close(); ready = true; } catch { /* server packages missing: skip */ }
 
 const freePort = () => new Promise((res) => { const s = netServer(); s.listen(0, () => { const p = s.address().port; s.close(() => res(p)); }); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -66,7 +68,8 @@ async function boot() {
   }
   throw new Error('server did not start');
 }
-async function stop() { const p = proc; proc = null; if (p) await new Promise((r) => { p.once('exit', r); p.kill(); }); }
+// A server that already exited never says so again: waiting for it hung.
+async function stop() { const p = proc; proc = null; if (p && p.exitCode == null && p.signalCode == null) await new Promise((r) => { p.once('exit', r); p.kill(); }); }
 
 test.before(async () => {
   if (!ready) return;
@@ -95,7 +98,7 @@ test.before(async () => {
     await ok(who, 'PUT', '/api/settings', { key: 'ntfyTopic', value: `lt-${who}` });
   }
 });
-test.after(async () => { await stop(); ntfy?.close(); if (dir) rmSync(dir, { recursive: true, force: true }); });
+test.after(async () => { try { await stop(); ntfy?.close(); } finally { if (dir) rmSync(dir, { recursive: true, force: true }); } });
 
 const prescribe = (body) => ok('coach', 'POST', `/api/trainer/members/${ids.client}/prescriptions`, { name: 'Leg Day', exercises: [], ...body });
 

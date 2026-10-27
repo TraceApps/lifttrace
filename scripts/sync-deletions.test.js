@@ -14,13 +14,17 @@
  * unchanged app drops the deleted programs after one sync.
  */
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), 'sync-del-')), 'test.db');
-const db = (await import('../server/db.js')).default;
+const dir = mkdtempSync(join(tmpdir(), 'sync-del-'));
+process.env.DB_PATH = join(dir, 'test.db');
+// Removed however the tests end, the database closed first.
+test.after(() => { try { db?.close(); } catch { /* not open */ } rmSync(dir, { recursive: true, force: true }); });
+let db;
+try { db = (await import('../server/db.js')).default; } catch (e) { rmSync(dir, { recursive: true, force: true }); throw e; }
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const tombs = (tbl) => db.prepare('SELECT row_id FROM sync_deletions WHERE tbl = ? ORDER BY row_id').all(tbl).map(r => r.row_id);
 

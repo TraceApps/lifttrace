@@ -10,13 +10,19 @@
  * the links pointed at the forged host; after, at the admin's address.
  */
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), 'public-url-')), 'test.db');
-const { createPublicUrl, requestOrigin } = await import('../server/lib/public-url.js');
+const dir = mkdtempSync(join(tmpdir(), 'public-url-'));
+process.env.DB_PATH = join(dir, 'test.db');
+test.after(() => rmSync(dir, { recursive: true, force: true }));
+let createPublicUrl, requestOrigin;
+// A load that fails (server packages built for another Node version) ends
+// the file before its tests run: the folder goes then.
+try { ({ createPublicUrl, requestOrigin } = await import('../server/lib/public-url.js')); }
+catch (e) { rmSync(dir, { recursive: true, force: true }); throw e; }
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 const mem = () => { const m = new Map(); return { get: (k) => m.get(k) ?? null, set: (k, v) => m.set(k, v), m }; };

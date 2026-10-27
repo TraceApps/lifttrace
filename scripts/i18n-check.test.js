@@ -58,8 +58,13 @@ test('findDuplicateKeys: a triple duplicate reports twice', () => {
   assert.deepEqual(findDuplicateKeys('{"k":1,"k":2,"k":3}'), ['k', 'k']);
 });
 
+// Every fixture's folder, removed once the tests are done.
+const fixtureDirs = [];
+test.after(() => { for (const d of fixtureDirs) fs.rmSync(d, { recursive: true, force: true }); });
+
 function fixture(name, contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'i18n-check-'));
+  fixtureDirs.push(dir);
   const file = path.join(dir, name);
   fs.writeFileSync(file, contents);
   return file;
