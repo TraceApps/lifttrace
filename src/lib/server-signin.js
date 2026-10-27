@@ -78,7 +78,7 @@ export async function responseJson(res) {
   return _json(res.status, await res.text());
 }
 
-// CapacitorHttp, replaceable in tests.
+// CapacitorHttp through lib/native-http.js, replaceable in tests.
 let _httpImpl = null;
 // A Capacitor plugin answers every property, `then` included, so an async
 // function that returns it never settles (sign-in hung at "Checking..."):
@@ -86,8 +86,8 @@ let _httpImpl = null;
 export const _wrapHttp = (plugin) => ({ get: (o) => plugin.get(o), post: (o) => plugin.post(o) });
 async function _http() {
   if (_httpImpl) return _httpImpl;
-  const { CapacitorHttp } = await import('@capacitor/core');
-  return _wrapHttp(CapacitorHttp);
+  const { NativeHttp } = await import('./native-http.js');
+  return _wrapHttp(NativeHttp);
 }
 export function _useHttpForTests(http) { _httpImpl = http; }
 

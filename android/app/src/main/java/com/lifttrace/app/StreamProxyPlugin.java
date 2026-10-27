@@ -66,6 +66,9 @@ public class StreamProxyPlugin extends Plugin {
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
         .build();
+    // Plain http:// only to the confirmed server, which a station never is
+    // (PlainHttpGate, from TraceApps/nutritrace#194).
+    private static final okhttp3.Call.Factory _calls = PlainHttpGate.callFactory(_http);
 
     // Tracks the current pump thread + response so a new station tap can
     // cleanly cancel the previous one. Without this the abandoned thread
@@ -86,6 +89,7 @@ public class StreamProxyPlugin extends Plugin {
             call.reject("url required");
             return;
         }
+        PlainHttpGate.setConfirmedOrigin(call.getString("httpOrigin"));
         // Same-origin URL into the WebView's intercept path. The actual
         // upstream connection is opened LAZILY when the audio element loads
         // this path (see shouldInterceptProxyRequest below).
@@ -139,7 +143,7 @@ public class StreamProxyPlugin extends Plugin {
             .build();
 
         Response upstream;
-        try { upstream = _http.newCall(req).execute(); }
+        try { upstream = _calls.newCall(req).execute(); }
         catch (Exception e) {
             Log.w(TAG, "upstream connect failed: " + e.getMessage());
             return errorResponse(502, "upstream connect failed");

@@ -34,8 +34,18 @@ globalThis.addEventListener ??= () => {};
 globalThis.removeEventListener ??= () => {};
 globalThis.dispatchEvent = () => true;
 globalThis.document = { addEventListener() {}, visibilityState: 'visible' };
+// The person said Connect Anyway to their server (src/lib/plain-http.js, from
+// TraceApps/nutritrace#194): the test servers here are plain HTTP on this
+// machine, whichever of its names a test uses.
+const _plainHttpOk = (...urls) => {
+  const out = [];
+  for (const u of [...urls, ...(globalThis.__plainHttpOk || [])]) {
+    try { const o = new URL(u).origin; out.push(o, o.replace('127.0.0.1', 'localhost'), o.replace('localhost', '127.0.0.1')); } catch { /* none */ }
+  }
+  return JSON.stringify(out);
+};
 const store = new Map();
-Object.defineProperty(globalThis, 'localStorage', { value: { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k), key: () => null, length: 0 }, configurable: true });
+Object.defineProperty(globalThis, 'localStorage', { value: { getItem: k => (k === 'lt:plainHttpOk' ? _plainHttpOk(process.env.LT_SERVER) : store.get(k) ?? null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k), key: () => null, length: 0 }, configurable: true });
 Object.defineProperty(globalThis, 'navigator', { value: { language: 'en-US', languages: ['en-US'], userAgent: 'node', get onLine() { return !globalThis.__offline; } }, configurable: true });
 
 const { getDb, dbQuery: q } = await import('../../src/lib/db-native.js');
@@ -149,6 +159,9 @@ const scenarios = {
     });
     await new Promise(r => box.listen(0, '127.0.0.1', r));
     const base = `http://127.0.0.1:${box.address().port}`;
+    // Stands in for the push service; a real one is HTTPS (only your own
+    // confirmed server may be plain HTTP from the phone).
+    globalThis.__plainHttpOk = [base];
     const service = process.env.LT_PUSH;
     const st = await import('../../src/stores/settings.js');
     // As Settings, Notifications saves them, on the phone and the server.

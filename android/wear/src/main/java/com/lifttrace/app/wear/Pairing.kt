@@ -25,12 +25,19 @@ import org.json.JSONObject
  */
 object Pairing {
 
-    data class Config(val serverUrl: String, val token: String)
+    /**
+     * `httpOk`: the server again, as the phone's URL parser writes it, when
+     * the phone confirmed plain HTTP to it (a server on your own network, from
+     * TraceApps/nutritrace#194); empty otherwise. LiftApi sends over plain
+     * HTTP only when it matches (LocalAddress.workerBase).
+     */
+    data class Config(val serverUrl: String, val token: String, val httpOk: String = "")
 
     private const val TAG = "LiftTraceWear"
     private const val PREFS = "lifttrace.wear"
     const val KEY_URL = "server_url"
     const val KEY_TOKEN = "token"
+    private const val KEY_HTTP_OK = "server_http_ok"
     private const val KEY_CACHE = "cache"
     private const val KEY_CACHE_AT = "cache_at"
     private const val KEY_SETTINGS = "settings"
@@ -92,7 +99,7 @@ object Pairing {
         val p = prefs(ctx)
         val url = p.getString(KEY_URL, null)?.takeIf { it.isNotBlank() }
         val token = p.getString(KEY_TOKEN, null)?.takeIf { it.isNotBlank() }
-        return if (url != null && token != null) Config(url, token) else null
+        return if (url != null && token != null) Config(url, token, p.getString(KEY_HTTP_OK, null).orEmpty()) else null
     }
 
     /**
@@ -120,8 +127,9 @@ object Pairing {
                 val token = map.getString("token").orEmpty()
                 if (url.isBlank() || token.isBlank()) continue
                 if (token == prefs(ctx).getString(KEY_REFUSED, null)) continue
-                save(ctx, url, token)
-                found = Config(url.trimEnd('/'), token)
+                val httpOk = map.getString("httpOk").orEmpty()
+                save(ctx, url, token, httpOk = httpOk)
+                found = Config(url.trimEnd('/'), token, httpOk)
             }
             items.release()
             found ?: existing
@@ -131,10 +139,12 @@ object Pairing {
         }
     }
 
-    fun save(ctx: Context, serverUrl: String, token: String, phoneRelease: String = "") {
+    fun save(ctx: Context, serverUrl: String, token: String, phoneRelease: String = "", httpOk: String = "") {
         val edit = prefs(ctx).edit()
             .putString(KEY_URL, serverUrl.trim().trimEnd('/'))
             .putString(KEY_TOKEN, token.trim())
+            // Only what the phone said with this address: an older phone app says nothing.
+            .putString(KEY_HTTP_OK, httpOk)
             // A fresh token: whatever was refused before is history.
             .remove(KEY_REFUSED)
         // A phone that doesn't say (an older app) has no release to follow.
@@ -158,7 +168,7 @@ object Pairing {
 
     /** The phone says the account signed out, or the watch was unpaired. */
     fun clear(ctx: Context) {
-        prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_REFUSED)
+        prefs(ctx).edit().remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_HTTP_OK).remove(KEY_REFUSED)
             .remove(KEY_CACHE).remove(KEY_SETTINGS).remove(KEY_OUTBOX).remove(KEY_TIMER)
             .remove(KEY_LASTS).remove(KEY_LASTS_DAY).remove(KEY_SESSION).remove(KEY_SESSION_AT)
             .remove(KEY_FINISHED).apply()

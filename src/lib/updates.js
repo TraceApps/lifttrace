@@ -492,6 +492,12 @@ export async function isApkStaged(latest) {
 export async function downloadAndInstallApk(latest, onProgress) {
   if (!isNative) throw new Error('APK install only available in the Android app');
   if (!latest?.apkAsset) throw new Error('No APK asset in this release');
+  // Android allows plain HTTP app-wide since TraceApps/nutritrace#194 (the
+  // app checks each request itself), and this download runs outside those
+  // checks: an APK only ever comes over HTTPS.
+  let assetUrl = null;
+  try { assetUrl = new URL(latest.apkAsset.url); } catch { /* checked below */ }
+  if (assetUrl?.protocol !== 'https:') throw new Error('Download failed');
   const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
   const path = `updates/${latest.apkAsset.name}`;

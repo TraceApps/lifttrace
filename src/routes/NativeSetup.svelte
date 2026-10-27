@@ -5,6 +5,8 @@
   import { showError, showSuccess } from '../stores/toast.js';
   import { countLocalData, uploadLocalToServer } from '../lib/migrate.js';
   import { destroyLocalDb } from '../lib/db-native.js';
+  import { serverAddressCheck, confirmPlainHttp } from '../lib/plain-http.js';
+  import { askPlainHttp } from '../stores/plainHttp.js';
 
   // 'choose'         — Use Locally / Connect to Server picker
   // 'server-url'     — enter URL (NEW step, unlocks OIDC-only discovery)
@@ -57,13 +59,23 @@
   }
 
   // A sign-in proxy's web page is said as such (lib/server-signin.js).
-  const errorText = (e, url) => (e?.webPage ? e.message : explainConnectError(e, url) || $_('native_setup.toast.cant_reach'));
+  const errorText = (e, url) => (e?.webPage ? e.message : explainConnectError(e, url, $_) || $_('native_setup.toast.cant_reach'));
 
   // Step 1 → step 2: the server is there and is LiftTrace, then which ways
   // in it offers (lib/server-signin.js).
   async function validateAndNext() {
     if (!serverUrl.trim()) { showError($_('native_setup.toast.server_url_required')); return; }
     const url = serverUrl.trim().replace(/\/$/, '');
+    // Plain http:// (from TraceApps/nutritrace#194): refused unless the server
+    // is on your own network, and then only after the warning. Nothing is
+    // sent before this.
+    const plain = serverAddressCheck(url);
+    if (plain === 'invalid') { showError($_('plain_http.invalid_address')); return; }
+    if (plain === 'refuse') { await askPlainHttp(url, { kind: 'refuse' }); return; }
+    if (plain === 'ask') {
+      if (!(await askPlainHttp(url))) return;
+      confirmPlainHttp(url);
+    }
     connecting = true;
     try {
       await serverReady(url);

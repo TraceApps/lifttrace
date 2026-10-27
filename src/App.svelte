@@ -8,6 +8,7 @@
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
+  import PlainHttpSheetMount from './components/ui/PlainHttpSheetMount.svelte';
   import AccountCheckError from './components/AccountCheckError.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
@@ -621,6 +622,13 @@
                 // the router. Cross-app fix mirrored from NutriTrace #110.
                 showNativeSetup = needsNativeSetup();
                 window.location.hash = '#/';
+                // A plain-HTTP server confirmed on the setup screen isn't in the
+                // image and media policy set at start (from
+                // TraceApps/nutritrace#194); only a reload adds it.
+                const { mediaPolicyStale } = await import('./lib/plain-http.js');
+                if (mediaPolicyStale(document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content)) {
+                  window.location.reload();
+                }
               }
             }
           } catch (e) {
@@ -630,6 +638,26 @@
       }
     } catch {}
 
+    // A saved server on plain http:// that this build hasn't been told to use
+    // (from TraceApps/nutritrace#194): connected from a build that allowed
+    // plain HTTP. Asked here, before anything goes to the server; until it's
+    // confirmed nothing does (lib/plain-http.js), the app works from what's on
+    // the phone, and the next launch asks again. One that isn't on your own
+    // network is refused.
+    if (isNative && getServerUrl()) {
+      const saved = getServerUrl();
+      const { serverAddressCheck, confirmPlainHttp } = await import('./lib/plain-http.js');
+      const plain = serverAddressCheck(saved);
+      if (plain === 'ask' || plain === 'refuse') {
+        authLoaded = false;
+        const { askPlainHttp } = await import('./stores/plainHttp.js');
+        if (await askPlainHttp(saved, { kind: plain, stored: true })) {
+          confirmPlainHttp(saved);
+          window.location.reload();
+          return;
+        }
+      }
+    }
     // A copy an earlier version kept for a server is tagged as the account
     // last signed in here, before anyone signs in (lib/local-account.js).
     if (isNative && getNativeMode() === 'server') {
@@ -898,6 +926,7 @@
 {/if}
 
 {#if needsLogin}<Toast />{/if}
+{#if isNative}<PlainHttpSheetMount />{/if}
 
 <style>
   :global(body) { overflow-x: hidden; }

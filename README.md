@@ -74,7 +74,7 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 ## Apps
 
 - **Web (PWA).** Install from any modern browser via the address bar (Chrome) or share menu (Safari). Keeps working with no connection, in a tab or installed.
-- **Android.** Sideload the signed APK from the [Releases](https://github.com/TraceApps/lifttrace/releases) page. Release APKs require HTTPS to your server; debug APKs accept plain HTTP. See [DEPLOY.md](DEPLOY.md) for the four supported paths.
+- **Android.** Sideload the signed APK from the [Releases](https://github.com/TraceApps/lifttrace/releases) page. The app connects to your server over HTTPS, or over plain HTTP to a server on your own network after a warning. See [DEPLOY.md](DEPLOY.md#connecting-from-android).
 - **Wear OS.** A separate APK for the watch, on the same [Releases](https://github.com/TraceApps/lifttrace/releases) page. Sideload it onto a Wear OS 3 watch; it pairs itself the next time you open LiftTrace on the phone, and from then on it updates itself to the phone's release.
 - **iOS.** No native build yet. Install the PWA from Safari (Share → Add to Home Screen).
 

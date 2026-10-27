@@ -13,7 +13,8 @@
  * /api/radio-proxy already provides the same same-origin remapping.
  */
 
-import { isNative } from './platform.js';
+import { isNative, getServerUrl } from './platform.js';
+import { confirmedServerOrigin } from './plain-http.js';
 import { registerPlugin } from '@capacitor/core';
 
 let _plugin = null;
@@ -99,7 +100,9 @@ export async function openProxy(upstreamUrl) {
     _activeLocal = null;
   }
   try {
-    const r = await plugin.start({ url: upstreamUrl });
+    // The one origin native code may reach over plain HTTP: your confirmed
+    // server, never a station (PlainHttpGate, from TraceApps/nutritrace#194).
+    const r = await plugin.start({ url: upstreamUrl, httpOrigin: confirmedServerOrigin(getServerUrl()) });
     _activeUpstream = upstreamUrl;
     _activeLocal = r?.localUrl || null;
     return _activeLocal || upstreamUrl;

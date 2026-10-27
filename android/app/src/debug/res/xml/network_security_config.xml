@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   DEBUG override (used by assembleDebug only). Android's resource
-  overlay merging swaps this in for debug-signed APKs; release
-  builds use the strict config at src/main/res/xml/.
+  overlay merging swaps this in for debug-signed APKs; release builds
+  use the config at src/main/res/xml/, which permits cleartext too
+  (TraceApps/nutritrace#194). In both, the app itself allows plain
+  http:// only to a confirmed server on your own network
+  (src/lib/plain-http.js).
 
     * Cleartext permitted: connect to `http://192.168.x.x:3002`
       and emulator dev servers without HTTPS setup.

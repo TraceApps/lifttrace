@@ -20,6 +20,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -67,9 +68,13 @@ object WatchUpdate {
     /** Is the app on screen? Set by the activity as it comes and goes. */
     @Volatile var onScreen = false
 
+    // GitHub only ever, so HTTPS only: no cleartext at all, a redirect to
+    // http:// included. The watch allows cleartext for a confirmed server on
+    // your own network (TraceApps/nutritrace#194), never for this.
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS))
         .build()
 
     // ── Deciding ──────────────────────────────────────────────────────────

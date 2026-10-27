@@ -17,6 +17,8 @@ import App from './App.svelte';
 import { DB } from './lib/db.js';
 import { installApiFetch } from './lib/apiFetch.js';
 import { initI18n } from './i18n/index.js';
+import { installPlainHttpGuard } from './lib/plain-http-guard.js';
+import { mediaPolicy } from './lib/plain-http.js';
 
 // Initialise i18n with the user's SAVED language (falling through to the
 // browser locale via pickInitialLocale() only when nothing's saved). Passing
@@ -29,6 +31,18 @@ import { initI18n } from './i18n/index.js';
 // landed on the Database Error screen. See #55.
 // DB.getSetting is pure localStorage, safe before DB.init().
 initI18n(DB.getSetting('language'));
+
+// Android app: plain http:// only to a confirmed server on your own network
+// (lib/plain-http.js, from TraceApps/nutritrace#194). The fetch and
+// XMLHttpRequest guard goes first, so the interceptor below calls through it;
+// images and media get the same rule as a Content-Security-Policy.
+if (Capacitor.isNativePlatform()) {
+  installPlainHttpGuard();
+  const csp = document.createElement('meta');
+  csp.httpEquiv = 'Content-Security-Policy';
+  csp.content = mediaPolicy();
+  document.head.prepend(csp);
+}
 
 // Install the Capacitor fetch interceptor BEFORE any code calls fetch('/api/...').
 // On web this is a no-op; on native it routes /api/... URLs to either the

@@ -265,7 +265,9 @@ test('the screens use them: first run, Settings, the sign-in page, and the deep 
   assert.match(setup, /await serverReady\(url\);\n\s*validatedUrl = url;\n\s*await loadSignInOptions\(\);/);
   assert.match(setup, /const data = await passwordSignIn\(validatedUrl, username\.trim\(\), password\);/);
   const settings = read('../src/routes/Settings.svelte');
-  assert.match(settings, /on:input=\{\(\) => signinOptions\.typed\(serverUrlInput\)\} on:blur=\{\(\) => signinOptions\.left\(serverUrlInput\)\}/);
+  // Leaving the field looks the address up, after a plain-HTTP address's warning (TraceApps/nutritrace#194).
+  assert.match(settings, /on:input=\{\(\) => signinOptions\.typed\(serverUrlInput\)\} on:blur=\{addressLeft\}/);
+  assert.match(settings, /async function addressLeft\(\) \{[\s\S]{0,400}signinOptions\.left\(serverUrlInput\);/);
   assert.match(settings, /src=\{providerLogo\(signinFor, p\.logo_url\)\}/);
   assert.match(settings, /connectHint\.connected\(\);\n\s*setServerUrl\(_pendingServerUrl\);/);
   assert.match(settings, /function cancelMerge\(\) \{\n\s*connectHint\.cancelled\(\);/);

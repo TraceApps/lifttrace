@@ -126,8 +126,8 @@ async function _serverPush(title, body, priority) {
 async function _nativePush(service, title, body, priority) {
   const req = nativePushRequest(service, key => DB.getSetting(key, ''), title, body, priority);
   if (!req) return;
-  const { CapacitorHttp } = await import('@capacitor/core');
-  const res = await CapacitorHttp.post(req);
+  const { NativeHttp } = await import('./native-http.js');
+  const res = await NativeHttp.post(req);
   if (res?.status < 200 || res?.status >= 300) _dlog(`[notifications] ${service} push answered ${res.status}`);
 }
 

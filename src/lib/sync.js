@@ -244,7 +244,8 @@ let _pullDownload = null;
 async function _serverFetch(method, path, body, token = _roundToken ?? getAuthToken(), extraHeaders = {}) {
   const url = getServerUrl();
   if (!url) throw new Error('No server configured');
-  const { CapacitorHttp } = await import('@capacitor/core');
+  // Through lib/native-http.js: plain http:// only to a confirmed local server.
+  const { NativeHttp } = await import('./native-http.js');
   const headers = { 'Content-Type': 'application/json', ...extraHeaders };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   // Sends and pulls run one at a time, so a request that never answers
@@ -260,18 +261,18 @@ async function _serverFetch(method, path, body, token = _roundToken ?? getAuthTo
   const limit = (isPull ? 600000 : 30000) * scale;
   const opts = { url: url + path, headers, connectTimeout: 15000, readTimeout: isPull ? 60000 : 30000 };
   if (body != null) opts.data = body;
-  const fn = method === 'GET' ? CapacitorHttp.get
-          : method === 'POST' ? CapacitorHttp.post
-          : method === 'PUT' ? CapacitorHttp.put
-          : method === 'DELETE' ? CapacitorHttp.delete
-          : CapacitorHttp.request;
+  const fn = method === 'GET' ? NativeHttp.get
+          : method === 'POST' ? NativeHttp.post
+          : method === 'PUT' ? NativeHttp.put
+          : method === 'DELETE' ? NativeHttp.delete
+          : NativeHttp.request;
   // A request given up on here still runs natively (it can't be cancelled
   // from here), so a pull never starts while an earlier one is still
   // downloading: they would stack on a slow link.
   if (isPull && _pullDownload) {
     throw Object.assign(new Error('An earlier sync is still downloading'), { name: 'Busy' });
   }
-  const call = fn.call(CapacitorHttp, opts);
+  const call = fn.call(NativeHttp, opts);
   if (isPull) {
     _pullDownload = call;
     call.then(() => {}, () => {}).finally(() => { if (_pullDownload === call) _pullDownload = null; });

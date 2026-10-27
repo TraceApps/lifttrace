@@ -19,7 +19,8 @@
  * State strings: 'idle' | 'buffering' | 'playing' | 'paused' | 'ended' | 'error'.
  */
 
-import { isNative } from './platform.js';
+import { isNative, getServerUrl } from './platform.js';
+import { confirmedServerOrigin } from './plain-http.js';
 import { registerPlugin } from '@capacitor/core';
 
 let _plugin = null;
@@ -165,6 +166,9 @@ export async function play(url, opts = {}) {
       album:    opts.album    || undefined,
       coverUrl: opts.coverUrl || undefined,
       headers:  opts.headers  || undefined,
+      // The one origin the player may reach over plain HTTP: your confirmed
+      // server, never a station (PlainHttpGate, from TraceApps/nutritrace#194).
+      httpOrigin: confirmedServerOrigin(getServerUrl()),
     });
     return true;
   } catch (e) {
@@ -190,7 +194,7 @@ export async function setQueue(items, startIndex = 0) {
   const p = _getPlugin();
   if (!p) return false;
   try {
-    await p.setQueue({ items, startIndex });
+    await p.setQueue({ items, startIndex, httpOrigin: confirmedServerOrigin(getServerUrl()) });
     return true;
   } catch (e) {
     console.warn('[native-player] setQueue failed:', e?.message || e);

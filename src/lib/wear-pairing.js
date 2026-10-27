@@ -12,6 +12,7 @@
 import { registerPlugin } from '@capacitor/core';
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
 import { APP_VERSION } from './version.js';
+import { mirroredConfirmation } from './plain-http.js';
 import { restToWire } from './rest-state.js';
 
 // Registered at module level: a plugin proxy returned from an async function
@@ -43,7 +44,10 @@ export async function pairWatch() {
   if (!(await hasWatch())) return false;
   try {
     // With this phone's release: a watch on an older one catches up to it.
-    await WearPairing.pair({ serverUrl, token, appVersion: APP_VERSION });
+    // httpOk: the server again when it is plain http:// on your own network
+    // and you said Connect Anyway to it; the watch uses plain HTTP only then
+    // (LocalAddress.kt, from TraceApps/nutritrace#194).
+    await WearPairing.pair({ serverUrl, token, appVersion: APP_VERSION, httpOk: mirroredConfirmation(serverUrl) });
     // A watch paired part way through a session should still show its
     // length, and one that started the timer itself should have that
     // honoured here rather than overwritten.

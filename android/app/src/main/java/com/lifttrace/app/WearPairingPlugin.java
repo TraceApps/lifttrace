@@ -124,6 +124,10 @@ public class WearPairingPlugin extends Plugin {
         }
         PutDataMapRequest req = PutDataMapRequest.create(PATH);
         req.getDataMap().putString("serverUrl", serverUrl);
+        // The server again when the app confirmed plain HTTP to it (a server on
+        // your own network, TraceApps/nutritrace#194), otherwise empty: the
+        // watch sends over plain HTTP only when they match.
+        req.getDataMap().putString("httpOk", call.getString("httpOk", ""));
         req.getDataMap().putString("token", token);
         // The release this phone runs: a watch on an older one updates itself
         // to it (installed from GitHub; the Play Store keeps its own current).

@@ -1314,6 +1314,22 @@
     "migration_complete":      "Migration complete",
     "continue":                "Continue"
   },
+  "plain_http": {
+    "warning_title": "Connect Without Encryption?",
+    "warning_body": "This server uses plain HTTP, so the connection isn't encrypted. Anyone on the same network can read and change what's sent, including your password.",
+    "warning_advice": "Use it only on your home network or over a VPN.",
+    "warning_stored": "Until you connect, nothing syncs with this server, and the app keeps working with what's on this phone. It asks again the next time it opens.",
+    "connect_anyway": "Connect Anyway",
+    "refused_title": "HTTPS Needed",
+    "refused_body": "This server uses plain HTTP and isn't on your own network, so the app won't connect to it. Plain HTTP works only with a server at a private address, such as 192.168.1.20, or a local name, such as lifttrace.local. Anywhere else, use HTTPS.",
+    "refused_stored": "Nothing syncs with this server, and the app keeps working with what's on this phone. To switch to an HTTPS address, disconnect in Settings > Server Connection and connect again.",
+    "refused_short": "Plain HTTP works only with a server on your own network. Use an https:// address for this server.",
+    "https_guide": "How to Set Up HTTPS",
+    "unreachable": "Couldn't reach {url}. Check the address, and that this phone is on the same network or VPN as the server.",
+    "not_encrypted": "Not Encrypted",
+    "invalid_address": "Enter an address that starts with http:// or https://, such as https://lifttrace.example.com.",
+    "blocked": "Plain HTTP to {origin} isn't allowed. Use an https:// address, or a server on your own network."
+  },
   "server_signin": {
     "web_page":                "Something other than LiftTrace answered with a web page: often a sign-in proxy (Authentik, Authelia, Cloudflare Access), or this isn't your server's address. Let the app reach /api on your server.",
     "options_failed":          "Couldn't load this server's sign-in options. Retry, or sign in with your password if the server allows it.",

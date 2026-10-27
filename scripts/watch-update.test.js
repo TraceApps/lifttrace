@@ -14,7 +14,7 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 test('the phone tells the watch which release it runs when it pairs', () => {
   const js = read('../src/lib/wear-pairing.js');
   assert.match(js, /import \{ APP_VERSION \} from '\.\/version\.js';/);
-  assert.match(js, /WearPairing\.pair\(\{ serverUrl, token, appVersion: APP_VERSION \}\)/);
+  assert.match(js, /WearPairing\.pair\(\{ serverUrl, token, appVersion: APP_VERSION, httpOk: mirroredConfirmation\(serverUrl\) \}\)/);
   const plugin = read('../android/app/src/main/java/com/lifttrace/app/WearPairingPlugin.java');
   assert.match(plugin, /putString\("appVersion", call\.getString\("appVersion", ""\)\)/);
 });
@@ -35,6 +35,6 @@ test('the watch can install its update and hears how it went', () => {
   assert.match(manifest, /android:name="\.UpdateResultReceiver"/);
   assert.doesNotMatch(manifest, /usesCleartextTraffic/, 'GitHub is https; nothing plain');
   const service = read('../android/wear/src/main/java/com/lifttrace/app/wear/PairingService.kt');
-  assert.match(service, /Pairing\.save\(this, url, token, map\.getString\("appVersion"\)\.orEmpty\(\)\)/);
+  assert.match(service, /Pairing\.save\(this, url, token, map\.getString\("appVersion"\)\.orEmpty\(\), map\.getString\("httpOk"\)\.orEmpty\(\)\)/);
   assert.match(service, /WatchUpdate\.check\(this\)/);
 });

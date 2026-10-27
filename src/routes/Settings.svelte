@@ -50,9 +50,12 @@
     getAuthToken, setAuthToken, resolveAssetUrl, explainConnectError,
   } from '../lib/platform.js';
   import {
-    serverReady, passwordSignIn, accountFor, ssoSignInUrl, providerLogo, createSignInOptions,
+    serverReady, discoverSignIn, passwordSignIn, accountFor, ssoSignInUrl, providerLogo, createSignInOptions,
     rememberSsoConnect, forgetSsoConnect, ssoConnectResult, createConnectHint,
   } from '../lib/server-signin.js';
+  import { serverAddressCheck, confirmPlainHttp } from '../lib/plain-http.js';
+  import { classifyServerAddress } from '../lib/local-address.js';
+  import { askPlainHttp } from '../stores/plainHttp.js';
 
   // ── Server Connection (native only) ─────────────────────────────────────
   let serverUrlInput = getServerUrl() || '';
@@ -61,11 +64,18 @@
   let serverShowPw = false;
   let serverConnecting = false;
   let serverMode = getNativeMode(); // 'local' | 'server'
+  // On plain http:// (from TraceApps/nutritrace#194): shown under the server's address.
+  const _plainHttp = classifyServerAddress(getServerUrl() || '') === 'local';
   // The server's sign-in options, read as soon as its address is in
   // (TraceApps/notetrace#36): SSO buttons, and the password fields only when
   // it takes one. Typing clears them; a half-typed host isn't an error.
   //   signinState: '' (no address yet) | 'checking' | 'ok' | 'failed'
-  const signinOptions = createSignInOptions();
+  // Nothing is sent to a plain-http address before its warning: while
+  // typing it isn't looked up.
+  const _lookupAllowed = (url) => !isNative || ['https', 'confirmed'].includes(serverAddressCheck(url));
+  const signinOptions = createSignInOptions({
+    discover: (url) => _lookupAllowed(url) ? discoverSignIn(url) : Promise.reject(new Error('not asked yet')),
+  });
   onDestroy(() => signinOptions.stop());
   let signinProviders = [], signinPasswordEnabled = true, signinState = '', signinError = '', signinFor = '';
   $: ({ state: signinState, providers: signinProviders, passwordLoginEnabled: signinPasswordEnabled, error: signinError, url: signinFor } = $signinOptions);
@@ -143,7 +153,46 @@
 
   const _serverUrlTyped = () => serverUrlInput.trim().replace(/\/$/, '');
   // A sign-in proxy's web page is said as such (lib/server-signin.js).
-  const _connectError = (e, url) => (e?.webPage ? e.message : explainConnectError(e, url));
+  const _connectError = (e, url) => (e?.webPage ? e.message : explainConnectError(e, url, $_));
+
+  // Plain http:// (from TraceApps/nutritrace#194): refused unless the server
+  // is on your own network, and then only after the warning. Nothing is sent
+  // before this.
+  async function _plainHttpOk(url) {
+    if (!isNative) return true;
+    const plain = serverAddressCheck(url);
+    if (plain === 'invalid') { showError($_('plain_http.invalid_address')); return false; }
+    if (plain === 'refuse') { await askPlainHttp(url, { kind: 'refuse' }); return false; }
+    if (plain === 'ask') {
+      if (!(await _askOnce(url))) return false;
+      confirmPlainHttp(url);
+    }
+    return true;
+  }
+
+  // Leaving the field asks first, so a tap on Connect right after (the field
+  // loses focus to it) waits for that same answer instead of a second sheet.
+  let _asking = null;
+  function _askOnce(url) {
+    if (_asking?.url !== url) {
+      const pending = { url, answer: askPlainHttp(url) };
+      _asking = pending;
+      pending.answer.finally(() => { if (_asking === pending) _asking = null; });
+    }
+    return _asking.answer;
+  }
+
+  // Leaving the address field: a local plain-http address is asked about
+  // first (its warning), then its sign-in options are read.
+  async function addressLeft() {
+    const url = _serverUrlTyped();
+    if (isNative && serverAddressCheck(url) === 'ask') {
+      if (!(await _askOnce(url))) return;
+      confirmPlainHttp(url);
+    }
+    if (!_lookupAllowed(url)) return; // a refused or half-typed address: Connect says why
+    signinOptions.left(serverUrlInput);
+  }
 
   // Server Connection is on the phone only, so the server is asked natively
   // (CapacitorHttp: no CORS).
@@ -152,6 +201,7 @@
     if (!serverUsername.trim() || !serverPassword.trim()) { showError($_('settings_main.toast.credentials_required')); return; }
     if (serverConnecting) return;
     const url = _serverUrlTyped();
+    if (!(await _plainHttpOk(url))) return;
     serverConnecting = true;
     try {
       await serverReady(url);
@@ -194,6 +244,7 @@
     // replace the code's secret, so the first one's hand-off would fail.
     if (serverConnecting) return;
     const url = signinFor;
+    if (!(await _plainHttpOk(url))) return;
     serverConnecting = true;
     try {
       await serverReady(url);
@@ -497,7 +548,7 @@
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
     webhooks:       ['webhook','webhooks','outgoing webhook','automation','automations','home assistant','n8n','integration','integrations','event','events','signature','hmac','secret','payload','pr','personal record','workout completed','program advanced','test webhook'],
-    serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','last sync','log out','logout','sign out','sign in','sso','single sign-on','oidc','proxy'],
+    serverConnection: ['server','connection','sync','cloud','local','remote','connect','disconnect','url','http','https','plain http','not encrypted','unencrypted','encryption','last sync','log out','logout','sign out','sign in','sso','single sign-on','oidc','proxy'],
     updates:        ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification'],
     helpImprove:    ['diagnostics','logs','log','verbose','debug','bug','troubleshoot','report','clipboard'],
     support:        ['support','donate','donation','sponsor','github sponsors','ko-fi','kofi','tip','star','report a bug','bug','translate','weblate','help'],
@@ -1418,6 +1469,9 @@
               <div>
                 <span class="setting-label">{$_('settings_main.server.connected')}</span>
                 <div class="setting-desc">{getServerUrl()}</div>
+                {#if _plainHttp}
+                  <div class="not-encrypted"><span class="material-symbols-rounded" aria-hidden="true">lock_open</span>{$_('plain_http.not_encrypted')}</div>
+                {/if}
               </div>
               <span class="material-symbols-rounded" style="color:var(--success, #22c55e);font-size:22px">cloud_done</span>
             </div>
@@ -1457,7 +1511,7 @@
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
               <div class="form-group" style="margin:0">
                 <label class="form-label">{$_('settings_main.server.server_url')}</label>
-                <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} on:input={() => signinOptions.typed(serverUrlInput)} on:blur={() => signinOptions.left(serverUrlInput)} />
+                <input class="form-input" type="url" placeholder="https://lifttrace.example.com" bind:value={serverUrlInput} on:input={() => signinOptions.typed(serverUrlInput)} on:blur={addressLeft} />
               </div>
               <!-- The server's sign-in options (TraceApps/notetrace#36): SSO first,
                    and a failure to read them said with Retry, never a quietly
@@ -1817,6 +1871,16 @@
 </Sheet>
 
 <style>
+  .not-encrypted {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--warning, #f59e0b);
+  }
+  .not-encrypted .material-symbols-rounded { font-size: 15px; }
   /* Settings → Server Connection: sign-in options, as on the setup screen */
   .sso-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 42px; }
   .sso-logo { width: 20px; height: 20px; object-fit: contain; }
