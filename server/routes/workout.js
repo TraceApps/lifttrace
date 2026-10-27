@@ -368,9 +368,11 @@ router.put('/:date', wrap((req, res) => {
 
   // Fire coach activity / push for prescribed workouts when the save flips
   // the row to completed. Idempotent on the DB side via UNIQUE(prescription_id,
-  // kind), so a reopen + refinish still only fires once.
+  // kind), so a reopen + refinish still only fires once. The app's Upload of
+  // a phone's history still records it for the coach's feed, on its day and
+  // already read, without a push.
   if (workout && workout.completed && !wasCompleted) {
-    try { onWorkoutCompleted(workout); }
+    try { onWorkoutCompleted(workout, { history: _historyUpload }); }
     catch (e) { /* never let a notification failure block the save */ }
 
     // Finished on the watch: the notification and the NutriTrace calories

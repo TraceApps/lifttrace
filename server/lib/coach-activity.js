@@ -43,9 +43,14 @@ function _templateLabel(prescription) {
  * found, records an activity row + notifies the trainer (subject to their
  * setting).
  *
+ * `history: true`: the app's Upload of a phone's history (log-webhooks.js
+ * isHistoryUpload). The workout was done back then, so the coach's feed
+ * still shows the prescription done, on its day and already read, and the
+ * coach gets no push: as news it would read as just finished.
+ *
  * @param {object} workout - the saved workout_log row { id, user_id, date, template_id, completed }
  */
-export function onWorkoutCompleted(workout) {
+export function onWorkoutCompleted(workout, { history = false } = {}) {
   if (!workout || !workout.completed || workout.user_id == null) return;
 
   // Find the matching prescription. A NULL template_id on the prescription
@@ -64,15 +69,22 @@ export function onWorkoutCompleted(workout) {
 
   // INSERT OR IGNORE — repeated re-finishes of the same workout are silently
   // deduped by the UNIQUE(prescription_id, kind) index.
-  const result = db.prepare(`
-    INSERT OR IGNORE INTO coach_activity
-      (trainer_id, member_id, kind, prescription_id, workout_id)
-    VALUES (?, ?, 'prescription_completed', ?, ?)
-  `).run(prescription.trainer_id, prescription.member_id, prescription.id, workout.id);
+  const result = history
+    ? db.prepare(`
+        INSERT OR IGNORE INTO coach_activity
+          (trainer_id, member_id, kind, prescription_id, workout_id, occurred_at, seen_at)
+        VALUES (?, ?, 'prescription_completed', ?, ?, MIN(?, datetime('now')), datetime('now'))
+      `).run(prescription.trainer_id, prescription.member_id, prescription.id, workout.id, `${workout.date} 12:00:00`)
+    : db.prepare(`
+        INSERT OR IGNORE INTO coach_activity
+          (trainer_id, member_id, kind, prescription_id, workout_id)
+        VALUES (?, ?, 'prescription_completed', ?, ?)
+      `).run(prescription.trainer_id, prescription.member_id, prescription.id, workout.id);
 
   if (result.changes === 0) return; // already recorded
 
   logger.debug?.(`[coach-activity] prescription #${prescription.id} completed by member ${prescription.member_id}`);
+  if (history) return;
 
   // Notify the trainer if they've opted in. Default true for trainers so the
   // feature is discoverable; users who don't want it can flip it off.
