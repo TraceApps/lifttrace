@@ -7,7 +7,7 @@ import { afterWatchFinish } from '../lib/watch-finish.js';
 import { mergeExercises, ensureExerciseUuids, changedUuidsOf } from '../lib/workout-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
-import { recordsBeforeSave, sendNewRecords } from '../lib/log-webhooks.js';
+import { isHistoryUpload, recordsBeforeSave, sendNewRecords } from '../lib/log-webhooks.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 import { cleanWorkoutRefs, workoutProgramVisible } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
@@ -309,15 +309,17 @@ router.put('/:date', wrap((req, res) => {
   // saved. Cheap early-exit guard (hasQualifyingSet) so a save that only
   // edits notes or duration never pays for a full-history records scan.
   // The same snapshot and comparison logSetCore (MCP, REST) uses, in
-  // lib/log-webhooks.js.
-  const _recordsBefore = recordsBeforeSave(userId, exercises);
+  // lib/log-webhooks.js. The app's Upload of a phone's history sends none
+  // of this save's webhooks (isHistoryUpload): it is history, not a log.
+  const _historyUpload = isHistoryUpload(req);
+  const _recordsBefore = _historyUpload ? null : recordsBeforeSave(userId, exercises);
   // program.advanced only matters when this session belongs to a
   // program at all; the actual week comparison happens after the save,
   // nested in the completed 0-to-1 transition below, since session
   // count (and therefore current week) only changes on a newly-
   // completed session.
   let _programBefore = null;
-  if (program_id) {
+  if (program_id && !_historyUpload) {
     try { _programBefore = getActiveProgramCore(userId); } catch { _programBefore = null; }
   }
 
@@ -381,8 +383,10 @@ router.put('/:date', wrap((req, res) => {
     // workout.completed webhook (issue #79). Reuses getWorkoutCore so
     // the payload matches exactly what GET /api/v1/workouts/:date and
     // MCP's get_workout tool already return, one shape everywhere.
-    try { dispatchWebhookEvent(userId, 'workout.completed', getWorkoutCore(userId, { date })); }
-    catch (e) { /* never let a webhook failure block the save */ }
+    if (!_historyUpload) {
+      try { dispatchWebhookEvent(userId, 'workout.completed', getWorkoutCore(userId, { date })); }
+      catch (e) { /* never let a webhook failure block the save */ }
+    }
 
     // program.advanced webhook (issue #79). Only meaningful when this
     // session belongs to the program that was active before the save

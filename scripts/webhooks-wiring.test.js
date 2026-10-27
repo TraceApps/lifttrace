@@ -95,7 +95,7 @@ test('workout.js dispatches workout.completed and program.advanced, and pr.set t
   assert.match(workoutJs, /import \{ dispatchWebhookEvent \} from '\.\.\/lib\/webhooks\.js'/);
   assert.match(workoutJs, /dispatchWebhookEvent\(userId, 'workout\.completed'/);
   assert.match(workoutJs, /dispatchWebhookEvent\(userId, 'program\.advanced'/);
-  assert.match(workoutJs, /import \{ recordsBeforeSave, sendNewRecords \} from '\.\.\/lib\/log-webhooks\.js'/);
+  assert.match(workoutJs, /import \{ isHistoryUpload, recordsBeforeSave, sendNewRecords \} from '\.\.\/lib\/log-webhooks\.js'/);
   assert.match(workoutJs, /sendNewRecords\(userId, date, _recordsBefore\)/);
   assert.match(logWebhooksJs, /dispatchWebhookEvent\(userId, 'pr\.set'/);
 });
@@ -122,8 +122,9 @@ test('log-webhooks.js never lets a webhook failure out to the save', () => {
 });
 
 test('body_stat.logged is sent after every save, from the app route and the MCP/REST core alike', () => {
-  assert.match(bodyStatsJs, /import \{ sendBodyStatLogged \} from '\.\.\/lib\/log-webhooks\.js'/);
-  assert.match(bodyStatsJs, /sendBodyStatLogged\(userId, date, merged\)/);
+  assert.match(bodyStatsJs, /import \{ isHistoryUpload, sendBodyStatLogged \} from '\.\.\/lib\/log-webhooks\.js'/);
+  // Every save but the app's Upload of a phone's history (#134).
+  assert.match(bodyStatsJs, /if \(!isHistoryUpload\(req\)\) sendBodyStatLogged\(userId, date, merged\)/);
   assert.match(logBodyStatJs, /sendBodyStatLogged\(userId, day, merged\)/);
   assert.match(logWebhooksJs, /dispatchWebhookEvent\(userId, 'body_stat\.logged', \{ date, stats \}\)/);
 });

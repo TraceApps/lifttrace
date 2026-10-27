@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { normalizeCardioInput, normalizeExternalId } from '../lib/cardio-log.js';
 import { saveCardioSession } from '../lib/mcp/tools/log-cardio.js';
+import { isHistoryUpload } from '../lib/log-webhooks.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 
 const router = Router();
@@ -76,7 +77,8 @@ router.post('/', wrap((req, res) => {
   if (before?.gone) return answerGone(res);
   if (before) return res.json(before);
   // Checked above, so what fails here is the database: a 500, as before.
-  const result = saveCardioSession(userId, body);
+  // The app's Upload of a phone's history sends no webhook (log-webhooks.js).
+  const result = saveCardioSession(userId, body, { webhook: !isHistoryUpload(req) });
   rememberCreated(req, userId, 'cardio_log', result.session.id);
   res.json(result.session);
 }));

@@ -307,7 +307,8 @@ test("the app's POST /api/cardio validates through the shared module, so there i
   assert.match(post, /normalizeExternalId\(body\.external_id\)/);
   // Bad input is a 400 before anything is written; a database failure stays a 500.
   assert.equal((post.match(/status\(400\)/g) || []).length, 1);
-  assert.match(post, /saveCardioSession\(userId, body\)/);
+  // Its webhook, except for the app's Upload of a phone's history.
+  assert.match(post, /saveCardioSession\(userId, body, \{ webhook: !isHistoryUpload\(req\) \}\)/);
   assert.doesNotMatch(post, /insertCardio\(/, 'the route saves through the function that sends the webhook');
   assert.doesNotMatch(post, /INSERT INTO cardio_log/);
   // A replayed create still gets the session it made (create-keys.js).
@@ -336,7 +337,8 @@ test('cardio.logged fires from the one save every path uses, only for a new sess
   assert.match(webhooks, /'cardio\.logged':\s+'[^']+'/, 'a known event with a description for Settings');
   const tool = read('../server/lib/mcp/tools/log-cardio.js');
   const save = tool.match(/export function saveCardioSession[\s\S]*?\n}\n/)[0];
-  assert.match(save, /const result = insertCardio\(db, userId, input\);\s*if \(result\.created\) \{\s*try \{ dispatchWebhookEvent\(userId, 'cardio\.logged', publicCardioSession\(result\.session\)\); \}\s*catch \{/);
+  assert.match(save, /^export function saveCardioSession\(userId, input, \{ webhook = true \} = \{\}\)/, 'sent unless a caller says not to');
+  assert.match(save, /const result = insertCardio\(db, userId, input\);\s*if \(result\.created && webhook\) \{\s*try \{ dispatchWebhookEvent\(userId, 'cardio\.logged', publicCardioSession\(result\.session\)\); \}\s*catch \{/);
   // Only saveCardioSession inserts; nothing else calls insertCardio.
   for (const f of ['../server/routes/cardio.js', '../server/routes/public-api.js', '../server/lib/mcp/tools/get-cardio.js']) {
     assert.doesNotMatch(read(f), /insertCardio\(/, f);

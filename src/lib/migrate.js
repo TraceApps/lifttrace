@@ -25,6 +25,10 @@
  * server doesn't have are sent, so running upload twice sends nothing twice.
  * What went up intact is then removed here (the next sync brings the
  * server's copy); what didn't stays.
+ *
+ * Workouts, body stats and cardio go up marked `history_upload`: it is
+ * history arriving, not something logged now, so the server sends none of
+ * their webhooks (server/lib/log-webhooks.js isHistoryUpload).
  */
 
 import { dbQuery, dbRun } from './db-native.js';
@@ -226,6 +230,7 @@ export async function uploadLocalToServer({ onProgress, userId, confirmServer } 
         notes:        w.notes,
         duration_min: w.duration_min,
         completed:    !!w.completed,
+        history_upload: true,
       });
       // The phone's copy goes only when the server's has every exercise
       // and set it had.
@@ -245,7 +250,7 @@ export async function uploadLocalToServer({ onProgress, userId, confirmServer } 
       // The route reads { stats }; the bare numbers this used to send were
       // read as nothing, so body stats never went up.
       const stats = _parseJson(b.stats, {}) || {};
-      const saved = await _put(`/api/body-stats/${encodeURIComponent(b.date)}`, { stats });
+      const saved = await _put(`/api/body-stats/${encodeURIComponent(b.date)}`, { stats, history_upload: true });
       const there = _parseJson(saved?.stats?.stats, {}) || {};
       if (Object.keys(stats).every(k => JSON.stringify(there[k]) === JSON.stringify(stats[k]))) uploaded.bodyStats.push(b.id);
       summary.success.bodyStats++;
@@ -263,7 +268,7 @@ export async function uploadLocalToServer({ onProgress, userId, confirmServer } 
       await _post('/api/cardio', {
         date: c.date, activity: c.activity, duration_min: c.duration_min, distance: c.distance,
         distance_unit: c.distance_unit, avg_hr: c.avg_hr, notes: c.notes, is_template: !!c.is_template,
-        client_key: _key('cardio', c),
+        client_key: _key('cardio', c), history_upload: true,
       });
       uploaded.cardio.push(c.id);
       summary.success.cardio++;

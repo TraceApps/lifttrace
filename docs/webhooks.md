@@ -38,7 +38,39 @@ signatures on the receiving end and cannot be retrieved again later.
 | `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
 | `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise, whether from the app, the `log_set` MCP tool, or `POST /api/v1/workouts/:date/sets`. Uses the same record definition the Statistics page and `/api/v1/records` already use. One per exercise whose record moved; a save that moves no record (sent again, or lighter) sends none. |
 | `program.advanced` | An active program moves to its next week. |
-| `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. Moving an Android app's own data to a server sends one for each session it brings, as `workout.completed` does for workouts. |
+| `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. |
+
+## What sends them, and what doesn't
+
+Webhooks are for something logged now. These send them:
+
+- The web app, the Android app connected to a server, and the watch.
+  Changes the Android app or the web app made offline send theirs when
+  they reach the server. A change the Android app sends again (its answer
+  was lost on the way back) doesn't send a second `workout.completed`,
+  `pr.set` or `cardio.logged`; `body_stat.logged` is sent on every save,
+  as above.
+- The MCP tools (`log_set`, `log_body_stat`, `add_progress_photo`,
+  `log_cardio`) and the [public REST API](public-api.md).
+
+These bring in history, and send none:
+
+- **Upload**, when an Android app used without a server connects to one
+  and sends the workouts, body stats and cardio it holds, including what
+  was logged on the phone while it had no server. Uploading again sends
+  none either. Coming back to the same account after Disconnect, what you
+  changed in rows the server already had goes up as ordinary edits, and
+  sends what an edit sends. This needs the server and the app from after 1.4.0.
+  With an up-to-date server, the 1.4.0 app's Upload sends nothing for
+  workouts and cardio but still sends `body_stat.logged` for each day of
+  body stats, and an app before 1.4.0 sends them as it always did.
+- Restoring a backup, on the server or in the Android app.
+- Importing workouts from Strong, Hevy, FitNotes, Jefit or a Garmin file
+  (Settings, Import Workouts).
+
+Deleting a workout, a body stat or a cardio session sends nothing. An
+edit to a workout sends `pr.set` if it moved a record, and
+`workout.completed` if it marks the workout completed.
 
 ## Payload
 

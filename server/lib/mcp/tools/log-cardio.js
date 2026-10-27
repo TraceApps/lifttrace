@@ -37,11 +37,12 @@ import { dispatchWebhookEvent } from '../../webhooks.js';
  * session reaches the server comes through here: the app's POST
  * /api/cardio (the Diary, Trace, the Android app's queued saves), this MCP
  * tool and POST /api/v1/cardio. A repeated external_id returns the session
- * already logged and sends nothing.
+ * already logged and sends nothing. `webhook: false` stores it without one:
+ * the app's Upload of a phone's history (log-webhooks.js isHistoryUpload).
  */
-export function saveCardioSession(userId, input) {
+export function saveCardioSession(userId, input, { webhook = true } = {}) {
   const result = insertCardio(db, userId, input);
-  if (result.created) {
+  if (result.created && webhook) {
     try { dispatchWebhookEvent(userId, 'cardio.logged', publicCardioSession(result.session)); }
     catch { /* never let a webhook failure block the save */ }
   }

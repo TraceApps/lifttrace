@@ -12,6 +12,28 @@
 import { dispatchWebhookEvent, WEBHOOKS_ENABLED } from './webhooks.js';
 import { getRecordsCore, hasQualifyingSet } from './mcp/tools/get-records.js';
 
+/**
+ * A save that is part of the Android app's Upload (src/lib/migrate.js): a
+ * phone used without a server sending its history to the server it just
+ * connected to, one save per workout, body-stat day and cardio session,
+ * through the same routes a connected phone logs through. That is history
+ * arriving, not something logged now, so it sends no webhooks; before
+ * #134's follow-up a year of history was hundreds of them.
+ *
+ * The app marks those saves `history_upload: true` (servers before this
+ * one ignore the field). The 1.4.0 app doesn't, but gives every workout
+ * and cardio session it uploads a key of its own, `upload:<kind>:<hash>`,
+ * which nothing else sends (offline creates use a random key,
+ * `device-workout:`, `adopt:`, `legacy:` or `web-workout`). Its body
+ * stats carry no key and still send.
+ */
+export function isHistoryUpload(req) {
+  const body = req?.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  if (body.history_upload === true) return true;
+  return typeof body.client_key === 'string' && body.client_key.startsWith('upload:');
+}
+
 /** body_stat.logged for a save of `date`, carrying the day's merged stats. */
 export function sendBodyStatLogged(userId, date, stats) {
   try { dispatchWebhookEvent(userId, 'body_stat.logged', { date, stats }); }

@@ -3,7 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { mergeStatsObject } from '../lib/workout-merge.js';
-import { sendBodyStatLogged } from '../lib/log-webhooks.js';
+import { isHistoryUpload, sendBodyStatLogged } from '../lib/log-webhooks.js';
 import { unlinkMediaFile, resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
@@ -156,8 +156,9 @@ router.put('/:date', wrap((req, res) => {
   // "was it new" gate, matching log_body_stat's own always-merge-and-
   // return semantics; no-op in single-user mode (userId null) since a
   // webhook needs a real account to own it, same as API tokens. The same
-  // call logBodyStatCore (MCP, REST) makes; it never throws.
-  sendBodyStatLogged(userId, date, merged);
+  // call logBodyStatCore (MCP, REST) makes; it never throws. Not for the
+  // app's Upload of a phone's history (isHistoryUpload).
+  if (!isHistoryUpload(req)) sendBodyStatLogged(userId, date, merged);
 
   res.json({ stats: row });
 }));
