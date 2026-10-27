@@ -270,7 +270,7 @@ test('log_cardio refuses writes while cardio is off, before inserting', () => {
   const tool = read('../server/lib/mcp/tools/log-cardio.js');
   const core = tool.match(/export function logCardioCore[\s\S]*?\n}\n/)[0];
   const gate = core.indexOf('isCardioEnabled(db, userId)');
-  const insert = core.indexOf('insertCardio(');
+  const insert = core.indexOf('saveCardioSession(');
   assert.ok(gate !== -1 && insert !== -1 && gate < insert, 'the opt-in check comes before the insert');
   assert.match(core, /throw new Error\(CARDIO_OFF_MESSAGE\)/);
   const check = core.indexOf('checkApiCardioInput(args)');
@@ -296,16 +296,18 @@ test('the MCP server registers get_cardio as a read tool and log_cardio as a wri
 
 test("the app's POST /api/cardio validates through the shared module, so there is one copy", () => {
   const route = read('../server/routes/cardio.js');
-  assert.match(route, /import \{ insertCardio, normalizeCardioInput, normalizeExternalId \} from '\.\.\/lib\/cardio-log\.js'/);
+  assert.match(route, /import \{ normalizeCardioInput, normalizeExternalId \} from '\.\.\/lib\/cardio-log\.js'/);
+  assert.match(route, /import \{ saveCardioSession \} from '\.\.\/lib\/mcp\/tools\/log-cardio\.js'/);
   const post = route.match(/router\.post\('\/', wrap\([\s\S]*?\n}\)\);/)[0];
   assert.match(post, /normalizeCardioInput\(body\)/);
   assert.match(post, /normalizeExternalId\(body\.external_id\)/);
   // Bad input is a 400 before anything is written; a database failure stays a 500.
   assert.equal((post.match(/status\(400\)/g) || []).length, 1);
-  assert.match(post, /insertCardio\(db, userId, body\)/);
+  assert.match(post, /saveCardioSession\(userId, body\)/);
+  assert.doesNotMatch(post, /insertCardio\(/, 'the route saves through the function that sends the webhook');
   assert.doesNotMatch(post, /INSERT INTO cardio_log/);
   // A replayed create still gets the session it made (create-keys.js).
-  assert.match(post, /createdBefore\(req, userId, 'cardio_log'\)[\s\S]*insertCardio[\s\S]*rememberCreated\(req, userId, 'cardio_log', result\.session\.id\)/);
+  assert.match(post, /createdBefore\(req, userId, 'cardio_log'\)[\s\S]*saveCardioSession[\s\S]*rememberCreated\(req, userId, 'cardio_log', result\.session\.id\)/);
 });
 
 test('cardioEnabled syncs to the server, and a value only on the device is uploaded once', () => {
@@ -323,4 +325,18 @@ test('a full backup restore keeps each session\'s external_id, and an older back
   assert.ok(ins[1].split(',').includes('external_id'));
   assert.ok(ins[2].split(',').includes('@external_id'));
   assert.match(backup, /insCardio\.run\(\{ is_template: 0, external_id: null, \.\.\.c \}\)/);
+});
+
+test('cardio.logged fires from the one save every path uses, only for a new session, never blocking it', () => {
+  const webhooks = read('../server/lib/webhooks.js');
+  assert.match(webhooks, /'cardio\.logged':\s+'[^']+'/, 'a known event with a description for Settings');
+  const tool = read('../server/lib/mcp/tools/log-cardio.js');
+  const save = tool.match(/export function saveCardioSession[\s\S]*?\n}\n/)[0];
+  assert.match(save, /const result = insertCardio\(db, userId, input\);\s*if \(result\.created\) \{\s*try \{ dispatchWebhookEvent\(userId, 'cardio\.logged', publicCardioSession\(result\.session\)\); \}\s*catch \{/);
+  // Only saveCardioSession inserts; nothing else calls insertCardio.
+  for (const f of ['../server/routes/cardio.js', '../server/routes/public-api.js', '../server/lib/mcp/tools/get-cardio.js']) {
+    assert.doesNotMatch(read(f), /insertCardio\(/, f);
+  }
+  assert.equal((tool.match(/insertCardio\(/g) || []).length, 1);
+  assert.match(read('../docs/webhooks.md'), /`cardio\.logged`/);
 });

@@ -2,7 +2,8 @@
 
 Point LiftTrace at a URL and it fires a signed HTTP POST the instant
 something happens: a workout is completed, a personal record is set, an
-active program advances to its next week, or a body stat is logged. The
+active program advances to its next week, a body stat is logged, or a
+cardio session is logged. The
 push counterpart to the [public REST API](public-api.md), for wiring
 LiftTrace into n8n, Home Assistant, or any other automation without
 polling. Off by default.
@@ -37,6 +38,7 @@ signatures on the receiving end and cannot be retrieved again later.
 | `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
 | `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise. Uses the same record definition the Statistics page and `/api/v1/records` already use. |
 | `program.advanced` | An active program moves to its next week. |
+| `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. |
 
 ## Payload
 
@@ -72,6 +74,25 @@ For a timed exercise (plank, wall sit, dead hang, carry) the record that
 moved is the longest hold: `new_max_duration_sec` and
 `previous_max_duration_sec` carry it in seconds, and the weight fields stay
 at zero unless the exercise also has rep sets.
+
+`data` for `cardio.logged` is the session, in the shape each session has in
+`GET /api/v1/cardio`:
+
+```json
+{
+  "id": 87,
+  "date": "2026-09-28",
+  "activity": "Running",
+  "duration_min": 33,
+  "distance": 2.47,
+  "distance_unit": "mi",
+  "avg_hr": 138,
+  "notes": null,
+  "external_id": "strava:20368911854",
+  "is_template": false,
+  "created_at": "2026-09-28 18:02:11"
+}
+```
 
 ## Verifying a delivery
 

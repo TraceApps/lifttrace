@@ -2,7 +2,8 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
-import { insertCardio, normalizeCardioInput, normalizeExternalId } from '../lib/cardio-log.js';
+import { normalizeCardioInput, normalizeExternalId } from '../lib/cardio-log.js';
+import { saveCardioSession } from '../lib/mcp/tools/log-cardio.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 
 const router = Router();
@@ -75,7 +76,7 @@ router.post('/', wrap((req, res) => {
   if (before?.gone) return answerGone(res);
   if (before) return res.json(before);
   // Checked above, so what fails here is the database: a 500, as before.
-  const result = insertCardio(db, userId, body);
+  const result = saveCardioSession(userId, body);
   rememberCreated(req, userId, 'cardio_log', result.session.id);
   res.json(result.session);
 }));

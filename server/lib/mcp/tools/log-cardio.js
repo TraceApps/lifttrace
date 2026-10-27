@@ -27,6 +27,23 @@ import {
   publicCardioSession,
 } from '../../cardio-log.js';
 import { DATE_RE, todayLocal, toolResult, toolError, validateDateRange } from '../_util.js';
+import { dispatchWebhookEvent } from '../../webhooks.js';
+
+/**
+ * Store one session and send the cardio.logged webhook for it. Every way a
+ * session reaches the server comes through here: the app's POST
+ * /api/cardio (the Diary, Trace, the Android app's queued saves), this MCP
+ * tool and POST /api/v1/cardio. A repeated external_id returns the session
+ * already logged and sends nothing.
+ */
+export function saveCardioSession(userId, input) {
+  const result = insertCardio(db, userId, input);
+  if (result.created) {
+    try { dispatchWebhookEvent(userId, 'cardio.logged', publicCardioSession(result.session)); }
+    catch { /* never let a webhook failure block the save */ }
+  }
+  return result;
+}
 
 /**
  * Core mutation, shared by the MCP tool below and the public REST API at
@@ -41,7 +58,7 @@ export function logCardioCore(userId, args = {}) {
   checkApiCardioInput(args);
   // Presets are pinned from the Diary; a session logged through the API is
   // always an ordinary entry.
-  const { created, session } = insertCardio(db, userId, { ...args, date: day, is_template: 0 });
+  const { created, session } = saveCardioSession(userId, { ...args, date: day, is_template: 0 });
   return { ok: true, created, session: publicCardioSession(session) };
 }
 
