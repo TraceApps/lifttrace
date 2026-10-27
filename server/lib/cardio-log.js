@@ -10,8 +10,50 @@
 
 export const MAX_EXTERNAL_ID_LENGTH = 200;
 
+// Before #134 the switch was kept on each device only, and an Android app
+// from before it never tells the server. Someone with it on there is told
+// how to get it to the server.
 export const CARDIO_OFF_MESSAGE =
-  'Cardio is turned off in Settings. Turn it on under Settings, Workout, Cardio to log cardio sessions.';
+  'Cardio is off for this account. Turn on Track Cardio in LiftTrace under Settings > Workout. ' +
+  'Already on in the Android app? Update the app, or turn it on in LiftTrace in a browser too, so your server knows.';
+
+// The same limits the MCP log_cardio tool's schema sets, for the REST API.
+export const MAX_ACTIVITY_LENGTH = 100;
+export const MAX_NOTES_LENGTH = 2000;
+export const MAX_AVG_HR = 300;
+
+/**
+ * Stricter checks for a session logged from outside the app (the public API
+ * and MCP): a value the app's own route would quietly drop or change, like
+ * `distance_unit: "miles"` stored as km, is refused with a clear message
+ * instead. Throws a plain Error whose message is safe to return as a 400.
+ */
+export function checkApiCardioInput(input = {}) {
+  const { activity, duration_min, distance, distance_unit, avg_hr, notes, external_id } = input;
+  if (typeof activity !== 'string' || !activity.trim()) throw new Error('activity required');
+  if (activity.trim().length > MAX_ACTIVITY_LENGTH) {
+    throw new Error(`activity must be at most ${MAX_ACTIVITY_LENGTH} characters`);
+  }
+  if (typeof duration_min !== 'number' || !Number.isFinite(duration_min) || duration_min < 1) {
+    throw new Error('duration_min must be a number of minutes, 1 or more');
+  }
+  if (distance != null && (typeof distance !== 'number' || !Number.isFinite(distance) || distance < 0)) {
+    throw new Error('distance must be a number, 0 or more');
+  }
+  if (distance_unit != null && distance_unit !== 'km' && distance_unit !== 'mi') {
+    throw new Error('distance_unit must be "km" or "mi"');
+  }
+  if (avg_hr != null && (!Number.isInteger(avg_hr) || avg_hr < 1 || avg_hr > MAX_AVG_HR)) {
+    throw new Error(`avg_hr must be a whole number from 1 to ${MAX_AVG_HR}`);
+  }
+  if (notes != null && typeof notes !== 'string') throw new Error('notes must be text');
+  if (typeof notes === 'string' && notes.length > MAX_NOTES_LENGTH) {
+    throw new Error(`notes must be at most ${MAX_NOTES_LENGTH} characters`);
+  }
+  if (external_id != null && typeof external_id !== 'string' && !Number.isFinite(external_id)) {
+    throw new Error('external_id must be text');
+  }
+}
 
 /**
  * Validate and normalize a cardio session the way POST /api/cardio always

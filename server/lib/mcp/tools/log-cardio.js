@@ -17,12 +17,16 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import {
   CARDIO_OFF_MESSAGE,
+  MAX_ACTIVITY_LENGTH,
+  MAX_AVG_HR,
   MAX_EXTERNAL_ID_LENGTH,
+  MAX_NOTES_LENGTH,
+  checkApiCardioInput,
   insertCardio,
   isCardioEnabled,
   publicCardioSession,
 } from '../../cardio-log.js';
-import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, todayLocal, toolResult, toolError, validateDateRange } from '../_util.js';
 
 /**
  * Core mutation, shared by the MCP tool below and the public REST API at
@@ -31,7 +35,10 @@ import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 export function logCardioCore(userId, args = {}) {
   if (!isCardioEnabled(db, userId)) throw new Error(CARDIO_OFF_MESSAGE);
   const day = args.date || todayLocal();
-  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+  if (typeof day !== 'string' || validateDateRange(day, null)) {
+    throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+  }
+  checkApiCardioInput(args);
   // Presets are pinned from the Diary; a session logged through the API is
   // always an ordinary entry.
   const { created, session } = insertCardio(db, userId, { ...args, date: day, is_template: 0 });
@@ -53,12 +60,12 @@ export function registerLogCardio(server, { userId }) {
         "Date defaults to today in the server's timezone. Refused while the user " +
         'has cardio turned off in Settings.',
       inputSchema: {
-        activity: z.string().min(1).max(100),
-        duration_min: z.number().positive(),
+        activity: z.string().min(1).max(MAX_ACTIVITY_LENGTH),
+        duration_min: z.number().min(1),
         distance: z.number().nonnegative().optional(),
         distance_unit: z.enum(['km', 'mi']).optional(),
-        avg_hr: z.number().int().positive().max(300).optional(),
-        notes: z.string().max(2000).optional(),
+        avg_hr: z.number().int().positive().max(MAX_AVG_HR).optional(),
+        notes: z.string().max(MAX_NOTES_LENGTH).optional(),
         date: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
         external_id: z.string().min(1).max(MAX_EXTERNAL_ID_LENGTH).optional(),
       },

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
-import { insertCardio, normalizeCardioInput } from '../lib/cardio-log.js';
+import { insertCardio, normalizeCardioInput, normalizeExternalId } from '../lib/cardio-log.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 
 const router = Router();
@@ -66,6 +66,7 @@ router.post('/', wrap((req, res) => {
   const body = req.body || {};
   try {
     normalizeCardioInput(body);
+    normalizeExternalId(body.external_id);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
@@ -73,12 +74,8 @@ router.post('/', wrap((req, res) => {
   const before = createdBefore(req, userId, 'cardio_log');
   if (before?.gone) return answerGone(res);
   if (before) return res.json(before);
-  let result;
-  try {
-    result = insertCardio(db, userId, body);
-  } catch (e) {
-    return res.status(400).json({ error: e.message });
-  }
+  // Checked above, so what fails here is the database: a 500, as before.
+  const result = insertCardio(db, userId, body);
   rememberCreated(req, userId, 'cardio_log', result.session.id);
   res.json(result.session);
 }));

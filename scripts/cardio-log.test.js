@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import {
   CARDIO_OFF_MESSAGE,
   MAX_EXTERNAL_ID_LENGTH,
+  checkApiCardioInput,
   insertCardio,
   isCardioEnabled,
   listCardio,
@@ -123,8 +124,35 @@ test('isCardioEnabled is off unless the setting is stored as true', () => {
   } finally { cleanup(); }
 });
 
-test('the off message tells the user where to turn cardio on', () => {
-  assert.match(CARDIO_OFF_MESSAGE, /Settings/);
+test('the off message names the switch, where it is, and what to do with an older Android app', () => {
+  assert.match(CARDIO_OFF_MESSAGE, /Track Cardio/);
+  assert.match(CARDIO_OFF_MESSAGE, /Settings > Workout/);
+  assert.match(CARDIO_OFF_MESSAGE, /Update the app, or turn it on in LiftTrace in a browser/);
+});
+
+test('checkApiCardioInput refuses what the app route would quietly drop or change', () => {
+  const ok = { activity: 'Running', duration_min: 33, distance: 2.47, distance_unit: 'mi', avg_hr: 138, notes: 'easy', external_id: 'strava:1' };
+  assert.doesNotThrow(() => checkApiCardioInput(ok));
+  assert.doesNotThrow(() => checkApiCardioInput({ activity: 'Row', duration_min: 20 }));
+  assert.doesNotThrow(() => checkApiCardioInput({ ...ok, distance: null, avg_hr: null, notes: null, external_id: 42 }));
+  const refused = [
+    [{ ...ok, distance_unit: 'miles' }, /distance_unit must be "km" or "mi"/],
+    [{ ...ok, distance: -1 }, /distance must be a number/],
+    [{ ...ok, distance: '2.4' }, /distance must be a number/],
+    [{ ...ok, duration_min: '33' }, /duration_min must be a number/],
+    [{ ...ok, duration_min: 0.5 }, /duration_min must be a number/],
+    [{ ...ok, avg_hr: 138.5 }, /avg_hr must be a whole number/],
+    [{ ...ok, avg_hr: 400 }, /avg_hr must be a whole number/],
+    [{ ...ok, activity: '  ' }, /activity required/],
+    [{ ...ok, activity: 7 }, /activity required/],
+    [{ ...ok, activity: 'x'.repeat(101) }, /activity must be at most 100/],
+    [{ ...ok, notes: 'x'.repeat(2001) }, /notes must be at most 2000/],
+    [{ ...ok, notes: { a: 1 } }, /notes must be text/],
+    [{ ...ok, external_id: { id: 1 } }, /external_id must be text/],
+  ];
+  for (const [input, message] of refused) {
+    assert.throws(() => checkApiCardioInput(input), message, JSON.stringify(input).slice(0, 80));
+  }
 });
 
 // ── Writes and external_id ─────────────────────────────────────────────────
@@ -245,6 +273,9 @@ test('log_cardio refuses writes while cardio is off, before inserting', () => {
   const insert = core.indexOf('insertCardio(');
   assert.ok(gate !== -1 && insert !== -1 && gate < insert, 'the opt-in check comes before the insert');
   assert.match(core, /throw new Error\(CARDIO_OFF_MESSAGE\)/);
+  const check = core.indexOf('checkApiCardioInput(args)');
+  assert.ok(check !== -1 && check < insert, 'the stricter API checks run before the insert');
+  assert.match(core, /validateDateRange\(day, null\)/, 'a date that is not on the calendar is refused');
   assert.match(core, /is_template: 0/, 'API writes are never Diary presets');
 });
 
@@ -265,9 +296,12 @@ test('the MCP server registers get_cardio as a read tool and log_cardio as a wri
 
 test("the app's POST /api/cardio validates through the shared module, so there is one copy", () => {
   const route = read('../server/routes/cardio.js');
-  assert.match(route, /import \{ insertCardio, normalizeCardioInput \} from '\.\.\/lib\/cardio-log\.js'/);
+  assert.match(route, /import \{ insertCardio, normalizeCardioInput, normalizeExternalId \} from '\.\.\/lib\/cardio-log\.js'/);
   const post = route.match(/router\.post\('\/', wrap\([\s\S]*?\n}\)\);/)[0];
   assert.match(post, /normalizeCardioInput\(body\)/);
+  assert.match(post, /normalizeExternalId\(body\.external_id\)/);
+  // Bad input is a 400 before anything is written; a database failure stays a 500.
+  assert.equal((post.match(/status\(400\)/g) || []).length, 1);
   assert.match(post, /insertCardio\(db, userId, body\)/);
   assert.doesNotMatch(post, /INSERT INTO cardio_log/);
   // A replayed create still gets the session it made (create-keys.js).
@@ -279,4 +313,14 @@ test('cardioEnabled syncs to the server, and a value only on the device is uploa
   const serverSettings = store.match(/const SERVER_SETTINGS = new Set\(\[([\s\S]*?)\]\);/)[1];
   assert.match(serverSettings, /'cardioEnabled'/);
   assert.match(store, /if \(!\('cardioEnabled' in serverSettings\) && DB\.getSetting\('cardioEnabled', false\) === true\) \{\s*scheduleSave\('cardioEnabled', true\);/);
+});
+
+test('a full backup restore keeps each session\'s external_id, and an older backup restores without one', () => {
+  const backup = read('../server/routes/full-backup.js');
+  assert.match(backup, /safe\('SELECT \* FROM cardio_log'\)/, 'the export carries every column');
+  const ins = backup.match(/INSERT OR IGNORE INTO cardio_log \(([^)]*)\) VALUES \(([^)]*)\)/);
+  assert.ok(ins, 'the cardio restore statement');
+  assert.ok(ins[1].split(',').includes('external_id'));
+  assert.ok(ins[2].split(',').includes('@external_id'));
+  assert.match(backup, /insCardio\.run\(\{ is_template: 0, external_id: null, \.\.\.c \}\)/);
 });

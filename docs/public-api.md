@@ -69,12 +69,30 @@ a token lacking the required scope returns `403`.
 | POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight?, rpe?, warmup?, completed?}` or `{exercise_id, duration_sec, weight?, ...}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. For a timed exercise (plank, wall sit, dead hang, carry) send `duration_sec` in whole seconds instead of `reps`; `weight` then means a weighted hold. An exercise already logged by reps that day rejects `duration_sec`, and the reverse, rather than mixing the two. |
 | PUT | `/api/v1/body-stats/:date` | `{weight?, weight_unit?, bodyFat?, waist?, hips?, neck?, chest?, biceps?, thighs?, calves?}` | Merges the given values into that day's stats; omitted fields are left alone. `weight_unit: "lb"` converts to kg before storing. |
 | POST | `/api/v1/body-stats/photos` | `{url, date?}` | Attaches an already-hosted image to a date as a progress photo. `date` defaults to today. |
-| POST | `/api/v1/cardio` | `{activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, date?, external_id?}` | Logs one cardio session. `duration_min` is whole minutes; `distance` is in km unless `distance_unit` is `mi`. `date` defaults to today. Refused with a 400 while the user has cardio turned off in Settings, the same opt-in the app uses. Pass `external_id`, your own id for the session (up to 200 characters), to make the call safe to repeat: if that user already logged a session with the id, it comes back unchanged with `created: false` instead of a second copy. |
+| POST | `/api/v1/cardio` | `{activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, date?, external_id?}` | Logs one cardio session. `activity` is up to 100 characters; `duration_min` is minutes, 1 or more, rounded down to whole minutes; `distance` is in km unless `distance_unit` is `mi`; `avg_hr` is a whole number up to 300; `notes` is up to 2,000 characters. `date` defaults to today. Numbers must be sent as JSON numbers, and any other unit than `km` or `mi` is refused rather than guessed. Refused with a 400 while the user has cardio turned off (see [Cardio](#cardio) below). Pass `external_id`, your own id for the session (up to 200 characters), to make the call safe to repeat: if that user already logged a session with the id, it comes back unchanged with `created: false` instead of a second copy. |
 
 `POST /api/v1/body-stats/photos` takes a URL, not a file: nothing in this
 API handles multipart uploads. Point it at an image you already host, or
 upload through the app, which posts to its own session-authenticated
 upload route first and then calls this with the URL that returns.
+
+### Cardio
+
+Cardio is opt-in in LiftTrace, and the API follows the same switch:
+`POST /api/v1/cardio` and the `log_cardio` MCP tool refuse to log while
+**Track Cardio** (Settings > Workout) is off for the token's account, so
+nothing is logged that the app wouldn't show. Reading still works, and
+`GET /api/v1/cardio` says whether it's on in `cardio_enabled`.
+
+The switch syncs to your server, which is how the API knows. Before this
+version it was kept on each device only; a device that has it on tells the
+server the first time it opens after updating. An Android app from before
+this version never does, so if you turned it on there and the API still
+says cardio is off, update the app, or turn on Track Cardio in LiftTrace
+in a browser too.
+
+`external_id` belongs to the session it was logged with. Deleting that
+session in the app frees the id, so sending it again logs a new one.
 
 Not yet exposed here: deleting a workout. That stays MCP-only for now
 (see `delete_workout` in the MCP setup guide), since it is an
