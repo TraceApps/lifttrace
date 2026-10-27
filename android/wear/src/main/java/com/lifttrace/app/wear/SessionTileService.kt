@@ -52,6 +52,11 @@ class SessionTileService : TileService() {
                 headline = "Nothing planned"
                 detail = "Today has no session"
             }
+            // Finished, with or without sets left: not a set to be on.
+            workout.completed -> {
+                headline = getString(R.string.workout_complete)
+                detail = "${Session.progress(workout)} sets"
+            }
             next != null -> {
                 headline = next.exercise.name
                 detail = "Set ${next.setNumber} of ${next.exercise.total} · ${Session.progress(workout)} sets"

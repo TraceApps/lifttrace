@@ -3,6 +3,7 @@
   import { _ } from 'svelte-i18n';
   import { radioEnabled, radioUrl, radioStationsEnabled } from '../../stores/settings.js';
   import { updateAvailable } from '../../lib/updates.js';
+  import { coachingBadge } from '../../stores/coaching.js';
   import { pwaUpdateReady } from '../../lib/pwa-update.js';
 
   $: BASE_TABS = [
@@ -26,7 +27,7 @@
     // otherwise the fallback below lights up Diary for pages that have
     // nothing to do with it.
     let normalized = base;
-    if (base.startsWith('/coaching')) normalized = '/programs';
+    if (base.startsWith('/coach')) normalized = '/programs';
     else if (base.startsWith('/progress')) normalized = '/statistics';
     // exact match first
     const exact = TABS.findIndex(t => t.path === normalized);
@@ -59,6 +60,9 @@
         {tab.icon}
         {#if tab.path === '/settings' && ($updateAvailable.available || $pwaUpdateReady)}
           <span class="nav-update-dot" aria-label="Update available"></span>
+        {/if}
+        {#if tab.path === '/programs' && $coachingBadge}
+          <span class="nav-update-dot" aria-label={$_('coaching.badge_aria')}></span>
         {/if}
       </span>
       <span class="nav-label">{tab.label}</span>

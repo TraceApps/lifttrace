@@ -15,7 +15,13 @@ async function http(method, o) {
   const headers = { ...(o.headers || {}) };
   const kept = jar.get(hostOf(o.url));
   if (kept?.size) headers.Cookie = [...kept].map(([k, v]) => `${k}=${v}`).join('; ');
-  const r = await realFetch(o.url, { method, headers, body: o.data != null ? JSON.stringify(o.data) : undefined });
+  // The body as Capacitor's Android HTTP sends it: none at all without a
+  // Content-Type, a string as it is, anything else as JSON
+  // (CapacitorHttpUrlConnection.setRequestBody).
+  const type = Object.entries(headers).find(([k]) => k.toLowerCase() === 'content-type')?.[1];
+  const body = o.data == null || method === 'GET' || method === 'HEAD' || !type ? undefined
+    : typeof o.data === 'string' ? o.data : JSON.stringify(o.data);
+  const r = await realFetch(o.url, { method, headers, body });
   for (const c of r.headers.getSetCookie?.() || []) {
     const [pair, ...attrs] = c.split(';');
     const i = pair.indexOf('=');
@@ -51,5 +57,12 @@ export const Network = {
 export const Filesystem = { readdir: async () => ({ files: [] }), stat: async () => { throw new Error('none'); }, readFile: async () => { throw new Error('none'); }, writeFile: async () => ({}), mkdir: async () => ({}), deleteFile: async () => ({}) };
 export const Directory = { Data: 'DATA', Cache: 'CACHE', Documents: 'DOCUMENTS' };
 export const App = { addListener: async () => ({ remove() {} }) };
+// The phone's own notifications: what was shown, for scenarios to read.
+export const LocalNotifications = {
+  schedule: async ({ notifications = [] } = {}) => { (globalThis.__shown ??= []).push(...notifications); return { notifications }; },
+  cancel: async () => {}, getPending: async () => ({ notifications: [] }),
+  checkPermissions: async () => ({ display: 'granted' }), requestPermissions: async () => ({ display: 'granted' }),
+  createChannel: async () => {}, addListener: async () => ({ remove() {} }),
+};
 export const Preferences = { get: async () => ({ value: null }), set: async () => {}, remove: async () => {} };
 export default {};

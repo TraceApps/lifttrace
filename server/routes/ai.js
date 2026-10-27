@@ -3,26 +3,46 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { getAiConfig, isAiEnvLocked } from '../ai.js';
-import { getOpenAIChatParams } from '../lib/openai-chat-params.js';
+import { getOpenAIChatParams, openAIBase } from '../lib/openai-chat-params.js';
+import { REPLY_MAX_TOKENS, sendWithLengthFallback, stoppedShort, stoppedShortError } from '../lib/trace-reply.js';
 import { toolMessagesForOpenAI, toolNameFor, rememberToolCalls } from '../lib/tool-messages.js';
+import { geminiToolResponse } from '../lib/gemini-tool-response.js';
 import { createToolSupportMemory, sendWithToolFallback } from '../lib/tool-support.js';
 
 const router = Router();
 router.use(requireAuth);
 
+// Kept identical to src/lib/aiChat.js (scripts/ai-models.test.js checks).
+// Used when no model is chosen; an admin who set one keeps it.
 const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-4-5-20251001',
+  claude: 'claude-haiku-5-5',
   openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.6-flash',
+  gemini: 'gemini-3.8-flash',
 };
 
-// Models Google has shut down (404) or scheduled for shutdown.
-// Saved env-locked configs pointing at any of these are remapped to the
-// current default so the proxy doesn't 404 against a dead endpoint.
+// Model IDs that changed name: a saved old name is sent as the new one.
+const AI_MODEL_RENAMES = {
+  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+  'gpt-5.6': 'gpt-5.6-sol',
+};
+const renamedModel = (model) => AI_MODEL_RENAMES[model] || model;
+
+// Models Google has shut down (404). Saved env-locked configs pointing at any
+// of these are remapped to the current default so the proxy doesn't 404
+// against a dead endpoint. Shut down per ai.google.dev/gemini-api/docs/deprecations (2026-10-09).
 const GEMINI_RETIRED = new Set([
   'gemini-1.5-flash', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash-lite-preview', 'gemini-2.0-flash-lite-preview-02-05',
+  'gemini-2.5-pro-preview-03-25', 'gemini-2.5-pro-preview-05-06', 'gemini-2.5-pro-preview-06-05',
+  'gemini-2.5-flash-preview-05-20', 'gemini-2.5-flash-preview-09-25', 'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-3.1-flash-lite-preview',
 ]);
+function geminiModelFor(model) {
+  const m = renamedModel(model || AI_DEFAULT_MODELS.gemini);
+  return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
+}
 
 // GET /api/ai/history — chat history
 router.get('/history', wrap((req, res) => {
@@ -53,11 +73,11 @@ router.delete('/history', wrap((req, res) => {
 
 // ── Rate limit ──────────────────────────────────────────────────────────────
 // Multi-round tool use amplifies request count (one user "send" can fire
-// several proxy round-trips), so budget for that. Mirrors NutriTrace's
-// 30 requests / 60s. Cheap in-memory bucket keyed by user then IP,
+// up to 13 proxy round-trips, TraceApps/notetrace#34), so budget for that:
+// 60 requests / 60s, a few long answers a minute. Cheap in-memory bucket keyed by user then IP,
 // same shape as the login rate limiter in server/routes/auth.js.
 const _AI_LIMIT_WINDOW_MS = 60_000;
-const _AI_LIMIT_MAX       = 30;
+const _AI_LIMIT_MAX       = 60;
 const _aiBuckets = new Map();
 function _aiRateLimit(req, res, next) {
   const key = 'u:' + (uid(req) ?? ('ip:' + (req.ip || req.socket?.remoteAddress || 'unknown')));
@@ -148,6 +168,9 @@ const AI_MAX_BYTES    = 8_000_000;
 router.post('/chat', _aiRateLimit, wrap(async (req, res) => {
   const cfg = getAiConfig();
   const { messages: rawMessages, systemPrompt, tools } = req.body;
+  // The app's last request of an answer: the tools stay declared but can't
+  // be called, so the model answers from what it found.
+  const last = req.body.last === true;
   if (!Array.isArray(rawMessages)) return res.status(400).json({ error: 'messages array required' });
   const messages = rawMessages.map(_normaliseImagePartsToOpenAI);
   if (messages.length > AI_MAX_MESSAGES) {
@@ -163,7 +186,7 @@ router.post('/chat', _aiRateLimit, wrap(async (req, res) => {
   const provider = cfg.ai_provider || 'claude';
   const model    = cfg.ai_model    || AI_DEFAULT_MODELS[provider] || '';
   const apiKey   = cfg.ai_api_key;
-  const baseUrl  = cfg.ai_base_url;
+  const baseUrl  = openAIBase(cfg.ai_base_url);
   const toolsArr = Array.isArray(tools) ? tools : [];
 
   // API key required for cloud providers; oai-compat local endpoints (Ollama,
@@ -177,17 +200,26 @@ router.post('/chat', _aiRateLimit, wrap(async (req, res) => {
   }
 
   let result;
-  switch (provider) {
-    case 'claude':     result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr); break;
-    case 'openai':     result = await _callOpenAI(apiKey, model, messages, systemPrompt, toolsArr, 'https://api.openai.com'); break;
-    case 'gemini':     result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr); break;
-    case 'oai-compat': result = await _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, toolsArr, baseUrl.replace(/\/+$/, '')); break;
-    default: return res.status(400).json({ error: `Unknown provider: ${provider}` });
+  try {
+    switch (provider) {
+      case 'claude':     result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr, last); break;
+      case 'openai':     result = await _callOpenAI(apiKey, renamedModel(model), messages, systemPrompt, toolsArr, 'https://api.openai.com', last); break;
+      case 'gemini':     result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr, last); break;
+      case 'oai-compat': result = await _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, toolsArr, baseUrl.replace(/\/+$/, ''), last); break;
+      default: return res.status(400).json({ error: `Unknown provider: ${provider}` });
+    }
+  } catch (e) {
+    // A reply that stopped short: said, with a code the app says in its
+    // language (422, not 5xx: a proxy may put its own page in place of those).
+    if (/^trace_stopped_/.test(e?.code || '')) return res.status(422).json({ error: e.message, code: e.code });
+    throw e;
   }
   res.json(result);
 }));
 
 export default router;
+// For the test that keeps these identical to the client's (scripts/ai-models.test.js).
+export const _models = { AI_DEFAULT_MODELS, AI_MODEL_RENAMES, GEMINI_RETIRED, geminiModelFor };
 
 // ── Provider implementations (server-side) ──────────────────────────────────
 //
@@ -199,7 +231,7 @@ export default router;
 // so the client can append it verbatim to its message history before
 // dispatching tool results back through the proxy.
 
-async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
+async function _callClaude(apiKey, model, messages, systemPrompt, tools, last = false) {
   const claudeMessages = _openaiToClaudeMessages(messages);
   const claudeTools    = (tools || []).map(t => ({
     name: t.name,
@@ -209,23 +241,30 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
 
   const body = {
     model: model || AI_DEFAULT_MODELS.claude,
-    max_tokens: 4096,
+    // A model that can't write that many is asked again as before (lib/trace-reply.js).
+    max_tokens: REPLY_MAX_TOKENS,
     system: systemPrompt,
     messages: claudeMessages,
   };
   if (claudeTools.length) body.tools = claudeTools;
+  if (last && claudeTools.length) body.tool_choice = { type: 'none' };
 
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
+  const sent = await sendWithLengthFallback(body, async (b) => {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(b),
+    });
+    return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error?.message || `Claude API ${r.status}`);
+  const data = sent.data;
+  if (!sent.ok) throw new Error(data.error?.message || `Claude API ${sent.status}`);
+  const short = stoppedShort('claude', data);
+  if (short) throw stoppedShortError(short);
 
   const blocks    = data.content || [];
   const toolUses  = blocks.filter(b => b.type === 'tool_use');
@@ -250,7 +289,9 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
 // Models this server found can't use tools, by base URL and model.
 const toolSupport = createToolSupportMemory();
 
-async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl = 'https://api.openai.com') {
+// A server or model that won't take the reply length is asked again as
+// before (lib/trace-reply.js).
+async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl = 'https://api.openai.com', last = false) {
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -264,22 +305,32 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
       baseUrl,
       model: selectedModel,
       hasTools: openaiTools.length > 0,
+      maxTokens: REPLY_MAX_TOKENS,
     }),
   };
   if (openaiTools.length) body.tools = openaiTools;
+  if (last && openaiTools.length) body.tool_choice = 'none';
 
-  const send = async (b) => {
+  const send = (req) => sendWithLengthFallback(req, async (b) => {
     const r = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify(b),
     });
     return { ok: r.ok, status: r.status, data: await r.json() };
-  };
+  });
   // A model that can't use tools gets the request again without them
   // (TraceApps/nutritrace#259); toolsUnsupported lets the app say so.
-  const { ok, status, data, toolsDropped, toolsRouted } = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+  let sent = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+  // A server that refuses tool_choice "none" is asked once more without it.
+  if (last && !sent.ok && (sent.status === 400 || sent.status === 422) && body.tool_choice) {
+    delete body.tool_choice;
+    sent = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+  }
+  const { ok, status, data, toolsDropped, toolsRouted } = sent;
   if (!ok) throw new Error(data.error?.message || `OpenAI API ${status}`);
+  const short = stoppedShort('openai', data);
+  if (short) throw stoppedShortError(short);
 
   const msg = data.choices?.[0]?.message || {};
   if (!msg.tool_calls || msg.tool_calls.length === 0) {
@@ -298,8 +349,8 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
   return { assistantMessage: msg, toolCalls };
 }
 
-async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
-  const m = GEMINI_RETIRED.has(model) ? AI_DEFAULT_MODELS.gemini : (model || AI_DEFAULT_MODELS.gemini);
+async function _callGemini(apiKey, model, messages, systemPrompt, tools, last = false) {
+  const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
   const contents = _openaiToGeminiContents(messages);
@@ -315,6 +366,7 @@ async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
         parameters: t.parameters,
       })),
     }];
+    if (last) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
   }
 
   const r = await fetch(url, {
@@ -324,6 +376,8 @@ async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
   });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error?.message || `Gemini API ${r.status}`);
+  const short = stoppedShort('gemini', data);
+  if (short) throw stoppedShortError(short);
 
   const parts    = data.candidates?.[0]?.content?.parts || [];
   const fnCalls  = parts.filter(p => p.functionCall);
@@ -443,7 +497,8 @@ function _openaiToGeminiContents(messages) {
           // Gemini answers a tool call by name: the one the app echoes
           // on the message, else the one on the tool call it answers.
           name: toolNameFor(m, toolCallNames),
-          response: typeof m.content === 'string' ? _safeJsonParse(m.content, { result: m.content }) : (m.content || {}),
+          // A JSON object (a list or a plain value is refused: see the helper).
+          response: geminiToolResponse(typeof m.content === 'string' ? _safeJsonParse(m.content, m.content) : (m.content ?? null)),
         },
       };
       const last = out[out.length - 1];

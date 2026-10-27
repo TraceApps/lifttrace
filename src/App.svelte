@@ -8,6 +8,7 @@
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
+  import PlainHttpSheetMount from './components/ui/PlainHttpSheetMount.svelte';
   import AccountCheckError from './components/AccountCheckError.svelte';
   import Trace   from './components/ai/Trace.svelte';
   import { DB }    from './lib/db.js';
@@ -22,7 +23,7 @@
 
   // Drive svelte-i18n's active locale from the user's saved language setting.
   $: if ($language) locale.set($language);
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, launchState } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
   import { syncState, forgetRefused } from './lib/sync.js';
   import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
@@ -205,6 +206,7 @@
   import Radio           from './routes/Radio.svelte';
   import Settings        from './routes/Settings.svelte';
   import Coaching        from './routes/Coaching.svelte';
+  import Coach           from './routes/Coach.svelte';
   import MiniPlayer      from './components/radio/MiniPlayer.svelte';
   import RestTimer       from './components/diary/RestTimer.svelte';
   import FullPlayer      from './components/radio/FullPlayer.svelte';
@@ -232,6 +234,7 @@
     '/radio':                 Radio,
     '/settings':              Settings,
     '/settings/:section':     Settings,
+    '/coach':                 Coach,
     '/coaching':              Coaching,
     '/coaching/:memberId':    Coaching,
     '/wizard':                Wizard,
@@ -468,6 +471,16 @@
           } catch {}
         });
         setTimeout(() => import('./stores/restTimer.js').then(({ syncRest }) => syncRest()).catch(() => {}), 3000);
+        // The rest's notification was tapped: the Diary, on that workout's
+        // day. Heard even when the tap is what started the app.
+        import('./lib/rest-cue.js').then(({ onRestOpened }) => onRestOpened((date) => {
+          try { if (date) sessionStorage.setItem('lt:diary-open-date', date); } catch {}
+          if ($location !== '/') {
+            import('svelte-spa-router').then(({ push }) => push('/')).catch(() => {});
+          } else {
+            window.dispatchEvent(new CustomEvent('lt:diary-open-date'));
+          }
+        })).catch(() => {});
         // Web/PWA fallbacks — same reason as above but for the browser
         // page lifecycle (tab hidden, page unload). Cheap idempotent
         // flush; no-op if nothing pending.
@@ -530,9 +543,13 @@
             await Browser.close().catch(() => {});
           } catch {}
           try {
-            const u = new URL(url);
-            const host = (u.hostname || u.host || '').toLowerCase();
-            const params = u.searchParams;
+            // Read by hand (lib/app-link.js): older WebViews leave new URL()'s
+            // host empty for this scheme, so SSO never finished there.
+            const { parseAppLink } = await import('./lib/app-link.js');
+            const link = parseAppLink(url);
+            if (!link) throw new Error('not an app link');
+            const host = link.host;
+            const params = link.params;
             if (host === 'oidc-callback') {
               const errMsg = params.get('error');
               const linked = params.get('linked');
@@ -540,10 +557,25 @@
               let idTokenHint = params.get('id_token_hint');
               let providerId  = params.get('provider_id');
               const code = params.get('code');
-              if (code && !errMsg) {
+              // Signed in from Settings → Server Connection, with the phone
+              // still in local mode: the token goes back to that screen, which
+              // moves the phone's workouts over as a password sign-in does
+              // (TraceApps/notetrace#36). That sign-in takes only the single-use
+              // code it asked for, never a bare token another app could hand
+              // over (lib/server-signin.js).
+              const signin = await import('./lib/server-signin.js');
+              const { redeemHandoff, challengeSent } = await import('./lib/oidc-app-handoff.js');
+              const local = getNativeMode() === 'local';
+              const connecting = local ? signin.pendingSsoConnect() : null;
+              const action = signin.ssoCallbackAction({ code, token, error: errMsg, connecting, challengeSent: challengeSent(), local });
+              if (connecting && action.do !== 'none') signin.forgetSsoConnect();
+              if (action.do === 'refuse' || action.do === 'expired') {
+                import('./stores/toast.js').then(({ showError }) => showError(getStore(_)(action.do === 'refuse' ? 'server_signin.token_refused' : 'server_signin.sso_expired')));
+                return;
+              }
+              if (action.do === 'redeem') {
                 try {
-                  const { redeemHandoff } = await import('./lib/oidc-app-handoff.js');
-                  const data = await redeemHandoff(code);
+                  const data = await redeemHandoff(code, action.server);
                   token = data.token;
                   idTokenHint = data.id_token_hint || null;
                   providerId = data.provider_id != null ? String(data.provider_id) : null;
@@ -559,6 +591,9 @@
                 const { showSuccess } = await import('./stores/toast.js');
                 showSuccess('Linked');
                 await loadAuthState();
+              } else if (connecting && token) {
+                signin.ssoConnectResult.set({ url: connecting.url, token, idTokenHint, providerId });
+                window.location.hash = '#/settings/serverConnection';
               } else if (token) {
                 const { setAuthToken } = await import('./lib/platform.js');
                 setAuthToken(token);
@@ -587,6 +622,13 @@
                 // the router. Cross-app fix mirrored from NutriTrace #110.
                 showNativeSetup = needsNativeSetup();
                 window.location.hash = '#/';
+                // A plain-HTTP server confirmed on the setup screen isn't in the
+                // image and media policy set at start (from
+                // TraceApps/nutritrace#194); only a reload adds it.
+                const { mediaPolicyStale } = await import('./lib/plain-http.js');
+                if (mediaPolicyStale(document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content)) {
+                  window.location.reload();
+                }
               }
             }
           } catch (e) {
@@ -596,6 +638,26 @@
       }
     } catch {}
 
+    // A saved server on plain http:// that this build hasn't been told to use
+    // (from TraceApps/nutritrace#194): connected from a build that allowed
+    // plain HTTP. Asked here, before anything goes to the server; until it's
+    // confirmed nothing does (lib/plain-http.js), the app works from what's on
+    // the phone, and the next launch asks again. One that isn't on your own
+    // network is refused.
+    if (isNative && getServerUrl()) {
+      const saved = getServerUrl();
+      const { serverAddressCheck, confirmPlainHttp } = await import('./lib/plain-http.js');
+      const plain = serverAddressCheck(saved);
+      if (plain === 'ask' || plain === 'refuse') {
+        authLoaded = false;
+        const { askPlainHttp } = await import('./stores/plainHttp.js');
+        if (await askPlainHttp(saved, { kind: plain, stored: true })) {
+          confirmPlainHttp(saved);
+          window.location.reload();
+          return;
+        }
+      }
+    }
     // A copy an earlier version kept for a server is tagged as the account
     // last signed in here, before anyone signs in (lib/local-account.js).
     if (isNative && getNativeMode() === 'server') {
@@ -709,6 +771,7 @@
   // signed out, before the sign-in screen replaced it. Android starts from
   // the account it cached, so it never waits.
   let authLoaded = isNative;
+  launchState();
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
 
   // Signing in loads what the sign-in screen left out. (Login.svelte loads
@@ -863,6 +926,7 @@
 {/if}
 
 {#if needsLogin}<Toast />{/if}
+{#if isNative}<PlainHttpSheetMount />{/if}
 
 <style>
   :global(body) { overflow-x: hidden; }

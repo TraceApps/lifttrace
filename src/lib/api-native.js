@@ -528,16 +528,17 @@ const SOURCES_META = [
 // is normalised to look like a Fetch Response so the shared modules see
 // the same shape as node.
 async function nativeFetch(url, init = {}) {
-  const { CapacitorHttp } = await import('@capacitor/core');
+  // Through lib/native-http.js: plain http:// only to a confirmed local server.
+  const { NativeHttp } = await import('./native-http.js');
   const method = (init.method || 'GET').toUpperCase();
   const opts = { url, headers: init.headers || {} };
   if (init.body != null) opts.data = init.body;
-  const fn = method === 'GET' ? CapacitorHttp.get
-          : method === 'POST' ? CapacitorHttp.post
-          : method === 'PUT' ? CapacitorHttp.put
-          : method === 'DELETE' ? CapacitorHttp.delete
-          : CapacitorHttp.request;
-  const res = await fn.call(CapacitorHttp, opts);
+  const fn = method === 'GET' ? NativeHttp.get
+          : method === 'POST' ? NativeHttp.post
+          : method === 'PUT' ? NativeHttp.put
+          : method === 'DELETE' ? NativeHttp.delete
+          : NativeHttp.request;
+  const res = await fn.call(NativeHttp, opts);
   return {
     ok: res.status >= 200 && res.status < 300,
     status: res.status,
@@ -1070,10 +1071,8 @@ const Cardio = {
     );
     const byWeek = {};
     for (const row of rows) {
-      const d = new Date(row.date);
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      const weekStart = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+      // Calendar days, weeks in UTC, like the server (Stats._weekStart).
+      const weekStart = Stats._weekStart(String(row.date).slice(0, 10));
       byWeek[weekStart] = (byWeek[weekStart] || 0) + row.duration_min;
     }
     return Object.entries(byWeek).map(([week, minutes]) => ({ week, minutes })).sort((a, b) => a.week.localeCompare(b.week));

@@ -124,7 +124,14 @@ public class WearPairingPlugin extends Plugin {
         }
         PutDataMapRequest req = PutDataMapRequest.create(PATH);
         req.getDataMap().putString("serverUrl", serverUrl);
+        // The server again when the app confirmed plain HTTP to it (a server on
+        // your own network, TraceApps/nutritrace#194), otherwise empty: the
+        // watch sends over plain HTTP only when they match.
+        req.getDataMap().putString("httpOk", call.getString("httpOk", ""));
         req.getDataMap().putString("token", token);
+        // The release this phone runs: a watch on an older one updates itself
+        // to it (installed from GitHub; the Play Store keeps its own current).
+        req.getDataMap().putString("appVersion", call.getString("appVersion", ""));
         // The timestamp makes every write distinct, so re-pairing after a token
         // refresh still reaches the watch instead of being seen as unchanged.
         req.getDataMap().putLong("at", System.currentTimeMillis());
@@ -237,12 +244,18 @@ public class WearPairingPlugin extends Plugin {
     public void rest(PluginCall call) {
         PutDataMapRequest req = PutDataMapRequest.create(REST_PATH);
         boolean cleared = Boolean.TRUE.equals(call.getBoolean("cleared", false));
+        // Paused: sent as cleared with paused beside it, so a watch from
+        // before pausing takes the rest down rather than ringing mid-pause,
+        // and one that knows reads what was left (src/lib/rest-state.js).
+        boolean paused = Boolean.TRUE.equals(call.getBoolean("paused", false));
         req.getDataMap().putBoolean("cleared", cleared);
-        if (!cleared) {
+        req.getDataMap().putBoolean("paused", paused);
+        if (!cleared || paused) {
             req.getDataMap().putString("label", call.getString("label", ""));
             req.getDataMap().putInt("total", (int) whole(call, "total"));
             req.getDataMap().putLong("endsAt", whole(call, "endsAt"));
         }
+        if (paused) req.getDataMap().putLong("leftMs", whole(call, "leftMs"));
         req.getDataMap().putLong("at", stampOf(call));
         Wearable.getDataClient(getContext()).putDataItem(req.asPutDataRequest().setUrgent())
             .addOnSuccessListener(item -> call.resolve())
@@ -267,6 +280,8 @@ public class WearPairingPlugin extends Plugin {
                     ret.put("found", true);
                     ret.put("at", at);
                     ret.put("cleared", map.getBoolean("cleared", false));
+                    ret.put("paused", map.getBoolean("paused", false));
+                    ret.put("leftMs", map.getLong("leftMs", 0L));
                     ret.put("label", map.getString("label", ""));
                     ret.put("total", map.getInt("total", 0));
                     ret.put("endsAt", map.getLong("endsAt", 0L));

@@ -25,6 +25,7 @@ import crypto from 'crypto';
 import db from '../db.js';
 import { encrypt, decrypt } from './token-crypto.js';
 import { logger } from '../logger.js';
+import { coachingAfterRoleChange } from './coaching.js';
 
 const DISCOVERY_TTL_MS = 60 * 60 * 1000;             // 1h
 const STATE_TTL_MS     = 10 * 60 * 1000;             // 10 min — IdP round-trip window
@@ -294,6 +295,9 @@ export function applyAdminMapping(provider, user, claims) {
   if (user.role !== desired) {
     db.prepare(`UPDATE users SET role = ? WHERE id = ?`).run(desired, user.id);
     user.role = desired;
+    // The same coaching cleanup as a role change in Settings, Users: an
+    // admin isn't coached, and someone who can no longer coach stops.
+    try { coachingAfterRoleChange(user.id); } catch (e) { logger.warn(`[oidc] coaching cleanup failed: ${e?.message || e}`); }
     logger.info(`[oidc] role for user ${user.id} (${user.username}) → ${desired} via provider ${provider.id}`);
   }
 }

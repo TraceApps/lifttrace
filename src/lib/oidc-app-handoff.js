@@ -19,6 +19,11 @@ function _b64url(bytes) {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** The app asked for a code (a sign-in is under way that a bare token mustn't finish). */
+export function challengeSent() {
+  try { return !!localStorage.getItem(KEY); } catch { return false; }
+}
+
 /** Query-string fragment to append to the native login URL. */
 export async function appChallengeParam() {
   // Without WebCrypto (not a secure context) fall back to the old link that
@@ -32,11 +37,15 @@ export async function appChallengeParam() {
   return `&app_challenge=${_b64url(digest)}`;
 }
 
-/** Swap the deep link's code for { token, id_token_hint, provider_id }. */
-export async function redeemHandoff(code) {
+/**
+ * Swap the deep link's code for { token, id_token_hint, provider_id }.
+ * serverUrl: the server signed in to, when the app isn't connected to it yet
+ * (Settings → Server Connection, lib/server-signin.js).
+ */
+export async function redeemHandoff(code, serverUrl = null) {
   let verifier = null;
   try { verifier = localStorage.getItem(KEY); localStorage.removeItem(KEY); } catch {}
-  const res = await fetch(apiUrl('/api/auth/oidc/handoff'), {
+  const res = await fetch(serverUrl ? `${serverUrl}/api/auth/oidc/handoff` : apiUrl('/api/auth/oidc/handoff'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code, verifier }),

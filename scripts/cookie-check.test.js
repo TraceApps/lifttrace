@@ -42,7 +42,8 @@ test('the server reports the cookie setting and logs a plain-HTTP sign-in', () =
 
 test('the login page and the wizard show it, before and after signing in', () => {
   const login = read('../src/routes/Login.svelte');
-  assert.match(login, /if \(cookieBlockedByHttp\(authStatus\)\) signInProblem\.set\('http'\);/);
+  // On the web: the app signs in with a token, not the cookie.
+  assert.match(login, /if \(!isNative && cookieBlockedByHttp\(authStatus\)\) signInProblem\.set\('http'\);/);
   assert.match(login, /await loadAuthState\(\);\s*\n\s*if \(!get\(currentUser\)\) \{\s*\n\s*signInProblem\.set\(droppedCookieReason\(authStatus\)\);/,
     'checked with get(): this page can be torn down meanwhile, and its $store stops updating');
   assert.match(login, /\{#if \$signInProblem\}\s*\n\s*<CookieWarning reason=\{\$signInProblem\} \/>/);

@@ -101,10 +101,16 @@ async function startServer({ accounts = true, env = {} } = {}) {
   let admin, member;
   try {
     admin = await call(null, 'POST', '/api/auth/register', { username: 'coach', password: 'Str0ng-Pass-77!x' });
-    member = await call(admin.token, 'POST', '/api/auth/register', { username: 'athlete', password: 'Str0ng-Pass-88!y', role: 'member' });
+    member = await call(admin.token, 'POST', '/api/auth/register', { username: 'athlete', password: 'Str0ng-Pass-88!y', role: 'member', coach_id: admin.user.id });
   } catch (e) { stop(); throw e; }
   const memberToken = jwt.sign({ id: member.user.id, username: member.user.username, role: member.user.role }, SECRET, { expiresIn: '1h' });
   const expired = jwt.sign({ id: member.user.id, username: member.user.username, role: member.user.role, exp: Math.floor(Date.now() / 1000) - 60 }, SECRET);
+  // The member was created with the admin as their coach (a request); the
+  // member accepts it, so the admin is their coach as before.
+  try {
+    const { requests } = await call(memberToken, 'GET', '/api/coaching/state');
+    await call(memberToken, 'POST', `/api/coaching/pairings/${requests[0].id}/accept`, {});
+  } catch (e) { stop(); throw e; }
   return {
     base, call, tokens: { other: admin.token, phone: memberToken, expired }, memberId: member.user.id, adminId: admin.user.id, dbPath: join(dir, 'app.db'),
     stop,
@@ -134,6 +140,56 @@ async function scenario(name, opts = {}) {
     if (opts.second) second = await startServer();
     return { srv, second, out: await runPhone(srv, name, second, opts.phoneEnv) };
   } finally { srv.stop(); second?.stop(); }
+}
+
+test("Trace through the server is never queued to be asked again later, and a slow reply is said as that (notetrace#23)", { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('traceNotQueued');
+  assert.equal(out.queuedMore, 0, 'nothing put in the queue');
+  assert.equal(out.historyQueued, 1, "Trace's saved history still waits for a connection");
+  assert.match(out.slow, /didn't get an answer in time/);
+  assert.match(out.gone, /needs a connection/);
+  assert.deepEqual(out.deadlines, { trace: 300000, history: 20000, save: 30000, read: 20000 }, 'Trace has room for a long reply; the rest as before');
+});
+
+test("Trace's workout saves on Android go straight to the server, past its CORS check", { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('traceSave');
+  // The server's CORS allowed X-Changed-Fields from neither origin: each
+  // save failed as if offline and waited in the queue for a sync.
+  assert.deepEqual(out['https://app.lifttrace.local'], { set: 1, queued: 0, serverSets: [100, 105], completed: 1 });
+  assert.deepEqual(out['https://localhost'], { set: 2, queued: 0, serverSets: [100, 105, 110], completed: 1 });
+});
+
+for (const service of ['ntfy', 'gotify', 'apprise']) {
+  test(`the phone's own Workout Complete push goes through ${service}`, { skip, timeout: SCENARIO_MS }, async () => {
+    const { out } = await scenario('phonePush', { phoneEnv: { LT_PUSH: service } });
+    // It read push settings under names Settings never saves (notifNtfyUrl
+    // and so on), so it sent nothing, signed in or not.
+    for (const k of ['signedIn', 'web', 'unreachable', 'noAccounts']) assert.equal(out[k].length, 1, `${k}: sent once`);
+    assert.deepEqual(out.shown, ['💪 Workout Complete!', '💪 Workout Complete!', '💪 Workout Complete!'], 'and the phone showed it each time');
+    // Signed in to a server with accounts, the server sends it, as for the
+    // web app: the same request.
+    assert.deepEqual(out.signedIn[0], out.web[0]);
+    // Otherwise the phone sends it itself: the server's request, but for the
+    // app's name the server puts in front of the title. Never queued.
+    const title = (t) => String(t).replace(/^LiftTrace \S /u, '');
+    const unprefixed = (r) => {
+      if (r.type !== 'application/json') return { ...r, title: r.title == null ? null : title(r.title) };
+      const b = JSON.parse(r.body);
+      return { ...r, body: { ...b, title: title(b.title) } };
+    };
+    assert.deepEqual(out.unreachable[0], out.noAccounts[0]);
+    assert.deepEqual(unprefixed(out.noAccounts[0]), unprefixed(out.web[0]));
+    assert.equal(out.queued, 0, 'nothing queued for later');
+    const phone = out.noAccounts[0];
+    const want = {
+      ntfy: { url: '/lifts', type: 'text/plain', auth: 'Bearer tk_ntfy', priority: '5', title: '💪 Workout Complete!', body: 'Great session. "Push Day" is done!' },
+      gotify: { url: '/gotify/message?token=gtok', type: 'application/json', auth: null, priority: null, title: null },
+      apprise: { url: '/apprise/notify', type: 'application/json', auth: null, priority: null, title: null },
+    }[service];
+    for (const [k, v] of Object.entries(want)) assert.deepEqual(phone[k], v, k);
+    if (service === 'gotify') assert.deepEqual(JSON.parse(phone.body), { title: '💪 Workout Complete!', message: 'Great session. "Push Day" is done!', priority: 5 });
+    if (service === 'apprise') assert.deepEqual(JSON.parse(phone.body), { title: '💪 Workout Complete!', body: 'Great session. "Push Day" is done!', type: 'info', tag: 'gym' });
+  });
 }
 
 test('rows made offline go up under the server\'s ids, and point at each other there', { skip, timeout: SCENARIO_MS }, async () => {
@@ -640,7 +696,7 @@ test('a logged workout keeps a coach\'s exercises and a prescribed program', { s
   const srv = await startServer();
   try {
     const { call, tokens, memberId } = srv;
-    await call(tokens.other, 'POST', `/api/trainer/members/${memberId}`);
+    // The admin coaches the member already (startServer).
     const ex = await call(tokens.other, 'POST', '/api/exercises', { name: 'Coach Sled Push' });
     const plan = await call(tokens.other, 'POST', '/api/programs', { name: 'Coach 8wk', duration_weeks: 8 });
     const day = await call(tokens.other, 'POST', '/api/templates', { program_id: plan.id, name: 'Rx Day', exercises: [{ exercise_id: ex.id, name: 'Coach Sled Push' }] });

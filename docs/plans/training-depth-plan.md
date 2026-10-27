@@ -139,7 +139,29 @@ tooltip names the actual number.
 
 **Effort:** half a day.
 
-### [ ] 6b. The rest timer visible in the shade while it runs
+### [x] 6b. The rest timer visible in the shade while it runs
+
+**Built (2026-10-21):** an ongoing, silent, local-only notification on the
+`rest-timer-finish` channel for the whole rest (RestShade.java), on the lock
+screen too. It leads with the next set ("Bench Press · Set 3 of 4", weight ×
+reps, "Last time 145 × 8" by `lastCompletedSession`), Android counts down in
+the header (`setUsesChronometer`, `setChronometerCountDown`, `setWhen`), and a
+bar in the accent fills like the in-app rest bar, redrawn about once a second
+only while the screen is on and the process lives. Actions Skip Rest, +30s,
+Pause (paused: Resume, Skip Rest) work with the app closed; tapping opens the
+Diary on that day. Its own alarm at zero takes it down. On Android 16+ it asks
+to be a Live Update (`setRequestPromotedOngoing`, ProgressStyle,
+`POST_PROMOTED_NOTIFICATIONS`). Pause and Resume came with it, on the rest bar,
+the notification and the watch, synced both ways; an older peer reads a
+paused rest as cleared, so it takes it down rather than ringing mid-pause.
+Not a foreground service, and `FOREGROUND_SERVICE_IMMEDIATE` turned out to
+apply only to foreground-service notifications, so it is not used.
+
+**Later, not built yet:**
+
+- [ ] A "Complete Set" action on the notification when the rest ends.
+- [ ] A "workout in progress" count-up notification between rests.
+
 
 **Today:** nothing appears until the rest is over. `_scheduleNativeFinish()` posts
 one "Rest complete" notification at zero, deliberately silent, because the sound and
@@ -171,7 +193,13 @@ clearly ahead of ours. The idea is the chronometer flag, not their code.
 
 **Effort:** 1 day.
 
-### [ ] 6c. Rest cue on the alarm stream, for people who train with Do Not Disturb on
+### [x] 6c. Rest cue on the alarm stream, for people who train with Do Not Disturb on
+
+**Built (2026-10-21):** `restAlertOutput` (`notification` by default, or
+`alarm`), shown as Settings > Workout > Play Through Do Not Disturb on
+Android. Every cue carries `alarm`, and RestTimerCueReceiver plays the tone
+with `USAGE_ALARM` and buzzes with alarm vibration attributes when it is set.
+
 
 **Today:** `RestTimerCueReceiver` plays the tone through `MediaPlayer` with
 `USAGE_NOTIFICATION_EVENT` + `CONTENT_TYPE_SONIFICATION`. That is the right default

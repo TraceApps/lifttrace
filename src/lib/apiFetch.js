@@ -185,7 +185,7 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     // could still be out when another account signs in. JSON requests get a
     // deadline (an upload of a file is left to take as long as it takes).
     const deadline = !init.signal && (init.body == null || typeof init.body === 'string') && typeof AbortSignal?.timeout === 'function'
-      ? { signal: AbortSignal.timeout(isWrite ? 30000 : 20000) } : {};
+      ? { signal: AbortSignal.timeout(requestDeadlineMs(_stripBase(url), isWrite)) } : {};
     const res = await origFetch(absolute, { ...init, headers, credentials: 'omit', ...deadline });
     // A workout save or delete that reached the server also updates the
     // device's copy, which the Diary reads first, so reopening that day
@@ -205,6 +205,13 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     // A sign-in, sign-out or other session request is never queued: sent
     // later, it would act for whoever is signed in by then.
     if (isWrite && /^\/api\/auth\//.test(_stripBase(url))) return _jsonResponse(503, { error: 'Offline.', offline: true });
+    // Coaching consent (asking, answering, leaving, ending) changes who can
+    // see whose data: it is decided by the server at the moment it happens,
+    // never replayed later from a queue (the web app refuses the same).
+    // Trace's server took longer than a reply should: said as that, not as
+    // offline (the code is said in the app's language, aiChat.js).
+    if (netErr?.name === 'TimeoutError' && _isTraceChat(_stripBase(url))) return _jsonResponse(504, { error: "Trace didn't get an answer in time. Try again, or ask for less at once.", code: 'trace_timed_out' });
+    if (isWrite && needsServerNow(_stripBase(url), method)) return _jsonResponse(503, { error: 'This needs a connection.', offline: true });
     if (isWrite) return _queueWrite(url, init, method, gen);
     // Who is signed in is the server's to say: offline, this device's
     // standalone answer (its local user) would stand in for the account.
@@ -213,6 +220,34 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     await _localWrites;
     return _dispatchLocal(url, init);
   }
+}
+
+// Asking Trace through the server (Trace set by environment variables).
+const _isTraceChat = (fullPath) => /^\/api\/ai\/chat$/.test(String(fullPath).split('?')[0]);
+
+/**
+ * How long a request may take before it counts as unanswered. Asking Trace
+ * is the server waiting on the AI provider for a whole reply, which can take
+ * minutes (TraceApps/notetrace#23); everything else answers in seconds.
+ */
+export function requestDeadlineMs(fullPath, isWrite) {
+  if (_isTraceChat(fullPath)) return 300000;
+  return isWrite ? 30000 : 20000;
+}
+
+/**
+ * A write that only means something now, with the server: coaching consent,
+ * and asking Trace (a question answered on a later sync, to no one, would
+ * only spend the AI provider's tokens). Trace's saved history still waits
+ * for a connection like any other change. A push notification too: one that
+ * can't go now is sent by the phone itself (notifications.js), not later.
+ */
+export function needsServerNow(fullPath, method) {
+  const path = String(fullPath).split('?')[0];
+  if (/^\/api\/coaching\//.test(path)) return true;
+  if (_isTraceChat(path)) return true;
+  if (method === 'POST' && path === '/api/notify') return true;
+  return (method === 'POST' || method === 'DELETE') && /^\/api\/trainer\/members\/\d+$/.test(path);
 }
 
 // Creates that go into the queue carry a key made here once, so one sent

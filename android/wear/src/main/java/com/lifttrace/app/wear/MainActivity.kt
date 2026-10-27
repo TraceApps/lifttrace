@@ -43,6 +43,10 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -119,12 +123,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         store.showing = false
+        WatchUpdate.onScreen = false
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
         store.showing = true
+        // An update the phone is already on, asked about now that you're looking.
+        WatchUpdate.onScreen = true
+        WatchUpdate.check(applicationContext, onScreen = true)
         // The phone only sends a rest to a watch that has been used lately,
         // and this is what it goes by.
         Pairing.publishAwake(applicationContext)
@@ -148,6 +156,16 @@ class Countdown(private val ctx: android.content.Context) {
         private set
     var endsAt by mutableStateOf(0L)
         private set
+    /**
+     * Paused: what was left, held still (and [endsAt] is 0). A rest, not a
+     * hold: a hold logs itself when its time is up, and holding still is
+     * the whole of it.
+     */
+    var pausedLeftMs by mutableStateOf(0L)
+        private set
+    val paused: Boolean get() = pausedLeftMs > 0L
+    /** Counting, or paused with time left. */
+    val active: Boolean get() = endsAt > 0L || paused
     /** What to do when it reaches zero, for a hold that logs itself. */
     var onDone: (() -> Unit)? = null
         private set
@@ -177,6 +195,7 @@ class Countdown(private val ctx: android.content.Context) {
         val saved = Pairing.timer(ctx)
         if (saved == null) {
             endsAt = 0L
+            pausedLeftMs = 0L
             onDone = null
             fired = true
             return
@@ -184,7 +203,8 @@ class Countdown(private val ctx: android.content.Context) {
         label = saved.label
         total = saved.total
         endsAt = saved.endsAt
-        fired = saved.endsAt <= System.currentTimeMillis()
+        pausedLeftMs = saved.pausedLeftMs
+        fired = !saved.paused && saved.endsAt <= System.currentTimeMillis()
     }
 
     val running: Boolean get() = endsAt > System.currentTimeMillis()
@@ -192,6 +212,7 @@ class Countdown(private val ctx: android.content.Context) {
     fun start(label: String, seconds: Int, onDone: (() -> Unit)? = null) {
         this.label = label
         this.total = seconds
+        this.pausedLeftMs = 0L
         this.endsAt = System.currentTimeMillis() + seconds * 1000L
         this.onDone = onDone
         this.fired = false
@@ -199,10 +220,45 @@ class Countdown(private val ctx: android.content.Context) {
     }
 
     fun extend(seconds: Int) {
+        if (paused) {
+            pausedLeftMs += seconds * 1000L
+            total += seconds
+            held()
+            return
+        }
         if (endsAt <= 0L) return
         endsAt += seconds * 1000L
         total += seconds
         remember()
+    }
+
+    /** Only a rest pauses; a hold logs itself when its time is up. */
+    val canPause: Boolean get() = onDone == null && !Pairing.holdArmed(ctx)
+
+    /** Held where it is: no buzz, and the count stops, here and on the phone. */
+    fun pause() {
+        val left = endsAt - System.currentTimeMillis()
+        if (endsAt <= 0L || left <= 0L || !canPause) return
+        pausedLeftMs = left
+        endsAt = 0L
+        held()
+    }
+
+    /** Counting on from what was left. */
+    fun resume() {
+        if (!paused) return
+        endsAt = System.currentTimeMillis() + pausedLeftMs
+        pausedLeftMs = 0L
+        fired = false
+        remember()
+    }
+
+    private fun held() {
+        val timer = Pairing.Timer(label, total, 0L, pausedLeftMs)
+        RestAlarm.cancel(ctx)
+        Pairing.putTimer(ctx, timer)
+        RestOngoing.refresh(ctx)
+        Pairing.publishRest(ctx, timer)
     }
 
     fun markFired() {
@@ -211,6 +267,7 @@ class Countdown(private val ctx: android.content.Context) {
 
     fun stop() {
         endsAt = 0L
+        pausedLeftMs = 0L
         onDone = null
         RestAlarm.cancel(ctx)
         Pairing.clearTimer(ctx)
@@ -228,8 +285,11 @@ class Countdown(private val ctx: android.content.Context) {
         Pairing.publishRest(ctx, Pairing.Timer(label, total, endsAt))
     }
 
-    fun secondsLeft(): Long =
-        if (endsAt <= 0L) 0L else maxOf(0L, (endsAt - System.currentTimeMillis() + 999) / 1000)
+    fun secondsLeft(): Long = when {
+        paused -> (pausedLeftMs + 999) / 1000
+        endsAt <= 0L -> 0L
+        else -> maxOf(0L, (endsAt - System.currentTimeMillis() + 999) / 1000)
+    }
 }
 
 @Composable
@@ -260,7 +320,7 @@ fun WearApp(store: WearStore, route: String? = null, onRouted: () -> Unit = {}) 
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         RestOngoing.refresh(context)
     }
-    val resting = clock.endsAt > 0L
+    val resting = clock.active
     LaunchedEffect(resting) {
         if (!resting || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@LaunchedEffect
         val granted = ContextCompat.checkSelfPermission(
@@ -299,6 +359,27 @@ fun WearApp(store: WearStore, route: String? = null, onRouted: () -> Unit = {}) 
             }
         }
         return
+    }
+
+    // The workout just finished, here or by a hold that was the last set:
+    // how it went, until you're done looking. Then the session, whatever
+    // screen the finish came from (the hold's timer, a set).
+    var backToSession by remember { mutableStateOf(false) }
+    val finishedDay = state.workout
+    if (state.summary && finishedDay != null && finishedDay.completed) {
+        AppScaffold {
+            FinishedScreen(finishedDay, state.unit) {
+                backToSession = true
+                store.closeSummary()
+            }
+        }
+        return
+    }
+    LaunchedEffect(backToSession) {
+        if (backToSession) {
+            nav.popBackStack("session", inclusive = false)
+            backToSession = false
+        }
     }
 
     AppScaffold {
@@ -399,16 +480,28 @@ private const val DETENT = 40f
 @Composable
 private fun CrownColumn(
     listState: ScalingLazyListState,
+    /** The scaffold's, when there is a button on the bottom edge to clear. */
+    contentPadding: PaddingValues? = null,
     content: ScalingLazyListScope.() -> Unit,
 ) {
     val focus = remember { FocusRequester() }
-    ScalingLazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .rotaryScrollable(RotaryScrollableDefaults.behavior(listState), focusRequester = focus),
-        content = content,
-    )
+    val modifier = Modifier
+        .fillMaxSize()
+        .rotaryScrollable(RotaryScrollableDefaults.behavior(listState), focusRequester = focus)
+    if (contentPadding != null) {
+        // Not centered: the last item stops just above the button rather than
+        // in the middle of the screen, and a list that fits shows the button
+        // whole from the start.
+        ScalingLazyColumn(
+            state = listState,
+            modifier = modifier,
+            contentPadding = contentPadding,
+            autoCentering = null,
+            content = content,
+        )
+    } else {
+        ScalingLazyColumn(state = listState, modifier = modifier, content = content)
+    }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
@@ -419,32 +512,46 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
     val listState = rememberScalingLazyListState()
     val next = Session.next(state.workout)
     // Finishing with work left is a deliberate thing to do, so it is asked
-    // about. Finishing a session where every set is done is not.
+    // about, saying how much is left. Finishing a workout where every set is
+    // done is not.
     var finishing by remember { mutableStateOf(false) }
 
     val day = state.workout
+    val left = Session.setsLeft(day)
     AlertDialog(
         visible = finishing,
         onDismissRequest = { finishing = false },
-        title = { Text("Finish anyway?") },
-        text = {
-            val left = (day?.setsTotal ?: 0) - (day?.setsDone ?: 0)
-            Text(
-                if (left == 1) "One set is not done. It stays as it is."
-                else "$left sets are not done. They stay as they are.",
-            )
-        },
+        title = { Text(pluralStringResource(R.plurals.finish_sets_left, left, left)) },
+        text = { Text(stringResource(R.string.finish_anyway)) },
         confirmButton = {
             AlertDialogDefaults.ConfirmButton(onClick = {
                 finishing = false
-                clock.stop()
                 scope.launch { store.finishSession() }
             })
         },
         dismissButton = { AlertDialogDefaults.DismissButton(onClick = { finishing = false }) },
     )
 
-    ScreenScaffold(scrollState = listState) {
+    // Finish Workout on the bottom edge, where a watch keeps the one action a
+    // screen is for: there once a set is done, as the phone's button is, and
+    // reached by scrolling to the end of the workout rather than hunted for
+    // in a menu. A finished workout shows its summary there instead.
+    val edge: (@Composable BoxScope.() -> Unit)? = when {
+        !state.paired || day == null -> null
+        day.completed -> {
+            { EdgeButton(onClick = { store.showSummary() }) { Text(stringResource(R.string.view_summary)) } }
+        }
+        Session.canFinish(day) -> {
+            {
+                EdgeButton(onClick = {
+                    if (Session.setsLeft(day) > 0) finishing = true
+                    else scope.launch { store.finishSession() }
+                }) { Text(stringResource(R.string.finish_workout)) }
+            }
+        }
+        else -> null
+    }
+    val body: @Composable BoxScope.(PaddingValues?) -> Unit = { padding ->
         if (!state.paired) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 28.dp),
@@ -455,9 +562,7 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     body = "Open LiftTrace on your phone and sign in. The watch pairs itself.",
                 )
             }
-            return@ScreenScaffold
-        }
-        CrownColumn(listState) {
+        } else CrownColumn(listState, padding) {
             item {
                 ListHeader {
                     Text(
@@ -476,7 +581,14 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             // The set you are on, first. Everything else here is something you
             // glance at; this is the thing you came to tap, and on a round
             // screen anything below the first card means scrolling for it.
-            if (next != null) {
+            if (state.workout?.completed == true) {
+                item(key = "finished") {
+                    Message(
+                        title = stringResource(R.string.workout_complete),
+                        body = stringResource(R.string.finished_note),
+                    )
+                }
+            } else if (next != null) {
                 item(key = "next-up") {
                     val day = state.workout
                     val label = day?.let { Session.supersetLabel(it, next.exercise) }
@@ -560,26 +672,6 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                     exerciseBlocks(day, finished, next?.exercise?.uuid) { nav.navigate("exercise/$it") }
                 }
             }
-            // The session ends here too. Everything it needs is on the watch
-            // already: the sets are logged and the clock knows how long it
-            // ran, so walking to a phone to press one more button is the app
-            // getting in the way of the thing it is for.
-            if (day != null && !day.completed) {
-                item(key = "finish") {
-                    Button(
-                        onClick = {
-                            if (day.finished) {
-                                clock.stop()
-                                scope.launch { store.finishSession() }
-                            } else {
-                                finishing = true
-                            }
-                        },
-                        label = { Text("Finish the session") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
             item {
                 Button(
                     onClick = { scope.launch { store.refresh() } },
@@ -599,6 +691,11 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
                 }
             }
         }
+    }
+    if (edge != null) {
+        ScreenScaffold(scrollState = listState, edgeButton = edge) { padding -> body(padding) }
+    } else {
+        ScreenScaffold(scrollState = listState) { body(null) }
     }
 }
 
@@ -732,8 +829,11 @@ private fun SetScreen(
         // round can be judged before the save has been anywhere near the
         // server.
         val after = state.workout?.let { Session.applyChange(it, change) }
+        // The last set finishes the workout (the store does it, and shows how
+        // it went), and there is no rest after the last set.
+        val finishing = Session.finishes(state.workout, change)
         commit(change, if (done) "Set changed" else "Set logged")
-        val resting = !done && after != null &&
+        val resting = !done && !finishing && after != null &&
             state.restEnabled && state.restAutoStart &&
             Session.shouldRest(after, exerciseUuid, setUuid)
         if (resting) {
@@ -1067,7 +1167,11 @@ private fun RestRow(clock: Countdown, onStart: () -> Unit, onOpen: () -> Unit) {
             delay(1000)
         }
     }
-    val left = if (clock.endsAt <= 0L) 0 else maxOf(0L, (clock.endsAt - now + 999) / 1000).toInt()
+    val left = when {
+        clock.paused -> clock.secondsLeft().toInt()
+        clock.endsAt <= 0L -> 0
+        else -> maxOf(0L, (clock.endsAt - now + 999) / 1000).toInt()
+    }
     if (left <= 0) {
         Button(
             onClick = onStart,
@@ -1083,13 +1187,16 @@ private fun RestRow(clock: Countdown, onStart: () -> Unit, onOpen: () -> Unit) {
             Text(
                 Session.clock(left),
                 maxLines = 1,
-                color = ringColour(Session.urgency(left, total)),
+                // Held: the colour of something waiting, not of time running out.
+                color = if (clock.paused) MaterialTheme.colorScheme.onSurfaceVariant
+                else ringColour(Session.urgency(left, total)),
             )
         },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            "Resting" + (if (clock.label.isBlank()) "" else " before " + clock.label),
+            if (clock.paused) stringResource(R.string.rest_paused) + (if (clock.label.isBlank()) "" else " · " + clock.label)
+            else "Resting" + (if (clock.label.isBlank()) "" else " before " + clock.label),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1106,7 +1213,9 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
     val context = LocalContext.current
     var remaining by remember { mutableStateOf(clock.secondsLeft()) }
 
-    WhileWatching(clock.endsAt) {
+    WhileWatching(clock.endsAt, clock.pausedLeftMs) {
+        // Paused, the number holds where it is and nothing ticks.
+        remaining = clock.secondsLeft()
         if (clock.endsAt <= 0L) return@WhileWatching
         while (true) {
             remaining = clock.secondsLeft()
@@ -1129,7 +1238,7 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
     // A timer you have to keep awake with a finger is no timer at all, but
     // only while it is counting: once it reaches zero the screen was being
     // held on at full brightness until somebody swiped it away.
-    val counting = remaining > 0
+    val counting = remaining > 0 && !clock.paused
     DisposableEffect(counting) {
         val window = (context as? Activity)?.window
         if (counting) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1144,7 +1253,8 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
             // Green while there is time, amber when it is getting on, red at
             // the death, so a glance tells you without reading the number.
             colors = ProgressIndicatorDefaults.colors(
-                indicatorColor = ringColour(Session.urgency(remaining.toInt(), total)),
+                indicatorColor = if (clock.paused) MaterialTheme.colorScheme.onSurfaceVariant
+                else ringColour(Session.urgency(remaining.toInt(), total)),
             ),
             modifier = Modifier.fillMaxSize().padding(4.dp),
         )
@@ -1158,7 +1268,11 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
                 style = MaterialTheme.typography.displayMedium,
             )
             Text(
-                if (remaining > 0) clock.label else "Next set",
+                when {
+                    clock.paused -> stringResource(R.string.rest_paused)
+                    remaining > 0 -> clock.label
+                    else -> "Next set"
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall,
@@ -1168,11 +1282,27 @@ private fun TimerScreen(clock: Countdown, nav: NavHostController) {
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (remaining > 0) {
+                // Paused: Resume and Skip, as on the phone's notification.
+                if (remaining > 0 && !clock.paused) {
                     FilledTonalIconButton(
                         onClick = { clock.extend(30) },
                         modifier = Modifier.size(40.dp),
                     ) { Text("+30") }
+                }
+                if (clock.paused) {
+                    FilledTonalIconButton(
+                        onClick = { clock.resume() },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_play), contentDescription = stringResource(R.string.rest_resume))
+                    }
+                } else if (remaining > 0 && clock.canPause) {
+                    FilledTonalIconButton(
+                        onClick = { clock.pause() },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_pause), contentDescription = stringResource(R.string.rest_pause))
+                    }
                 }
                 FilledTonalIconButton(
                     onClick = {
@@ -1233,6 +1363,66 @@ private fun ScalingLazyListScope.exerciseBlocks(
                     // on the one you are actually up to.
                     Text((if (nowUuid == exercise.uuid) "→ " else "") + Session.standing(exercise))
                 }
+            }
+        }
+    }
+}
+
+/**
+ * How the workout went, the moment it's over: how long, how many sets, how
+ * much was lifted, worked out the way the phone's summary works them out.
+ */
+@Composable
+private fun FinishedScreen(day: Session.Workout, unit: String, onDone: () -> Unit) {
+    val summary = Session.summary(day)
+    val listState = rememberScalingLazyListState()
+    ScreenScaffold(
+        scrollState = listState,
+        edgeButton = { EdgeButton(onClick = onDone) { Text(stringResource(R.string.summary_done)) } },
+    ) { padding ->
+        CrownColumn(listState, padding) {
+            item {
+                ListHeader {
+                    Text(
+                        stringResource(R.string.workout_complete),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                    )
+                }
+            }
+            Session.duration(summary.minutes)?.let { time ->
+                item {
+                    Text(
+                        time,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.displayMedium,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            item {
+                val sets = pluralStringResource(R.plurals.summary_sets, summary.sets, summary.sets)
+                val volume = if (summary.volume > 0) {
+                    stringResource(R.string.summary_volume, Session.volumeText(summary.volume), unit)
+                } else null
+                Text(
+                    listOfNotNull(sets, volume).joinToString(" · "),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+            }
+            item {
+                Text(
+                    day.name,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                )
             }
         }
     }

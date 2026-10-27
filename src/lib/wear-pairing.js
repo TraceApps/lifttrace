@@ -11,6 +11,9 @@
  */
 import { registerPlugin } from '@capacitor/core';
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
+import { APP_VERSION } from './version.js';
+import { mirroredConfirmation } from './plain-http.js';
+import { restToWire } from './rest-state.js';
 
 // Registered at module level: a plugin proxy returned from an async function
 // confuses Capacitor's promise handling.
@@ -40,7 +43,11 @@ export async function pairWatch() {
   if (!serverUrl || !token) return false;
   if (!(await hasWatch())) return false;
   try {
-    await WearPairing.pair({ serverUrl, token });
+    // With this phone's release: a watch on an older one catches up to it.
+    // httpOk: the server again when it is plain http:// on your own network
+    // and you said Connect Anyway to it; the watch uses plain HTTP only then
+    // (LocalAddress.kt, from TraceApps/nutritrace#194).
+    await WearPairing.pair({ serverUrl, token, appVersion: APP_VERSION, httpOk: mirroredConfirmation(serverUrl) });
     // A watch paired part way through a session should still show its
     // length, and one that started the timer itself should have that
     // honoured here rather than overwritten.
@@ -104,22 +111,17 @@ export async function watchInUse() {
  * The rest between sets, for the watch to hold and ring. Returns true when
  * the watch actually has it, which is also what decides whether this phone's
  * own notification is allowed to mirror across.
+ *
+ * A paused rest goes over as cleared with `paused` beside it (restToWire), so
+ * a watch from before pausing takes it down instead of ringing mid-pause.
  */
-export async function publishRest(state, at = 0) {
+export async function publishRest(state, at = 0, { force = false } = {}) {
   if (!isNative) return false;
-  if (!(await watchInUse())) return false;
+  // `force`: the watch took this rest's pause, so it hears how the rest goes
+  // on even when it has gone unopened for a while (or it shows Paused for good).
+  if (!force && !(await watchInUse())) return false;
   try {
-    if (!state) {
-      await WearPairing.rest({ cleared: true, at: at || Date.now() });
-      return true;
-    }
-    await WearPairing.rest({
-      cleared: false,
-      label: String(state.exerciseName || ''),
-      total: Number(state.total) || 0,
-      endsAt: Number(state.endTime) || 0,
-      at: at || Date.now(),
-    });
+    await WearPairing.rest(restToWire(state, at || Date.now()));
     return true;
   } catch {
     return false;
@@ -136,6 +138,9 @@ export async function readRest(mine = 0) {
     return {
       at: Number(remote.at || 0),
       cleared: !!remote.cleared,
+      // From a watch that knows about pausing; an older one never says it.
+      paused: !!remote.paused,
+      leftMs: Number(remote.leftMs) || 0,
       label: String(remote.label || ''),
       total: Number(remote.total) || 0,
       endsAt: Number(remote.endsAt) || 0,

@@ -9,6 +9,9 @@ import db, { dedupeExercisesOnce } from '../db.js';
 import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
+import { adoptExistingPairings } from '../lib/coaching.js';
+import { isValidTimeZone, processTimeZone } from '../lib/zoned-time.js';
+import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '../lib/backup-schedule.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,41 +78,67 @@ export function getScheduleConfig() {
                  : (_cfg('backup_time') && /^\d{1,2}:\d{2}$/.test(_cfg('backup_time'))) ? _cfg('backup_time')
                  : DEFAULT_TIME;
   const retention = Math.max(1, Math.min(99, parseInt(envRetention || _cfg('backup_retention') || DEFAULT_RETENTION, 10) || DEFAULT_RETENTION));
+  // The zone the time is in: saved with it from the browser that set it
+  // (TraceApps/notetrace#44); none (older installs, a schedule set by
+  // environment) runs in the server's own zone, TZ or UTC.
+  const saved = isBackupEnvLocked() ? null : (_cfg('backup_time_zone') || null);
+  const timeZone = isValidTimeZone(saved) ? saved : null;
+  const lastAutoRun = _cfg('backup_last_auto_run') || null;
+  const setAt = _cfg('backup_schedule_set_at') || null;
   return {
     schedule, time, retention,
-    lastAutoRun:   _cfg('backup_last_auto_run')   || null,
+    timeZone,
+    runsIn:        effectiveTimeZone(timeZone),
+    serverTimeZone: processTimeZone(),
+    setAt,
+    nextRunAt:     nextBackupAt({ schedule, time, timeZone, lastAutoRun, setAt }),
+    lastAutoRun,
     lastAutoError: _cfg('backup_last_auto_error') || null,
     envLocked:     isBackupEnvLocked(),
   };
 }
 
-export function setScheduleConfig({ schedule, time, retention }) {
+export function setScheduleConfig({ schedule, time, retention, timeZone }) {
   if (isBackupEnvLocked()) {
     const err = new Error('Backup schedule is locked by environment variable');
     err.code = 'ENV_LOCKED';
     throw err;
   }
+  // Every field checked before any is saved: a bad one changes nothing.
+  const writes = [];
   if (schedule != null) {
     if (!SCHEDULES.has(schedule)) throw new Error('schedule must be one of: off, daily, weekly, monthly');
-    _setCfg('backup_schedule', schedule);
+    writes.push(['backup_schedule', schedule]);
   }
   if (time != null) {
     if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('time must be HH:MM');
     const [h, m] = time.split(':').map(n => parseInt(n, 10));
     if (h < 0 || h > 23 || m < 0 || m > 59) throw new Error('time out of range');
-    _setCfg('backup_time', `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+    writes.push(['backup_time', `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`]);
   }
   if (retention != null) {
     const r = parseInt(retention, 10);
     if (!Number.isFinite(r) || r < 1 || r > 99) throw new Error('retention must be 1-99');
-    _setCfg('backup_retention', String(r));
+    writes.push(['backup_retention', String(r)]);
   }
+  // An IANA zone such as "America/New_York"; '' goes back to the server's zone.
+  if (timeZone !== undefined) {
+    if (timeZone === null || timeZone === '') writes.push(['backup_time_zone', '']);
+    else if (!isValidTimeZone(timeZone)) throw new Error('timeZone must be an IANA time zone, such as America/New_York');
+    else writes.push(['backup_time_zone', timeZone]);
+  }
+  // When it was set, for a first run that comes at its time (backup-schedule.js).
+  if (schedule != null || time != null || timeZone !== undefined) writes.push(['backup_schedule_set_at', new Date().toISOString()]);
+  db.transaction(() => { for (const [k, v] of writes) _setCfg(k, v); })();
   return getScheduleConfig();
 }
 
-export function createBackup() {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const filename  = `lifttrace-backup-${timestamp}.zip`;
+export function createBackup({ now = Date.now() } = {}) {
+  // Named in the schedule's zone with its offset (TraceApps/notetrace#44).
+  // Never overwrite: two backups in the same second get a number.
+  const timestamp = backupFileStamp(getScheduleConfig().timeZone, now);
+  let filename = `lifttrace-backup-${timestamp}.zip`;
+  for (let n = 2; fs.existsSync(path.join(BACKUPS_DIR, filename)); n++) filename = `lifttrace-backup-${timestamp}-${n}.zip`;
   const destPath  = path.join(BACKUPS_DIR, filename);
   const zip = new AdmZip();
   zip.addFile('database.json', Buffer.from(JSON.stringify(dumpDatabase(), null, 2), 'utf8'));
@@ -126,15 +155,19 @@ export function createBackup() {
   }
   zip.writeZip(destPath);
   const stat = fs.statSync(destPath);
-  return { filename, size: stat.size, createdAt: new Date().toISOString() };
+  return { filename, size: stat.size, createdAt: new Date(now).toISOString() };
 }
 
 export function pruneOldBackups(retention) {
   const keep = Math.max(1, Math.min(99, parseInt(retention, 10) || DEFAULT_RETENTION));
-  const all = fs.readdirSync(BACKUPS_DIR)
+  // Newest first by when each was made, read from the name (local time with
+  // its offset since TraceApps/notetrace#44, UTC before), so a copied folder
+  // that lost its file dates still keeps the right ones; the file's date only
+  // for other names.
+  const all = newestFirst(fs.readdirSync(BACKUPS_DIR)
     .filter(f => f.startsWith('lifttrace-backup-') && f.endsWith('.zip'))
-    .sort()
-    .reverse();
+    .map(name => ({ name, mtime: (() => { try { return fs.statSync(path.join(BACKUPS_DIR, name)).mtimeMs; } catch { return 0; } })() })))
+    .map(x => x.name);
   const toDelete = all.slice(keep);
   for (const f of toDelete) {
     try { fs.unlinkSync(path.join(BACKUPS_DIR, f)); }
@@ -235,6 +268,24 @@ function restoreFromZip(zip) {
     for (const u of data.users || []) insUser.run(u);
     for (const u of data.users || []) if (u.trainer_id) linkTrainer.run(u.trainer_id, u.id);
 
+    // Coaching pairings (requests, answers, endings). Emptied with the users
+    // above (they cascade). A backup from before they existed has none: its
+    // trainers are kept as accepted pairings after the restore
+    // (adoptExistingPairings, below).
+    db.prepare('DELETE FROM coach_clients').run();
+    const insPairing = db.prepare(`INSERT OR IGNORE INTO coach_clients (id,coach_id,client_id,status,note,requested_at,responded_at,ended_at,ended_by,updated_at) VALUES (@id,@coach_id,@client_id,@status,@note,@requested_at,@responded_at,@ended_at,@ended_by,@updated_at)`);
+    for (const c of data.coach_clients || []) {
+      insPairing.run({ note: null, responded_at: null, ended_at: null, ended_by: null, ...c,
+        requested_at: c.requested_at || c.updated_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
+        updated_at: c.updated_at || c.requested_at || new Date().toISOString().replace('T', ' ').slice(0, 19) });
+    }
+    // Their conversations (the photos come back with the uploads folder).
+    db.prepare('DELETE FROM coach_messages').run();
+    const insMessage = db.prepare(`INSERT OR IGNORE INTO coach_messages (id,uuid,pairing_id,sender_id,body,image_url,recommendation_id,read_at,created_at,updated_at,deleted_at) VALUES (@id,@uuid,@pairing_id,@sender_id,@body,@image_url,@recommendation_id,@read_at,@created_at,@updated_at,@deleted_at)`);
+    for (const m of data.coach_messages || []) {
+      insMessage.run({ body: null, image_url: null, recommendation_id: null, read_at: null, deleted_at: null, ...m });
+    }
+
     // Restore custom exercises (user-created, not global seeds)
     const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type)`);
     for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, ...e });
@@ -248,8 +299,9 @@ function restoreFromZip(zip) {
     const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at,week_cursor,week_cursor_session_base,week_cursor_pinned_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at,@week_cursor,@week_cursor_session_base,@week_cursor_pinned_at)`);
     for (const a of data.program_assignments || []) insAssign.run(_withAssignDefaults(a));
 
-    const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at)`);
-    for (const cp of data.coach_prescriptions || []) insPrescription.run(cp);
+    // A backup from before the Accept step has no status: accepted, as at upgrade.
+    const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at,status,responded_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at,@status,@responded_at)`);
+    for (const cp of data.coach_prescriptions || []) insPrescription.run({ responded_at: null, ...cp, status: cp.status || 'accepted' });
 
     const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week)`);
     for (const w of data.workout_log || []) insWorkout.run(_withField(w, 'program_week'));
@@ -383,6 +435,9 @@ function restoreFromZip(zip) {
   }
   seedSmtpFromEnv();
   seedAiFromEnv();
+  // A backup from before coaching asked for consent: its trainers stay, as
+  // accepted pairings with nothing to answer.
+  try { adoptExistingPairings(); } catch { /* the next start-up does it */ }
 }
 
 function dumpDatabase() {
@@ -398,6 +453,8 @@ function dumpDatabase() {
     coach_prescriptions: db.prepare('SELECT * FROM coach_prescriptions').all(),
     coach_feedback:      safe('SELECT * FROM coach_feedback'),
     coach_activity:      safe('SELECT * FROM coach_activity'),
+    coach_clients:       safe('SELECT * FROM coach_clients'),
+    coach_messages:      safe('SELECT * FROM coach_messages'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
     body_stat_media:     safe('SELECT * FROM body_stat_media'),

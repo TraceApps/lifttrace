@@ -61,6 +61,13 @@ object Session {
         /** This exercise's own rest, when the plan sets one. */
         val restSec: Int,
         val sets: List<Set>,
+        /**
+         * What the session itself says about load and timing, without the
+         * library's say: what the phone's workout summary reads for volume
+         * (exerciseVolume in src/lib/workout.js).
+         */
+        val ownLoadType: String? = null,
+        val ownSetType: String? = null,
     ) {
         val timed: Boolean get() = setType == TYPE_TIME
         val done: Int get() = sets.count { it.completed }
@@ -80,6 +87,9 @@ object Session {
         /** The whole row as it came, so what the watch doesn't understand survives. */
         val raw: JSONObject,
     ) {
+        /** The length written on the session, when it has one. */
+        val minutes: Double?
+            get() = raw.optDouble("duration_min", 0.0).takeIf { !it.isNaN() && it > 0 }
         val setsDone: Int get() = exercises.sumOf { it.done }
         val setsTotal: Int get() = exercises.sumOf { it.total }
         val finished: Boolean get() = setsTotal > 0 && setsDone == setsTotal
@@ -146,6 +156,8 @@ object Session {
                     supersetSize = e.optInt("superset_size", 0),
                     restSec = e.optInt("rest_sec", 0),
                     sets = sets,
+                    ownLoadType = if (e.isNull("load_type")) null else e.optString("load_type").ifBlank { null },
+                    ownSetType = if (e.isNull("set_type")) null else e.optString("set_type").ifBlank { null },
                 )
             )
         }
@@ -408,6 +420,113 @@ object Session {
         }
         return workout.copy(exercises = exercises, raw = upsert(workout.raw, change))
     }
+
+    // ── Finishing ────────────────────────────────────────────────────────
+
+    /**
+     * Every exercise has a set and every set is done: the phone's rule for a
+     * workout finishing by itself (Diary.svelte, after a set is ticked). An
+     * exercise with no sets keeps it open, as it does there.
+     */
+    fun allDone(workout: Workout?): Boolean {
+        val w = workout ?: return false
+        return w.exercises.isNotEmpty() && w.exercises.all { e -> e.sets.isNotEmpty() && e.sets.all { it.completed } }
+    }
+
+    /**
+     * Does this change finish the workout? Ticking off the last set does, as
+     * on the phone. Correcting a set already done or reopening one doesn't,
+     * and a workout already finished isn't finished twice.
+     */
+    fun finishes(before: Workout?, change: Change): Boolean {
+        val w = before ?: return false
+        if (w.completed || !change.completed) return false
+        if (w.exercise(change.exerciseUuid) == null) return false
+        if (w.set(change.exerciseUuid, change.setUuid)?.completed == true) return false
+        return allDone(applyChange(w, change))
+    }
+
+    /** Sets not done yet, warm-ups included: what finishing now leaves behind. */
+    fun setsLeft(workout: Workout?): Int = workout?.let { it.setsTotal - it.setsDone } ?: 0
+
+    /**
+     * Finishing is there once a set is done, as on the phone: before that
+     * there is nothing to finish. A workout already finished has its summary
+     * instead.
+     */
+    fun canFinish(workout: Workout?): Boolean = workout != null && !workout.completed && workout.setsDone > 0
+
+    /**
+     * The session as finished: marked done, and its length from the clock
+     * when one ran. With no clock the length already written stays.
+     */
+    fun finish(workout: Workout, minutes: Double?): Workout {
+        val raw = JSONObject(workout.raw.toString()).put("completed", 1)
+        if (minutes != null) raw.put("duration_min", minutes)
+        return workout.copy(completed = true, raw = raw)
+    }
+
+    /** What the finished screen says: how long, how many sets, how much lifted. */
+    data class Summary(val minutes: Double?, val sets: Int, val volume: Long)
+
+    /**
+     * The phone's workout summary, worked out the same way: working sets done
+     * (a warm-up isn't one) and their volume, rounded.
+     */
+    fun summary(workout: Workout): Summary = Summary(
+        minutes = workout.minutes,
+        sets = workout.exercises.sumOf { e -> e.sets.count { it.completed && !it.warmup } },
+        volume = Math.round(workout.exercises.sumOf { volume(it) }),
+    )
+
+    /**
+     * One exercise's volume, as the phone counts it (exerciseVolume): working
+     * sets done, holds left out, both sides counted for paired and
+     * unilateral lifts.
+     */
+    fun volume(exercise: Exercise): Double {
+        val loadType = exercise.ownLoadType ?: LOAD_BILATERAL
+        var total = 0.0
+        for (s in exercise.sets) {
+            if (!s.completed || s.warmup) continue
+            val timed = when (exercise.ownSetType) {
+                TYPE_TIME -> true
+                TYPE_REPS -> false
+                else -> s.durationSec > 0
+            }
+            if (timed) continue
+            total += setVolume(s, loadType)
+        }
+        return total
+    }
+
+    private fun setVolume(s: Set, loadType: String): Double {
+        if (s.weight <= 0) return 0.0
+        return when (loadType) {
+            LOAD_UNILATERAL ->
+                if (s.split) s.weight * ((s.repsLeft ?: 0) + (s.repsRight ?: 0))
+                else s.weight * s.reps * 2
+            LOAD_PAIRED -> s.weight * s.reps * 2
+            else -> s.weight * s.reps
+        }
+    }
+
+    /** How long, the way the phone's summary says it: 45m, 1h 5m. */
+    fun duration(minutes: Double?): String? {
+        val m = minutes?.takeIf { it > 0 } ?: return null
+        val h = (m / 60).toInt()
+        val rest = Math.round(m % 60).toInt()
+        return if (h > 0) "${h}h ${rest}m" else "${rest}m"
+    }
+
+    /**
+     * Volume the way the phone's summary says it: 950, 12.3k. Rounded on the
+     * number's exact value, as JavaScript's toFixed does, so 12,350 reads
+     * 12.3k on both.
+     */
+    fun volumeText(volume: Long): String =
+        if (volume >= 1000) java.math.BigDecimal(volume / 1000.0).setScale(1, java.math.RoundingMode.HALF_UP).toPlainString() + "k"
+        else volume.toString()
 
     // ── What you did last time ───────────────────────────────────────────
 

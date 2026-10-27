@@ -65,7 +65,7 @@
   // RPE picker
   let rpeOpen = false;
   let rpeTriggerEl;
-  let rpePickerPos = { top: 0, left: 0 };
+  let rpePickerPos = { edge: 'top:0px;', left: 0 };
   const RPE_VALUES = [6, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   // Open-lock (350ms) prevents a stray backdrop dismissal from silently
   // closing the picker before a slightly-slipped tap on an option button
@@ -92,7 +92,7 @@
   // when every exercise that has a set numbered N has it completed.
   let numOpen = false;
   let numTriggerEl;
-  let numPickerPos = { top: 0, left: 0 };
+  let numPickerPos = { edge: 'top:0px;', left: 0 };
   $: displayNum = set.number != null ? set.number : setNum;
   const NUM_VALUES = [1, 2, 3, 4, 5, 6, 7, 8];
   let numLocked = false;
@@ -208,7 +208,9 @@
       viewportHeight: document.documentElement.clientHeight || window.innerHeight,
       maxHeight: PICKER_H, gap: 4, margin: 4, fold: get(fold),
     });
-    return { top: place.top, left };
+    // Above the field it hangs from its bottom edge, so a picker shorter
+    // than the room still sits against the field.
+    return { edge: place.edge, left };
   }
 </script>
 
@@ -240,7 +242,7 @@
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div use:portal class="num-backdrop" on:click={closeNumIfUnlocked} use:closeOnBack={() => numOpen = false}></div>
-        <div use:portal class="num-picker" style="top:{numPickerPos.top}px; left:{numPickerPos.left}px">
+        <div use:portal class="num-picker" style="{numPickerPos.edge} left:{numPickerPos.left}px">
           {#each NUM_VALUES as n}
             <button class="num-opt" class:active={displayNum === n} on:click|stopPropagation={() => pickNum(n)}>{n}</button>
           {/each}
@@ -374,7 +376,7 @@
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div use:portal class="rpe-backdrop" on:click={closeRpeIfUnlocked} use:closeOnBack={() => rpeOpen = false}></div>
-        <div use:portal class="rpe-picker" style="top:{rpePickerPos.top}px; left:{rpePickerPos.left}px">
+        <div use:portal class="rpe-picker" style="{rpePickerPos.edge} left:{rpePickerPos.left}px">
           {#each RPE_VALUES as v}
             <button class="rpe-opt" class:active={set.rpe === v} on:click|stopPropagation={() => pickRpe(v)}>@{v}</button>
           {/each}

@@ -31,13 +31,14 @@ const SERVER_SETTINGS = new Set([
   'autoGenerateWarmups', 'trackRpe',
   'radioStations',
   'restTimerEnabled', 'restDuration', 'restAutoStart', 'restAlert',
-  'restAlertVibrate', 'restAlertTone', 'restAlertToneId', 'restPerExercise',
+  'restAlertVibrate', 'restAlertTone', 'restAlertToneId', 'restAlertOutput', 'restPerExercise',
   'notifLocalEnabled', 'notifPushService',
   'gotifyUrl', 'gotifyToken', 'ntfyUrl', 'ntfyTopic', 'ntfyToken', 'appriseUrl', 'appriseTag',
   'notifWorkoutReminder', 'notifWorkoutTime', 'notifRestDay',
   'notifStreakAlert', 'notifStreakTime',
   'notifWorkoutComplete', 'notifPRCelebrations',
   'notifMemberCompletes', 'notifMemberMissed', 'notifMemberReply', 'notifCoachFeedback',
+  'notifCoachRecommendation', 'notifClientAnswer', 'notifCoachMessage', 'notifCoachMessageEmail',
   'notifWeeklySummary', 'weeklySummaryDay', 'weeklySummaryTime',
   'bodyStatsVisible', 'exerciseLoadTypes', 'exerciseSetTypes',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
@@ -282,6 +283,11 @@ export const restAlert        = createSettingStore('restAlert',        true);
 export const restAlertVibrate = createSettingStore('restAlertVibrate', true);
 export const restAlertTone    = createSettingStore('restAlertTone',    true);
 export const restAlertToneId  = createSettingStore('restAlertToneId',  'classic');
+// How the rest cue sounds on Android: 'notification' (the notification
+// volume, quiet under Do Not Disturb) or 'alarm' (alarm volume, heard
+// through Do Not Disturb). Opt-in, since an alarm-loud beep is startling if
+// you did not ask for it.
+export const restAlertOutput  = createSettingStore('restAlertOutput',  'notification');
 // Per-exercise rest memory (map of exercise_id -> seconds). Auto-populated each
 // time the timer runs to completion; overrides the global restDuration when present.
 export const restPerExercise  = createSettingStore('restPerExercise',  {});
@@ -312,6 +318,14 @@ export const notifMemberMissed    = createSettingStore('notifMemberMissed',    t
 export const notifMemberReply     = createSettingStore('notifMemberReply',     true);
 // Member-side: ping when their coach leaves feedback on a workout.
 export const notifCoachFeedback   = createSettingStore('notifCoachFeedback',   true);
+// Coaching (the same settings NutriTrace has; the server sends these, on
+// unless turned off): a coach asking to coach you or prescribing a workout,
+// and, for a coach, a client's answer to a request (or leaving).
+export const notifCoachRecommendation = createSettingStore('notifCoachRecommendation', true);
+export const notifClientAnswer        = createSettingStore('notifClientAnswer',        true);
+// A new message in the conversation (push on by default; email off).
+export const notifCoachMessage        = createSettingStore('notifCoachMessage',        true);
+export const notifCoachMessageEmail   = createSettingStore('notifCoachMessageEmail',   false);
 export const notifWeeklySummary   = createSettingStore('notifWeeklySummary',   false);
 export const weeklySummaryDay     = createSettingStore('weeklySummaryDay',     0);
 export const weeklySummaryTime    = createSettingStore('weeklySummaryTime',    '09:00');
@@ -443,6 +457,8 @@ export const localBackupTime      = createSettingStore('localBackupTime',      '
 export const localBackupRetention = createSettingStore('localBackupRetention', 7);
 export const localBackupLastRun   = createSettingStore('localBackupLastRun',   null);
 export const localBackupLastError = createSettingStore('localBackupLastError', null);
+// When the schedule or its time was last set: its first run comes at that time (TraceApps/notetrace#44).
+export const localBackupSetAt     = createSettingStore('localBackupSetAt',     null);
 
 /** Apply accent color */
 let _lastAppliedAccent = null;

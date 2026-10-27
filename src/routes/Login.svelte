@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { currentUser, userMgmtActive, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, loadAuthState, signInProblem, serverProblem, setupRequired } from '../stores/auth.js';
+  import { problemKey } from '../lib/auth-plan.js';
   import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
   import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { loadServerSettings } from '../stores/settings.js';
@@ -10,6 +11,7 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { setAuthToken, resolveAssetUrl, iconUrl, isNative, apiUrl, getServerUrl } from '../lib/platform.js';
+  import { responseJson, discoverSignIn } from '../lib/server-signin.js';
 
   let username = '';
   let password = '';
@@ -25,6 +27,7 @@
   let oidcProviders = [];
   let oidcLoaded    = false;
   let passwordLoginEnabled = true;
+  let optionsError = '';  // the sign-in options couldn't be read: said, with Retry (TraceApps/notetrace#36)
   $: showSso = !isNative || !!getServerUrl();
 
   // Biometric sign-in (Android server-mode only). Ready when hardware
@@ -37,24 +40,8 @@
   let authStatus = null;
 
   onMount(async () => {
-    if (!isNative) {
-      try {
-        const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' });
-        if (r.ok) {
-          authStatus = await r.json();
-          if (cookieBlockedByHttp(authStatus)) signInProblem.set('http');
-        }
-      } catch {}
-    }
     if (!showSso) return;
-    try {
-      const res = await fetch(apiUrl('/api/auth/oidc/providers'), { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        oidcProviders = Array.isArray(data.providers) ? data.providers : [];
-        passwordLoginEnabled = data.enable_email_password_login !== false;
-      }
-    } catch {} finally { oidcLoaded = true; }
+    await loadSignInOptions();
 
     // Surface error/ok params from the IdP redirect (PWA path).
     try {
@@ -79,6 +66,66 @@
       } catch {}
     }
   });
+
+  // The server couldn't say who is signed in (no connection, a gateway's
+  // error page, a sign-in proxy's page): said at the top, with Retry, which
+  // also runs on its own when the connection comes back. A server that
+  // answers again takes over: the app opens if this browser is still
+  // signed in, or this page signs in as usual.
+  let rechecking = false;
+  async function recheckServer() {
+    if (rechecking) return;
+    rechecking = true;
+    try {
+      await loadAuthState();
+      // Back, and freshly installed: its first account is made in setup.
+      if (!isNative && get(setupRequired)) { push('/wizard'); return; }
+      if (!get(serverProblem)) await loadSignInOptions();
+    } finally { rechecking = false; }
+  }
+  function _backOnline() { if (get(serverProblem)) recheckServer(); }
+
+  // The server's sign-in options, from /api/auth/status. The app asks
+  // natively (no CORS, so a sign-in proxy's page is said as such, not
+  // "Failed to fetch"); the web page asks its own origin. When they can't
+  // be read, the page says so with Retry and keeps the password form.
+  async function loadSignInOptions() {
+    try {
+      let data;
+      if (isNative) data = (await discoverSignIn(getServerUrl())).status;
+      else {
+        const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' });
+        data = await responseJson(r);
+        if (!r.ok) throw Object.assign(new Error(`status ${r.status}`), { status: r.status });
+      }
+      authStatus = data;
+      // Plain HTTP with an HTTPS-only cookie: said before anyone signs in.
+      if (!isNative && cookieBlockedByHttp(authStatus)) signInProblem.set('http');
+      if (data?.oidc) {
+        oidcProviders = Array.isArray(data.oidc.providers) ? data.oidc.providers : [];
+        passwordLoginEnabled = data.oidc.enable_email_password_login !== false;
+      } else {
+        await _providersFromOlderServer();
+      }
+      optionsError = '';
+    } catch (e) {
+      console.warn('[login] sign-in options:', e?.status || e?.message);
+      optionsError = e?.webPage ? e.message : $_('server_signin.options_failed');
+    } finally {
+      oidcLoaded = true;
+    }
+  }
+
+  // A server from before /api/auth/status told of SSO lists it here.
+  async function _providersFromOlderServer() {
+    try {
+      const res = await fetch(apiUrl('/api/auth/oidc/providers'), { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await responseJson(res);
+      oidcProviders = Array.isArray(data.providers) ? data.providers : [];
+      passwordLoginEnabled = data.enable_email_password_login !== false;
+    } catch { /* password only, as before */ }
+  }
 
   async function biometricLogin() {
     try {
@@ -111,17 +158,29 @@
     }
   }
 
+  // One sign-in at a time: a second tap would open another browser and
+  // replace the code's secret, so the first one's hand-off would fail.
+  let ssoOpening = false;
   async function startOidc(providerId) {
+    if (ssoOpening) return;
+    ssoOpening = true;
     const ret = encodeURIComponent(window.location.hash || '#/');
     if (isNative) {
-      const { Browser } = await import('@capacitor/browser');
-      const { appChallengeParam } = await import('../lib/oidc-app-handoff.js');
-      await Browser.open({
-        url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}${await appChallengeParam()}`),
-        presentationStyle: 'popover',
-      });
+      try {
+        const { Browser } = await import('@capacitor/browser');
+        const { appChallengeParam } = await import('../lib/oidc-app-handoff.js');
+        await Browser.open({
+          url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}${await appChallengeParam()}`),
+          presentationStyle: 'popover',
+        });
+      } catch {
+        showError($_('native_setup.toast.cant_open_oidc'));
+      } finally {
+        ssoOpening = false;
+      }
       return;
     }
+    // The web page leaves for the sign-in page; the button stays off.
     window.location.href = apiUrl(`/api/auth/oidc/login/${providerId}?return=${ret}`);
   }
 
@@ -135,7 +194,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password }),
       });
-      const data = await res.json();
+      const data = await responseJson(res);
       if (!res.ok) { showError(data.error || $_('login.errors.failed')); return; }
       // Native Capacitor builds need the JWT in localStorage so apiFetch can
       // attach Authorization: Bearer on every subsequent request — the
@@ -182,7 +241,8 @@
       }
       push('/');
     } catch(e) {
-      showError($_('common.errors.cant_reach_server'));
+      // A sign-in proxy's web page in place of the server: said as such (TraceApps/notetrace#36).
+      showError(e?.webPage ? e.message : $_('common.errors.cant_reach_server'));
     } finally {
       loading = false;
     }
@@ -213,6 +273,8 @@
   function onKey(e) { if (e.key === 'Enter') login(); }
 </script>
 
+<svelte:window on:online={_backOnline} />
+
 <div class="login-page">
   <div class="login-card card">
     <div class="login-logo">
@@ -223,6 +285,13 @@
 
     {#if $signInProblem}
       <CookieWarning reason={$signInProblem} />
+    {/if}
+
+    {#if $serverProblem}
+      <div class="options-error server-problem" role="alert">
+        <span>{$_(problemKey($serverProblem, isNative))}</span>
+        <button class="btn btn-secondary options-retry" type="button" on:click={recheckServer} disabled={rechecking}>{$_('server_signin.retry')}</button>
+      </div>
     {/if}
 
     {#if !recoveryDone}
@@ -254,13 +323,20 @@
       {/if}
       {/if}
 
+      {#if optionsError && !$serverProblem}
+        <div class="options-error" role="alert">
+          <span>{optionsError}</span>
+          <button class="btn btn-secondary options-retry" type="button" on:click={loadSignInOptions}>{$_('server_signin.retry')}</button>
+        </div>
+      {/if}
+
       {#if showSso && oidcProviders.length}
         {#if passwordLoginEnabled}
           <div class="sso-divider"><span>{$_('login.or')}</span></div>
         {/if}
         <div class="sso-list">
           {#each oidcProviders as p (p.id)}
-            <button class="btn btn-secondary sso-btn" type="button" on:click={() => startOidc(p.id)}>
+            <button class="btn btn-secondary sso-btn" type="button" on:click={() => startOidc(p.id)} disabled={ssoOpening}>
               {#if p.logo_url}
                 <img src={p.logo_url} alt="" class="sso-logo" />
               {:else}
@@ -304,6 +380,12 @@
 </div>
 
 <style>
+  .options-error {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+    padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; font-size: 13px; color: var(--text-2);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
+  .options-retry { height: 32px; padding: 0 14px; font-size: 13px; }
   .login-page {
     min-height: 100dvh;
     display: flex;

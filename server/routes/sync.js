@@ -40,6 +40,7 @@ import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/wo
 import { canChangeExercise } from '../lib/exercise-owner.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
+import { readablePairingIds, messageOut } from '../lib/coaching-messages.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
 // Same shape as workout.js — duplicated here to keep both routes
@@ -286,6 +287,20 @@ router.get('/pull', wrap((req, res) => {
       : null;
   }
 
+  // Coaching conversations, only for an app that asks (?coaching=1): an
+  // Android app from before them gets exactly the answer it always did.
+  // `coaching.pairings` lists every conversation this person may still read,
+  // so the phone drops one a coach no longer has.
+  const coachingOut = {};
+  if (req.query.coaching === '1' && u != null) {
+    const pairings = readablePairingIds(u);
+    const msgs = pairings.length
+      ? db.prepare(`SELECT * FROM coach_messages WHERE updated_at >= ? AND pairing_id IN (${pairings.map(() => '?').join(',')}) ORDER BY updated_at, id`).all(sinceSql, ...pairings)
+      : [];
+    coachingOut.coach_messages = msgs.map(messageOut);
+    coachingOut.coaching = { pairings };
+  }
+
   logger.debug?.(`[sync] pull since=${sinceSql} user=${u ?? '-'}: exercises=${exercises.length} programs=${programs.length} templates=${workout_templates.length} assignments=${program_assignments.length} workouts=${workout_log.length} body=${body_stats_log.length} settings=${settings.length} chat=${ai_chat_history.length} tombstones=${workout_tombstones.length}`);
 
   sendMaybeGzipped(req, res, {
@@ -302,6 +317,7 @@ router.get('/pull', wrap((req, res) => {
     ai_chat_history,
     keep,
     ...(u == null ? { solo_active } : {}),
+    ...coachingOut,
     server_time: serverTime,
   });
 }));

@@ -244,7 +244,8 @@ let _pullDownload = null;
 async function _serverFetch(method, path, body, token = _roundToken ?? getAuthToken(), extraHeaders = {}) {
   const url = getServerUrl();
   if (!url) throw new Error('No server configured');
-  const { CapacitorHttp } = await import('@capacitor/core');
+  // Through lib/native-http.js: plain http:// only to a confirmed local server.
+  const { NativeHttp } = await import('./native-http.js');
   const headers = { 'Content-Type': 'application/json', ...extraHeaders };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   // Sends and pulls run one at a time, so a request that never answers
@@ -260,18 +261,18 @@ async function _serverFetch(method, path, body, token = _roundToken ?? getAuthTo
   const limit = (isPull ? 600000 : 30000) * scale;
   const opts = { url: url + path, headers, connectTimeout: 15000, readTimeout: isPull ? 60000 : 30000 };
   if (body != null) opts.data = body;
-  const fn = method === 'GET' ? CapacitorHttp.get
-          : method === 'POST' ? CapacitorHttp.post
-          : method === 'PUT' ? CapacitorHttp.put
-          : method === 'DELETE' ? CapacitorHttp.delete
-          : CapacitorHttp.request;
+  const fn = method === 'GET' ? NativeHttp.get
+          : method === 'POST' ? NativeHttp.post
+          : method === 'PUT' ? NativeHttp.put
+          : method === 'DELETE' ? NativeHttp.delete
+          : NativeHttp.request;
   // A request given up on here still runs natively (it can't be cancelled
   // from here), so a pull never starts while an earlier one is still
   // downloading: they would stack on a slow link.
   if (isPull && _pullDownload) {
     throw Object.assign(new Error('An earlier sync is still downloading'), { name: 'Busy' });
   }
-  const call = fn.call(CapacitorHttp, opts);
+  const call = fn.call(NativeHttp, opts);
   if (isPull) {
     _pullDownload = call;
     call.then(() => {}, () => {}).finally(() => { if (_pullDownload === call) _pullDownload = null; });
@@ -395,8 +396,11 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
         const n = (await dbQuery(`SELECT (SELECT COUNT(*) FROM programs WHERE id > 0) + (SELECT COUNT(*) FROM workout_log WHERE id > 0) + (SELECT COUNT(*) FROM exercises WHERE id > 0 AND COALESCE(is_global, 0) = 0) AS n`, []))[0]?.n || 0;
         if (n) held = '&held=1';
       }
+      // Coaching conversations come along only for someone in coaching (an
+      // older server ignores the ask); everyone else's pull is as before.
+      const coaching = await _inCoaching() ? '&coaching=1' : '';
       const sentAt = Date.now();
-      pull = await _serverFetch('GET', `/api/sync/pull?since=${encodeURIComponent(since)}${held}`);
+      pull = await _serverFetch('GET', `/api/sync/pull?since=${encodeURIComponent(since)}${held}${coaching}`);
       if (pull?.server_time) _noteServerClock(pull.server_time, sentAt);
     } catch (e) {
       result.ok = false;
@@ -419,6 +423,7 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
     try {
       await _applyPull(pull, result, guard);
       _assertAlive();
+      await _applyCoaching(pull);
     } catch (e) {
       // The copy changed hands part way (every row checks first): stop, and
       // leave the pull cursor alone; the copy is the next account's now.
@@ -489,6 +494,29 @@ const _NO_GUARD = {
 const _sqlTime = (v) => String(v || '').replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '');
 
 /** One pull's rows, table by table, into this device's copy. */
+/** Someone in coaching, as this account last knew it (stores/coaching.js). */
+async function _inCoaching() {
+  try {
+    const { get } = await import('svelte/store');
+    const c = await import('../stores/coaching.js');
+    return c.inCoachingNow(get(c.coachingSupported), get(c.coachingState));
+  } catch { return false; }
+}
+
+/** The conversations that came with the pull: kept on the phone, the ones
+ *  this account may no longer read dropped, and anything written here
+ *  offline sent. Never in the way of the rest of the sync. */
+async function _applyCoaching(pull) {
+  if (!pull?.coach_messages && !pull?.coaching) return;
+  try {
+    const m = await import('./coach-messages.js');
+    await m.storeSyncedMessages(pull.coach_messages || []);
+    if (Array.isArray(pull.coaching?.pairings)) await m.keepConversations(pull.coaching.pairings);
+    if (pull.coach_messages?.length && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lt:coach-messages'));
+    m.flushCoachMessages().catch(() => {});
+  } catch (e) { console.warn('[sync] coaching messages not kept:', e?.message || e); }
+}
+
 async function _applyPull(pull, result, guard) {
   await _applyExercises(pull.exercises, result, guard);
   await _applyPrograms(pull.programs, result, guard);

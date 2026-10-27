@@ -51,3 +51,12 @@ html.fold-tabletop .lb-panel {
   border-radius: 0 !important;
   border-top: 1px solid var(--border) !important;
 }
+/* The Diary's Overview (This Week, Recent, the program) is read, so its
+   overlay stays above the crease, and the tab that opens it sits in the
+   middle of that half instead of on the crease itself. */
+html.fold-tabletop .diary-right-rail-overlay {
+  max-height: calc(var(--fold-start) - var(--safe-top, 0px) - 72px) !important;
+}
+html.fold-tabletop .rail-edge-tab {
+  top: calc(var(--fold-start) / 2) !important;
+}

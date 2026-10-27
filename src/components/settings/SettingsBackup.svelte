@@ -14,8 +14,9 @@
   import { isNative, getNativeMode } from '../../lib/platform.js';
   import {
     localBackupSchedule, localBackupTime, localBackupRetention,
-    localBackupLastRun, localBackupLastError,
+    localBackupLastRun, localBackupLastError, localBackupSetAt,
   } from '../../stores/settings.js';
+  import { nextBackupAt } from '../../../server/lib/backup-schedule.js';
 
   export let expanded = false;
   export let visible = true;
@@ -54,8 +55,46 @@
     } catch {}
   }
 
+  // The browser's own zone: a time picked here is on this clock (TraceApps/notetrace#44).
+  const browserZone = (() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; }
+  })();
+  // Running in another zone than this browser's (an install from before #44,
+  // or set from elsewhere): say so in both times, with a way to switch.
+  $: zoneDiffers = !!(scheduleCfg && !scheduleCfg.envLocked && scheduleCfg.runsIn && browserZone
+    && scheduleCfg.schedule !== 'off' && !_sameZone(scheduleCfg.runsIn, browserZone));
+  // Browsers and Node name some zones differently (Asia/Calcutta and
+  // Asia/Kolkata, UTC and Etc/UTC): the same zone when this browser resolves
+  // both to one name, or their clocks agree all through the coming year.
+  function _sameZone(a, b) {
+    if (a === b) return true;
+    const name = (z) => { try { return new Intl.DateTimeFormat('en-US', { timeZone: z }).resolvedOptions().timeZone; } catch { return null; } };
+    const na = name(a), nb = name(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    const clock = (z, t) => new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).format(t);
+    const now = Date.now();
+    for (let i = 0; i < 366; i++) {
+      const t = now + i * 86_400_000;
+      if (clock(a, t) !== clock(b, t)) return false;
+    }
+    return true;
+  }
+  function _clock(time) {
+    // "2:00 AM" for "02:00", as the schedule says it (in its own zone).
+    const [hh, mm] = String(time || '').split(':').map(n => parseInt(n, 10));
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return time || '';
+    return new Date(Date.UTC(2000, 0, 1, hh, mm)).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+  }
+  function _hereFor(cfg) {
+    if (!cfg?.nextRunAt) return '';
+    return new Date(cfg.nextRunAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
   async function saveSchedule(patch) {
     if (!scheduleCfg || scheduleCfg.envLocked) return;
+    // A time or schedule picked here is in this browser's zone, so it goes with it.
+    if (browserZone && (patch.time != null || patch.schedule != null)) patch = { ...patch, timeZone: browserZone };
     scheduleBusy = true;
     try {
       const res = await fetch('/api/full-backup/schedule', {
@@ -83,12 +122,15 @@
     time:          $localBackupTime      || '03:00',
     retention:     parseInt($localBackupRetention, 10) || 7,
     lastAutoRun:   $localBackupLastRun   || null,
+    setAt:         $localBackupSetAt     || null,
     lastAutoError: $localBackupLastError || null,
     envLocked:     false,
   } : null;
 
   function saveLocalSchedule(patch) {
     if (!_isNativeLocal) return;
+    // Its first run comes at the time set, after now (TraceApps/notetrace#44).
+    if (patch.schedule != null || patch.time != null) localBackupSetAt.set(new Date().toISOString());
     if (patch.schedule != null && ['off','daily','weekly','monthly'].includes(patch.schedule)) {
       localBackupSchedule.set(patch.schedule);
     }
@@ -109,26 +151,19 @@
     const ms = Date.now() - new Date(iso).getTime();
     if (!Number.isFinite(ms) || ms < 0) return null;
     const hours = ms / 3_600_000;
-    if (hours < 1)   return `${Math.max(1, Math.round(ms / 60_000))} min ago`;
-    if (hours < 36)  return `${Math.round(hours)} hr ago`;
-    return `${Math.round(hours / 24)} days ago`;
+    if (hours < 1)   return $_('settings_backup.relative.minutes_ago', { values: { n: Math.max(1, Math.round(ms / 60_000)) } });
+    if (hours < 36)  return $_('settings_backup.relative.hours_ago', { values: { n: Math.round(hours) } });
+    return $_('settings_backup.relative.days_ago', { values: { n: Math.round(hours / 24) } });
   }
   function _nextDueLabel(cfg) {
     if (!cfg || cfg.schedule === 'off') return null;
-    const [hh, mm] = cfg.time.split(':').map(n => parseInt(n, 10));
-    const intervalDays = { daily: 1, weekly: 7, monthly: 28 }[cfg.schedule] || 1;
-    const now = new Date();
-    let next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0);
-    if (cfg.lastAutoRun) {
-      const last = new Date(cfg.lastAutoRun).getTime();
-      while (next.getTime() <= now.getTime() || (next.getTime() - last) / 86_400_000 < intervalDays - 0.5) {
-        next = new Date(next.getFullYear(), next.getMonth(), next.getDate() + 1, hh, mm, 0);
-      }
-    } else if (next.getTime() <= now.getTime()) {
-      next = new Date(next.getFullYear(), next.getMonth(), next.getDate() + 1, hh, mm, 0);
-    }
-    return next.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    // The server says exactly when; the phone's own schedule (and an older
+    // server) uses the same rule here, on this device's clock (TraceApps/notetrace#44).
+    const at = new Date(cfg.nextRunAt || nextBackupAt({ ...cfg, timeZone: null }) || NaN);
+    if (!Number.isFinite(at.getTime())) return null;
+    return at.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   }
+
 
   $: if (expanded && serverEnabled) loadFullBackups();
   $: if (expanded && serverEnabled) loadSchedule();
@@ -155,7 +190,7 @@
     fullBackupBusy = true;
     try {
       const res = await fetch('/api/full-backup', { method: 'POST', credentials: 'include' });
-      if (!res.ok) throw new Error((await res.json()).error || 'Backup failed');
+      if (!res.ok) throw new Error((await res.json()).error || $_('settings_backup.toast.backup_failed'));
       showSuccess($_('settings_backup.toast.backup_created'));
       await loadFullBackups();
     } catch(e) { showError(e.message); }
@@ -171,13 +206,13 @@
 
   function confirmRestoreBackup() {
     showRestoreDialog = false;
-    restoreStatus = { phase: 'restoring', percent: 40, label: 'Restoring\u2026' };
+    restoreStatus = { phase: 'restoring', percent: 40, label: $_('settings_backup.progress.restoring') };
     scrollToProgress();
     fetch(`/api/full-backup/${encodeURIComponent(restoreTarget)}/restore`, {
       method: 'POST', credentials: 'include',
     }).then(res => {
-      if (!res.ok) throw new Error('Restore failed');
-      restoreStatus = { phase: 'restoring', percent: 100, label: 'Restore complete \u2014 reloading\u2026' };
+      if (!res.ok) throw new Error($_('settings_backup.toast.restore_failed'));
+      restoreStatus = { phase: 'restoring', percent: 100, label: $_('settings_backup.progress.restore_complete') };
       setTimeout(() => location.reload(), 1500);
     }).catch(e => {
       showError(e.message);
@@ -206,7 +241,7 @@
 
   function confirmUploadRestore() {
     showUploadRestoreDialog = false;
-    restoreStatus = { phase: 'uploading', percent: 0, label: 'Uploading\u2026' };
+    restoreStatus = { phase: 'uploading', percent: 0, label: $_('settings_backup.progress.uploading') };
     scrollToProgress();
 
     const xhr = new XMLHttpRequest();
@@ -214,19 +249,19 @@
     xhr.withCredentials = true;
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
-        restoreStatus = { phase: 'uploading', percent: Math.round((e.loaded / e.total) * 85), label: 'Uploading\u2026' };
+        restoreStatus = { phase: 'uploading', percent: Math.round((e.loaded / e.total) * 85), label: $_('settings_backup.progress.uploading') };
       }
     };
     xhr.onload = () => {
       if (xhr.status >= 400) {
-        const msg = xhr.status === 413 ? 'File too large' : (JSON.parse(xhr.responseText || '{}').error || 'Restore failed');
+        const msg = xhr.status === 413 ? $_('settings_backup.toast.file_too_large') : (JSON.parse(xhr.responseText || '{}').error || $_('settings_backup.toast.restore_failed'));
         showError(msg);
         restoreStatus = null;
         return;
       }
-      restoreStatus = { phase: 'restoring', percent: 95, label: 'Restoring\u2026' };
+      restoreStatus = { phase: 'restoring', percent: 95, label: $_('settings_backup.progress.restoring') };
       setTimeout(() => {
-        restoreStatus = { phase: 'restoring', percent: 100, label: 'Restore complete \u2014 reloading\u2026' };
+        restoreStatus = { phase: 'restoring', percent: 100, label: $_('settings_backup.progress.restore_complete') };
         setTimeout(() => location.reload(), 1000);
       }, 600);
     };
@@ -267,7 +302,7 @@
     showClearDataDialog = false;
     try {
       const res = await fetch('/api/settings/clear-data', { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed');
+      if (!res.ok) throw new Error((await res.json()).error || $_('common.errors.failed'));
       showSuccess($_('settings_backup.toast.data_cleared'));
       setTimeout(() => location.reload(), 1000);
     } catch(e) { showError(e.message); }
@@ -322,6 +357,9 @@
                     <TimePicker value={_cfg.time}
                       disabled={_cfg.envLocked || scheduleBusy}
                       on:change={(e) => _isLocal ? saveLocalSchedule({ time: e.detail }) : saveSchedule({ time: e.detail })} />
+                    {#if !_isLocal && _cfg.runsIn}
+                      <span class="auto-bk-zone">{_cfg.runsIn}</span>
+                    {/if}
                   </label>
                   <label class="auto-bk-field">
                     <span class="auto-bk-label">{$_('settings_backup.auto.keep_last')}</span>
@@ -350,6 +388,14 @@
                     <div class="auto-bk-status-row">
                       <span class="material-symbols-rounded" style="font-size:16px">schedule</span>
                       <span>{_isLocal ? $_('settings_backup.auto.next_when_open', { values: { when: _nextDueLabel(_cfg) } }) : $_('settings_backup.auto.next', { values: { when: _nextDueLabel(_cfg) } })}</span>
+                    </div>
+                  {/if}
+                  {#if !_isLocal && zoneDiffers}
+                    <div class="auto-bk-status-row zone-differs">
+                      <span class="material-symbols-rounded" style="font-size:16px">public</span>
+                      <span>{$_('settings_backup.auto.zone_differs', { values: { time: _clock(_cfg.time), zone: _cfg.runsIn, local: _hereFor(_cfg) } })}</span>
+                      <button class="btn btn-secondary btn-sm" disabled={scheduleBusy}
+                        on:click={() => saveSchedule({ timeZone: browserZone })}>{$_('settings_backup.auto.use_my_zone')}</button>
                     </div>
                   {/if}
                   <div class="auto-bk-status-row subtle">
@@ -539,6 +585,9 @@
     font-size: 12px; color: var(--text-2);
   }
   .auto-bk-status-row { display: flex; align-items: center; gap: 6px; }
+  .auto-bk-zone { font-size: 11px; color: var(--text-3); overflow-wrap: anywhere; }
+  .auto-bk-status-row.zone-differs { flex-wrap: wrap; }
+  .auto-bk-status-row.zone-differs > span:nth-child(2) { flex: 1 1 200px; min-width: 0; }
   .auto-bk-status-row.subtle { color: var(--text-3); font-size: 11.5px; }
   .auto-bk-status-row.error  { color: var(--danger); }
 

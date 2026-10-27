@@ -24,7 +24,9 @@
       const { ping } = await import('../../lib/radio-provider.js');
       await ping();
       radioTestResult = 'ok';
-      showSuccess(`Connected to ${radioProviderLabel || 'your music server'}`);
+      showSuccess(radioProviderLabel
+        ? $_('settings_radio.toast.connected_to', { values: { provider: radioProviderLabel } })
+        : $_('settings_radio.toast.connected'));
     } catch { radioTestResult = 'fail'; }
     radioTesting = false;
   }
@@ -37,10 +39,10 @@
     : radioTestResult === 'fail'
       ? 'fail'
       : ($radioUrl ? 'ok' : '');
-  $: radioBannerLabel   = radioTestResult === 'ok' ? 'Connected' : 'Configured';
+  $: radioBannerLabel   = radioTestResult === 'ok' ? $_('connection_status.connected') : $_('settings_radio.banner.configured');
   $: radioBannerSubtext = radioTestResult === 'ok'
-    ? 'Last test succeeded; click Test again to re-verify'
-    : 'Click Test to verify these credentials';
+    ? $_('settings_radio.banner.test_ok')
+    : $_('settings_radio.banner.test_hint');
   // Provider chip rendered in the banner so the user always sees which
   // music library the "Configured" / "Connected" state refers to.
   $: radioProviderLabel = $radioProvider === 'subsonic' ? 'Subsonic'
@@ -71,10 +73,11 @@
             okLabel={radioBannerLabel}
             connectedAs={radioProviderLabel}
             subtext={radioBannerSubtext}
-            error={radioTestResult === 'fail' ? `${radioProviderLabel || 'Server'} test failed — check URL and credentials below` : ''}
+            error={radioTestResult === 'fail' ? (radioProviderLabel
+              ? $_('settings_radio.banner.test_failed_named', { values: { provider: radioProviderLabel } })
+              : $_('settings_radio.banner.test_failed')) : ''}
             onRetest={testRadio}
             retestDisabled={radioTesting || !$radioUrl}
-            retestLabel="Test"
           />
         {/if}
         <div class="setting-row">
@@ -112,15 +115,15 @@
               placeholder={$radioProvider === 'plex' ? 'https://plex.example.com:32400' : $radioProvider === 'jellyfin' ? 'https://jellyfin.example.com' : 'https://navidrome.example.com'} />
           </div>
           <div class="setting-row">
-            <span class="setting-label">{$radioProvider === 'plex' ? 'Plex Token' : 'Username'}</span>
+            <span class="setting-label">{$radioProvider === 'plex' ? $_('settings_radio.plex_token') : $_('settings_radio.username')}</span>
             <input class="form-input-sm" type="text" bind:value={$radioUser}
-              placeholder={$radioProvider === 'plex' ? 'Token from plex.tv/claim' : 'username'} />
+              placeholder={$radioProvider === 'plex' ? $_('settings_radio.plex_token_ph') : $_('settings_radio.username_ph')} />
           </div>
           {#if $radioProvider !== 'plex'}
             <div class="setting-row">
-              <span class="setting-label">{$radioProvider === 'emby' ? 'API Key' : 'Password'}</span>
+              <span class="setting-label">{$radioProvider === 'emby' ? $_('settings_radio.api_key') : $_('settings_radio.password')}</span>
               <input class="form-input-sm" type="password" bind:value={$radioPassword}
-                placeholder={$radioProvider === 'emby' ? 'API key from Emby dashboard' : 'password'} />
+                placeholder={$radioProvider === 'emby' ? $_('settings_radio.api_key_ph') : $_('settings_radio.password_ph')} />
             </div>
           {/if}
           <div class="setting-divider"></div>
@@ -132,14 +135,14 @@
             <select class="form-select-sm" bind:value={$radioCrossfade}>
               <option value={0}>{$_('settings_radio.off')}</option>
               {#each [1,2,3,4,5,6,8,10,12] as s}
-                <option value={s}>{s}s</option>
+                <option value={s}>{$_('settings_radio.crossfade_seconds', { values: { s } })}</option>
               {/each}
             </select>
           </div>
           <div class="setting-row">
             <div class="setting-label-group">
               <span class="setting-label">{$_('settings_radio.highest_quality')}</span>
-              <span class="setting-hint">Stream original format when your library is homogeneous; falls back automatically for mixed queues</span>
+              <span class="setting-hint">{$_('settings_radio.highest_quality_hint')}</span>
             </div>
             <Toggle bind:checked={$radioOriginalFormat} />
           </div>
@@ -150,11 +153,4 @@
 {/if}
 
 <style>
-  .exp-badge {
-    font-size: 9px; font-weight: 700; padding: 2px 6px;
-    border-radius: var(--radius-sm);
-    background: var(--accent-dim); color: var(--accent);
-    text-transform: uppercase; letter-spacing: 0.06em;
-    margin-left: 6px;
-  }
 </style>

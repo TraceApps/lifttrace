@@ -333,7 +333,7 @@ Speculative. LiftTrace is currently free everywhere (self-host + free signed APK
 
 ## Offline
 
-### Offline PWA editing (family-wide, after the next main release)
+### ~~Offline PWA editing~~ *(done, v1.4.0)*
 
 Bring NoteTrace's browser offline model here, so the installed web app works in a
 dead zone the way the Android app does. This is set for every Trace app once the

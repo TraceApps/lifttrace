@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { logger } from '../logger.js';
+import { redactUrl } from '../lib/redact-url.js';
 import { fetchChecked, readBody } from '../lib/ssrf-guard.js';
 
 const router = Router();
@@ -21,7 +22,7 @@ router.get('/', async (req, res) => {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LiftTrace/1.0)' },
     }, { maxRedirects: 3 });
     if (!response.ok) {
-      logger.warn(`[proxy] upstream ${response.status} for ${url}`);
+      logger.warn(`[proxy] upstream ${response.status} for ${redactUrl(url)}`);
       return res.status(response.status).json({ error: `Upstream ${response.status}` });
     }
     const body = JSON.parse((await readBody(response, 5 * 1024 * 1024)).toString('utf8'));

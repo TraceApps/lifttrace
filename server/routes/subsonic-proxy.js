@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { logger } from '../logger.js';
+import { frameAncestorsDirective } from '../lib/frame-ancestors.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
 import { musicApiPath as _apiPath, isMusicReply } from '../lib/music-paths.js';
 
@@ -83,7 +84,7 @@ async function pipeUpstream(upstream, res) {
   // could open as a page (an SVG uploaded to a shared music server, say)
   // can't be sniffed or run script as the app.
   res.set('X-Content-Type-Options', 'nosniff');
-  res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  res.set('Content-Security-Policy', `default-src 'none'; style-src 'unsafe-inline'; sandbox; ${frameAncestorsDirective(process.env.FRAME_ANCESTORS)}`);
 
   // Forward audio/streaming headers
   for (const h of ['content-length', 'content-range', 'accept-ranges', 'content-disposition']) {

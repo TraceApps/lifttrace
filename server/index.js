@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import { rememberAdminOrigin } from './lib/public-url.js';
+import { corsOrigin } from './lib/cors.js';
+import { framingHeaders, parseFrameAncestors } from './lib/frame-ancestors.js';
+import { crossSiteGuard } from './lib/cross-site.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
 // HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
@@ -34,6 +37,7 @@ import exerciseImport    from './routes/exercise-import.js';
 import notifyRoutes      from './routes/notify.js';
 import ntFederation      from './routes/nt-federation.js';
 import trainerRoutes     from './routes/trainer.js';
+import coachingRoutes    from './routes/coaching.js';
 import prescriptionRoutes from './routes/prescriptions.js';
 import coachFeedbackRoutes from './routes/coach-feedback.js';
 import syncRoutes         from './routes/sync.js';
@@ -54,6 +58,7 @@ import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { autoSeed }        from './exercise-sources/index.js';
 import { seedPrograms }    from './seed-templates.js';
 import { startScheduler }  from './lib/scheduler.js';
+import { adoptExistingPairings } from './lib/coaching.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -62,6 +67,10 @@ import db from './db.js';
 seedSmtpFromEnv();
 seedAiFromEnv();
 seedOidcFromEnv();
+
+// Coaching from before consent stays as it was: a client who already has a
+// trainer keeps them, accepted, with nothing to answer.
+try { adoptExistingPairings(); } catch (e) { logger.warn(`[coaching] keeping existing pairings failed: ${e?.message || e}`); }
 
 // Seed built-in programs (Monumental Valley, Shredville) on first startup
 seedPrograms();
@@ -92,6 +101,13 @@ if (BASE_URL && !BASE_URL.startsWith('/')) {
 // Everything route-related goes on this router, mounted at BASE_URL or '/'.
 const router = express.Router();
 
+// Only LiftTrace itself, and the addresses in FRAME_ANCESTORS, may show it
+// in a frame (lib/frame-ancestors.js), so no other site can frame it to
+// trick a click. First, so every answer has it, a refused body included.
+const FRAMING = framingHeaders(process.env.FRAME_ANCESTORS);
+for (const w of parseFrameAncestors(process.env.FRAME_ANCESTORS).warnings) console.warn(`[lifttrace] FRAME_ANCESTORS: ${w}`);
+router.use((req, res, next) => { res.set(FRAMING); next(); });
+
 // Global JSON body limit defaults to 1 MB. The handful of routes that
 // legitimately accept large bodies (full-backup restore, exercise import)
 // use multer's multipart/file uploads with their own per-route caps, so
@@ -106,36 +122,48 @@ const EMBEDDED_PHOTO_LIMIT = '6mb';
 for (const path of ['/api/body-stats/photos', '/api/exercises', '/api/auth/profile']) {
   router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
 }
+// A coaching message can carry one photo (scaled down by the app first).
+router.use('/api/coaching', express.json({ limit: '5mb' }));
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
+
 // The server's clock on every answer: an app offline puts the time of each
 // edit it queues on this clock, so the newer edit wins (lib/newer-wins.js).
 router.use((req, res, next) => { res.set('X-Server-Time', new Date().toISOString()); next(); });
 
-// CORS — allow same-host + Capacitor origins.
-// Capacitor WebView origins:
-//   https://localhost              — legacy (kept for older APKs)
-//   http://localhost               — legacy http scheme
-//   https://app.lifttrace.local    — current app identity (see
-//                                    capacitor.config.ts for why)
+// CORS: the Android app's WebView (https://app.lifttrace.local, see
+// capacitor.config.ts, and https://localhost from versions before it) and
+// PUBLIC_URL, each compared exactly (lib/cors.js). The web app calls its own
+// address and needs none. The answer depends on Origin, so caches are told.
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    const host = req.get('host');
-    const isCapacitor = origin === 'https://localhost'
-      || origin === 'http://localhost'
-      || origin === 'https://app.lifttrace.local';
-    const isSameHost = host && origin.includes(host);
-    if (isCapacitor || isSameHost) {
+  res.vary('Origin');
+  if (req.headers.origin) {
+    const origin = corsOrigin(req, { appOrigins: ['https://app.lifttrace.local', 'https://localhost'] });
+    if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      // Plus what an edit says about itself (lib/newer-wins.js): Trace's
+      // workout saves send X-Changed-Fields from the WebView, and without it
+      // here the preflight failed, so each save waited in the queue instead.
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Changed-Fields, X-Edited-At');
+      // The Android app reads this from an answer (another origin).
+      res.setHeader('Access-Control-Expose-Headers', 'X-LT-Coaching');
     }
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+
+// A change (anything but GET, HEAD, OPTIONS) from a page on another site
+// is refused (lib/cross-site.js). The browser says where a request comes
+// from; the web app on its own address, the WebView origins above and
+// PUBLIC_URL pass, and so does anything that isn't a browser page (the
+// Android app's native code, the watch, MCP, scripts, other servers).
+// Without it, a page on any site could make the browser of someone using
+// a server with no accounts send a backup restore or an upload, and a
+// page on the same site could do it with the sign-in cookie.
+router.use(crossSiteGuard({ appOrigins: ['https://app.lifttrace.local', 'https://localhost'], warn: (m) => logger.warn(m) }));
 
 router.use(authenticate);
 // Remember the address an admin uses, so emailed links (password reset,
@@ -220,6 +248,7 @@ router.use('/api/exercise-import', exerciseImport);
 router.use('/api/notify',       notifyRoutes);
 router.use('/api/nt',           ntFederation);
 router.use('/api/trainer',      trainerRoutes);
+router.use('/api/coaching',     coachingRoutes);
 router.use('/api/prescriptions', prescriptionRoutes);
 router.use('/api/coach-feedback', coachFeedbackRoutes);
 router.use('/api/sync',          syncRoutes);

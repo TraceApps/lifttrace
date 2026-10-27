@@ -23,15 +23,29 @@ async function web(who, method, path, body) {
 
 // A browser-ish global scope for the app's modules.
 globalThis.__offline = false;
-globalThis.fetch = (u, i) => (globalThis.__offline ? Promise.reject(new TypeError('Failed to fetch')) : (globalThis.__fetchHook?.(u, i) || realFetch(u, i)));
+// The WebView's own fetch reaches the server from the app's origin, under
+// CORS (webview-fetch.mjs); CapacitorHttp (sync) goes around it, as on the phone.
+const { webviewFetch } = await import('./webview-fetch.mjs');
+const webview = webviewFetch(realFetch, () => globalThis.__webviewOrigin || 'https://app.lifttrace.local');
+globalThis.fetch = (u, i) => (globalThis.__offline ? Promise.reject(new TypeError('Failed to fetch')) : (globalThis.__fetchHook?.(u, i) || webview(u, i)));
 globalThis.window = globalThis;
 globalThis.location = { origin: 'http://localhost', href: 'http://localhost/' };
 globalThis.addEventListener ??= () => {};
 globalThis.removeEventListener ??= () => {};
 globalThis.dispatchEvent = () => true;
 globalThis.document = { addEventListener() {}, visibilityState: 'visible' };
+// The person said Connect Anyway to their server (src/lib/plain-http.js, from
+// TraceApps/nutritrace#194): the test servers here are plain HTTP on this
+// machine, whichever of its names a test uses.
+const _plainHttpOk = (...urls) => {
+  const out = [];
+  for (const u of [...urls, ...(globalThis.__plainHttpOk || [])]) {
+    try { const o = new URL(u).origin; out.push(o, o.replace('127.0.0.1', 'localhost'), o.replace('localhost', '127.0.0.1')); } catch { /* none */ }
+  }
+  return JSON.stringify(out);
+};
 const store = new Map();
-Object.defineProperty(globalThis, 'localStorage', { value: { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k), key: () => null, length: 0 }, configurable: true });
+Object.defineProperty(globalThis, 'localStorage', { value: { getItem: k => (k === 'lt:plainHttpOk' ? _plainHttpOk(process.env.LT_SERVER) : store.get(k) ?? null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k), key: () => null, length: 0 }, configurable: true });
 Object.defineProperty(globalThis, 'navigator', { value: { language: 'en-US', languages: ['en-US'], userAgent: 'node', get onLine() { return !globalThis.__offline; } }, configurable: true });
 
 const { getDb, dbQuery: q } = await import('../../src/lib/db-native.js');
@@ -66,11 +80,132 @@ async function syncNow() {
   return r;
 }
 const names = rows => rows.map(r => r.name);
+// An ntfy title as ntfy reads it: plain, or RFC 2047 (=?UTF-8?B?...?=).
+function _decodeTitle(v) {
+  if (v == null) return undefined;
+  const m = /^=\?UTF-8\?B\?([A-Za-z0-9+/=]*)\?=$/i.exec(v);
+  return m ? Buffer.from(m[1], 'base64').toString('utf8') : Buffer.from(v, 'latin1').toString('utf8');
+}
 const me = () => localStorage.setItem('wl:userId', process.env.LT_PHONE_USER);
 
 const scenarios = {
   // Rows made offline (a plan, a day in it, an exercise, a workout using all
   // three) while another account takes the server ids the phone would use.
+  // Trace through the server (set by environment variables) is never put
+  // in the queue to be asked again on a later sync, and a server slow to
+  // answer is said as that, not as offline (TraceApps/notetrace#23).
+  async traceNotQueued() {
+    const { requestDeadlineMs } = await import('../../src/lib/apiFetch.js');
+    const { callAIProxy } = await import('../../src/lib/aiChat.js');
+    const queued = async () => (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    const before = await queued();
+    const ask = () => callAIProxy({ messages: [{ role: 'user', content: 'Plan my week' }], systemPrompt: 'You are Trace.' }).then(() => 'answered', e => e.message);
+    // The request's deadline runs out (a long reply on a slow server).
+    globalThis.__fetchHook = (u) => (String(u).includes('/api/ai/') ? Promise.reject(new DOMException('The operation timed out.', 'TimeoutError')) : null);
+    const slow = await ask();
+    // The connection is gone.
+    globalThis.__fetchHook = (u) => (String(u).includes('/api/ai/') ? Promise.reject(new TypeError('Failed to fetch')) : null);
+    const gone = await ask();
+    const queuedMore = (await queued()) - before;
+    // Trace's saved history still waits for a connection, as before.
+    const history = await fetch(`${server}/api/ai/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'user', content: 'Plan my week' }) });
+    globalThis.__fetchHook = null;
+    return {
+      slow, gone, queuedMore, historyQueued: (await queued()) - before - queuedMore, historyStatus: history.status,
+      deadlines: { trace: requestDeadlineMs('/api/ai/chat', true), history: requestDeadlineMs('/api/ai/history', false), save: requestDeadlineMs('/api/workouts', true), read: requestDeadlineMs('/api/workouts', false) },
+    };
+  },
+  // Trace's workout saves say which details they changed in a header
+  // (X-Changed-Fields). From the WebView (another origin than the server)
+  // that header has to pass the server's CORS preflight, or the save fails
+  // as if there were no connection and waits in the queue for a sync.
+  async traceSave() {
+    me();
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await web('phone', 'PUT', `/api/workout/${today}`, { name: 'Legs', exercises: [{ exercise_name: 'Squat', sets: [{ weight: 100, reps: 5, completed: true }] }] });
+    await syncNow();
+    // Finished on the watch since: the phone's copy still says not finished.
+    const w0 = (await web('phone', 'GET', `/api/workout/${today}`)).workout;
+    await web('phone', 'PUT', `/api/workout/${today}`, { ...w0, completed: 1 });
+    const queued = async () => (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    const { runTool } = await import('../../src/lib/aiTools.js');
+    const out = {};
+    // The app's origin now, and the one older Android builds have.
+    for (const origin of ['https://app.lifttrace.local', 'https://localhost']) {
+      globalThis.__webviewOrigin = origin;
+      const before = await queued();
+      const res = await runTool('log_set', { workout_id: w0.id, exercise_name: 'Squat', weight: origin.includes('app') ? 105 : 110, reps: 3 });
+      const w = (await web('phone', 'GET', `/api/workout/${today}`)).workout;
+      out[origin] = {
+        set: res.set_id, queued: (await queued()) - before,
+        serverSets: w.exercises[0].sets.map(s => s.weight), completed: w.completed,
+      };
+    }
+    globalThis.__webviewOrigin = null;
+    return out;
+  },
+  // The phone sends its own pushes (a finished workout, a PR) straight to the
+  // push service, with the settings chosen in Settings; the server sends the
+  // same notification for the web app (/api/notify) and the watch.
+  async phonePush() {
+    me();
+    const { createServer: http } = await import('node:http');
+    const got = [];
+    const box = http((req, res) => {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => { got.push({ method: req.method, url: req.url, headers: req.headers, body }); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); });
+    });
+    await new Promise(r => box.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${box.address().port}`;
+    // Stands in for the push service; a real one is HTTPS (only your own
+    // confirmed server may be plain HTTP from the phone).
+    globalThis.__plainHttpOk = [base];
+    const service = process.env.LT_PUSH;
+    const st = await import('../../src/stores/settings.js');
+    // As Settings, Notifications saves them, on the phone and the server.
+    st.notifPushService.set(service);
+    if (service === 'gotify') { st.gotifyUrl.set(base + '/gotify/'); st.gotifyToken.set('gtok'); }
+    if (service === 'ntfy') { st.ntfyUrl.set(base); st.ntfyTopic.set('lifts'); st.ntfyToken.set('tk_ntfy'); }
+    if (service === 'apprise') { st.appriseUrl.set(base + '/apprise'); st.appriseTag.set('gym'); }
+    await st.flushSettingSaves();
+    const { celebrateWorkoutComplete, notify } = await import('../../src/lib/notifications.js');
+    const queued = async () => (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    const before = await queued();
+    // What reached the push service, waiting a moment longer for a second one.
+    const arrived = async (what) => {
+      await until(() => got.length >= 1 || null, what, 5000).catch(() => {});
+      await later(300);
+      return got.splice(0);
+    };
+    const TITLE = '💪 Workout Complete!', BODY = 'Great session. "Push Day" is done!';
+    // Signed in to a server with accounts (stores/auth.js remembers it).
+    localStorage.setItem('lt:userMgmt', '1');
+    celebrateWorkoutComplete('Push Day');
+    const signedIn = await arrived("the signed-in phone's push");
+    // The server's, for the web app.
+    await web('phone', 'POST', '/api/notify', { title: TITLE, body: BODY, priority: 5 });
+    const web_ = await arrived("the web app's push");
+    // The server can't be reached just then.
+    globalThis.__fetchHook = (u) => (String(u).includes('/api/notify') ? Promise.reject(new TypeError('Failed to fetch')) : null);
+    await notify(TITLE, BODY, 5);
+    globalThis.__fetchHook = null;
+    const unreachable = await arrived("the phone's push with the server out of reach");
+    // A server without accounts keeps no settings: the phone sends it.
+    localStorage.setItem('lt:userMgmt', '0');
+    await notify(TITLE, BODY, 5);
+    const noAccounts = await arrived("the phone's push on a server without accounts");
+    box.close();
+    const shape = r => r && {
+      method: r.method, url: r.url, type: (r.headers['content-type'] || '').split(';')[0],
+      auth: r.headers.authorization || null, title: _decodeTitle(r.headers.title) ?? null, priority: r.headers.priority ?? null, body: r.body,
+    };
+    return {
+      signedIn: signedIn.map(shape), web: web_.map(shape), unreachable: unreachable.map(shape), noAccounts: noAccounts.map(shape),
+      queued: (await queued()) - before, shown: (globalThis.__shown || []).map(n => n.title),
+    };
+  },
   async offlineIds() {
     // What stores/auth.js keeps for the signed-in account (not account 1).
     me();

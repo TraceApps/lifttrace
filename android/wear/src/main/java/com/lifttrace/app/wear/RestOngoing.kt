@@ -43,7 +43,7 @@ object RestOngoing {
     fun refresh(ctx: Context) {
         val now = System.currentTimeMillis()
         val rest = Pairing.timer(ctx)
-        if (rest == null || rest.endsAt <= now) {
+        if (rest == null || (!rest.paused && rest.endsAt <= now)) {
             hide(ctx)
             return
         }
@@ -53,6 +53,10 @@ object RestOngoing {
 
         channel(ctx)
         val title = if (rest.label.isBlank()) "Resting" else "Resting before " + rest.label
+        if (rest.paused) {
+            paused(ctx, rest, title)
+            return
+        }
         val builder = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_timer)
             .setContentTitle(title)
@@ -78,6 +82,40 @@ object RestOngoing {
             .addPart("label", Status.TextPart(title))
             .build()
 
+        runCatching {
+            OngoingActivity.Builder(ctx, CHANNEL, NOTE_ID, builder)
+                .setStaticIcon(R.drawable.ic_timer)
+                .setTouchIntent(open(ctx))
+                .setStatus(status)
+                .setTitle(title)
+                .build()
+                .apply(ctx)
+            NotificationManagerCompat.from(ctx).notify(NOTE_ID, builder.build())
+        }
+    }
+
+    /**
+     * Held: nothing counts, so the entry says how long is left in words and
+     * stays put until the rest is resumed or skipped.
+     */
+    private fun paused(ctx: Context, rest: Pairing.Timer, title: String) {
+        val left = ctx.getString(R.string.rest_paused_left, Session.clock(((rest.pausedLeftMs + 999) / 1000).toInt()))
+        val builder = NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_timer)
+            .setContentTitle(title)
+            .setContentText(left)
+            .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
+            .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setContentIntent(open(ctx))
+        val status = Status.Builder()
+            .addTemplate("#left# · #label#")
+            .addTemplate("#left#")
+            .addPart("left", Status.TextPart(left))
+            .addPart("label", Status.TextPart(title))
+            .build()
         runCatching {
             OngoingActivity.Builder(ctx, CHANNEL, NOTE_ID, builder)
                 .setStaticIcon(R.drawable.ic_timer)

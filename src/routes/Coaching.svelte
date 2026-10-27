@@ -14,6 +14,14 @@
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import { pageBanners, bannerStyle } from '../stores/settings.js';
   import { resolveAssetUrl } from '../lib/platform.js';
+  import { coachingSupported, coachingVersion, coachingState, inCoaching, coachingNeedsServer, coachingFetch, refreshCoaching } from '../stores/coaching.js';
+  import { coachingErrorText } from '../lib/coaching-view.js';
+  import RequestSheet from '../components/coaching/RequestSheet.svelte';
+  import CoachingNeedsServer from '../components/coaching/CoachingNeedsServer.svelte';
+  import Conversation from '../components/coaching/Conversation.svelte';
+
+  // Android with no server: say so, never an empty list.
+  const needsServer = coachingNeedsServer();
 
   export let params = {};
 
@@ -53,10 +61,12 @@
   let assignMakeActive = true;
   let assigning = false;
 
-  // Add-coachee sheet (claim an unassigned member from the pool)
-  let showAddCoachee = false;
-  let unassignedMembers = [];
-  let claiming = false;
+  // Add Client: ask someone to be your client (RequestSheet). Requests
+  // waiting for an answer, and answers from the last week, show above the
+  // list so a declined request or a client who left is seen.
+  let showAddClient = false;
+  let requests = [];
+  let cancelling = null;
 
   // Edit-prescription sheet (change date / notes after creation)
   let showEditPrescription = false;
@@ -70,6 +80,53 @@
     try { members = await LtApi.getMyMembers(); }
     catch(e) { showError(e.message); members = []; }
     loadingList = false;
+  }
+
+  // Asked for only when this coach has requests waiting or answered this
+  // week (the state says so): a coach with none makes no extra request. A
+  // server from before consent has none to list.
+  $: _c = $coachingState?.as_coach || {};
+  $: _requestCount = (Number(_c.pending) || 0) + (Number(_c.recent) || 0);
+  // Each count on its own: a decline moves one from waiting to answered,
+  // an accept from waiting to clients, and the lists follow.
+  $: _countsKey = `${Number(_c.pending) || 0}.${Number(_c.recent) || 0}.${Number(_c.active) || 0}.${Number(_c.unread) || 0}`;
+  async function loadRequests() {
+    if (!$coachingSupported || !_requestCount) { requests = []; return; }
+    try { requests = await coachingFetch('GET', '/api/coaching/requests'); }
+    catch { requests = []; }
+  }
+  let _countsFor = null;
+  // Back on the list from a client's page: their unread count is fresh.
+  let _wasOnClient = false;
+  $: { if (memberId) _wasOnClient = true; else if (_wasOnClient && _listReady) { _wasOnClient = false; loadMembers(); } }
+  $: if (_listReady && !needsServer && _countsKey !== _countsFor) {
+    const first = _countsFor === null;
+    _countsFor = _countsKey;
+    loadRequests();
+    if (!first) loadMembers();
+  }
+
+  async function cancelRequest(r) {
+    if (cancelling) return;
+    if (!await confirmDialog({
+      title: $_('coaching.requests.cancel_title', { values: { name: r.client.name } }),
+      message: $_('coaching.requests.cancel_message', { values: { name: r.client.name } }),
+      confirmText: $_('coaching.requests.cancel'),
+      cancelText: $_('common.cancel'),
+      dangerous: true,
+    })) return;
+    cancelling = r.id;
+    try {
+      await coachingFetch('POST', `/api/coaching/pairings/${r.id}/end`, { expect: 'pending' });
+      showSuccess($_('coaching.requests.cancelled'));
+    } catch (e) { showError(coachingErrorText(e, $_)); }
+    cancelling = null;
+    // The state's counts change, and the lists follow (below).
+    await refreshCoaching();
+  }
+
+  async function onRequestSent() {
+    await refreshCoaching();
   }
 
   async function loadActivity() {
@@ -93,14 +150,14 @@
   }
 
   function activityLabel(a) {
-    const tpl = a.template_name || a.prescription_name || 'a workout';
-    if (a.kind === 'prescription_completed') return `completed ${tpl}`;
-    if (a.kind === 'prescription_missed')    return `missed ${tpl} on ${a.prescription_date}`;
+    const tpl = a.template_name || a.prescription_name || $_('coaching.activity.a_workout');
+    if (a.kind === 'prescription_completed') return $_('coaching.activity.completed', { values: { workout: tpl } });
+    if (a.kind === 'prescription_missed')    return $_('coaching.activity.missed', { values: { workout: tpl, date: a.prescription_date } });
     if (a.kind === 'feedback_reply') {
       const text = a.feedback_reply_text || '';
       const max = 80;
       const trimmed = text.length > max ? text.slice(0, max - 1) + '…' : text;
-      return trimmed ? `replied: "${trimmed}"` : 'replied to your note';
+      return trimmed ? $_('coaching.activity.replied', { values: { text: trimmed } }) : $_('coaching.activity.replied_note');
     }
     return a.kind;
   }
@@ -137,28 +194,31 @@
     const then = serverDate(occurred).getTime();
     const diff = Date.now() - then;
     const mins = Math.round(diff / 60000);
-    if (mins < 60) return mins <= 1 ? 'just now' : `${mins}m ago`;
+    if (mins < 60) return mins <= 1 ? $_('coaching.time.just_now') : $_('coaching.time.minutes', { values: { n: mins } });
     const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
+    if (hrs < 24) return $_('coaching.time.hours', { values: { n: hrs } });
     const days = Math.round(hrs / 24);
-    if (days < 7) return `${days}d ago`;
+    if (days < 7) return $_('coaching.time.days', { values: { n: days } });
     return serverDate(occurred).toLocaleDateString();
   }
   // Alias used by the coach's read-receipt + reply-time labels. Same shape.
   const relTime = activityRelative;
 
+  // End Coaching: the client no longer has you as their coach.
   async function removeCoachee() {
     if (!memberId || !overview?.user) return;
     const name = memberLabel(overview.user);
     if (!await confirmDialog({
-      title: $_('coaching.confirm.release_coachee_title'),
-      message: $_('coaching.confirm.release_coachee_msg', { values: { name } }),
-      confirmText: $_('coaching.confirm.release_confirm'),
+      title: $_('coaching.confirm.end_title', { values: { name } }),
+      message: $_('coaching.confirm.end_msg', { values: { name } }),
+      confirmText: $_('coaching.confirm.end_confirm'),
+      cancelText: $_('common.cancel'),
       dangerous: true,
     })) return;
     try {
       await LtApi.removeCoachee(memberId);
-      showSuccess($_('coaching.toast.released', { values: { name } }));
+      showSuccess($_('coaching.toast.ended', { values: { name } }));
+      refreshCoaching();
       push('/coaching');
     } catch(e) { showError(e.message); }
   }
@@ -459,25 +519,6 @@
     assigning = false;
   }
 
-  async function openAddCoachee() {
-    try { unassignedMembers = await LtApi.getUnassignedMembers(); }
-    catch(e) { showError(e.message); unassignedMembers = []; }
-    showAddCoachee = true;
-  }
-
-  async function claimCoachee(uId) {
-    if (claiming) return;
-    claiming = true;
-    try {
-      await LtApi.claimCoachee(uId);
-      const m = unassignedMembers.find(x => x.id === uId);
-      showSuccess($_('coaching.toast.member_added', { values: { name: memberLabel(m) } }));
-      showAddCoachee = false;
-      await Promise.all([loadMembers(), loadActivity()]);
-    } catch(e) { showError(e.message); }
-    claiming = false;
-  }
-
   function openEditPrescription(p) {
     editingPxId = p.id;
     editPxDate = p.date || '';
@@ -509,11 +550,17 @@
     } catch(e) { showError(e.message); }
   }
 
+  let _listReady = false;
   onMount(async () => {
+    if (needsServer) { loadingList = false; return; }
+    // Someone in coaching gets the latest answers to their requests; an
+    // admin who coaches nobody makes no extra request.
+    if ($inCoaching) refreshCoaching();
     await Promise.all([loadMembers(), loadActivity()]);
+    _listReady = true;
   });
 
-  $: if (memberId) loadOverview(memberId).then(() => {
+  $: if (memberId && !needsServer) loadOverview(memberId).then(() => {
     // Activity-feed deep-link: an activity row stashed { memberId, date }
     // in sessionStorage just before navigating here. If it matches the
     // member we just loaded, open the workout detail sheet automatically
@@ -528,7 +575,7 @@
   });
 
   function fmtDate(d) {
-    if (!d) return 'No specific day';
+    if (!d) return $_('coaching.no_specific_day');
     return new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
@@ -541,39 +588,44 @@
   }
 
   function relDate(d) {
-    if (!d) return 'never';
+    if (!d) return $_('coaching.time.never');
     const date = new Date(d + 'T12:00:00');
     const today = new Date(); today.setHours(0,0,0,0);
     const diff = Math.round((today - date) / (1000*60*60*24));
-    if (diff === 0) return 'today';
-    if (diff === 1) return 'yesterday';
-    if (diff < 7) return `${diff}d ago`;
-    if (diff < 30) return `${Math.round(diff/7)}w ago`;
+    if (diff === 0) return $_('coaching.time.today');
+    if (diff === 1) return $_('coaching.time.yesterday');
+    if (diff < 7) return $_('coaching.time.days', { values: { n: diff } });
+    if (diff < 30) return $_('coaching.time.weeks', { values: { n: Math.round(diff/7) } });
     return date.toLocaleDateString();
   }
 </script>
 
 {#if !memberId}
-  <!-- ══════════ My Members list ══════════ -->
+  <!-- Your clients -->
   <div class="page">
     <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
       <h1>{$_('routes.coaching.title')}</h1>
-      <div class="header-actions">
-        <button class="btn-primary-sm" on:click={openAddCoachee} title={$_('coaching.add_coachee')}>
-          <span class="material-symbols-rounded">person_add</span>
-          Add
-        </button>
-      </div>
+      {#if !needsServer}
+        <div class="header-actions">
+          <button class="btn-primary-sm" on:click={() => showAddClient = true} title={$_('coaching.add_client')}>
+            <span class="material-symbols-rounded">person_add</span>
+            {$_('coaching.add')}
+          </button>
+        </div>
+      {/if}
     </header>
 
     <CoachTabs />
 
     <div class="content">
+      {#if needsServer}
+        <CoachingNeedsServer />
+      {:else}
       {#if activity.length > 0}
         <section class="block activity-block">
           <div class="block-head">
             <h3 class="block-title">
-              Recent Activity
+              {$_('coaching.recent_activity')}
               {#if unseenActivityIds.length > 0}
                 <span class="unread-pill">{unseenActivityIds.length}</span>
               {/if}
@@ -586,8 +638,8 @@
             <button class="list-row activity-row" class:unread={!a.seen_at}
               on:click={() => {
                 markActivitySeen(a.id);
-                // feedback_reply rows know the workout date — stash it in
-                // sessionStorage so the member overview auto-opens the
+                // feedback_reply rows know the workout date: stash it in
+                // sessionStorage so the client overview auto-opens the
                 // workout detail sheet on mount, saving the coach two
                 // taps (find the workout in Recent, then tap it).
                 if (a.kind === 'feedback_reply' && a.workout_date) {
@@ -599,7 +651,7 @@
                     style:color={activityColor(a)}>{activityIcon(a)}</span>
               <div class="row-body">
                 <span class="row-title">
-                  {a.member_full_name || a.member_username || `Member #${a.member_id}`}
+                  {a.member_full_name || a.member_username || $_('coaching.client_number', { values: { id: a.member_id } })}
                   <span class="row-action">{activityLabel(a)}</span>
                 </span>
                 <span class="row-sub">{activityRelative(a.occurred_at)}</span>
@@ -610,13 +662,43 @@
         </section>
       {/if}
 
+      {#if requests.length > 0}
+        <!-- Requests you sent: waiting for an answer, or answered this week. -->
+        <section class="block requests-block">
+          <div class="block-head">
+            <h3 class="block-title">{$_('coaching.requests.title')}</h3>
+          </div>
+          {#each requests as r (r.id)}
+            <div class="list-row request-row">
+              <span class="material-symbols-rounded row-icon"
+                    style:color={r.status === 'pending' ? 'var(--accent)' : 'var(--text-3)'}>
+                {r.status === 'pending' ? 'schedule' : r.status === 'declined' ? 'block' : 'logout'}
+              </span>
+              <div class="row-body">
+                <span class="row-title">{r.client.name}</span>
+                <span class="row-sub">
+                  {r.status === 'pending' ? $_('coaching.requests.waiting')
+                    : r.status === 'declined' ? $_('coaching.requests.declined')
+                    : $_('coaching.requests.left')}
+                </span>
+              </div>
+              {#if r.status === 'pending'}
+                <button class="btn btn-secondary sm" disabled={cancelling === r.id} on:click={() => cancelRequest(r)}>
+                  {$_('coaching.requests.cancel')}
+                </button>
+              {/if}
+            </div>
+          {/each}
+        </section>
+      {/if}
+
       {#if loadingList}
-        <Spinner block label="Loading members…" />
+        <Spinner block label={$_('coaching.loading_clients')} />
       {:else if members.length === 0}
         <div class="empty">
           <span class="material-symbols-rounded empty-icon">groups</span>
-          <p class="empty-title">{$_('coaching.no_members')}</p>
-          <p class="empty-hint">An admin can assign members to you from Settings → User Management.</p>
+          <p class="empty-title">{$_('coaching.no_clients')}</p>
+          <p class="empty-hint">{$coachingSupported ? $_('coaching.no_clients_hint') : $_('coaching.no_clients_hint_old')}</p>
         </div>
       {:else}
         {#each members as m (m.id)}
@@ -629,45 +711,48 @@
                   {initials(m)}
                 {/if}
               </div>
-              {#if unreadByMember[m.id]}
-                <span class="avatar-badge">{unreadByMember[m.id]}</span>
+              {#if (unreadByMember[m.id] || 0) + (m.unread || 0)}
+                <span class="avatar-badge">{(unreadByMember[m.id] || 0) + (m.unread || 0)}</span>
               {/if}
             </div>
             <div class="member-info">
               <span class="member-name">{memberLabel(m)}</span>
               <span class="member-sub">
                 {#if m.active_program}<span class="tag">{m.active_program}</span>{/if}
-                <span class="muted">Last: {relDate(m.last_workout_date)}</span>
-                <span class="muted">· {m.week_count} this week</span>
+                <span class="muted">{$_('coaching.last_workout', { values: { when: relDate(m.last_workout_date) } })}</span>
+                <span class="muted">{$_('coaching.this_week', { values: { n: m.week_count } })}</span>
               </span>
             </div>
             <span class="material-symbols-rounded chev">chevron_right</span>
           </button>
         {/each}
       {/if}
+      {/if}
     </div>
   </div>
 {:else}
-  <!-- ══════════ Member Overview ══════════ -->
+  <!-- One client -->
   <div class="page">
     <header class="page-header">
-      <button class="back-btn" on:click={() => push('/coaching')} aria-label="Back">
+      <button class="back-btn" on:click={() => push('/coaching')} aria-label={$_('common.back')}>
         <span class="material-symbols-rounded">arrow_back</span>
       </button>
-      <h1>{overview ? memberLabel(overview.user) : 'Member'}</h1>
+      <h1>{overview ? memberLabel(overview.user) : $_('coaching.client_fallback')}</h1>
       {#if overview}
         <button class="btn-icon danger header-action" on:click={removeCoachee}
-                title="Release coachee" aria-label="Release coachee">
+                title={$_('coaching.end_coaching')} aria-label={$_('coaching.end_coaching')}>
           <span class="material-symbols-rounded">person_remove</span>
         </button>
       {/if}
     </header>
 
     <div class="content">
-      {#if loadingOverview}
-        <Spinner block label="Loading overview…" />
+      {#if needsServer}
+        <CoachingNeedsServer />
+      {:else if loadingOverview}
+        <Spinner block label={$_('coaching.loading_overview')} />
       {:else if !overview}
-        <div class="empty">Couldn't load member.</div>
+        <div class="empty">{$_('coaching.client_not_loaded')}</div>
       {:else}
         <!-- Summary card -->
         <div class="card summary-card">
@@ -686,6 +771,17 @@
             </div>
           </div>
         </div>
+
+        <!-- The conversation, beside the notes on workouts below. A server
+             from before consent has none. -->
+        {#if $coachingVersion >= 2 && overview.pairing_id}
+          <section class="block conversation-block">
+            <div class="block-head">
+              <h3 class="block-title">{$_('coaching.chat.title')}</h3>
+            </div>
+            <Conversation conv={{ pairingId: overview.pairing_id, side: 'coach', clientId: memberId }} otherName={memberLabel(overview.user)} />
+          </section>
+        {/if}
 
         <!-- Programs -->
         <section class="block">
@@ -746,8 +842,12 @@
                   </span>
                   <span class="row-sub">
                     {fmtDate(p.date)}
+                    <!-- The client's answer (a server from before it sends none). -->
+                    {#if p.status === 'pending'} · <span class="px-waiting">{$_('coaching.px_waiting')}</span>{/if}
+                    {#if p.status === 'declined'} · <span style="color:var(--danger)">{$_('coaching.px_declined')}</span>{/if}
+                    {#if p.status === 'accepted' && p.responded_at && p.completed !== 1} · {$_('coaching.px_accepted')}{/if}
                     {#if p.completed === 1} · <span style="color:var(--success)">{$_('coaching.completed')}</span>{/if}
-                    {#if p.completed === 0 && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
+                    {#if p.completed === 0 && p.status !== 'declined' && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
                     {#if p.notes} · {p.notes}{/if}
                   </span>
                 </div>
@@ -788,11 +888,11 @@
                      case) but the current coach hasn't. -->
                 {#if w.my_feedback_count > 0}
                   <span class="workout-feedback-marker" class:has-reply={w.my_reply_count > 0}
-                        title={w.my_reply_count > 0 ? 'Member replied to your note' : 'You left a note'}>
+                        title={w.my_reply_count > 0 ? $_('coaching.note_replied') : $_('coaching.note_left')}>
                     <span class="material-symbols-rounded">{w.my_reply_count > 0 ? 'mark_unread_chat_alt' : 'comment'}</span>
                   </span>
                 {:else if w.feedback_count > 0}
-                  <span class="workout-feedback-marker faint" title="Another coach has a note">
+                  <span class="workout-feedback-marker faint" title={$_('coaching.note_other_coach')}>
                     <span class="material-symbols-rounded">comment</span>
                   </span>
                 {/if}
@@ -811,7 +911,7 @@
 
 <!-- Assign Program Sheet — pre-scoped to the current memberId so the
      assignment lands on the right user without a separate member-picker step. -->
-<Sheet open={showAssignProgram} on:close={() => showAssignProgram = false} title="Assign a Program">
+<Sheet open={showAssignProgram} on:close={() => showAssignProgram = false} title={$_('coaching.sheets.assign_program')}>
   <div class="prescribe-sheet">
     <p class="hint">{@html $_('coaching.assign_hint', { values: { name: `<strong>${memberLabel(overview?.user)}</strong>` } })}</p>
 
@@ -851,37 +951,13 @@
   </div>
 </Sheet>
 
-<!-- Add Coachee Sheet — claim an unassigned member from the pool. -->
-<Sheet open={showAddCoachee} on:close={() => showAddCoachee = false} title="Add a Coachee">
-  <div class="prescribe-sheet">
-    {#if unassignedMembers.length === 0}
-      <p class="empty-inline">No unassigned members available. Members without a coach show up here; admins can also reassign members from Settings → User Management.</p>
-    {:else}
-      <p class="hint">Pick a member to add to your coaching roster:</p>
-      {#each unassignedMembers as m (m.id)}
-        <button class="assign-row" on:click={() => claimCoachee(m.id)} disabled={claiming}>
-          <div class="avatar">
-            {#if m.avatar_url}
-              <img src={resolveAssetUrl(m.avatar_url)} alt="" class="avatar-img" />
-            {:else}
-              {initials(m)}
-            {/if}
-          </div>
-          <div class="info">
-            <span class="name">{memberLabel(m)}</span>
-            <span class="sub">@{m.username}</span>
-          </div>
-          <span class="material-symbols-rounded chev">chevron_right</span>
-        </button>
-      {/each}
-    {/if}
-  </div>
-</Sheet>
+<!-- Add Client: a request the person accepts or declines. -->
+<RequestSheet bind:open={showAddClient} on:sent={onRequestSent} />
 
 <!-- Workout Detail Sheet — read-only view of a member's completed workout
      with editable coach feedback (workout-level + per-exercise notes). -->
 <Sheet open={showWorkoutDetail} on:close={() => showWorkoutDetail = false}
-       title={workoutDetail?.name || 'Workout'}>
+       title={workoutDetail?.name || $_('coaching.sheets.workout')}>
   <div class="workout-detail">
     {#if workoutDetailLoading}
       <Spinner block label="Loading workout…" />
@@ -1106,9 +1182,9 @@
 </Sheet>
 
 <!-- Edit Prescription Sheet — change date or notes after creating. -->
-<Sheet open={showEditPrescription} on:close={() => showEditPrescription = false} title="Edit Prescription">
+<Sheet open={showEditPrescription} on:close={() => showEditPrescription = false} title={$_('coaching.sheets.edit_prescription')}>
   <div class="prescribe-sheet">
-    <p class="hint">Update the date or add notes. Leave the date empty for an anytime prescription that the member can do on their own schedule.</p>
+    <p class="hint">{$_('coaching.edit_prescription_hint')}</p>
 
     <div class="field">
       <label>{$_('coaching.date')}</label>
@@ -1130,9 +1206,9 @@
 </Sheet>
 
 <!-- Prescribe Workout Sheet -->
-<Sheet open={showPrescribe} on:close={() => showPrescribe = false} title="Prescribe a Workout">
+<Sheet open={showPrescribe} on:close={() => showPrescribe = false} title={$_('coaching.sheets.prescribe')}>
   <div class="prescribe-sheet">
-    <p class="hint">Pick a workout template and optionally a date. If no date is set, the member can start it whenever.</p>
+    <p class="hint">{$_('coaching.prescribe_hint')}</p>
 
     <div class="field">
       <label>Date (optional)</label>
@@ -1463,21 +1539,6 @@
   }
   .btn-primary-sm .material-symbols-rounded { font-size: 18px; }
 
-  /* Assign-row (used by both add coachee + existing assign sheets) */
-  .assign-row {
-    display: flex; align-items: center; gap: 12px;
-    width: 100%; padding: 12px 0;
-    background: none; border: none; cursor: pointer;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-  }
-  .assign-row:last-child { border-bottom: none; }
-  .assign-row:hover { background: var(--surface-2); }
-  .assign-row .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .assign-row .name { font-size: 14px; font-weight: 600; color: var(--text-1); }
-  .assign-row .sub { font-size: 12px; color: var(--text-3); }
-  .assign-row .chev { color: var(--text-3); }
-
   /* Activity feed */
   .activity-block { padding: 0; }
   .activity-row {
@@ -1502,6 +1563,7 @@
     width: 8px; height: 8px; border-radius: 50%;
     background: var(--accent); flex-shrink: 0;
   }
+  .px-waiting { color: var(--accent); }
   .btn-link {
     background: none; border: none; cursor: pointer;
     color: var(--accent); font-size: 12px; font-weight: 600;

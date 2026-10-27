@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid, userMgmtActive } from '../middleware/auth.js';
+import { coachesClient } from '../lib/coaching.js';
 import { currentPlanWeek } from '../lib/programWeek.js';
 import { programFor } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
@@ -357,12 +358,10 @@ router.post('/:id/assign', requireTrainerOrAdmin, wrap((req, res) => {
   // pass make_active: false to add the program to the member's library
   // without disrupting whatever they're currently following.
   const active = make_active === false ? 0 : 1;
-  // Trainers can only assign to their own members; admins can assign to anyone
-  if (userMgmtActive() && req.user?.role === 'trainer') {
-    const target = db.prepare('SELECT trainer_id FROM users WHERE id = ?').get(user_id);
-    if (!target || target.trainer_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not your member' });
-    }
+  // A coach assigns to their own clients only, an admin too (an admin used
+  // to assign to anyone): an active pairing the client accepted.
+  if (userMgmtActive() && !coachesClient(req.user?.id, parseInt(user_id))) {
+    return res.status(404).json({ error: 'Client not found' });
   }
   db.transaction(() => {
     // Only deactivate other assignments when this one is becoming active —
@@ -387,11 +386,8 @@ router.post('/:id/assign', requireTrainerOrAdmin, wrap((req, res) => {
 router.delete('/:id/assign/:userId', requireTrainerOrAdmin, wrap((req, res) => {
   const programId = parseInt(req.params.id);
   const memberId  = parseInt(req.params.userId);
-  if (userMgmtActive() && req.user?.role === 'trainer') {
-    const target = db.prepare('SELECT trainer_id FROM users WHERE id = ?').get(memberId);
-    if (!target || target.trainer_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not your member' });
-    }
+  if (userMgmtActive() && !coachesClient(req.user?.id, memberId)) {
+    return res.status(404).json({ error: 'Client not found' });
   }
   db.prepare(
     `DELETE FROM program_assignments WHERE program_id = ? AND assigned_to = ?`

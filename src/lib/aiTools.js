@@ -17,6 +17,7 @@ import { isTimedSet } from './workout.js';
 import { ensureExerciseUuids } from './workout-uuid.js';
 import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settlePendingSave } from '../stores/workout.js';
 import { foldText } from './search-text.js';
+import { OFFLINE_HEADER } from './offline-edits.js';
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -203,15 +204,42 @@ function _shapeWorkout(w) {
 
 // ── Tool schemas ───────────────────────────────────────────────────────────
 
+// Pages of get_workouts and get_prs (TraceApps/notetrace#34): enough for most
+// questions in one call, and a long history page by page.
+const WORKOUT_PAGE = 25;
+const WORKOUT_PAGE_MAX = 50;
+const PR_PAGE_MAX = 100;
+
+/** One page of `list`: the whole list as before when it fits, else the page and where the next starts. */
+function _page(list, { limit, offset, size, max, key, what, tool }) {
+  const n = Math.min(Math.max(1, Math.floor(Number(limit)) || size), max);
+  const start = Math.max(0, Math.floor(Number(offset)) || 0);
+  if (start === 0 && list.length <= n) return list;
+  const page = list.slice(start, start + n);
+  const next = start + page.length < list.length ? start + page.length : null;
+  return {
+    count: list.length,
+    offset: start,
+    returned: page.length,
+    next_offset: next,
+    complete: next == null,
+    // Said in words too: a model that skims the numbers still sees there's more.
+    ...(next != null ? { more: `This is ${what} ${start + 1} to ${start + page.length} of ${list.length}: call ${tool} again with offset ${next} for the rest.` } : {}),
+    [key]: page,
+  };
+}
+
 export const TOOLS = [
   // ── READ ──
   {
     name: 'get_workouts',
     description:
-      "List the user's recent workouts with completed sets, per-exercise volume, and top set. Use whenever they ask about past sessions, recent training, or how a lift has been going. Defaults to the last 30 days. Filter by exercise_name to narrow to one lift.",
+      "List the user's recent workouts with completed sets, per-exercise volume, and top set, newest first. Use whenever they ask about past sessions, recent training, or how a lift has been going. Defaults to the last 30 days. Filter by exercise_name to narrow to one lift. Up to 25 workouts come back at once; when there are more, the answer is { count, offset, returned, next_offset, complete, more, workouts }: call again with offset set to next_offset until complete is true to go through all of them.",
     parameters: {
       type: 'object',
       properties: {
+        limit:         { type: 'integer', description: `Workouts per page, up to ${WORKOUT_PAGE_MAX}. Default ${WORKOUT_PAGE}.` },
+        offset:        { type: 'integer', description: 'Where the page starts: 0 first, then the next_offset of the page before.' },
         date_from:     { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 30 days ago, and with exercise_name reaches further back if needed.' },
         date_to:       { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to today.' },
         exercise_name: { type: 'string', description: 'Case-insensitive substring match; only workouts containing this exercise are returned.' },
@@ -280,14 +308,15 @@ export const TOOLS = [
   {
     name: 'get_prs',
     description:
-      "List personal records, top weight, top reps at that weight, and estimated 1RM per exercise. Filter by exercise_name and/or date range. Use for 'what's my bench PR?' / 'recent PRs' / 'top lifts this month'.",
+      "List personal records, top weight, top reps at that weight, and estimated 1RM per exercise, highest estimated 1RM first. Filter by exercise_name and/or date range. Use for 'what's my bench PR?' / 'recent PRs' / 'top lifts this month'. When more records match than limit, the answer is { count, offset, returned, next_offset, complete, more, records }: call again with offset set to next_offset for the rest.",
     parameters: {
       type: 'object',
       properties: {
         exercise_name: { type: 'string', description: 'Case-insensitive substring filter on exercise name.' },
         date_from:     { type: 'string', description: 'Inclusive YYYY-MM-DD; only PRs set on/after this date.' },
         date_to:       { type: 'string', description: 'Inclusive YYYY-MM-DD; only PRs set on/before this date.' },
-        limit:         { type: 'integer', description: 'Max rows to return. Default 20.' },
+        limit:         { type: 'integer', description: `Max rows to return, up to ${PR_PAGE_MAX}. Default 20.` },
+        offset:        { type: 'integer', description: 'Where the page starts: 0 first, then the next_offset of the page before.' },
       },
     },
   },
@@ -545,9 +574,11 @@ const WRITE_DATE_FIELD = {
   add_coach_prescription: 'target_date',
 };
 
+// A calendar day, checked in UTC: read as local noon, a date at UTC+13/+14
+// (or -12) came back as another day in UTC, so every date failed there.
 function _isRealDate(s) {
   if (typeof s !== 'string' || !DATE_RE.test(s)) return false;
-  const d = new Date(`${s}T12:00:00`);
+  const d = new Date(`${s}T00:00:00Z`);
   return !isNaN(d) && d.toISOString().slice(0, 10) === s;
 }
 function _daysFromToday(s) {
@@ -631,7 +662,20 @@ async function _dispatch(name, args) {
 // first, so they read it and save on top of it rather than over it.
 const WORKOUT_WRITES = new Set(['log_set', 'log_workout', 'add_exercise_to_diary', 'start_workout_from_template']);
 
+/** A new answer starts from what the server has now (Trace.svelte). */
+export function forgetToolReads() { _recentMemo.clear(); }
+
 export async function runTool(name, args) {
+  // A write changes what the workout list says: forgotten before it, and
+  // after it too, since a write (log_set) reads the list to find its workout.
+  if (!/^get_/.test(name)) {
+    _recentMemo.clear();
+    try { return await _runTool(name, args); } finally { _recentMemo.clear(); }
+  }
+  return _runTool(name, args);
+}
+
+async function _runTool(name, args) {
   args = args || {};
   checkWriteDate(name, args);
   if (WORKOUT_WRITES.has(name)) await settlePendingSave(get(currentDate)).catch(() => {});
@@ -657,14 +701,64 @@ export async function runTool(name, args) {
 
 // ── Executors: READ ───────────────────────────────────────────────────────
 
-async function _getWorkouts({ date_from, date_to, exercise_name } = {}) {
+// The list endpoint is `/api/workout/recent`: the newest workouts, as many
+// as asked for, no date filter (on the server, offline and on the device
+// alike). 200 is more than a year for most lifters; when that stops short
+// of the date or the workout wanted, a longer list is asked for, so a range
+// reaching years back is read in full (TraceApps/notetrace#34).
+const RECENT_STEPS = [200, 2000, 20000];
+// One answer pages through the same list: kept a minute, and dropped when a
+// tool writes, so paging asks the server once rather than on every page.
+const RECENT_KEEP_MS = 60_000;
+const _recentMemo = new Map();
+async function _recentList(n) {
+  const kept = _recentMemo.get(n);
+  if (kept && Date.now() - kept.at < RECENT_KEEP_MS) return kept;
+  const res = await fetch(`/api/workout/recent?limit=${n}`, _opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  // Made by the offline layer from a copy it kept: it may hold fewer
+  // workouts than were asked for, and never says "that's all of them".
+  const got = { at: Date.now(), rows: Array.isArray(data) ? data : [], held: res.headers?.get?.(OFFLINE_HEADER) === '1' };
+  if (!got.held) _recentMemo.set(n, got);
+  return got;
+}
+async function _recentWorkouts({ from = null, id = null } = {}) {
+  let rows = [], short = false;
+  // The oldest date read: pending rows from the outbox go on the end of a
+  // list, so the last row isn't always the oldest.
+  const oldest = (list) => list.reduce((min, r) => (r.date && r.date < min ? r.date : min), '9999-99-99');
+  for (const n of RECENT_STEPS) {
+    let got;
+    // A longer list that can't be read: what was read stands, and the
+    // answer says it stopped short.
+    try { got = await _recentList(n); } catch (e) {
+      if (n === RECENT_STEPS[0]) throw e;
+      short = true;
+      break;
+    }
+    // A copy kept for no connection, read after the connection dropped
+    // mid-walk, can be shorter than the list already read: the longer stays.
+    if (got.held && got.rows.length < rows.length) { short = true; break; }
+    rows = got.rows;
+    const reached = id != null ? rows.some(r => r.id === Number(id)) : !from || oldest(rows) < from;
+    if (reached) break;
+    // A copy kept for no connection: fewer rows than asked for doesn't mean
+    // every workout, and a longer list can't be had either.
+    if (got.held) { short = true; break; }
+    if (rows.length < n) break; // every workout there is
+  }
+  // Newest first, the later session of a day first: the same order every
+  // call, so pages never skip or repeat one.
+  const sorted = [...rows].sort((a, b) => String(b.date).localeCompare(String(a.date))
+    || (Number(b.session_seq) || 0) - (Number(a.session_seq) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0));
+  return { rows: sorted, before: short && sorted.length ? sorted[sorted.length - 1].date : null };
+}
+
+async function _getWorkouts({ date_from, date_to, exercise_name, limit, offset } = {}) {
   const from = date_from || _daysAgo(30);
   const to   = date_to   || _today();
-  // The list endpoint is `/api/workout/recent` (no date-range filter),
-  // so we pull a generous window then filter client-side. Callers care
-  // about the last month or two; 200 rows is more than a year for most
-  // lifters.
-  const rows = await _get('/api/workout/recent?limit=200');
+  const { rows, before } = await _recentWorkouts({ from });
   const filtered = rows.filter(r => r.date >= from && r.date <= to);
   const needle = foldText(exercise_name).trim();
   const hasLift = (r) => (r.exercises || []).some(ex => foldText(ex.exercise_name).includes(needle));
@@ -676,15 +770,20 @@ async function _getWorkouts({ date_from, date_to, exercise_name } = {}) {
     const older = rows.filter(hasLift).slice(0, 10);
     if (older.length) return older.map(_shapeWorkout);
   }
-  return matched.map(_shapeWorkout);
+  const page = _page(matched, { limit, offset, size: WORKOUT_PAGE, max: WORKOUT_PAGE_MAX, key: 'workouts', what: 'workouts', tool: 'get_workouts' });
+  const shaped = Array.isArray(page) ? page.map(_shapeWorkout) : { ...page, workouts: page.workouts.map(_shapeWorkout) };
+  if (!before || before < from) return shaped;
+  const note = `Only workouts from ${before} on could be read just now: earlier ones in this range are missing. Say so.`;
+  return Array.isArray(shaped)
+    ? { count: shaped.length, offset: 0, returned: shaped.length, next_offset: null, complete: true, note, workouts: shaped }
+    : { ...shaped, note };
 }
 
 async function _getWorkout({ id }) {
   if (id == null) throw new Error('id is required');
   // No direct GET /api/workout/id/:id — the diary is date-keyed. Find
-  // the row inside a bounded recent window (covers ~2 years for a
-  // 3x/week lifter) and reshape.
-  const rows = await _get('/api/workout/recent?limit=500');
+  // the row in the recent list, a longer one when it's older than that.
+  const { rows } = await _recentWorkouts({ id });
   const w = rows.find(r => r.id === Number(id));
   if (!w) throw new Error(`Workout ${id} not found`);
   // Pull the same date via the by-date GET so feedback + program_duration
@@ -835,8 +934,7 @@ async function _getActiveProgram() {
   return _shapeProgram(full);
 }
 
-async function _getPrs({ exercise_name, date_from, date_to, limit } = {}) {
-  const cap = Number(limit) || 20;
+async function _getPrs({ exercise_name, date_from, date_to, limit, offset } = {}) {
   const records = await _get('/api/stats/records');
   const needle = foldText(exercise_name).trim();
   // A timed exercise (issue #89) has no max weight; its record is the
@@ -848,9 +946,9 @@ async function _getPrs({ exercise_name, date_from, date_to, limit } = {}) {
     .filter(r => (!needle || foldText(r.name).includes(needle)))
     .filter(r => (!date_from || (recDate(r) && recDate(r) >= date_from)))
     .filter(r => (!date_to   || (recDate(r) && recDate(r) <= date_to)))
-    .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0))
-    .slice(0, cap);
-  return filtered.map(r => (isHold(r)
+    // Ties by name, so the same list comes in the same order every time.
+    .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0) || String(a.name).localeCompare(String(b.name)));
+  const shape = (r) => (isHold(r)
     ? {
         exercise_name: r.name,
         longest_hold_sec: r.maxDuration,
@@ -863,7 +961,9 @@ async function _getPrs({ exercise_name, date_from, date_to, limit } = {}) {
         reps: r.maxReps,
         one_rep_max_estimate: r.e1rm,
         date: r.date || null,
-      }));
+      });
+  const page = _page(filtered, { limit, offset, size: 20, max: PR_PAGE_MAX, key: 'records', what: 'records', tool: 'get_prs' });
+  return Array.isArray(page) ? page.map(shape) : { ...page, records: page.records.map(shape) };
 }
 
 async function _getBodyStats({ stat, date_from, date_to } = {}) {
@@ -1078,11 +1178,15 @@ async function _getCoachPrescription({ date } = {}) {
     prescribed: true,
     prescription: {
       trainer_name: row.trainer_name || null,
-      workout_template_ref: row.template_id ? { id: row.template_id, name: row.template_name } : null,
+      // Not loadable until the user accepts it on the Diary.
+      workout_template_ref: row.template_id && (row.status || 'accepted') === 'accepted' ? { id: row.template_id, name: row.template_name } : null,
+      workout_name: row.template_name || row.name || null,
       program_name: row.program_name || null,
       inline_name: row.name || null,
       notes: row.notes || null,
       target_date: row.date || d,
+      // 'pending' (waiting for the user's Accept or Decline), 'accepted' or 'declined'.
+      status: row.status || 'accepted',
     },
   };
 }
@@ -1185,8 +1289,8 @@ async function _addExerciseToDiary({ exercise_name, date }) {
 
 async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, duration_sec, rpe, warmup, completed }) {
   if (workout_id == null) throw new Error('workout_id is required');
-  // Find the workout by scanning recent rows.
-  const rows = await _get('/api/workout/recent?limit=500');
+  // Find the workout by scanning recent rows, a longer list when it's older.
+  const { rows } = await _recentWorkouts({ id: workout_id });
   const wRow = rows.find(r => r.id === Number(workout_id));
   if (!wRow) throw new Error(`Workout ${workout_id} not found`);
   const exs = (wRow.exercises || []).slice();

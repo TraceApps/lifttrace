@@ -77,7 +77,7 @@
     try {
       await LtApi.assignProgram(params.id, { user_id: memberId });
       const m = assignMembers.find(x => x.id === memberId);
-      showSuccess($_('program_detail.toast.assigned_to', { values: { name: m?.full_name || m?.username || $_('program_detail.toast.member_fallback') } }));
+      showSuccess($_('program_detail.toast.assigned_to', { values: { name: m?.full_name || m?.username || $_('program_detail.toast.client_fallback') } }));
       showAssign = false;
     } catch(e) { showError(e.message); }
     assigning = false;
@@ -273,7 +273,7 @@
     /* Duplicate is available to anyone viewing the program (matches
        the previous unconditional Duplicate icon behaviour). */
                                 items.push({ label: 'Duplicate',        icon: 'content_copy',   value: 'duplicate' });
-    if (isCoach && isOwner)     items.push({ label: 'Assign to Member', icon: 'person_add',     value: 'assign' });
+    if (isCoach && isOwner)     items.push({ label: $_('program_detail.assign_to_client'), icon: 'person_add', value: 'assign' });
     if (isOwner)                items.push({ label: 'Delete Program',   icon: 'delete',         value: 'delete',    danger: true });
     return items;
   })();
@@ -469,13 +469,13 @@
   {/if}
 </div>
 
-<!-- Assign to Member Sheet -->
-<Sheet open={showAssign} on:close={() => showAssign = false} title="Assign to Member">
+<!-- Assign to Client Sheet -->
+<Sheet open={showAssign} on:close={() => showAssign = false} title={$_('program_detail.assign_to_client')}>
   <div class="assign-sheet">
     {#if assignMembers.length === 0}
       <div class="empty-inline">
-        <p>You don't have any members assigned yet.</p>
-        <p class="hint">An admin can assign members to you from Settings → User Management.</p>
+        <p>{$_('program_detail.no_clients')}</p>
+        <p class="hint">{$_('program_detail.no_clients_hint')}</p>
       </div>
     {:else}
       <p class="hint">{@html $_('program_detail.assign_hint', { values: { name: `<strong>${program?.name ?? ''}</strong>` } })}</p>

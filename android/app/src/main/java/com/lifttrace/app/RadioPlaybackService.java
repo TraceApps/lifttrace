@@ -300,12 +300,16 @@ public class RadioPlaybackService extends MediaSessionService {
                 try { return BitmapFactory.decodeStream(in); }
                 finally { try { in.close(); } catch (Throwable ignored) {} }
             }
-            // http(s):// — HttpURLConnection
+            // http(s):// via HttpURLConnection. Plain http:// only to the
+            // confirmed server, never following a redirect (PlainHttpGate,
+            // from TraceApps/nutritrace#194); https:// as before, and
+            // HttpURLConnection never follows https:// to http://.
+            if (!PlainHttpGate.allowed(s)) return null;
             java.net.URL url = new java.net.URL(s);
             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(8000);
-            conn.setInstanceFollowRedirects(true);
+            conn.setInstanceFollowRedirects(!"http".equals(url.getProtocol()));
             conn.setRequestProperty("User-Agent", "LiftTrace/1.0");
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {

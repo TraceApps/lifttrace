@@ -8,8 +8,9 @@
     exerciseReorderMethod, confirmExerciseRemoval, restTimerEnabled,
     restDuration, restAutoStart, restAlert, restAlertVibrate, restAlertTone,
     bodyStatsVisible, autoGenerateWarmups, trackRpe, restAlertToneId,
-    caloriesBurnedEnabled,
+    caloriesBurnedEnabled, restAlertOutput,
   } from '../../stores/settings.js';
+  import { isNative } from '../../lib/platform.js';
   import { REST_TONES } from '../../lib/restTones.js';
   import { LtApi } from '../../lib/api.js';
   import { showError, showSuccess } from '../../stores/toast.js';
@@ -116,8 +117,8 @@
         {#if $cardioEnabled}
           <div class="setting-row">
             <div class="setting-label-group">
-              <span class="setting-label">Weekly Cardio Minutes</span>
-              <span class="setting-hint">Target line on the Statistics Cardio chart. Set to 0 to hide the target.</span>
+              <span class="setting-label">{$_('settings_workout.goals.weekly_cardio')}</span>
+              <span class="setting-hint">{$_('settings_workout.goals.weekly_cardio_desc')}</span>
             </div>
             <input class="form-input-sm" type="number" min="0" step="15" style="width:90px"
               bind:value={$weeklyCardioMinutesGoal} />
@@ -253,6 +254,18 @@
               </div>
               <Toggle bind:checked={$restAlertTone} />
             </div>
+            {#if isNative && ($restAlertTone || $restAlertVibrate)}
+              <!-- Android only: the app plays the cue itself, so it can play it
+                   as an alarm, which Do Not Disturb lets through. -->
+              <div class="setting-row" style="padding-left:28px">
+                <div class="setting-label-group">
+                  <span class="setting-label">{$_('settings_workout.rest.dnd')}</span>
+                  <span class="setting-hint">{$_('settings_workout.rest.dnd_desc')}</span>
+                </div>
+                <Toggle checked={$restAlertOutput === 'alarm'}
+                  on:change={e => $restAlertOutput = e.detail ? 'alarm' : 'notification'} />
+              </div>
+            {/if}
             {#if $restAlertTone}
               <div class="setting-row" style="padding-left:28px;flex-direction:column;align-items:stretch;gap:6px">
                 <div class="setting-label-group">

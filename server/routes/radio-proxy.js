@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { logger } from '../logger.js';
 import { assertSafeUrl as _sharedAssertSafeUrl, fetchChecked } from '../lib/ssrf-guard.js';
 import { requireAuth } from '../middleware/auth.js';
+import { frameAncestorsDirective } from '../lib/frame-ancestors.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 const router = Router();
@@ -273,7 +274,7 @@ router.get('/', async (req, res) => {
     res.status(upstream.status);
     if (ct) res.setHeader('Content-Type', ct);
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Content-Security-Policy', `default-src 'none'; sandbox; ${frameAncestorsDirective(process.env.FRAME_ANCESTORS)}`);
     const cl = upstream.headers.get('content-length');
     if (cl) res.setHeader('Content-Length', cl);
     const ar = upstream.headers.get('accept-ranges');

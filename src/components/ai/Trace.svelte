@@ -8,7 +8,7 @@
   import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
   import { callAI, callAIProxy, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
-  import { TOOLS, runTool } from '../../lib/aiTools.js';
+  import { TOOLS, runTool, forgetToolReads } from '../../lib/aiTools.js';
   import { aiEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, dateFormat, weightUnit, weeklyWorkoutGoal, quickLogEnabled, smartLogVoiceLang } from '../../stores/settings.js';
 
   // Voice input language from Settings; 'auto' means the device locale.
@@ -624,8 +624,9 @@ ${ctx}
 You have live tools for everything else. Prefer a tool call over guessing:
 - Reads: get_workouts, get_workout, get_exercises, get_exercise, get_programs, get_program, get_active_program, get_prs, get_body_stats, get_progress_photos, get_cardio, get_stats_overview, get_coach_prescription.
 - Writes: log_workout, add_exercise_to_diary, log_set, log_body_stat, log_cardio, start_workout_from_template, set_active_program, add_coach_prescription (coaches only).
+To go through a long stretch of training (every workout this year, all PRs), page through get_workouts or get_prs with offset until complete is true, and say whether you covered everything.
 
-Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
+Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session; when its status is "pending" the user hasn't accepted it yet, so say they can Accept or Decline it on the Diary and don't load it for them), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
 
 Timed exercises (plank, wall sit, dead hang, carries) are logged by duration, not reps: tool results show them with duration_sec, and log_set / log_workout take duration_sec in seconds instead of reps. Never report a hold's seconds as reps.
 
@@ -662,6 +663,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
         toolsNote = routed ? 'trace_ai.tools_unsupported_routed'
           : hasClientConfig ? 'trace_ai.tools_unsupported' : 'trace_ai.tools_unsupported_server';
       };
+      forgetToolReads();
       if (hasClientConfig) {
         reply = await callAI({
           provider: $aiProvider,

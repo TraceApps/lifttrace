@@ -1196,4 +1196,66 @@ try {
   console.warn('[db] sync deletions backfill failed:', e?.message || e);
 }
 
+// ── Coaching with consent ───────────────────────────────────────────────────
+// A coach and a client, the same table NutriTrace uses. The coach asks, the
+// client accepts or declines, and either side (or an admin) can end it. A
+// client can hold several requests (one per coach), so asking never reveals
+// who already has a coach, but only one active coach. The active pairing is
+// also users.trainer_id, which everything from before reads; pairings that
+// existed before this table are adopted as active at start-up
+// (lib/coaching.js adoptExistingPairings), with nothing to accept.
+// Both people cascade: deleting either account removes the pairing.
+// Only adds: no existing table is rebuilt and no column changed.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_clients (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    coach_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'declined', 'ended')),
+    note         TEXT,
+    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    responded_at TEXT,
+    ended_at     TEXT,
+    ended_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_id, status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_active
+    ON coach_clients(client_id) WHERE status = 'active';
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_request
+    ON coach_clients(coach_id, client_id) WHERE status = 'pending';
+`);
+// A prescription asks before it loads: the client accepts or declines it,
+// then loads it as before. Every prescription made before this counts as
+// accepted (the default), so nothing already given asks again.
+addColumnIfMissing('coach_prescriptions', 'status', "status TEXT NOT NULL DEFAULT 'accepted'");
+// An invite can name a coach: their request waits for the new account.
+addColumnIfMissing('invite_tokens', 'coach_id', 'coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
+addColumnIfMissing('coach_prescriptions', 'responded_at', 'responded_at TEXT');
+
+// One conversation per pairing, beside the notes on workouts (which stay as
+// they are): text and at most one photo per message, the same table as
+// NutriTrace's. `uuid` comes from the sending device, so a message sent
+// again after a dropped connection is stored once. Deleting a message keeps
+// the row ("Message deleted") and drops its text and photo. Messages go with
+// the pairing, and the pairing with either account. recommendation_id is
+// kept for the shape NutriTrace uses; LiftTrace leaves it empty.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid              TEXT NOT NULL UNIQUE,
+    pairing_id        INTEGER NOT NULL REFERENCES coach_clients(id) ON DELETE CASCADE,
+    sender_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body              TEXT,
+    image_url         TEXT,
+    recommendation_id INTEGER,
+    read_at           TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at        TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_pairing ON coach_messages(pairing_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_updated ON coach_messages(updated_at);
+`);
+
 export default db;

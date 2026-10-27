@@ -250,11 +250,14 @@ router.get('/streaks', wrap((req, res) => {
   let longestStreak = 0;
   let tempStreak = 0;
 
-  // Check from today backward for current streak
-  const today = new Date();
+  // Check from today backward for current streak. Calendar days: the
+  // server's own today, stepped back in UTC on the bare date (#101), as the
+  // phone does. Stepping local time and reading the UTC date started from
+  // tomorrow or yesterday for part of every night off UTC.
+  const today = new Date().toLocaleDateString('sv-SE');
   for (let i = 0; i < 365; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
+    const d = new Date(`${today}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - i);
     const dateStr = d.toISOString().slice(0, 10);
     if (dates.has(dateStr)) {
       currentStreak++;

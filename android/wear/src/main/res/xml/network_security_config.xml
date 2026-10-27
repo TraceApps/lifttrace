@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Watch network security config (TraceApps/nutritrace#194).
+  - Cleartext permitted, because Android can't scope it by address range.
+    The watch enforces the rule itself: plain http:// only to the server the
+    phone confirmed, on your own network (LocalAddress.kt and the phone's
+    confirmation that comes with the server address), never following a
+    redirect. Everything else, the update check on GitHub included, stays
+    HTTPS only.
+  - System CAs only, as before this file existed.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

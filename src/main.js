@@ -17,6 +17,8 @@ import App from './App.svelte';
 import { DB } from './lib/db.js';
 import { installApiFetch } from './lib/apiFetch.js';
 import { initI18n } from './i18n/index.js';
+import { installPlainHttpGuard } from './lib/plain-http-guard.js';
+import { mediaPolicy } from './lib/plain-http.js';
 
 // Initialise i18n with the user's SAVED language (falling through to the
 // browser locale via pickInitialLocale() only when nothing's saved). Passing
@@ -30,6 +32,18 @@ import { initI18n } from './i18n/index.js';
 // DB.getSetting is pure localStorage, safe before DB.init().
 initI18n(DB.getSetting('language'));
 
+// Android app: plain http:// only to a confirmed server on your own network
+// (lib/plain-http.js, from TraceApps/nutritrace#194). The fetch and
+// XMLHttpRequest guard goes first, so the interceptor below calls through it;
+// images and media get the same rule as a Content-Security-Policy.
+if (Capacitor.isNativePlatform()) {
+  installPlainHttpGuard();
+  const csp = document.createElement('meta');
+  csp.httpEquiv = 'Content-Security-Policy';
+  csp.content = mediaPolicy();
+  document.head.prepend(csp);
+}
+
 // Install the Capacitor fetch interceptor BEFORE any code calls fetch('/api/...').
 // On web this is a no-op; on native it routes /api/... URLs to either the
 // configured server (server mode) or the local SQLite handler (standalone).
@@ -41,6 +55,7 @@ installApiFetch();
 // to auto-hide after 1.2s; calling hide() explicitly here as belt-and-suspenders.
 import { Capacitor } from '@capacitor/core';
 import { purgeLegacyPhotoCache } from './lib/photo-blobs.js';
+import { purgePagesKeptAsPictures } from './lib/uploads-cache.js';
 if (Capacitor.isNativePlatform()) {
   (async () => {
     try {
@@ -89,4 +104,6 @@ DB.init()
 
 // See purgeLegacyPhotoCache: clears photo bytes cached by the service
 // worker back when /uploads served them publicly. Runs once per install.
-purgeLegacyPhotoCache();
+// Then, also once, purgePagesKeptAsPictures: pages (a login proxy's sign-in,
+// the app's own) left in that cache in place of pictures.
+purgeLegacyPhotoCache().then(purgePagesKeptAsPictures);

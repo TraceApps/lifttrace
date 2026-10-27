@@ -75,9 +75,11 @@ export function authenticate(req, res, next) {
   //
   // req.authVia says which one decided ('bearer' | 'cookie' | null), for any
   // check that a cookie-borne session needs and a header-borne one doesn't.
-  // (This server has no CSRF middleware: the cookie is SameSite=Lax and
-  // cross-origin requests are refused by the CORS allowlist, so a foreign
-  // page can neither send the cookie with a write nor set a header.)
+  // (This server has no CSRF middleware. The cookie is SameSite=Lax, so a
+  // page on another site can't send it with a write, and CORS (lib/cors.js)
+  // lets only the app's own addresses set a header or read an answer. A page
+  // on the same site, such as a subdomain, still sends the cookie with a
+  // plain form post: CORS never stops a request that needs no preflight.)
   const auth = req.headers.authorization;
   const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (bearer && _ours(bearer)) {

@@ -42,13 +42,16 @@ async function _downloadOne(url) {
     if (stat?.uri) return { url, fileUri: stat.uri };
   } catch {}
 
-  // Download via Capacitor Filesystem (handles binary blobs).
+  // Download via Capacitor Filesystem (handles binary blobs), with the same
+  // check as lib/native-http.js: plain http:// only to a confirmed local
+  // server, never following a redirect.
   try {
-    const res = await Filesystem.downloadFile({
+    const { nativeRequestOptions } = await import('./native-http.js');
+    const res = await Filesystem.downloadFile(nativeRequestOptions({
       path: fileName,
       directory: Directory.Data,
       url,
-    });
+    }));
     return { url, fileUri: res?.path ? `file://${res.path}` : null };
   } catch (e) {
     return { url, error: e?.message || String(e) };
