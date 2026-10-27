@@ -34,9 +34,9 @@ signatures on the receiving end and cannot be retrieved again later.
 | Event | Fires when |
 |---|---|
 | `workout.completed` | A workout session is marked completed. |
-| `body_stat.logged` | Any body-stat value (weight, body fat, a measurement) is logged or updated. |
+| `body_stat.logged` | Any body-stat value (weight, body fat, a measurement) is logged or updated, whether from the app, the `log_body_stat` MCP tool, or `PUT /api/v1/body-stats/:date`. Sent on every save, including a save that changes nothing. |
 | `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
-| `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise. Uses the same record definition the Statistics page and `/api/v1/records` already use. |
+| `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise, whether from the app, the `log_set` MCP tool, or `POST /api/v1/workouts/:date/sets`. Uses the same record definition the Statistics page and `/api/v1/records` already use. One per exercise whose record moved; a save that moves no record (sent again, or lighter) sends none. |
 | `program.advanced` | An active program moves to its next week. |
 | `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. Moving an Android app's own data to a server sends one for each session it brings, as `workout.completed` does for workouts. |
 
@@ -53,11 +53,21 @@ Every delivery is a JSON POST with this envelope:
 ```
 
 `data` for `workout.completed` matches the shape `GET /api/v1/workouts/:date`
-returns. `data` for `pr.set` looks like:
+returns. `data` for `body_stat.logged` is the date and every stat on that
+date after the save, as stored:
 
 ```json
 {
-  "exercise_id": 42,
+  "date": "2026-09-12",
+  "stats": { "weight": 82.4, "bodyFat": 18, "waist": 85 }
+}
+```
+
+`data` for `pr.set` looks like this (`exercise_id` arrives as a string):
+
+```json
+{
+  "exercise_id": "42",
   "exercise_name": "Barbell Squat",
   "date": "2026-09-12",
   "new_max_weight": 140,

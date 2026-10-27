@@ -21,6 +21,8 @@ const lib = new URL('../src/lib/aiTools.js', import.meta.url).href;
 function runIn(TZ) {
   const script = `
     const calls = [];
+    // Track Cardio on, so log_cardio writes (it refuses while off).
+    globalThis.localStorage = { getItem: (k) => (k === 'wl_cardioEnabled' ? 'true' : null) };
     globalThis.fetch = async (path, opts = {}) => { calls.push({ path, method: opts.method || 'GET', body: opts.body }); return { ok: true, json: async () => (opts.method === 'POST' ? { id: 1 } : []) }; };
     const { runTool, cleanRangeArgs } = await import(${JSON.stringify(lib)});
     const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE'); };

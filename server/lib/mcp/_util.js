@@ -48,10 +48,33 @@ export function daysAgoLocal(days) {
  * Standard MCP error result. `isError: true` means "the tool ran but
  * couldn't do what was asked" — protocol-level errors (unknown tool,
  * malformed JSON-RPC) are returned as JSON-RPC error objects by the
- * SDK itself and don't come through here.
+ * SDK itself and don't come through here. With a `code`, structuredContent
+ * carries { error, code } too, the same pair the REST API returns; the
+ * text stays the message alone.
  */
-export function toolError(message) {
-  return { content: [{ type: 'text', text: message }], isError: true };
+export function toolError(message, code) {
+  const result = { content: [{ type: 'text', text: message }], isError: true };
+  if (code) result.structuredContent = { error: message, code };
+  return result;
+}
+
+/**
+ * An error a caller may want to tell apart from the others without reading
+ * its message, such as cardio being off ('cardio_disabled'). The public
+ * REST API returns `code` next to `error` in its 400 body, and an MCP tool
+ * returns it in structuredContent. Only errors made this way carry a code
+ * out: a database error's own `code` (SQLITE_...) never reaches a caller.
+ */
+export class CodedError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** The machine-readable code of a CodedError, else undefined. */
+export function errorCode(e) {
+  return e instanceof CodedError && typeof e.code === 'string' ? e.code : undefined;
 }
 
 /**

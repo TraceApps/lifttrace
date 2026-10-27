@@ -17,6 +17,10 @@ export const CARDIO_OFF_MESSAGE =
   'Cardio is off for this account. Turn on Track Cardio in LiftTrace under Settings > Workout. ' +
   'Already on in the Android app? Update the app, or turn it on in LiftTrace in a browser too, so your server knows.';
 
+// Sent with CARDIO_OFF_MESSAGE as `code` (REST body, MCP structuredContent),
+// so a script can tell this refusal from a bad value without matching text.
+export const CARDIO_DISABLED_CODE = 'cardio_disabled';
+
 // The same limits the MCP log_cardio tool's schema sets, for the REST API.
 export const MAX_ACTIVITY_LENGTH = 100;
 export const MAX_NOTES_LENGTH = 2000;

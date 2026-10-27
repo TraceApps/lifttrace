@@ -16,6 +16,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import {
+  CARDIO_DISABLED_CODE,
   CARDIO_OFF_MESSAGE,
   MAX_ACTIVITY_LENGTH,
   MAX_AVG_HR,
@@ -28,7 +29,7 @@ import {
   isCardioEnabled,
   publicCardioSession,
 } from '../../cardio-log.js';
-import { DATE_RE, todayLocal, toolResult, toolError, validateDateRange } from '../_util.js';
+import { CodedError, DATE_RE, errorCode, todayLocal, toolResult, toolError, validateDateRange } from '../_util.js';
 import { dispatchWebhookEvent } from '../../webhooks.js';
 
 /**
@@ -52,7 +53,7 @@ export function saveCardioSession(userId, input) {
  * POST /api/v1/cardio. Throws a plain Error on bad input.
  */
 export function logCardioCore(userId, args = {}) {
-  if (!isCardioEnabled(db, userId)) throw new Error(CARDIO_OFF_MESSAGE);
+  if (!isCardioEnabled(db, userId)) throw new CodedError(CARDIO_OFF_MESSAGE, CARDIO_DISABLED_CODE);
   const day = args.date || todayLocal();
   if (typeof day !== 'string' || validateDateRange(day, null)) {
     throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
@@ -93,7 +94,7 @@ export function registerLogCardio(server, { userId }) {
       try {
         return toolResult(logCardioCore(userId, args));
       } catch (e) {
-        return toolError(e.message);
+        return toolError(e.message, errorCode(e));
       }
     }
   );

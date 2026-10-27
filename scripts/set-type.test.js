@@ -276,7 +276,8 @@ test('imports carry set_type through the whitelisted exercise row', () => {
 });
 
 test('the pr.set webhook reports hold records', () => {
-  const route = read('../server/routes/workout.js');
+  // Sent from lib/log-webhooks.js for the app's saves and MCP/REST log_set.
+  const route = read('../server/lib/log-webhooks.js');
   assert.match(route, /improvedDuration/);
   assert.match(route, /new_max_duration_sec:/);
   assert.match(read('../server/lib/mcp/tools/get-records.js'), /isTimedSet\(ex, s\) && Number\(s\.duration_sec\) > 0/,

@@ -276,7 +276,7 @@ test('log_cardio refuses writes while cardio is off, before inserting', () => {
   const gate = core.indexOf('isCardioEnabled(db, userId)');
   const insert = core.indexOf('saveCardioSession(');
   assert.ok(gate !== -1 && insert !== -1 && gate < insert, 'the opt-in check comes before the insert');
-  assert.match(core, /throw new Error\(CARDIO_OFF_MESSAGE\)/);
+  assert.match(core, /throw new CodedError\(CARDIO_OFF_MESSAGE, CARDIO_DISABLED_CODE\)/);
   const check = core.indexOf('checkApiCardioInput(args)');
   assert.ok(check !== -1 && check < insert, 'the stricter API checks run before the insert');
   assert.match(core, /validateDateRange\(day, null\)/, 'a date that is not on the calendar is refused');

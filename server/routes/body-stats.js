@@ -3,7 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { mergeStatsObject } from '../lib/workout-merge.js';
-import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { sendBodyStatLogged } from '../lib/log-webhooks.js';
 import { unlinkMediaFile, resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
@@ -155,9 +155,9 @@ router.put('/:date', wrap((req, res) => {
   // body_stat.logged webhook (issue #79). Fires on every save, no
   // "was it new" gate, matching log_body_stat's own always-merge-and-
   // return semantics; no-op in single-user mode (userId null) since a
-  // webhook needs a real account to own it, same as API tokens.
-  try { dispatchWebhookEvent(userId, 'body_stat.logged', { date, stats: merged }); }
-  catch (e) { /* never let a webhook failure block the save */ }
+  // webhook needs a real account to own it, same as API tokens. The same
+  // call logBodyStatCore (MCP, REST) makes; it never throws.
+  sendBodyStatLogged(userId, date, merged);
 
   res.json({ stats: row });
 }));

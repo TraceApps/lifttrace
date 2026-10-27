@@ -54,6 +54,7 @@ import { logBodyStatCore } from '../lib/mcp/tools/log-body-stat.js';
 import { getCardioCore } from '../lib/mcp/tools/get-cardio.js';
 import { logCardioCore } from '../lib/mcp/tools/log-cardio.js';
 import { resolvePhotoFileForUser } from '../lib/body-stat-media.js';
+import { errorCode } from '../lib/mcp/_util.js';
 
 const router = Router();
 
@@ -86,14 +87,16 @@ function requireWriteEnabled(req, res, next) {
 }
 
 // Wraps an xCore() call: runs it, sends the plain result as JSON. A
-// thrown Error (invalid date, exercise not found, etc) maps to 400; any
+// thrown Error (invalid date, exercise not found, etc) maps to 400, with
+// `code` next to `error` when it's a CodedError (cardio_disabled); any
 // other exception falls through to wrap()'s normal 500 path via next(e).
 function core(fn) {
   return wrap(async (req, res) => {
     try {
       res.json(fn(req));
     } catch (e) {
-      res.status(400).json({ error: e.message });
+      const code = errorCode(e);
+      res.status(400).json(code ? { error: e.message, code } : { error: e.message });
     }
   });
 }

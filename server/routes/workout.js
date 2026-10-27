@@ -7,7 +7,7 @@ import { afterWatchFinish } from '../lib/watch-finish.js';
 import { mergeExercises, ensureExerciseUuids, changedUuidsOf } from '../lib/workout-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
-import { getRecordsCore, hasQualifyingSet } from '../lib/mcp/tools/get-records.js';
+import { recordsBeforeSave, sendNewRecords } from '../lib/log-webhooks.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 import { cleanWorkoutRefs, workoutProgramVisible } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
@@ -308,10 +308,9 @@ router.put('/:date', wrap((req, res) => {
   // whole isn't marked done, and that's still a real PR the moment it's
   // saved. Cheap early-exit guard (hasQualifyingSet) so a save that only
   // edits notes or duration never pays for a full-history records scan.
-  let _recordsBefore = null;
-  if (Array.isArray(exercises) && hasQualifyingSet(exercises)) {
-    try { _recordsBefore = getRecordsCore(userId).records; } catch { _recordsBefore = null; }
-  }
+  // The same snapshot and comparison logSetCore (MCP, REST) uses, in
+  // lib/log-webhooks.js.
+  const _recordsBefore = recordsBeforeSave(userId, exercises);
   // program.advanced only matters when this session belongs to a
   // program at all; the actual week comparison happens after the save,
   // nested in the completed 0-to-1 transition below, since session
@@ -408,37 +407,9 @@ router.put('/:date', wrap((req, res) => {
 
   // pr.set webhook (issue #79). Independent of the completed 0-to-1
   // transition above, see the _recordsBefore snapshot's own comment for
-  // why. Fires once per exercise whose max weight or estimated 1-rep
-  // max improved on this save, reusing the exact record definition
-  // get-records.js already uses for GET /api/v1/records and the
-  // Statistics page, so all three agree on what "a record" means.
-  if (_recordsBefore) {
-    try {
-      const recordsAfter = getRecordsCore(userId).records;
-      const beforeByExercise = new Map(_recordsBefore.map(r => [r.exercise_id, r]));
-      for (const after of recordsAfter) {
-        const before = beforeByExercise.get(after.exercise_id);
-        const improvedWeight = after.maxWeight > (before?.maxWeight ?? 0);
-        const improvedE1rm = after.e1rm > (before?.e1rm ?? 0);
-        // Longest hold on a timed exercise (issue #89).
-        const improvedDuration = (after.maxDuration || 0) > (before?.maxDuration ?? 0);
-        if (improvedWeight || improvedE1rm || improvedDuration) {
-          dispatchWebhookEvent(userId, 'pr.set', {
-            exercise_id: after.exercise_id,
-            exercise_name: after.name,
-            date,
-            new_max_weight: after.maxWeight,
-            new_max_reps: after.maxReps,
-            new_e1rm: after.e1rm,
-            previous_max_weight: before?.maxWeight ?? 0,
-            previous_e1rm: before?.e1rm ?? 0,
-            new_max_duration_sec: after.maxDuration || 0,
-            previous_max_duration_sec: before?.maxDuration ?? 0,
-          });
-        }
-      }
-    } catch (e) { /* never let a webhook failure block the save */ }
-  }
+  // why. Once per exercise whose record improved on this save; never
+  // throws, so a webhook failure can't block the save.
+  sendNewRecords(userId, date, _recordsBefore);
 
   res.json({ workout, tombstones: _loadTombstones(userId, date, targetId) });
 }));

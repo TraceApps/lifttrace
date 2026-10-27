@@ -19,6 +19,9 @@ const libJs     = readFileSync(new URL('../server/lib/webhooks.js', import.meta.
 const deliveryJs = readFileSync(new URL('../server/lib/webhook-delivery.js', import.meta.url), 'utf8');
 const workoutJs = readFileSync(new URL('../server/routes/workout.js', import.meta.url), 'utf8');
 const bodyStatsJs = readFileSync(new URL('../server/routes/body-stats.js', import.meta.url), 'utf8');
+const logWebhooksJs = readFileSync(new URL('../server/lib/log-webhooks.js', import.meta.url), 'utf8');
+const logSetJs = readFileSync(new URL('../server/lib/mcp/tools/log-set.js', import.meta.url), 'utf8');
+const logBodyStatJs = readFileSync(new URL('../server/lib/mcp/tools/log-body-stat.js', import.meta.url), 'utf8');
 const dbJs      = readFileSync(new URL('../server/db.js', import.meta.url), 'utf8');
 
 test('webhooks route is mounted at /api/webhooks on the main router', () => {
@@ -88,11 +91,13 @@ test('a test-delivery endpoint exists so a webhook can be verified without waiti
   assert.match(libJs, /export async function sendTestWebhook/);
 });
 
-test('workout.js dispatches workout.completed, pr.set, and program.advanced', () => {
+test('workout.js dispatches workout.completed and program.advanced, and pr.set through log-webhooks.js', () => {
   assert.match(workoutJs, /import \{ dispatchWebhookEvent \} from '\.\.\/lib\/webhooks\.js'/);
   assert.match(workoutJs, /dispatchWebhookEvent\(userId, 'workout\.completed'/);
-  assert.match(workoutJs, /dispatchWebhookEvent\(userId, 'pr\.set'/);
   assert.match(workoutJs, /dispatchWebhookEvent\(userId, 'program\.advanced'/);
+  assert.match(workoutJs, /import \{ recordsBeforeSave, sendNewRecords \} from '\.\.\/lib\/log-webhooks\.js'/);
+  assert.match(workoutJs, /sendNewRecords\(userId, date, _recordsBefore\)/);
+  assert.match(logWebhooksJs, /dispatchWebhookEvent\(userId, 'pr\.set'/);
 });
 
 test('workout.js dispatch calls are wrapped so a webhook failure cannot block the save', () => {
@@ -105,16 +110,33 @@ test('workout.js dispatch calls are wrapped so a webhook failure cannot block th
   // its try/catch later.
   const dispatchCount = (workoutJs.match(/dispatchWebhookEvent\(/g) || []).length;
   const guardCatchCount = (workoutJs.match(/catch \(e\) \{ \/\* never let a webhook failure block the save \*\/ \}/g) || []).length;
-  assert.equal(dispatchCount, 3, 'expected exactly 3 dispatchWebhookEvent call sites in workout.js');
-  assert.equal(guardCatchCount, 3, 'expected each dispatchWebhookEvent call site to have a matching never-block-the-save catch');
+  assert.equal(dispatchCount, 2, 'expected exactly 2 dispatchWebhookEvent call sites in workout.js (pr.set is in log-webhooks.js)');
+  assert.equal(guardCatchCount, 2, 'expected each dispatchWebhookEvent call site to have a matching never-block-the-save catch');
 });
 
-test('body-stats.js dispatches body_stat.logged after every save', () => {
-  assert.match(bodyStatsJs, /import \{ dispatchWebhookEvent \} from '\.\.\/lib\/webhooks\.js'/);
-  assert.match(bodyStatsJs, /dispatchWebhookEvent\(userId, 'body_stat\.logged'/);
+test('log-webhooks.js never lets a webhook failure out to the save', () => {
+  const dispatchCount = (logWebhooksJs.match(/dispatchWebhookEvent\(/g) || []).length;
+  const guardCatchCount = (logWebhooksJs.match(/catch \{ \/\* never let a webhook failure block the save \*\/ \}/g) || []).length;
+  assert.equal(dispatchCount, 2);
+  assert.equal(guardCatchCount, 2);
+});
+
+test('body_stat.logged is sent after every save, from the app route and the MCP/REST core alike', () => {
+  assert.match(bodyStatsJs, /import \{ sendBodyStatLogged \} from '\.\.\/lib\/log-webhooks\.js'/);
+  assert.match(bodyStatsJs, /sendBodyStatLogged\(userId, date, merged\)/);
+  assert.match(logBodyStatJs, /sendBodyStatLogged\(userId, day, merged\)/);
+  assert.match(logWebhooksJs, /dispatchWebhookEvent\(userId, 'body_stat\.logged', \{ date, stats \}\)/);
+});
+
+test('log_set (MCP and REST) snapshots records before its save and sends pr.set after', () => {
+  const before = logSetJs.indexOf('recordsBeforeSave(');
+  const save = logSetJs.indexOf('mutateWorkoutDay(userId');
+  const after = logSetJs.indexOf('sendNewRecords(userId, day, recordsBefore)');
+  assert.ok(before > 0 && save > before && after > save, 'snapshot, save, then compare');
 });
 
 test('pr.set detection is gated by hasQualifyingSet, not run on every save', () => {
-  assert.match(workoutJs, /import \{ getRecordsCore, hasQualifyingSet \} from '\.\.\/lib\/mcp\/tools\/get-records\.js'/);
-  assert.match(workoutJs, /hasQualifyingSet\(exercises\)/);
+  assert.match(workoutJs, /recordsBeforeSave\(userId, exercises\)/);
+  assert.match(logWebhooksJs, /import \{ getRecordsCore, hasQualifyingSet \} from '\.\/mcp\/tools\/get-records\.js'/);
+  assert.match(logWebhooksJs, /hasQualifyingSet\(exercises\)/);
 });

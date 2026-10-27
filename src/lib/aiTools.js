@@ -18,6 +18,7 @@ import { ensureExerciseUuids } from './workout-uuid.js';
 import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settlePendingSave } from '../stores/workout.js';
 import { foldText } from './search-text.js';
 import { OFFLINE_HEADER } from './offline-edits.js';
+import { DB } from './db.js';
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -361,7 +362,7 @@ export const TOOLS = [
   {
     name: 'log_cardio',
     description:
-      "Log a cardio session. Use for runs, rides, rowing, walking, swimming and similar. Do NOT use log_workout or log_set for these; they are for resistance training.",
+      "Log a cardio session. Use for runs, rides, rowing, walking, swimming and similar. Do NOT use log_workout or log_set for these; they are for resistance training. Refused while Track Cardio is off in Settings; if so, tell the user how to turn it on.",
     parameters: {
       type: 'object',
       required: ['activity', 'duration_min'],
@@ -677,6 +678,9 @@ export async function runTool(name, args) {
 
 async function _runTool(name, args) {
   args = args || {};
+  // Before the date check: with cardio off, asking the user to confirm a
+  // date first would be for nothing.
+  if (name === 'log_cardio' && !_cardioOn()) throw new Error(CARDIO_OFF);
   checkWriteDate(name, args);
   if (WORKOUT_WRITES.has(name)) await settlePendingSave(get(currentDate)).catch(() => {});
   if (!RANGE_TOOLS.has(name)) return _dispatch(name, args);
@@ -1085,6 +1089,9 @@ async function _getCardio({ date_from, date_to, activity } = {}) {
   return {
     start: from,
     end: to,
+    // Reads work either way, as get_cardio over MCP and GET /api/v1/cardio
+    // do; this says whether the app is showing cardio at all.
+    cardio_enabled: _cardioOn(),
     count: sessions.length,
     total_minutes: totalMin,
     by_activity: byActivity,
@@ -1092,7 +1099,21 @@ async function _getCardio({ date_from, date_to, activity } = {}) {
   };
 }
 
+// Track Cardio (Settings > Workout) as this device has it: the value the
+// Diary shows the Cardio card by, read from this device's settings so it
+// holds offline and in the Android app with no server.
+function _cardioOn() {
+  try { return !!DB.getSetting('cardioEnabled', false); } catch { return false; }
+}
+
+// Same meaning as the API's refusal (server/lib/cardio-log.js), worded for
+// Trace, which already runs inside LiftTrace.
+export const CARDIO_OFF = 'Cardio is off for this account. Turn on Track Cardio in LiftTrace under Settings > Workout.';
+
 async function _logCardio({ activity, duration_min, distance, distance_unit, avg_hr, notes, date } = {}) {
+  // Logged while it's off, a session would sit where the Diary doesn't show
+  // it. The API and MCP refuse the same way (issue #134).
+  if (!_cardioOn()) throw new Error(CARDIO_OFF);
   if (!activity || !String(activity).trim()) throw new Error('activity is required');
   const mins = Math.floor(Number(duration_min));
   if (!Number.isFinite(mins) || mins <= 0) throw new Error('duration_min must be a positive number of minutes');

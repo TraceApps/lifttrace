@@ -16,11 +16,13 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import db from '../../../db.js';
 import { mutateWorkoutDay } from '../_workout-write.js';
+import { recordsBeforeSave, sendNewRecords } from '../../log-webhooks.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 
 /**
  * Core mutation, shared by the MCP tool below and the public REST API
- * (issue #77) at POST /api/v1/workouts/:date/sets.
+ * (issue #77) at POST /api/v1/workouts/:date/sets. Sends pr.set for a set
+ * that sets a record, as the app's PUT /api/workout/:date does.
  */
 export function logSetCore(userId, { exercise_id, reps, weight, duration_sec, rpe, warmup, completed, date } = {}) {
   const day = date || todayLocal();
@@ -64,6 +66,9 @@ export function logSetCore(userId, { exercise_id, reps, weight, duration_sec, rp
         rpe: rpe ?? null,
       };
 
+  // Records before the save, when this set could move one (pr.set, issue #79).
+  const recordsBefore = recordsBeforeSave(userId, [{ exercise_id, ...(timed ? { set_type: 'time' } : {}), sets: [newSet] }]);
+
   let loggedExercise = null;
   const result = mutateWorkoutDay(userId, day, (exercises) => {
     const next = exercises.map(ex => ({ ...ex, sets: [...(ex.sets || [])] }));
@@ -91,6 +96,7 @@ export function logSetCore(userId, { exercise_id, reps, weight, duration_sec, rp
   // Re-read the merged exercise back out (mutateWorkoutDay may have
   // reconciled concurrent server-side changes since the callback ran).
   const merged = result.exercises.find(ex => ex.exercise_id === exercise_id) || loggedExercise;
+  sendNewRecords(userId, day, recordsBefore);
   return {
     ok: true,
     date: day,

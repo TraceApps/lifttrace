@@ -39,7 +39,9 @@ and `X-RateLimit-Reset`; a `429` response also carries `Retry-After`.
 ## Errors
 
 A bad request (an invalid date, an exercise name with no match) returns
-`400` with `{"error": "..."}`. A missing or invalid token returns `401`;
+`400` with `{"error": "..."}`. Some refusals also carry a `code` to check
+instead of the message, which may change: `cardio_disabled` when cardio is
+off for the account (see [Cardio](#cardio)). A missing or invalid token returns `401`;
 a token lacking the required scope returns `403`.
 
 ## Endpoints
@@ -66,10 +68,10 @@ a token lacking the required scope returns `403`.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight?, rpe?, warmup?, completed?}` or `{exercise_id, duration_sec, weight?, ...}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. For a timed exercise (plank, wall sit, dead hang, carry) send `duration_sec` in whole seconds instead of `reps`; `weight` then means a weighted hold. An exercise already logged by reps that day rejects `duration_sec`, and the reverse, rather than mixing the two. |
-| PUT | `/api/v1/body-stats/:date` | `{weight?, weight_unit?, bodyFat?, waist?, hips?, neck?, chest?, biceps?, thighs?, calves?}` | Merges the given values into that day's stats; omitted fields are left alone. `weight_unit: "lb"` converts to kg before storing. |
+| POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight?, rpe?, warmup?, completed?}` or `{exercise_id, duration_sec, weight?, ...}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. For a timed exercise (plank, wall sit, dead hang, carry) send `duration_sec` in whole seconds instead of `reps`; `weight` then means a weighted hold. An exercise already logged by reps that day rejects `duration_sec`, and the reverse, rather than mixing the two. A set that beats the exercise's record sends the `pr.set` [webhook](webhooks.md). |
+| PUT | `/api/v1/body-stats/:date` | `{weight?, weight_unit?, bodyFat?, waist?, hips?, neck?, chest?, biceps?, thighs?, calves?}` | Merges the given values into that day's stats; omitted fields are left alone. `weight_unit: "lb"` converts to kg before storing. Sends the `body_stat.logged` [webhook](webhooks.md), as a save in the app does. |
 | POST | `/api/v1/body-stats/photos` | `{url, date?}` | Attaches an already-hosted image to a date as a progress photo. `date` defaults to today. |
-| POST | `/api/v1/cardio` | `{activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, date?, external_id?}` | Logs one cardio session. `activity` is up to 100 characters; `duration_min` is minutes, 1 to 1,440, rounded down to whole minutes; `distance` is in km unless `distance_unit` is `mi`, up to 2,000; `avg_hr` is beats per minute up to 300, rounded down to a whole number; `notes` is up to 2,000 characters. `date` defaults to today. Numbers must be sent as JSON numbers, and any other unit than `km` or `mi` is refused rather than guessed. Refused with a 400 while the user has cardio turned off (see [Cardio](#cardio) below). Pass `external_id`, your own id for the session (up to 200 characters), to make the call safe to repeat: if that user already logged a session with the id, it comes back unchanged with `created: false` instead of a second copy. |
+| POST | `/api/v1/cardio` | `{activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, date?, external_id?}` | Logs one cardio session. `activity` is up to 100 characters; `duration_min` is minutes, 1 to 1,440, rounded down to whole minutes; `distance` is in km unless `distance_unit` is `mi`, up to 2,000; `avg_hr` is beats per minute up to 300, rounded down to a whole number; `notes` is up to 2,000 characters. `date` defaults to today. Numbers must be sent as JSON numbers, and any other unit than `km` or `mi` is refused rather than guessed. Refused with a 400 and `"code": "cardio_disabled"` while the user has cardio turned off (see [Cardio](#cardio) below). Pass `external_id`, your own id for the session (up to 200 characters), to make the call safe to repeat: if that user already logged a session with the id, it comes back unchanged with `created: false` instead of a second copy. |
 
 `POST /api/v1/body-stats/photos` takes a URL, not a file: nothing in this
 API handles multipart uploads. Point it at an image you already host, or
@@ -81,8 +83,19 @@ upload route first and then calls this with the URL that returns.
 Cardio is opt-in in LiftTrace, and the API follows the same switch:
 `POST /api/v1/cardio` and the `log_cardio` MCP tool refuse to log while
 **Track Cardio** (Settings > Workout) is off for the token's account, so
-nothing is logged that the app wouldn't show. Reading still works, and
-`GET /api/v1/cardio` says whether it's on in `cardio_enabled`.
+nothing is logged that the app wouldn't show. The refusal is a `400`:
+
+```json
+{
+  "error": "Cardio is off for this account. Turn on Track Cardio in LiftTrace under Settings > Workout. ...",
+  "code": "cardio_disabled"
+}
+```
+
+The `log_cardio` MCP tool returns the same message as its error text, with
+`{"error": "...", "code": "cardio_disabled"}` in `structuredContent`.
+Trace, the assistant in the app, refuses the same way. Reading still works,
+and `GET /api/v1/cardio` says whether it's on in `cardio_enabled`.
 
 The switch syncs to your server, which is how the API knows. Up to 1.4.0
 it was kept on each device only; a device that has it on tells the server

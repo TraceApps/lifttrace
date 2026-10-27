@@ -14,6 +14,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { mergeStatsObject } from '../../workout-merge.js';
+import { sendBodyStatLogged } from '../../log-webhooks.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 
 const LB_PER_KG = 0.45359237;
@@ -35,7 +36,8 @@ const STAT_RANGES = {
 
 /**
  * Core mutation, shared by the MCP tool below and the public REST API
- * (issue #77) at PUT /api/v1/body-stats/:date.
+ * (issue #77) at PUT /api/v1/body-stats/:date. Sends body_stat.logged on
+ * every save, as the app's PUT /api/body-stats/:date does.
  */
 export function logBodyStatCore(userId, args = {}) {
   const { weight_unit, date, ...rawStats } = args;
@@ -69,6 +71,7 @@ export function logBodyStatCore(userId, args = {}) {
     return merged;
   });
   const merged = tx();
+  sendBodyStatLogged(userId, day, merged);
 
   return { ok: true, date: day, logged: stats, stats: merged };
 }
