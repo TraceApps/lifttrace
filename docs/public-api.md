@@ -84,12 +84,12 @@ Cardio is opt-in in LiftTrace, and the API follows the same switch:
 nothing is logged that the app wouldn't show. Reading still works, and
 `GET /api/v1/cardio` says whether it's on in `cardio_enabled`.
 
-The switch syncs to your server, which is how the API knows. Before this
-version it was kept on each device only; a device that has it on tells the
-server the first time it opens after updating. An Android app from before
-this version never does, so if you turned it on there and the API still
-says cardio is off, update the app, or turn on Track Cardio in LiftTrace
-in a browser too.
+The switch syncs to your server, which is how the API knows. Up to 1.4.0
+it was kept on each device only; a device that has it on tells the server
+the first time it opens after updating. An Android app from 1.4.0 or
+earlier never does, so if you turned it on there and the API still says
+cardio is off, update the app, or turn on Track Cardio in LiftTrace in a
+browser too.
 
 `external_id` belongs to the session it was logged with. Deleting that
 session in the app frees the id, so sending it again logs a new one.
