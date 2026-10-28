@@ -4,7 +4,8 @@
  * The Android app replays creates made offline. When the server's answer is
  * lost on the way back (the connection drops after the row is written), the
  * app can't tell the create happened and sends it again, which made a second
- * program, workout day, exercise, cardio session or workout session. A
+ * program, workout day, exercise, cardio session, workout session or coach's
+ * prescription (the web app's queue does the same). A
  * create carries `client_key`, made once on the phone; the server notes the
  * row it made under that key, and the same key again gets that row back
  * instead of a new one.

@@ -1378,6 +1378,50 @@ const scenarios = {
     };
   },
 
+  // A coach on the phone prescribes a workout and the answer is lost on the
+  // way back (the server made it): sent online, then queued; and made
+  // offline, then sent by a sync. Each is one prescription on the server,
+  // as the create's key makes the repeat find it (#134).
+  async coachPrescriptionLostAnswer() {
+    const platform = await import('./platform.mjs');
+    platform.setAuthToken(tokens.other);
+    localStorage.setItem('wl:userId', process.env.LT_OTHER_USER);
+    const athlete = Number(process.env.LT_PHONE_USER);
+    await syncNow();
+    const named = async n => (await web('other', 'GET', `/api/trainer/members/${athlete}/prescriptions`)).filter(p => p.name === n).length;
+    const isCreate = (method, u) => method === 'POST' && /\/api\/trainer\/members\/\d+\/prescriptions$/.test(String(u).split('?')[0]);
+    let lose = 1;
+    globalThis.__fetchHook = (u, i) => (lose > 0 && isCreate(i?.method, u))
+      ? (lose--, realFetch(u, i).then(() => { throw new TypeError('Failed to fetch'); })) : null;
+    await api.createPrescription(athlete, { name: 'Phone Rx Online', exercises: [], date: '2026-10-08' });
+    globalThis.__fetchHook = null;
+    const onlineBefore = { lost: lose === 0, server: await named('Phone Rx Online') };
+    await syncNow(); await syncNow();
+    offline(true);
+    await api.createPrescription(athlete, { name: 'Phone Rx Offline', exercises: [], date: '2026-10-09' });
+    offline(false);
+    let lost = 0;
+    globalThis.__httpHook = async (method, o) => {
+      if (!lost && isCreate(method, o.url)) {
+        lost++;
+        await realFetch(o.url, { method, headers: o.headers, body: JSON.stringify(o.data) });
+        throw new TypeError('Failed to fetch');
+      }
+      return null;
+    };
+    for (let i = 0; i < 5 && !lost; i++) await syncRaw();
+    globalThis.__httpHook = null;
+    const offlineBefore = { lost, server: await named('Phone Rx Offline') };
+    await syncNow(); await syncNow();
+    return {
+      onlineBefore, offlineBefore,
+      online: await named('Phone Rx Online'),
+      offline: await named('Phone Rx Offline'),
+      queue: (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n,
+      refused: refused.length,
+    };
+  },
+
   // A create whose answer was lost: the pull brings the server's copy, which
   // is then edited offline. Sent again, it finds that same row: one copy.
   async lostAnswerEdit() {

@@ -504,6 +504,16 @@ test('made offline, answers lost, then changed or deleted under the phone\'s id:
   assert.equal(out.refused, 0);
 });
 
+test('a prescription a coach makes on the phone whose answer was lost is made once, online and offline (#134)', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('coachPrescriptionLostAnswer');
+  assert.deepEqual(out.onlineBefore, { lost: true, server: 1 }, 'the server made it, and the phone never heard');
+  assert.deepEqual(out.offlineBefore, { lost: 1, server: 1 }, 'made offline, its answer lost on the sync');
+  assert.equal(out.online, 1);
+  assert.equal(out.offline, 1);
+  assert.equal(out.queue, 0);
+  assert.equal(out.refused, 0);
+});
+
 test('the next account never sees or saves what the app held for the last one', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('storesReset');
   assert.deepEqual(out.seen, { gotify: '', radio: '', favorites: [], rest: {}, workout: null });

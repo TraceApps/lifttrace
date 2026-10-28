@@ -253,12 +253,12 @@ export function needsServerNow(fullPath, method) {
 
 // Creates that go into the queue carry a key made here once, so one sent
 // again after its answer was lost makes one row (server/lib/create-keys.js).
-const _QUEUED_CREATE = /^\/api\/(programs|templates|exercises|cardio)$/;
+const _QUEUED_CREATE = /^\/api\/(programs|templates|exercises|cardio)$|^\/api\/trainer\/members\/\d+\/prescriptions$/;
 // The web app's offline layer makes its keys the same way (offline-edits.js).
 const _clientKey = newClientKey;
 
 /** A request that makes a row: a program, program workout, exercise,
- *  cardio session, or a new workout session. */
+ *  cardio session, a coach's prescription, or a new workout session. */
 function _isCreate(method, fullPath, rawBody) {
   const path = String(fullPath).split('?')[0];
   if (method === 'POST' && _QUEUED_CREATE.test(path)) return true;

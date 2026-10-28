@@ -157,6 +157,96 @@ test('only the client answers, while coached; answering twice the same way is fi
   assert.equal((await ok('coach', 'GET', `/api/trainer/members/${ids.client}/prescriptions`)).find(p => p.id === px.id).status, 'pending');
 });
 
+// A prescription sent again after its answer was lost, and one deleted by
+// its create's key before the coach learned its id (#134).
+test('sent again with its key: one prescription, one notification; deleted by key only by its coach', { skip: !ready }, async () => {
+  const K = 'web-rx-0123456789abcdef';
+  const rows = async () => (await ok('coach', 'GET', `/api/trainer/members/${ids.client}/prescriptions`)).filter(p => p.name === 'Keyed Rx');
+  // A notification from the test before may still be on its way.
+  await sleep(500);
+  pushes.length = 0;
+  const first = await prescribe({ name: 'Keyed Rx', client_key: K });
+  assert.ok(await waitFor(() => pushes.some(p => p.path === '/lt-client')));
+  const again = await prescribe({ name: 'Keyed Rx', client_key: K });
+  assert.equal(again.id, first.id, 'answered with the one made');
+  assert.equal(again.client_key, undefined, 'the key is the request\'s, never the row\'s');
+  assert.equal((await rows()).length, 1);
+  await sleep(300);
+  assert.equal(pushes.filter(p => p.path === '/lt-client').length, 1, 'the client hears of it once');
+
+  const byKey = (who, key = K) => call(who, 'DELETE', `/api/trainer/prescriptions/by-key/${key}`);
+  // Another coach's create with the same key makes their own, never
+  // answered with this coach's.
+  const theirs = await ok('coach2', 'POST', `/api/trainer/members/${ids.other}/prescriptions`, { name: 'Keyed Rx', exercises: [], client_key: K });
+  assert.notEqual(theirs.id, first.id);
+  assert.equal(theirs.member_id, ids.other);
+  // And their delete by that key deletes theirs, not this coach's.
+  assert.deepEqual((await byKey('coach2')).data, { ok: true, by_key: true, deleted: true });
+  // The client, and an admin who isn't the coach, delete nothing.
+  assert.equal((await byKey('client')).status, 403);
+  assert.deepEqual((await byKey('admin')).data, { ok: true, by_key: true, deleted: false });
+  // Nor does another coach by its id: answered as one already gone.
+  assert.deepEqual(await ok('coach2', 'DELETE', `/api/trainer/prescriptions/${first.id}`), { ok: true, deleted: false });
+  // A key already used for another client (its row moved there here) is
+  // no repeat of this create: refused, nothing made.
+  {
+    const K3 = 'web-rx-moved-0123456789';
+    const moved = await prescribe({ name: 'Moved Rx', client_key: K3 });
+    const d = db();
+    d.prepare('UPDATE coach_prescriptions SET member_id = ? WHERE id = ?').run(ids.other, moved.id);
+    d.close();
+    const r = await call('coach', 'POST', `/api/trainer/members/${ids.client}/prescriptions`, { name: 'Moved Rx', exercises: [], client_key: K3 });
+    assert.equal(r.status, 409);
+    const d2 = db();
+    assert.equal(d2.prepare(`SELECT COUNT(*) AS c FROM coach_prescriptions WHERE name = 'Moved Rx'`).get().c, 1);
+    d2.prepare('DELETE FROM coach_prescriptions WHERE id = ?').run(moved.id);
+    d2.close();
+  }
+  assert.equal((await rows()).length, 1, 'still there');
+
+  // Its coach: deleted, and asked again, already gone.
+  assert.deepEqual((await byKey('coach')).data, { ok: true, by_key: true, deleted: true });
+  assert.deepEqual(await rows(), []);
+  assert.deepEqual((await byKey('coach')).data, { ok: true, by_key: true, deleted: false });
+  // A delete by id sent again (its answer lost, a second tab) is done too.
+  assert.deepEqual(await ok('coach', 'DELETE', `/api/trainer/prescriptions/${first.id}`), { ok: true, deleted: false });
+  // The create sent again is answered as deleted since: nothing made, no notification.
+  pushes.length = 0;
+  const late = await call('coach', 'POST', `/api/trainer/members/${ids.client}/prescriptions`, { name: 'Keyed Rx', exercises: [], client_key: K });
+  assert.equal(late.status, 410);
+  assert.equal(late.data.gone, true);
+  // Deleted by a key no create has arrived with yet: a late one makes nothing.
+  assert.deepEqual((await byKey('coach', 'web-rx-never-arrived-01')).data, { ok: true, by_key: true, deleted: false });
+  assert.equal((await call('coach', 'POST', `/api/trainer/members/${ids.client}/prescriptions`, { name: 'Keyed Rx', exercises: [], client_key: 'web-rx-never-arrived-01' })).status, 410);
+  assert.deepEqual(await rows(), []);
+  await sleep(300);
+  assert.equal(pushes.filter(p => p.path === '/lt-client').length, 0, 'no notification for either');
+  assert.equal((await byKey('coach', 'short')).status, 400);
+
+  // Coaching that ended: its coach can't delete it by key or by id, and a
+  // repeat of the create makes nothing.
+  const K2 = 'web-rx-ended-0123456789';
+  const ended = await ok('coach2', 'POST', `/api/trainer/members/${ids.other}/prescriptions`, { name: 'Ended Rx', exercises: [], client_key: K2 });
+  const pairing = (await ok('other', 'GET', '/api/coaching/state')).as_client.id;
+  const d = db();
+  d.prepare(`UPDATE coach_clients SET status = 'ended' WHERE id = ?`).run(pairing);
+  d.close();
+  try {
+    const r = await byKey('coach2', K2);
+    assert.equal(r.status, 404);
+    assert.equal(r.data.by_key, true, 'from the route, not a server without it');
+    assert.equal((await call('coach2', 'DELETE', `/api/trainer/prescriptions/${ended.id}`)).status, 404);
+    assert.equal((await call('coach2', 'POST', `/api/trainer/members/${ids.other}/prescriptions`, { name: 'Ended Rx', exercises: [], client_key: K2 })).status, 404);
+    const d2 = db();
+    assert.equal(d2.prepare('SELECT COUNT(*) AS c FROM coach_prescriptions WHERE id = ?').get(ended.id).c, 1, 'kept');
+    d2.close();
+  } finally {
+    const d3 = db();
+    d3.prepare(`UPDATE coach_clients SET status = 'active' WHERE id = ?`).run(pairing);
+    d3.close();
+  }
+});
+
 test('prescriptions from before the Accept step count as accepted, and nothing asks again', { skip: !ready }, async () => {
   // As an older server left them: no status column. Write one the way it
   // did (no status given), then restart (the column's default applies).

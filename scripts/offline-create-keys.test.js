@@ -52,7 +52,7 @@ const cleanEnv = () => {
 
 const PW = 'Str0ng-Pass-77!x';
 let proc = null, dir = null, proxy = null, receiver = null;
-let base = null, through = null, token = null, secret = null;
+let base = null, through = null, token = null, secret = null, clientId = null;
 const deliveries = [];
 // Requests matching one of these reach the server, and its answer is lost.
 const drops = [];
@@ -203,6 +203,15 @@ test.before(async () => {
   secret = hook.secret;
   assert.ok(secret, JSON.stringify(hook));
   await call('PUT', '/api/settings', { key: 'cardioEnabled', value: true });
+
+  // A client the signed-in account (an admin, who may coach) coaches, for
+  // prescriptions.
+  const made = await call('POST', '/api/auth/register', { username: 'client', password: PW, role: 'member' });
+  clientId = made.user.id;
+  const clientToken = (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'client', password: PW }) })).json()).token;
+  const asked = await call('POST', `/api/trainer/members/${clientId}`, {});
+  const accepted = await fetch(`${base}/api/coaching/pairings/${asked.id}/accept`, { method: 'POST', headers: { Authorization: `Bearer ${clientToken}` } });
+  assert.equal(accepted.status, 200);
 });
 
 test.after(async () => {
@@ -590,4 +599,115 @@ test('deleted again while the first delete is on its way up: done, not refused',
     assert.deepEqual(await del(token, mine.id), { status: 200, data: { ok: true, deleted: false } });
     assert.equal(await cardioOn('2026-04-18'), 0);
   }
+});
+
+// A coach's prescription is made through the same queue (#134): made, its
+// answer lost, then deleted before the server's id was known, it was dropped
+// here with its create while the server kept it, and the client still saw
+// it. Sent again after a lost answer, it made a second one.
+const prescriptionsNamed = async (name) => (await call('GET', `/api/trainer/members/${clientId}/prescriptions`)).filter(p => p.name === name);
+const rx = (name) => ({ name, exercises: [], date: '2026-05-01', notes: null });
+
+test('a prescription whose answer was lost online is made once', opts, async () => {
+  const { mod, env, send } = await page();
+  const path = `/api/trainer/members/${clientId}/prescriptions`;
+  drops.push({ method: 'POST', path });
+  const res = await send('POST', path, rx('Rx once 0501'));
+  assert.equal((await res.json()).queued, true, 'the lost answer queued it');
+  await drained(mod, env);
+  assert.equal((await prescriptionsNamed('Rx once 0501')).length, 1);
+  assert.deepEqual(await mod.refusedChanges(), []);
+});
+
+test('a prescription deleted before its lost answer came back is deleted on the server too', opts, async () => {
+  const { mod, env, send } = await page();
+  const path = `/api/trainer/members/${clientId}/prescriptions`;
+  // Made with no connection, sent by a replay whose answer was lost.
+  setOnline(false);
+  const first = await (await send('POST', path, rx('Rx gone 0502'))).json();
+  assert.ok(first.id < 0, 'known by a temporary id');
+  setOnline(true);
+  drops.push({ method: 'POST', path });
+  await mod.flushOutbox();
+  assert.equal(drops.length, 0, 'the server made it, and its answer was lost');
+  assert.equal((await prescriptionsNamed('Rx gone 0502')).length, 1, 'on the server');
+  // The coach takes it back before the server's id is known here.
+  await mod.offlineFetch(`/api/trainer/prescriptions/${first.id}`, { method: 'DELETE' }, browserFetch);
+  await drained(mod, env);
+  assert.deepEqual(await prescriptionsNamed('Rx gone 0502'), [], 'deleted on the server as well');
+  assert.deepEqual(await mod.refusedChanges(), []);
+});
+
+test('a prescription deleted after its create was lost twice is deleted on the server too', opts, async () => {
+  const { mod, env, send } = await page();
+  const path = `/api/trainer/members/${clientId}/prescriptions`;
+  drops.push({ method: 'POST', path }, { method: 'POST', path });
+  const first = await (await send('POST', path, rx('Rx gone 0507'))).json();
+  assert.equal(first.queued, true);
+  for (let i = 0; i < 200 && drops.length; i++) await sleep(25);
+  assert.equal(drops.length, 0, 'the server made it, and both answers were lost');
+  await sleep(100);
+  assert.equal((await prescriptionsNamed('Rx gone 0507')).length, 1, 'on the server, once');
+  await mod.offlineFetch(`/api/trainer/prescriptions/${first.id}`, { method: 'DELETE' }, browserFetch);
+  await mod.flushOutbox();
+  await drained(mod, env);
+  assert.deepEqual(await prescriptionsNamed('Rx gone 0507'), [], 'deleted on the server as well');
+  assert.deepEqual(await mod.refusedChanges(), []);
+});
+
+test('a prescription changed after its lost answer: the change goes to the one made', opts, async () => {
+  const { mod, env, send } = await page();
+  const path = `/api/trainer/members/${clientId}/prescriptions`;
+  drops.push({ method: 'POST', path }, { method: 'POST', path });
+  const first = await (await send('POST', path, rx('Rx edit 0503'))).json();
+  for (let i = 0; i < 200 && drops.length; i++) await sleep(25);
+  assert.equal(drops.length, 0);
+  await sleep(100);
+  await send('PUT', `/api/trainer/prescriptions/${first.id}`, { notes: 'go easy', date: '2026-05-04' });
+  await mod.flushOutbox();
+  await drained(mod, env);
+  const rows = await prescriptionsNamed('Rx edit 0503');
+  assert.deepEqual(rows.map(r => [r.notes, r.date]), [['go easy', '2026-05-04']]);
+  assert.deepEqual(await mod.refusedChanges(), []);
+});
+
+// A server from before keeps no keys for prescriptions: sending the create
+// again would make a second one (and tell the client twice) while the first
+// stayed, so the coach is told to remove it once it shows.
+test('a server from before deletes by key: the prescription is not made again, and the coach is told', opts, async () => {
+  oldServer = true;
+  try {
+    const { mod, env, send } = await page();
+    const path = `/api/trainer/members/${clientId}/prescriptions`;
+    drops.push({ method: 'POST', path }, { method: 'POST', path });
+    const first = await (await send('POST', path, rx('Rx old 0505'))).json();
+    for (let i = 0; i < 200 && drops.length; i++) await sleep(25);
+    await sleep(100);
+    assert.equal((await prescriptionsNamed('Rx old 0505')).length, 1);
+    const before = sent.length;
+    await mod.offlineFetch(`/api/trainer/prescriptions/${first.id}`, { method: 'DELETE' }, browserFetch);
+    await drained(mod, env);
+    assert.deepEqual(sent.slice(before).filter(r => /Rx old 0505/.test(r)), [], 'not sent again');
+    const left = await prescriptionsNamed('Rx old 0505');
+    assert.equal(left.length, 1, 'still there, to remove by its id');
+    const refused = await mod.refusedChanges();
+    assert.equal(refused.length, 1);
+    assert.match(refused[0].reason, /too old/);
+    // Removed again once it shows: gone.
+    await mod.offlineFetch(`/api/trainer/prescriptions/${left[0].id}`, { method: 'DELETE' }, browserFetch);
+    await drained(mod, env);
+    assert.deepEqual(await prescriptionsNamed('Rx old 0505'), []);
+  } finally { oldServer = false; }
+});
+
+test('a prescription made and deleted before it was ever tried: neither goes up', opts, async () => {
+  const { mod, env, send } = await page();
+  const before = sent.length;
+  setOnline(false);
+  const p = await (await send('POST', `/api/trainer/members/${clientId}/prescriptions`, rx('Rx never 0506'))).json();
+  await send('DELETE', `/api/trainer/prescriptions/${p.id}`);
+  setOnline(true);
+  await drained(mod, env);
+  assert.deepEqual(sent.slice(before).filter(r => !r.startsWith('GET ') && /Rx never 0506|\/-\d/.test(r)), [], 'nothing sent');
+  assert.deepEqual(await prescriptionsNamed('Rx never 0506'), []);
 });

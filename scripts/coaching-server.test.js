@@ -225,11 +225,14 @@ const GUARDED = [
 ];
 // Not about one client: the coach's own lists, asking someone, read state.
 const NOT_ABOUT_ONE_CLIENT = [['GET', '/members'], ['GET', '/unassigned-members'], ['POST', '/members/:id'], ['GET', '/activity'], ['POST', '/activity/seen']];
+// About one client by a key, not an id (a delete by the key of the create
+// that made it, #134): tested below with the same cases.
+const BY_KEY = [['DELETE', '/prescriptions/by-key/:key']];
 
 test('every trainer route is either guarded here or about no one client', { skip: !ready }, () => {
   const src = readFileSync(new URL('../server/routes/trainer.js', import.meta.url), 'utf8');
   const routes = [...src.matchAll(/router\.(get|post|put|patch|delete)\('([^']+)'/g)].map(([, m, p]) => `${m.toUpperCase()} ${p}`).sort();
-  const known = [...GUARDED, ...NOT_ABOUT_ONE_CLIENT].map(([m, p]) => `${m} ${p}`).sort();
+  const known = [...GUARDED, ...NOT_ABOUT_ONE_CLIENT, ...BY_KEY].map(([m, p]) => `${m} ${p}`).sort();
   assert.deepEqual(routes, known, 'a new coach route needs a privacy test');
 });
 
@@ -271,6 +274,15 @@ test('privacy: own client, another coach\'s client, pending, ended, non-coach, a
     for (const [who, client, want, what] of cases) {
       const [path, body] = fill(m, p, who, client);
       const r = await call(who, m, path, body);
+      // Another coach's prescription (or an admin's who isn't its coach)
+      // answers as one already gone, so nobody learns which ids are
+      // someone else's (#134); it is kept all the same.
+      if (m === 'DELETE' && p === '/prescriptions/:id' && who !== 'coach1' && want === 404) {
+        assert.deepEqual([r.status, r.data], [200, { ok: true, deleted: false }], `${m} ${path} as ${what}`);
+        assert.deepEqual(await call(who, m, '/api/trainer/prescriptions/987654', body), r, `${what}: the same as no such prescription`);
+        assert.equal(readRow(`SELECT COUNT(*) AS c FROM coach_prescriptions WHERE id = ${target[client].px}`).c, 1, `${what}: kept`);
+        continue;
+      }
       assert.equal(r.status, want, `${m} ${path} as ${what}: ${r.status} ${JSON.stringify(r.data).slice(0, 160)}`);
     }
   }
@@ -283,6 +295,22 @@ test('privacy: own client, another coach\'s client, pending, ended, non-coach, a
     assert.equal(a.status, want === 403 ? 403 : 404, `assign as ${what}: ${a.status}`);
     const d = await call(who, 'DELETE', `/api/programs/${pid}/assign/${ids[client]}`);
     assert.equal(d.status, want === 403 ? 403 : 404, `unassign as ${what}: ${d.status}`);
+  }
+  // By the key of the create that made it: the same rule. Keys are each
+  // account's own, so another coach's or an admin's names nothing of
+  // coach1's; coach1's for a client not (or no longer) coached is refused.
+  const keyOf = (client) => {
+    const key = `rx-key-${client}-0123456789`;
+    const d = db();
+    try { d.prepare(`INSERT OR REPLACE INTO create_keys (owner, client_key, table_name, row_id) VALUES (?, ?, 'coach_prescriptions', ?)`).run(String(ids.coach1), key, target[client].px); } finally { d.close(); }
+    return key;
+  };
+  for (const [who, client, want, what] of cases) {
+    const r = await call(who, 'DELETE', `/api/trainer/prescriptions/by-key/${keyOf(client)}`);
+    if (want === 403) assert.equal(r.status, 403, `by key as ${what}`);
+    else if (who === 'coach1') assert.deepEqual([r.status, r.data.by_key], [404, true], `by key as ${what}: ${JSON.stringify(r.data)}`);
+    else assert.deepEqual(r.data, { ok: true, by_key: true, deleted: false }, `by key as ${what}`);
+    assert.equal(readRow(`SELECT COUNT(*) AS c FROM coach_prescriptions WHERE id = ${target[client].px}`).c, 1, `by key as ${what}: kept`);
   }
   // Nothing written by anyone refused.
   const notes = readRow(`SELECT COUNT(*) AS c FROM coach_feedback WHERE note LIKE 'Note by %'`).c;
@@ -298,6 +326,7 @@ test('privacy: own client, another coach\'s client, pending, ended, non-coach, a
   }
   assert.equal((await call('coach1', 'POST', `/api/programs/${prog.id}/assign`, { user_id: ids.client1 })).status, 200);
   assert.equal((await call('coach1', 'DELETE', `/api/programs/${prog.id}/assign/${ids.client1}`)).status, 200);
+  assert.deepEqual(await ok('coach1', 'DELETE', `/api/trainer/prescriptions/by-key/${keyOf('client1')}`), { ok: true, by_key: true, deleted: true });
 });
 
 test('privacy: set videos reach the client and their coach only', { skip: !ready }, async () => {

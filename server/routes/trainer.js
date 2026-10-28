@@ -8,6 +8,7 @@ import { pushNotify } from '../lib/push-notify.js';
 import { setVolume } from '../lib/volume.js';
 import { sendCoachFeedback, isEmailConfigured } from '../email.js';
 import { guardClient, activePairing, requireCoachRole, requestClient, endPairing, person, notifyPrescription } from '../lib/coaching.js';
+import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -26,7 +27,9 @@ function clientOut(u) {
 // Every route about one client goes through guardClient (lib/coaching.js):
 // an active pairing between this coach and this client, accepted by the
 // client. Another coach's client, a request still waiting, coaching that
-// ended, and an admin who isn't the coach all get the same 404.
+// ended, and an admin who isn't the coach all get the same 404. (A delete of
+// another coach's prescription answers as one already gone, deleting
+// nothing: _deletePrescription.)
 
 // GET /api/trainer/members: this coach's clients, each one who accepted.
 router.get('/members', wrap((req, res) => {
@@ -338,6 +341,14 @@ router.get('/members/:id/prescriptions', wrap((req, res) => {
 router.post('/members/:id/prescriptions', wrap((req, res) => {
   const memberId = parseInt(req.params.id);
   if (!guardClient(req, res, memberId)) return;
+  // Sent again after its answer was lost (the web app's queue): the one
+  // made the first time, with no second notification (create-keys.js).
+  // Deleted since: done, nothing to make.
+  const before = createdBefore(req, req.user.id, 'coach_prescriptions');
+  if (before?.gone) return answerGone(res);
+  if (before && before.trainer_id === req.user.id && before.member_id === memberId) return res.json(parsePrescription(before));
+  // The same key for another client: not a repeat of this create.
+  if (before) return res.status(409).json({ error: 'client_key already used' });
   const { date, name, exercises, notes } = req.body || {};
   const template_id = req.body?.template_id == null || req.body.template_id === '' ? null : toId(req.body.template_id);
   if (req.body?.template_id != null && req.body.template_id !== '' && !template_id) {
@@ -363,6 +374,7 @@ router.post('/members/:id/prescriptions', wrap((req, res) => {
     notes || null
   );
   const row = db.prepare('SELECT * FROM coach_prescriptions WHERE id = ?').get(result.lastInsertRowid);
+  rememberCreated(req, req.user.id, 'coach_prescriptions', row.id);
   notifyPrescription(req.user.id, memberId);
   res.json(parsePrescription(row));
 }));
@@ -496,15 +508,32 @@ router.post('/activity/seen', wrap((req, res) => {
 }));
 
 // DELETE /api/trainer/prescriptions/:id — retract
-router.delete('/prescriptions/:id', wrap((req, res) => {
-  const id = parseInt(req.params.id);
-  const row = db.prepare('SELECT * FROM coach_prescriptions WHERE id = ?').get(id);
-  // Only the coach who prescribed it, while still coaching that client.
-  if (!row || row.trainer_id !== req.user.id || !activePairing(req.user.id, row.member_id)) {
-    return res.status(404).json({ error: 'Prescription not found' });
+router.delete('/prescriptions/:id', wrap((req, res) => _deletePrescription(req, res, parseInt(req.params.id))));
+
+// DELETE /api/trainer/prescriptions/by-key/:key  the prescription a create
+// with this client_key made, deleted before its maker learned its id
+// (create-keys.js rowForKey). Keys are this coach's own: another coach's
+// or a client's key names nothing here. Made by no create yet: one
+// arriving later makes nothing.
+router.delete('/prescriptions/by-key/:key', wrap((req, res) => {
+  const found = rowForKey(req.user.id, 'coach_prescriptions', req.params.key);
+  if (!found) return res.status(400).json({ error: 'client_key required' });
+  if (found.id == null) return res.json({ ok: true, by_key: true, deleted: false });
+  return _deletePrescription(req, res, found.id, { by_key: true });
+}));
+
+function _deletePrescription(req, res, id, extra = {}) {
+  const row = db.prepare('SELECT * FROM coach_prescriptions WHERE id = ? AND trainer_id = ?').get(id, req.user.id);
+  // Already gone is still a success, as for cardio: a delete sent again
+  // (its answer lost, a second tab, a double tap) is done, not refused.
+  // Another coach's answers the same, so nobody learns which ids are theirs.
+  if (!row) return res.json({ ok: true, deleted: false, ...extra });
+  // Only while still coaching that client.
+  if (!activePairing(req.user.id, row.member_id)) {
+    return res.status(404).json({ error: 'Prescription not found', ...extra });
   }
   db.prepare('DELETE FROM coach_prescriptions WHERE id = ?').run(id);
-  res.json({ ok: true });
-}));
+  res.json({ ok: true, deleted: true, ...extra });
+}
 
 export default router;

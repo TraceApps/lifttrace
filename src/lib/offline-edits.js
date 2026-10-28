@@ -177,11 +177,15 @@ export const newClientKey = () => {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 };
 
+// Creates the server keeps a key for, besides a new workout of the day.
+const _KEYED = ['cardio-create', 'exercise-create', 'prescription-create'];
+
 /** Does this write make a row the server keeps a key for: a cardio
- *  session, an exercise, or a new workout of the day (`new_session`)? */
+ *  session, an exercise, a coach's prescription, or a new workout of the
+ *  day (`new_session`)? */
 export function takesClientKey(op, body) {
   if (!op || !body || typeof body !== 'object' || Array.isArray(body)) return false;
-  if (op.kind === 'cardio-create' || op.kind === 'exercise-create') return true;
+  if (_KEYED.includes(op.kind)) return true;
   return op.kind === 'workout' && !!body.new_session && body.id == null;
 }
 
@@ -189,7 +193,7 @@ export function takesClientKey(op, body) {
  *  (server/lib/create-keys.js rowForKey). */
 export function isKeyedCreate(op) {
   if (!op?.body?.client_key || typeof op.body.client_key !== 'string') return false;
-  if (op.kind === 'cardio-create' || op.kind === 'exercise-create') return true;
+  if (_KEYED.includes(op.kind)) return true;
   return op.kind === 'workout' && !!op.body.new_session && op.tempId != null;
 }
 
@@ -212,6 +216,15 @@ export function byKeyPath(op) {
   const path = pathOf(op.path);
   const base = op.kind === 'workout-delete' ? path.replace(/\/\d{4}-\d{2}-\d{2}$/, '') : path.replace(/\/-?\d+$/, '');
   return `${base}/by-key/${encodeURIComponent(op.byKey.key)}`;
+}
+
+/** Where a change of a keyed create's row goes once the server's id for
+ *  it is known: next to the create (`/api/cardio/:id`), except for a
+ *  prescription, made under its client (`/api/trainer/members/:id/
+ *  prescriptions`) and changed at `/api/trainer/prescriptions/:id`. */
+export function editPathWithId(op, id) {
+  if (op.kind === 'prescription-create') return `/api/trainer/prescriptions/${id}`;
+  return `${pathOf(op.path)}/${id}`;
 }
 
 /** The delete's own path, naming the row by the id the server gave it. */

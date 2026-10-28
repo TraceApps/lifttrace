@@ -8,7 +8,7 @@ import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, orphanWorkoutSave, opsAsKnown,
-  newClientKey, takesClientKey, isKeyedCreate, deleteOfSent, byKeyPath, deletePathWithId,
+  newClientKey, takesClientKey, isKeyedCreate, deleteOfSent, byKeyPath, deletePathWithId, editPathWithId,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -662,7 +662,7 @@ test("a workout's queued saves go up saying everything any of them changed", () 
   assert.equal(two.body.changed_uuids, undefined);
 });
 
-test('creates the server keeps a key for take one: cardio, an exercise, a new workout of the day (#134)', () => {
+test('creates the server keeps a key for take one: cardio, an exercise, a prescription, a new workout of the day (#134)', () => {
   const take = (method, url, body) => takesClientKey(writeOp(method, url, body), body);
   assert.equal(take('POST', '/api/cardio', { date: '2026-04-01', activity: 'Run' }), true);
   assert.equal(take('POST', '/api/exercises', { name: 'Curl' }), true);
@@ -672,7 +672,9 @@ test('creates the server keeps a key for take one: cardio, an exercise, a new wo
   assert.equal(take('PUT', '/api/workout/2026-04-01', { id: 4, new_session: true }), false);
   // Edits, and creates the server keeps no key for.
   assert.equal(take('PUT', '/api/cardio/5', { notes: 'x' }), false);
-  assert.equal(take('POST', '/api/trainer/members/3/prescriptions', { name: 'Legs' }), false);
+  assert.equal(take('POST', '/api/trainer/members/3/prescriptions', { name: 'Legs' }), true);
+  assert.equal(take('PUT', '/api/trainer/prescriptions/5', { notes: 'x' }), false);
+  assert.equal(take('POST', '/api/prescriptions/5/answer', { answer: 'accept' }), false);
   assert.equal(take('PUT', '/api/settings', { key: 'units', value: 'kg' }), false);
   assert.equal(takesClientKey(null, {}), false);
 });
@@ -730,10 +732,21 @@ test('deleted while a create that was tried still waits: the delete goes, by its
   }
   // A create from before keys can't be found by one: as before.
   assert.deepEqual(collapseOps([{ ...create, sent: true, body: { ...create.body, client_key: undefined } }, del]), []);
-  // Nor can a coach's prescription (no key).
-  const rx = { seq: 1, method: 'POST', path: '/api/trainer/members/3/prescriptions', body: { note: 'x', client_key: 'k-0123456789' }, kind: 'prescription-create', key: 'prescription:-4', tempId: -4, id: -4, sent: true };
-  assert.equal(isKeyedCreate(rx), false);
-  assert.deepEqual(collapseOps([rx, { seq: 2, method: 'DELETE', path: '/api/trainer/prescriptions/-4', kind: 'prescription-delete', key: 'prescription:-4', id: -4 }]), []);
+  // A coach's prescription goes by its key too (#134), at its own route,
+  // and a change of it once its id is known goes where prescriptions change.
+  const rx = { seq: 1, method: 'POST', path: '/api/trainer/members/3/prescriptions', body: { name: 'x', client_key: 'k-rx-0123456789' }, kind: 'prescription-create', key: 'prescription:-4', tempId: -4, id: -4, sent: true };
+  assert.equal(isKeyedCreate(rx), true);
+  const [rxDel] = collapseOps([rx, { seq: 2, method: 'DELETE', path: '/api/trainer/prescriptions/-4', kind: 'prescription-delete', key: 'prescription:-4', id: -4 }]);
+  assert.equal(rxDel.kind, 'prescription-delete');
+  assert.equal(rxDel.byKey.path, '/api/trainer/members/3/prescriptions');
+  assert.equal(byKeyPath(rxDel), '/api/trainer/prescriptions/by-key/k-rx-0123456789');
+  assert.equal(deletePathWithId(rxDel, 8), '/api/trainer/prescriptions/8');
+  assert.equal(editPathWithId(rx, 8), '/api/trainer/prescriptions/8');
+  assert.equal(editPathWithId(create, 41), '/api/cardio/41');
+  // Never tried, or queued by an earlier version with no key: as before.
+  assert.deepEqual(collapseOps([{ ...rx, sent: undefined }, { seq: 2, method: 'DELETE', path: '/api/trainer/prescriptions/-4', kind: 'prescription-delete', key: 'prescription:-4', id: -4 }]), []);
+  assert.equal(isKeyedCreate({ ...rx, body: { name: 'x' } }), false);
+  assert.deepEqual(collapseOps([{ ...rx, body: { name: 'x' } }, { seq: 2, method: 'DELETE', path: '/api/trainer/prescriptions/-4', kind: 'prescription-delete', key: 'prescription:-4', id: -4 }]), []);
 });
 
 test('an exercise or a new workout deleted after its create was tried goes by its key too', () => {

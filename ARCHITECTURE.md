@@ -199,11 +199,15 @@ writes go into an outbox that shows at once and is replayed later against the
 same routes the Android app replays its queue against, so the server merges a
 browser's edits exactly as it merges a phone's. New rows get temporary ids
 mapped to real ones after they go up, and creates carry a `client_key`, as
-the phone's do. A create and a delete of the same row both still waiting
+the phone's do (a cardio session, an exercise, a coach's prescription, a new
+workout of the day). A create and a delete of the same row both still waiting
 cancel out only when the create was never tried; once tried, the server
 may have made it with its answer lost, so the delete goes by the create's
 key (`DELETE .../by-key/:key`, which also stops a late create making
-anything). A Web Lock stops two tabs sending at
+anything). A server without that route gets the create again, then a delete
+by id, except a prescription: a server from before keeps no key for one, so
+it would make a second, and the coach is told to remove it again if it shows
+instead. A Web Lock stops two tabs sending at
 once, and a BroadcastChannel keeps them in step. Not built on Background Sync
 (Safari lacks it): the page flushes on a backoff, on `online`, and when the
 tab comes to the front.

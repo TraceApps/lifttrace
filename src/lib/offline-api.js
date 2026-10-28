@@ -23,7 +23,7 @@ import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs, OFFLINE_HEADER,
   answerWithOps, queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, orphanWorkoutSave, opsAsKnown,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, newClientKey, takesClientKey,
-  isKeyedCreate, byKeyPath, deletePathWithId,
+  isKeyedCreate, byKeyPath, deletePathWithId, editPathWithId,
 } from './offline-edits.js';
 // Loaded with everything else, never fetched on demand: a picture is kept
 // exactly when there is no connection to fetch a separate file with, and a
@@ -600,7 +600,7 @@ async function _flushOnce() {
       let edit;
       try {
         const { client_key, ...edits } = op.edits;
-        edit = await send(`${pathOf(path)}/${real}`, { method: 'PUT', credentials: 'include', headers, body: JSON.stringify(remapIds(edits, map)) });
+        edit = await send(editPathWithId({ ...op, path }, real), { method: 'PUT', credentials: 'include', headers, body: JSON.stringify(remapIds(edits, map)) });
       } catch (err) {
         stopped = isOfflineError(err) ? { offline: true } : { error: err.message || 'failed' };
         break;
@@ -610,7 +610,7 @@ async function _flushOnce() {
         try { message = (await edit.clone().json())?.error || message; } catch { /* not json */ }
         if (shouldRetryStatus(edit.status)) { stopped = { error: message }; break; }
         refused.push({ at: Date.now() * 1000 + (_refusedSeq = (_refusedSeq + 1) % 1000), what: describeOp({ ...op, kind: op.kind.replace('-create', '-update') }), reason: message });
-        console.error(`[offline] your server refused ${describeOp({ ...op, kind: op.kind.replace('-create', '-update') })}: ${message} (PUT ${pathOf(path)}/${real})`);
+        console.error(`[offline] your server refused ${describeOp({ ...op, kind: op.kind.replace('-create', '-update') })}: ${message} (PUT ${editPathWithId({ ...op, path }, real)})`);
       }
     }
     if (op.key) done.add(op.key);
@@ -694,7 +694,13 @@ async function _deleteByKey(op, send, map) {
   let answer = null;
   try { answer = await res.clone().json(); } catch { /* not json */ }
   if (res.ok && answer?.by_key === true) return {};
-  if (!res.ok && res.status !== 404) return failed(res);
+  // Not found by a server that has the route (a prescription of a client
+  // no longer coached): its answer, not a server from before.
+  if (!res.ok && (res.status !== 404 || (op.kind === 'prescription-delete' && answer?.by_key === true))) return failed(res);
+  // A server from before keeps no keys for prescriptions: sent again, the
+  // create would make a second one (and tell the client twice) while the
+  // first stayed. Said instead, so the coach removes it once it shows.
+  if (op.kind === 'prescription-delete') return { refused: 'This server is too old to remove it yet. If it shows in the list, remove it again.' };
   // Dated as the create was, as a replay of it is: dated now, it would
   // count as an edit made after the delete, which then loses to it.
   const again = { 'Content-Type': 'application/json' };
