@@ -69,7 +69,8 @@ a token lacking the required scope returns `403`.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight?, rpe?, warmup?, completed?}` or `{exercise_id, duration_sec, weight?, ...}` | Appends one set to an exercise on that day, creating the exercise entry if it isn't logged yet. `exercise_id` comes from the exercises search endpoint. For a timed exercise (plank, wall sit, dead hang, carry) send `duration_sec` in whole seconds instead of `reps`; `weight` then means a weighted hold. An exercise already logged by reps that day rejects `duration_sec`, and the reverse, rather than mixing the two. A set that beats the exercise's record sends the `pr.set` [webhook](webhooks.md). |
+| POST | `/api/v1/workouts/:date/start` | `{template_id?}` | Starts a program's workout day on that date, as Load Workout in the app does (see [Program workouts](#program-workouts)). Without `template_id`, the active program's next day. Safe to repeat: the workout already started comes back with `started: false`. MCP: `start_program_workout`. |
+| POST | `/api/v1/workouts/:date/sets` | `{exercise_id, reps, weight?, rpe?, warmup?, completed?, workout_id?}` or `{exercise_id, duration_sec, weight?, ...}` | Logs one set to an exercise on that day. In an unfinished workout with a planned set of that exercise still to do (a program day), it fills the next one, as ticking it in the app does; otherwise it adds the set, creating the exercise entry if it isn't logged yet (see [Program workouts](#program-workouts)). `exercise_id` comes from the exercises search endpoint. For a timed exercise (plank, wall sit, dead hang, carry) send `duration_sec` in whole seconds instead of `reps`; `weight` then means a weighted hold. An exercise already logged by reps that day rejects `duration_sec`, and the reverse, rather than mixing the two. The answer says which workout took it (`workout_id`) and whether it filled a planned set (`filled_planned_set`). A set that beats the exercise's record sends the `pr.set` [webhook](webhooks.md). |
 | PUT | `/api/v1/body-stats/:date` | `{weight?, weight_unit?, bodyFat?, waist?, hips?, neck?, chest?, biceps?, thighs?, calves?}` | Merges the given values into that day's stats; omitted fields are left alone. `weight_unit: "lb"` converts to kg before storing. Sends the `body_stat.logged` [webhook](webhooks.md), as a save in the app does. |
 | POST | `/api/v1/body-stats/photos` | `{url, date?}` | Attaches an already-hosted image to a date as a progress photo. `date` defaults to today. |
 | POST | `/api/v1/cardio` | `{activity, duration_min, distance?, distance_unit?, avg_hr?, notes?, date?, external_id?}` | Logs one cardio session. `activity` is up to 100 characters; `duration_min` is minutes, 1 to 1,440, rounded down to whole minutes; `distance` is in km unless `distance_unit` is `mi`, up to 2,000; `avg_hr` is beats per minute up to 300, rounded down to a whole number; `notes` is up to 2,000 characters. `date` defaults to today. Numbers must be sent as JSON numbers, and any other unit than `km` or `mi` is refused rather than guessed. Refused with a 400 and `"code": "cardio_disabled"` while the user has cardio turned off (see [Cardio](#cardio) below). Pass `external_id`, your own id for the session (up to 200 characters), to make the call safe to repeat: if that user already logged a session with the id, it comes back unchanged with `created: false` instead of a second copy. |
@@ -78,6 +79,63 @@ a token lacking the required scope returns `403`.
 API handles multipart uploads. Point it at an image you already host, or
 upload through the app, which posts to its own session-authenticated
 upload route first and then calls this with the URL that returns.
+
+### Program workouts
+
+`POST /api/v1/workouts/:date/start` (MCP `start_program_workout`) starts a
+program's workout day, so the sets you log next go into it and finishing
+it counts toward the program.
+
+- **Which day.** `template_id` (a workout day's id; `GET /api/v1/programs/active`
+  lists the active program's days with theirs) starts that day of any
+  program you can see. Without it, the active program's next day:
+  the one after the last day you finished before that date, in the
+  program's order, back to the first after the last; the first day when
+  you haven't finished one yet.
+- **What's in it.** The day's exercises with this week's planned sets,
+  nothing ticked, as Load Workout plans them: this week's targets in a
+  multi-week program, last session's weights when Auto-Fill Last Weights
+  is on, and warm-up sets when Auto Warm-Ups is on, in your weight unit.
+  Those settings are read from your account, so they match what your
+  devices use once they've synced; never changed, they are on, off and
+  pounds, as in the app. The workout is filed under the program and its
+  current week (the week in your own time zone, as
+  `GET /api/v1/programs/active` reports it). It's never marked finished:
+  finish it in the app, which counts it toward the program and sends
+  `workout.completed`. Starting sends no webhook.
+- **Where it goes.** Into an empty workout on that date if there is one,
+  else it becomes a new workout of the day (`new_session: true`), as Load
+  Workout's New Workout does; a workout already logged that day is never
+  changed.
+- **Sending it again** is safe: a date that already has a workout from
+  that day (or, without `template_id`, from the active program) returns it
+  with `started: false` instead of a second one.
+
+The answer is the workout: `workout_id`, `date`, `name`, `template_id`,
+`template_name`, `day_label`, `program_id`, `program_name`,
+`program_week`, `duration_weeks`, `completed`, `started`, `new_session`
+and its `exercises` with their sets.
+
+**Logging into it.** `POST /api/v1/workouts/:date/sets` fills the
+exercise's next planned set still to do (a warm-up into a planned warm-up,
+a working set into a planned working set): what you send replaces what was
+planned, and anything you leave out, such as the weight, keeps the planned
+value. With no planned set left it adds one after them, as before. Only an
+unfinished workout's sets still to do are filled (any unticked set counts,
+including one added in the Diary and left blank); in a finished workout, or
+one with no set of that exercise still to do, sets are added exactly as
+before.
+
+On a day with more than one workout, a set goes to:
+
+1. the workout `workout_id` names (it must be on that date);
+2. else the first unfinished workout with a planned set of that exercise
+   still to do;
+3. else the newest unfinished workout started from a program day;
+4. else the day's first workout, as before (a new one if there is none).
+
+A day with a single workout, or with no program day under way, gets every
+set where it always did.
 
 ### Cardio
 
@@ -121,6 +179,13 @@ yet.
 # Today's workout
 curl -H "Authorization: Bearer lt_pat_..." \
   https://your-lifttrace.example.com/api/v1/workouts/2026-09-12
+
+# Home Assistant style: start the program's day, then log a timed hold into it
+curl -X POST -H "Authorization: Bearer lt_pat_..." -H "Content-Type: application/json" \
+  -d '{}' https://your-lifttrace.example.com/api/v1/workouts/2026-09-12/start
+curl -X POST -H "Authorization: Bearer lt_pat_..." -H "Content-Type: application/json" \
+  -d '{"exercise_id": 17, "duration_sec": 31}' \
+  https://your-lifttrace.example.com/api/v1/workouts/2026-09-12/sets
 
 # Log a set
 curl -X POST -H "Authorization: Bearer lt_pat_..." -H "Content-Type: application/json" \

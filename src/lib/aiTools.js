@@ -14,7 +14,8 @@
  */
 import { get } from 'svelte/store';
 import { isTimedSet } from './workout.js';
-import { ensureExerciseUuids } from './workout-uuid.js';
+import { buildPlannedExercises, lastCompletedSession, logIntoSets, PLAN_SETTING_DEFAULTS } from './planned-workout.js';
+import { ensureExerciseUuids, withFreshIds } from './workout-uuid.js';
 import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settlePendingSave } from '../stores/workout.js';
 import { foldText } from './search-text.js';
 import { OFFLINE_HEADER } from './offline-edits.js';
@@ -473,7 +474,7 @@ export const TOOLS = [
   {
     name: 'log_set',
     description:
-      "Append a single set to an exercise already in a workout. Identify the exercise by exercise_id (its id within the workout's exercises array, 0-based) or by exercise_name. Use for 'add another set of 5 at 225' / 'I hit one more'.",
+      "Log a single set to an exercise already in a workout. A done set fills that exercise's next planned set still to do, as ticking it in the diary would; with none left it's added after the others. Identify the exercise by exercise_id (its id within the workout's exercises array, 0-based) or by exercise_name. Use for 'add another set of 5 at 225' / 'I hit one more'.",
     parameters: {
       type: 'object',
       properties: {
@@ -1372,8 +1373,21 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
   // set would render and count as the wrong thing (issue #89).
   if (timed && exs[idx].set_type === 'reps') throw new Error(`${exs[idx].exercise_name} is tracked by reps; send reps, not duration_sec`);
   if (!timed && exs[idx].set_type === 'time') throw new Error(`${exs[idx].exercise_name} is tracked by time; send duration_sec, not reps`);
-  const sets = (exs[idx].sets || []).slice();
-  sets.push(newSet);
+  // A done set fills the next planned set still to do in an unfinished
+  // workout, as ticking it in the Diary does (planned-workout.js, issue
+  // #140); in a finished one, or with none left, it's added, as the server's
+  // log_set does.
+  const given = (v) => v != null && v !== '';
+  const { sets, index: setIndex } = wRow.completed
+    ? { sets: [...(exs[idx].sets || []), newSet], index: (exs[idx].sets || []).length }
+    : logIntoSets(exs[idx].sets, {
+        weight: given(weight) ? newSet.weight : undefined,
+        reps: !timed && given(reps) ? newSet.reps : undefined,
+        duration_sec: timed ? newSet.duration_sec : undefined,
+        rpe: given(rpe) ? newSet.rpe : undefined,
+        warmup: !!warmup,
+        completed: newSet.completed,
+      }, newSet, { at: new Date().toISOString() });
   exs[idx] = { ...exs[idx], sets, ...(timed && !exs[idx].set_type ? { set_type: 'time' } : {}) };
   const saved = await _put(`/api/workout/${wRow.date}`, {
     id: wRow.id,
@@ -1385,7 +1399,7 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
   _showInDiary(wRow.date, saved?.workout);
   const total_volume = Math.round((saved?.workout?.exercises || []).reduce((a, e) => a + _exerciseVolume(e), 0));
   return {
-    set_id: sets.length - 1,
+    set_id: setIndex,
     position: idx,
     workout_total_volume: total_volume,
   };
@@ -1409,6 +1423,31 @@ async function _logBodyStat({ stat, value, unit, date, note }) {
     unit: useUnit,
     date: d,
   };
+}
+
+// A setting the planner reads, as this device has it, else its default.
+function _planSetting(key) {
+  try { return DB.getSetting(key, PLAN_SETTING_DEFAULTS[key]); } catch { return PLAN_SETTING_DEFAULTS[key]; }
+}
+
+// A workout day's exercises with the sets to do, as the Diary plans them
+// (Diary.svelte loadTemplate): last session's completed sets before `date`
+// when Auto-Fill Last Weights is on, the plan week's targets, Auto Warm-Ups.
+async function _plannedExercises(templateExercises, { planWeek, date }) {
+  const exs = Array.isArray(templateExercises) ? templateExercises : [];
+  const autoFill = _planSetting('autoFillLastWeights');
+  const lastAll = await Promise.all(exs.map(async ex => {
+    if (!autoFill || !ex?.exercise_id) return null;
+    try {
+      return lastCompletedSession(await _get(`/api/workout/history/${ex.exercise_id}`), { before: date })?.completed || null;
+    } catch { return null; }
+  }));
+  return buildPlannedExercises(exs, {
+    planWeek,
+    lastSets: (ex, i) => lastAll[i],
+    autoWarmups: !!_planSetting('autoGenerateWarmups'),
+    weightUnit: _planSetting('weightUnit'),
+  });
 }
 
 async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
@@ -1447,19 +1486,12 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
   const existing = await _workoutForDate(d);
   const target = existing?.workout;
   const asNew = !!target?.exercises?.length;
-  const tplExs = (tpl.exercises || []).map(ex => ({
-    exercise_id: ex.exercise_id || null,
-    exercise_name: ex.exercise_name || ex.name || '',
-    sets: Array.from({ length: ex.target_sets || 1 }, () => ({
-      weight: ex.target_weight || 0,
-      reps:   ex.target_reps   || 0,
-      completed: false,
-    })),
-    ...(ex.target_sets   != null ? { target_sets:   ex.target_sets   } : {}),
-    ...(ex.target_reps   != null ? { target_reps:   ex.target_reps   } : {}),
-    ...(ex.target_weight != null ? { target_weight: ex.target_weight } : {}),
-    ...(ex.rest_seconds  != null ? { rest_seconds:  ex.rest_seconds  } : {}),
-  }));
+  // The day's sets as the Diary's Load Workout plans them: this week's
+  // targets, timed sets, last session's weights and Auto Warm-Ups, by the
+  // same rule start_program_workout uses on the server (planned-workout.js,
+  // issue #140). Trace used to copy only the flat targets. New ids, as the
+  // Diary's (withFreshIds, issue #99).
+  const tplExs = withFreshIds(await _plannedExercises(tpl.exercises, { planWeek, date: d }));
   const saved = await _put(`/api/workout/${d}`, {
     ...(asNew ? { new_session: true } : target ? { id: target.id, ..._kept(target) } : {}),
     template_id: tpl.id,

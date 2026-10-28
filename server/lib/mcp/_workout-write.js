@@ -50,9 +50,14 @@ function _loadSetTombstoneUuidsByExercise(u, date, workoutId) {
  * @param {number|null} userId
  * @param {string}      date     YYYY-MM-DD
  * @param {function}    mutator  (exercises) => nextExercises
+ * @param {object}      [opts]
+ * @param {function}    [opts.pick] (liveSessions) => the session to write
+ *   to, from the date's live sessions in session order (log_set's rule,
+ *   issue #140; it may throw to refuse the write); without it, or when it
+ *   returns nothing, the first one, else a new one
  * @returns {object} the final workout_log row, exercises already parsed
  */
-export function mutateWorkoutDay(userId, date, mutator) {
+export function mutateWorkoutDay(userId, date, mutator, { pick } = {}) {
   const tx = db.transaction(() => {
     // Default-session lookup (issue #76): a date can now have more than
     // one row. MCP tools don't expose session selection yet (unchanged
@@ -63,9 +68,10 @@ export function mutateWorkoutDay(userId, date, mutator) {
     // Live sessions only: a deleted workout must not come back, old sets
     // and all, because a tool added one set to its date. With nothing live
     // the write starts a new session after any deleted ones.
-    const existing = userId != null
-      ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(date, userId)
-      : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC LIMIT 1').get(date);
+    const live = userId != null
+      ? db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC').all(date, userId)
+      : db.prepare('SELECT * FROM workout_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL ORDER BY session_seq ASC, id ASC').all(date);
+    const existing = (pick ? pick(live) : null) || live[0];
     const serverExercises = existing ? ensureExerciseUuids(JSON.parse(existing.exercises || '[]')) : [];
 
     const clientExercises = ensureExerciseUuids(mutator(serverExercises) || []);

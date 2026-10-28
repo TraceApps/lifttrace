@@ -291,8 +291,9 @@ test('templates prescribe a real duration field through the weeks matrix', () =>
   // The prescription counts as data, so an existing "Plank 60 reps" template
   // is not flipped to Time by the name default.
   assert.match(editor, /const prescribed = ex\.set_specs\?\.length/);
-  const diary = read('../src/routes/Diary.svelte');
-  assert.match(diary, /duration: w\.duration \?\? base\.duration/);
+  // The Diary's Load Workout plans through planned-workout.js (issue #140).
+  assert.match(read('../src/lib/planned-workout.js'), /duration: w\.duration \?\? base\.duration/);
+  assert.match(read('../src/routes/Diary.svelte'), /buildPlannedExercises\(exs, \{/);
 });
 
 test('Trace can log and read timed sets', () => {
@@ -329,9 +330,11 @@ test('Garmin FIT import keeps the per-set duration instead of dropping it', () =
 });
 
 test('auto warm-ups never ramp a timed exercise', () => {
-  const diary = read('../src/routes/Diary.svelte');
-  const block = diary.slice(diary.indexOf('const withWarmups = $autoGenerateWarmups'));
+  // Planned in planned-workout.js for the Diary, Trace and the server (issue #140).
+  const plan = read('../src/lib/planned-workout.js');
+  const block = plan.slice(plan.indexOf('if (!autoWarmups) return exercises;'));
   assert.match(block.slice(0, 600), /ex\.set_type === 'time'/);
+  assert.match(read('../src/routes/Diary.svelte'), /autoWarmups: \$autoGenerateWarmups,/);
 });
 
 test('muscle balance volume skips holds on server and Android', () => {

@@ -54,7 +54,10 @@ Webhooks are for something logged now. These send them:
   it came back is deleted on the server too; its webhook was sent when
   the server logged it.
 - The MCP tools (`log_set`, `log_body_stat`, `add_progress_photo`,
-  `log_cardio`) and the [public REST API](public-api.md).
+  `log_cardio`) and the [public REST API](public-api.md). Starting a
+  program's workout day (`start_program_workout`,
+  `POST /api/v1/workouts/:date/start`) sends nothing, as loading one in the
+  app sends nothing: no set in it is done yet.
 
 These bring in history, and send none:
 

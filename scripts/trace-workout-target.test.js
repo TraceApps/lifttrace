@@ -110,10 +110,39 @@ test('log_set writes the set into the workout it was given, not the day\'s first
   day();
   open(DAY, 1); // whatever is open, log_set names its workout
   await runTool('log_set', { workout_id: 2, exercise_name: 'Bench', weight: 62.5, reps: 8 });
-  assert.equal(rows[1].exercises[0].sets.length, 2, 'the set is in Push');
+  // Push's planned set still to do takes it (issue #140).
+  assert.deepEqual(rows[1].exercises[0].sets.map(x => [x.weight, x.reps, x.completed]), [[62.5, 8, true]], 'the set is in Push');
   assert.equal(rows[0].name, 'Mobility', 'Mobility keeps its name');
   assert.deepEqual(names(1), ['Hip Opener'], 'and its exercises');
   assert.equal(requests.find(r => r.method === 'PUT').id, 2);
+});
+
+test('log_set fills the next planned set still to do, then adds after them (issue #140)', async () => {
+  day();
+  const push = rows[1];
+  const planned = (n) => ({ uuid: `p${n}`, weight: 60, reps: 8, completed: false, notes: '' });
+  push.exercises[0].sets = [{ uuid: 'w1', weight: 20, reps: 10, completed: false, warmup: true }, planned(1), planned(2)];
+  open(DAY, 2);
+  const a = await runTool('log_set', { workout_id: 2, exercise_name: 'Bench', weight: 62.5, reps: 7 });
+  assert.equal(a.set_id, 1, 'the first working set, not the warm-up');
+  const b = await runTool('log_set', { workout_id: 2, exercise_name: 'Bench', weight: 20, reps: 10, warmup: true });
+  assert.equal(b.set_id, 0, 'a warm-up fills the planned warm-up');
+  await runTool('log_set', { workout_id: 2, exercise_name: 'Bench', weight: 62.5, reps: 6 });
+  const c = await runTool('log_set', { workout_id: 2, exercise_name: 'Bench', weight: 62.5, reps: 5 });
+  assert.equal(c.set_id, 3, 'none left: added after them');
+  const sets = push.exercises[0].sets;
+  assert.deepEqual(sets.map(x => [x.uuid?.length > 0, x.weight, x.reps, !!x.completed, !!x.warmup]),
+    [[true, 20, 10, true, true], [true, 62.5, 7, true, false], [true, 62.5, 6, true, false], [true, 62.5, 5, true, false]]);
+  assert.deepEqual(sets.slice(0, 3).map(x => x.uuid), ['w1', 'p1', 'p2'], 'the planned sets keep their ids');
+  // A set sent as not done is added, as before.
+  const d = await runTool('log_set', { workout_id: 2, exercise_name: 'Bench', weight: 70, reps: 3, completed: false });
+  assert.equal(d.set_id, 4);
+  // In a finished workout, unticked sets were skipped: a set is added, as the server does.
+  push.completed = 1;
+  const e = await runTool('log_set', { workout_id: 2, exercise_name: 'Bench', weight: 70, reps: 2 });
+  assert.equal(e.set_id, 5);
+  assert.equal(push.exercises[0].sets[4].completed, false, 'the unticked set stays as it was');
+  assert.equal(push.exercises[0].sets.length, 6);
 });
 
 test('get_workout shows the workout asked for', async () => {

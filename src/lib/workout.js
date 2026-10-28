@@ -2,6 +2,11 @@
  * workout.js — Workout calculation utilities for LiftTrace
  */
 
+// Shared with the server (issue #140): parseDuration, lastCompletedSession
+// and generateWarmupSets live in planned-workout.js, so the Diary and the
+// API plan a workout day the same way.
+export { parseDuration, lastCompletedSession, generateWarmupSets } from './planned-workout.js';
+
 /**
  * Resolve which `load_type` applies to a workout-instance exercise.
  * Four-tier chain, evaluated top-to-bottom:
@@ -116,48 +121,6 @@ export function fmtSetDuration(sec) {
 }
 
 /**
- * Parse a typed duration to whole seconds. Returns null for anything that
- * isn't one.
- *
- * Bare digits fill from the right like a microwave or a phone timer: the last
- * two digits are seconds and anything before them is minutes. That is what
- * the set row's number pad produces, and it avoids making anyone convert
- * "2 minutes" into 120.
- *
- *   "45"   -> 45      "130" -> 90 (1:30)     "200" -> 120 (2:00)
- *   "90"   -> 90      overflowing seconds carry, as on a microwave
- *   "1:30" -> 90      "0:90" -> 90           "1:02:05" -> 3725
- *   "45s"  -> 45      "2m" / "2min" -> 120   "1m30s" -> 90
- */
-export function parseDuration(input) {
-  if (input == null) return null;
-  const str = String(input).trim().toLowerCase();
-  if (!str) return null;
-  // m:ss. Seconds may overflow ("0:90"), because that is exactly what the
-  // digit mask shows mid-typing and the two must read the same.
-  if (/^\d+:\d{1,2}$/.test(str)) {
-    const [m, sec] = str.split(':').map(Number);
-    const total = m * 60 + sec;
-    return total > 0 ? total : null;
-  }
-  if (/^\d+:\d{1,2}:\d{1,2}$/.test(str)) {
-    const parts = str.split(':').map(Number);
-    if (parts.slice(1).some(p => p >= 60)) return null;
-    const total = parts[0] * 3600 + parts[1] * 60 + parts[2];
-    return total > 0 ? total : null;
-  }
-  if (/^\d+$/.test(str)) {
-    const n = Number(str);
-    const total = Math.floor(n / 100) * 60 + (n % 100);
-    return total > 0 ? total : null;
-  }
-  const m = str.match(/^(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours))?\s*(?:(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes))?\s*(?:(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds))?$/);
-  if (!m || (!m[1] && !m[2] && !m[3])) return null;
-  const sec = Math.round((Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0));
-  return sec > 0 ? sec : null;
-}
-
-/**
  * Live display for a duration field as someone types, timer style: digits
  * fill from the right, so "1" shows 0:01, "13" 0:13, "130" 1:30. Non-digits
  * are dropped, so a desktop user typing "1:30" lands on the same 1:30, and
@@ -259,34 +222,6 @@ export function calcVolume(exercises, _weightUnit = 'lbs') {
 /**
  * Calculate 1-rep max estimate using Epley formula: w × (1 + r/30)
  */
-/**
- * The most recent session in an exercise's history (newest first, as
- * GET /api/workout/history/:id returns it) with at least one completed
- * working set. History also lists sessions where the exercise was added but
- * nothing was ticked, such as today's unfinished workout, so the first entry
- * isn't necessarily the last completed session (issue #103).
- *
- * Returns { ...entry, completed, working }: every completed set (the Last
- * Time row shows these, warm-ups included) and the completed working sets
- * (what auto-fill copies, since a warm-up weight is not a working weight).
- * Null when there is no such session.
- *
- * `before` is the diary's date. History includes that day, so the session
- * being logged came back as its own "last time" once a set was ticked, and a
- * day viewed in the past compared itself with later ones. Only days before it
- * count, as on the watch's "Last time"; the PR badges and celebrations leave
- * the day out too, so a second session the same day is not "last time" either.
- */
-export function lastCompletedSession(history, { before } = {}) {
-  for (const entry of history || []) {
-    if (before && !(typeof entry?.date === 'string' && entry.date < before)) continue;
-    const completed = (entry?.sets || []).filter(s => s?.completed);
-    const working = completed.filter(s => !s.warmup);
-    if (working.length) return { ...entry, completed, working };
-  }
-  return null;
-}
-
 export function calc1RM(weight, reps) {
   if (!weight || !reps || reps <= 0) return 0;
   if (reps === 1) return weight;
@@ -478,28 +413,6 @@ export const EQUIPMENT = [
 /** Muscle groups used by the custom-exercise editor. Grouped roughly by region
  *  for the picker UI. Values are the canonical lowercase strings stored in
  *  exercises.primary_muscles / secondary_muscles JSON. */
-/**
- * Generate a reasonable warm-up progression from a working weight.
- * Classic 5-step ramp — bar × 8 → 50% × 5 → 70% × 3 → 85% × 2 → (working set).
- * Returns only the warm-up sets (4 of them); caller appends working sets.
- * If the working weight is at or below the empty bar, returns [] (no warm-up
- * needed for bodyweight / light accessory work).
- */
-export function generateWarmupSets(workingWeight, unit = 'lbs') {
-  const W = parseFloat(workingWeight) || 0;
-  const bar = unit === 'kg' ? 20 : 45;
-  const step = unit === 'kg' ? 2.5 : 5;
-  const roundTo = (n) => Math.round(n / step) * step;
-  if (W <= bar) return [];
-  const base = { completed: false, warmup: true, notes: '' };
-  const sets = [];
-  sets.push({ ...base, weight: bar,               reps: 8 });
-  const p50 = roundTo(W * 0.5);  if (p50 > bar) sets.push({ ...base, weight: p50, reps: 5 });
-  const p70 = roundTo(W * 0.7);  if (p70 > p50) sets.push({ ...base, weight: p70, reps: 3 });
-  const p85 = roundTo(W * 0.85); if (p85 > p70) sets.push({ ...base, weight: p85, reps: 2 });
-  return sets;
-}
-
 export const MUSCLES = [
   'chest', 'lats', 'upper back', 'lower back',
   'shoulders', 'front delts', 'side delts', 'rear delts',

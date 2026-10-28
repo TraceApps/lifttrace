@@ -50,6 +50,7 @@ import { getBodyStatsCore } from '../lib/mcp/tools/get-body-stats.js';
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 import { logSetCore } from '../lib/mcp/tools/log-set.js';
+import { startProgramWorkoutCore } from '../lib/mcp/tools/start-program-workout.js';
 import { logBodyStatCore } from '../lib/mcp/tools/log-body-stat.js';
 import { getCardioCore } from '../lib/mcp/tools/get-cardio.js';
 import { logCardioCore } from '../lib/mcp/tools/log-cardio.js';
@@ -192,6 +193,12 @@ router.get('/cardio', requireScope('mcp:read'), core(req =>
 // Days marked as excused, with the reason (issue #121).
 router.get('/excused-days', requireScope('mcp:read'), core(req =>
   getExcusedDaysCore(req.apiUser.id, { start: req.query.start, end: req.query.end })
+));
+
+// Starts a program's workout day on the date (issue #140): template_id, or
+// the active program's next day. Sent again, it returns the one started.
+router.post('/workouts/:date/start', requireWriteEnabled, requireScope('mcp:write'), core(req =>
+  startProgramWorkoutCore(req.apiUser.id, { template_id: req.body?.template_id, date: req.params.date })
 ));
 
 router.post('/workouts/:date/sets', requireWriteEnabled, requireScope('mcp:write'), core(req =>

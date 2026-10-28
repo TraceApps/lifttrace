@@ -60,9 +60,12 @@ test('auto-fill and the Last Time row both use it; template precedence is untouc
   assert.match(diary, /const working = lastSets\.filter\(s => !s\.warmup\);\s*\n\s*targetSets = working\.length;/);
   assert.equal((diary.match(/await getLastSets\(ex\.exercise_id\)/g) || []).length, 1, 'quick load');
   // Template load pairs warm-up rows with last time's warm-ups and working
-  // rows with last time's working sets, never by raw position.
-  assert.match(diary, /const lastAll = await getLastSets\(ex\.exercise_id, \{ withWarmups: true \}\);/);
-  assert.match(diary, /const past = spec\.warmup \? lastWarmups\[warmIdx\+\+\] : lastSets\?\.\[workIdx\+\+\];/);
+  // rows with last time's working sets, never by raw position. The planning
+  // itself lives in planned-workout.js, shared with the server (issue #140).
+  assert.match(diary, /const lastAll = await Promise\.all\(exs\.map\(ex => getLastSets\(ex\.exercise_id, \{ withWarmups: true \}\)\)\);/);
+  assert.match(diary, /lastSets: \(ex, i\) => lastAll\[i\],/);
+  const plan = read('../src/lib/planned-workout.js');
+  assert.match(plan, /const past = spec\.warmup \? lastWarmups\[warmIdx\+\+\] : lastWorking\?\.\[workIdx\+\+\];/);
   // Quick load keeps the loaded workout's warm-ups as warm-ups and sizes the
   // working sets from its working sets only.
   const quick = diary.slice(diary.indexOf('async function quickLoad'), diary.indexOf('// ── Exercise management'));
@@ -73,7 +76,7 @@ test('auto-fill and the Last Time row both use it; template precedence is untouc
   const card = read('../src/components/diary/ExerciseCard.svelte');
   assert.match(card, /lastCompletedSession\(await LtApi\.getWorkoutHistory\(exerciseId\), \{ before: day \}\)/);
   // Per-set specs and an active periodized week still win over history.
-  assert.match(diary, /if \(ex\.set_specs && ex\.set_specs\.length > 0\) \{/);
-  assert.match(diary, /const planWins = !!\(planWeek && ex\.weeks\?\.length\);/);
-  assert.match(diary, /if \(lastSets && !planWins\) \{/);
+  assert.match(plan, /if \(ex\.set_specs && ex\.set_specs\.length > 0\) \{/);
+  assert.match(plan, /const planWins = !!\(planWeek && ex\.weeks\?\.length\);/);
+  assert.match(plan, /if \(lastWorking && !planWins\) \{/);
 });

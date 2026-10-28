@@ -2,6 +2,7 @@
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy } from 'svelte';
   import { withFreshIds } from '../lib/workout-uuid.js';
+  import { buildPlannedExercises } from '../lib/planned-workout.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
@@ -25,7 +26,7 @@
   import { currentUser } from '../stores/auth.js';
   import { resolveAssetUrl } from '../lib/platform.js';
   import { dateFormat } from '../stores/settings.js';
-  import { fmtWeight, fmtDuration, countCompletedSets, generateWarmupSets, calc1RM, exerciseVolume, setVolume } from '../lib/workout.js';
+  import { fmtWeight, fmtDuration, countCompletedSets, calc1RM, exerciseVolume, setVolume } from '../lib/workout.js';
   import ExerciseCard from '../components/diary/ExerciseCard.svelte';
   import HoldTimer from '../components/diary/HoldTimer.svelte';
   import SetVideoSheet from '../components/diary/SetVideoSheet.svelte';
@@ -1273,30 +1274,6 @@
     }
   }
 
-  // Effective prescription for a given 1-based plan week (issue #13).
-  // Merges the exercise's weeks[wk-1] entry over its exercise-level defaults;
-  // absent weeks[] / week / a missing weeks[wk-1] slot falls back to the flat
-  // target_* base — matching WorkoutEditor's fieldFor and the design doc so
-  // the same template resolves to identical targets in both views.
-  function resolveWeek(ex, wk) {
-    const base = {
-      sets: ex.target_sets, reps: ex.target_reps, weight: ex.target_weight,
-      duration: ex.target_duration,
-      tempo: ex.tempo, rest_sec: ex.rest_sec,
-    };
-    if (!wk || !ex.weeks?.length) return base;
-    const w = ex.weeks[wk - 1];
-    if (!w) return base;
-    return {
-      sets: w.sets ?? base.sets,
-      reps: w.reps ?? base.reps,
-      weight: w.weight ?? base.weight,
-      duration: w.duration ?? base.duration,
-      tempo: w.tempo ?? base.tempo,
-      rest_sec: w.rest_sec ?? base.rest_sec,
-    };
-  }
-
   async function loadTemplate(template, confirmMsgKey = 'diary.confirm.replace_template_msg') {
     // Loading a template replaces $todayLog's exercises wholesale — any
     // exercise from the currently-loaded workout that isn't in the new
@@ -1331,112 +1308,18 @@
     // Current plan week for a multi-week program — drives week-aware prefill.
     // Only meaningful when this template's program is the active one.
     const planWeek = selectedProgram?.is_active ? (selectedProgram?.current_week || null) : null;
-    // Clone the template exercises, auto-filling from last session if enabled
-    const templateExercises = await Promise.all((template.exercises || []).map(async ex => {
-      // Last session split into warm-ups and working sets: a template's
-      // warm-up rows fill from last time's warm-ups and its working rows from
-      // last time's working sets, so the two never trade weights (issue #103).
-      const lastAll = await getLastSets(ex.exercise_id, { withWarmups: true });
-      const lastSets = lastAll ? lastAll.filter(s => !s.warmup) : null;
-      const lastWarmups = lastAll ? lastAll.filter(s => s.warmup) : [];
-      // Resolve this week's prescription. When the exercise carries a weeks[]
-      // matrix and we're inside the active program, the plan value wins over
-      // last-session progressive-overload memory for the current week.
-      const eff = resolveWeek(ex, planWeek);
-      const planWins = !!(planWeek && ex.weeks?.length);
-      let sets;
-      if (ex.set_specs && ex.set_specs.length > 0) {
-        // Per-set targets defined in template — use them as the target weight/reps
-        let workIdx = 0, warmIdx = 0;
-        sets = ex.set_specs.map((spec) => {
-          const past = spec.warmup ? lastWarmups[warmIdx++] : lastSets?.[workIdx++];
-          const parsedWeight = parseFloat(spec.weight);
-          const parsedReps = parseInt(spec.reps);
-          const parsedRepsL = parseInt(spec.reps_l);
-          const parsedRepsR = parseInt(spec.reps_r);
-          const set = {
-            weight: Number.isFinite(parsedWeight) ? parsedWeight : (past?.weight ?? 0),
-            reps: Number.isFinite(parsedReps) ? parsedReps : (past?.reps ?? 0),
-            completed: false,
-            notes: '',
-          };
-          if (ex.set_type === 'time') {
-            const dur = parseDuration(spec.duration) ?? past?.duration_sec ?? 0;
-            if (dur) set.duration_sec = dur;
-          }
-          // Asymmetric supersets: template author can pin a set to a
-          // specific round via spec.number. Falls back to position when
-          // unset, matching the diary's display convention.
-          if (spec.number != null) set.number = spec.number;
-          // Warmup flag from template — SetRow filters warmups out of
-          // volume / PR / superset-round gating automatically.
-          if (spec.warmup) set.warmup = true;
-          // RPE target from template — SetRow renders it in the RPE chip
-          // when the trackRpe setting is on, editable by the lifter.
-          if (spec.rpe != null) set.rpe = spec.rpe;
-          // Unilateral L/R split target — SetRow detects isSplit from
-          // the presence of reps_l/reps_r and renders the L/R inputs.
-          if (Number.isFinite(parsedRepsL)) set.reps_l = parsedRepsL;
-          if (Number.isFinite(parsedRepsR)) set.reps_r = parsedRepsR;
-          return set;
-        });
-      } else {
-        const numSets = eff.sets || 1;
-        // This week's uniform target weight/reps — used as the base fallback
-        // when there's no last-session history to pull from.
-        const tplWeight = parseFloat(eff.weight);
-        const tplReps = parseInt(eff.reps);
-        const baseWeight = Number.isFinite(tplWeight) ? tplWeight : 0;
-        const baseReps = Number.isFinite(tplReps) ? tplReps : 0;
-        if (lastSets && !planWins) {
-          // Prior session wins (progressive-overload memory), template values
-          // fill any gaps beyond what the last session had. Inside a
-          // periodized block (planWins) we skip this so the plan's prescribed
-          // week isn't overwritten by last week's logged load.
-          sets = Array.from({ length: numSets }, (_, i) => ({
-            weight: lastSets[i]?.weight ?? lastSets[lastSets.length - 1]?.weight ?? baseWeight,
-            reps: lastSets[i]?.reps ?? lastSets[lastSets.length - 1]?.reps ?? baseReps,
-            completed: false,
-            notes: '',
-          }));
-        } else {
-          // No history, or plan wins — use this week's planned weight/reps.
-          sets = Array.from({ length: numSets }, () => ({
-            weight: baseWeight, reps: baseReps, completed: false, notes: '',
-          }));
-        }
-        // Timed exercise (issue #89): the prescribed duration, or the last
-        // session's when history wins, fills each set.
-        if (ex.set_type === 'time') {
-          const planned = parseDuration(eff.duration) || 0;
-          sets = sets.map((set, i) => {
-            const fromLast = (lastSets && !planWins)
-              ? (lastSets[i]?.duration_sec ?? lastSets[lastSets.length - 1]?.duration_sec)
-              : null;
-            const dur = fromLast || planned;
-            return dur ? { ...set, duration_sec: dur } : set;
-          });
-        }
-      }
-      // Surface the resolved week's tempo/rest onto the logged exercise so the
-      // rest timer (and any display) can use the plan's per-exercise values.
-      return { ...ex, tempo: eff.tempo, rest_sec: eff.rest_sec, sets };
-    }));
-
-    // Prepend warm-up ramp when the user has opted into auto-warm-ups and
-    // this exercise has a usable working weight.
-    const withWarmups = $autoGenerateWarmups
-      ? templateExercises.map(ex => {
-          // A warm-up ramp is weight x reps sets; it means nothing for a
-          // hold or carry (issue #89), whatever load it is done with.
-          if (ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0)) return ex;
-          const firstWorking = (ex.sets || []).find(s => !s.warmup);
-          const w = parseFloat(firstWorking?.weight || ex.target_weight || 0) || 0;
-          const warmups = generateWarmupSets(w, $weightUnit);
-          if (warmups.length === 0) return ex;
-          return { ...ex, sets: [...warmups, ...(ex.sets || [])] };
-        })
-      : templateExercises;
+    // The day's exercises with this week's sets, filled from last session if
+    // enabled: the rule start_program_workout uses on the server too
+    // (lib/planned-workout.js, issue #140). Last session's sets, warm-ups
+    // included, fetched first for every exercise at once.
+    const exs = template.exercises || [];
+    const lastAll = await Promise.all(exs.map(ex => getLastSets(ex.exercise_id, { withWarmups: true })));
+    const withWarmups = buildPlannedExercises(exs, {
+      planWeek,
+      lastSets: (ex, i) => lastAll[i],
+      autoWarmups: $autoGenerateWarmups,
+      weightUnit: $weightUnit,
+    });
 
     // 'new_session' (issue #76) deliberately does NOT spread $todayLog —
     // a new session starts clean rather than inheriting the old

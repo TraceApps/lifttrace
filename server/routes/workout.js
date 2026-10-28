@@ -6,6 +6,7 @@ import { onWorkoutCompleted } from '../lib/coach-activity.js';
 import { afterWatchFinish } from '../lib/watch-finish.js';
 import { mergeExercises, ensureExerciseUuids, changedUuidsOf } from '../lib/workout-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { exerciseHistory } from '../lib/exercise-history.js';
 import { getWorkoutCore } from '../lib/mcp/tools/get-workout.js';
 import { isHistoryUpload, recordsBeforeSave, sendNewRecords } from '../lib/log-webhooks.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
@@ -32,21 +33,7 @@ router.get('/recent', wrap((req, res) => {
 
 // GET /api/workout/history/:exerciseId — all entries containing this exercise
 router.get('/history/:exerciseId', wrap((req, res) => {
-  const exerciseId = parseInt(req.params.exerciseId);
-  const userId = uid(req);
-  const rows = userId != null
-    ? db.prepare('SELECT * FROM workout_log WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(userId)
-    : db.prepare('SELECT * FROM workout_log WHERE user_id IS NULL AND deleted_at IS NULL ORDER BY date DESC').all();
-
-  const history = [];
-  for (const row of rows) {
-    const exercises = JSON.parse(row.exercises || '[]');
-    const match = exercises.find(e => e.exercise_id === exerciseId);
-    if (match) {
-      history.push({ date: row.date, sets: match.sets || [], notes: match.notes, ...(match.set_type ? { set_type: match.set_type } : {}) });
-    }
-  }
-  res.json(history);
+  res.json(exerciseHistory(uid(req), parseInt(req.params.exerciseId)));
 }));
 
 // Default-session lookup (issue #76): a date can now have multiple

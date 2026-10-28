@@ -130,6 +130,34 @@ when earlier, so the same workouts count and a chosen week's base lines up.
 Turning accounts off with one account does the reverse
 (`releaseSoloProgram`), replacing keys an older build left behind.
 
+### One plan for a program's workout day
+
+What a workout day turns into when it's started (this week's targets,
+last session's weights, set specs, timed sets, Auto Warm-Ups) is one
+function, `buildPlannedExercises` in `planned-workout.js`, kept in two
+byte-identical copies: `src/lib/` for the Diary's Load Workout and Trace's
+`start_workout_from_template`, and `server/lib/` for MCP
+`start_program_workout` and `POST /api/v1/workouts/:date/start` (issue
+#140). The same file holds `logIntoSets`, the rule Trace's `log_set` and the
+API's `log_set` follow: a done set fills the next planned set still to do
+of its kind in an unfinished workout, as a tick in the Diary would, else it's added. A filled set carries `completedAt`, so the per-uuid merge keeps it over a copy saved from before the fill by a client that doesn't send `changed_uuids` (an older app, a queued phone edit). `scripts/planned-workout.test.js` checks the
+copies are identical and that the Diary plans every generated day exactly
+as it did before the move.
+
+The server reads the inputs the app has from where the app keeps them:
+Auto-Fill Last Weights, Auto Warm-Ups and the weight unit are synced
+settings (`user_settings`, defaults in `PLAN_SETTING_DEFAULTS` matching the
+app's), and last session comes from the same history query the Diary's
+`GET /api/workout/history/:id` answers with (`server/lib/exercise-history.js`).
+A started workout is a normal unfinished `workout_log` row filed under its
+program, template and week, so it syncs and counts like one loaded in the
+app; it goes into an empty workout on the date or else a new session, and a
+date that already has that day returns it. `log_set` (MCP and REST) picks
+the session in `pickSession` (`server/lib/mcp/tools/log-set.js`): the one
+named by `workout_id`, else the first unfinished one with that set planned,
+else the newest unfinished program day, else the date's first, so a day
+with one workout behaves as before.
+
 ### Rest timer is superset-aware
 
 The timer only fires when a whole superset round is complete (every
@@ -144,9 +172,11 @@ survives reload. Countdown beeps schedule via `setTimeout`
 Trace calls typed tools instead of relying on a pre-stuffed context
 payload. 22 tools live in `src/lib/aiTools.js` (14 read + 8 write):
 workouts, exercises, programs, PRs, body stats, coach prescriptions,
-plus writers for logging a workout, adding an exercise, appending a
-set, logging a body stat, loading a template, switching active
-program, and coach-only prescription. Tool execution stays
+plus writers for logging a workout, adding an exercise, logging a
+set (into the next planned set still to do, else added), logging a body
+stat, loading a template, switching active program, and coach-only
+prescription. Loading a template plans its sets with the Diary's own
+rule, `src/lib/planned-workout.js` (see below). Tool execution stays
 client-side against `fetch('/api/...')` even in env-locked mode so
 the server never gains write access to the user's data. The shared
 loop in `src/lib/aiChat.js` allows 12 rounds of tool use per turn across
