@@ -6,6 +6,7 @@ import { sendWeeklySummary, isEmailConfigured } from '../email.js';
 import { checkMissedPrescriptions } from './coach-activity.js';
 import { buildWeeklySummary, summaryLine } from './weekly-summary.js';
 import { isBackupDue } from './backup-schedule.js';
+import { trainedDateSet, cardioCounts } from './trained-days.js';
 
 /**
  * Server-side scheduler — runs every 15 minutes.
@@ -172,13 +173,12 @@ async function _processUser(userId) {
   if (restDayReminder) {
     // Fire at 10 AM local time on days right after a workout
     if (_withinWindow(localTime, '10:00', 30) && !_ranRecently(userId, 'restDay', 22 * 3600000)) {
-      const yesterday = new Date(Date.now() - 24 * 3600000).toISOString().slice(0, 10);
-      const loggedYesterday = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, yesterday)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(yesterday);
-      const loggedToday = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, today)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(today);
+      // Trained days by the shared rule (src/lib/trained-day.js): an empty
+      // or unstarted workout is no workout to recover from, and a cardio
+      // session is one. Yesterday is the user's, not UTC's.
+      const trained = trainedDateSet(userId, { start: _shiftDay(today, -1), end: today });
+      const loggedYesterday = trained.has(_shiftDay(today, -1));
+      const loggedToday = trained.has(today);
       if (loggedYesterday && !loggedToday) {
         await pushNotify(userId, '🧘 Rest Day', 'Time to recover — hydrate, stretch, and refuel. See you tomorrow!', 3);
       }
@@ -192,20 +192,16 @@ async function _processUser(userId) {
     const due = _dueDay(localTime, time);
     if (due !== null && !_ranRecently(userId, 'streakAlert', 3600000)) {
       const day = _shiftDay(today, due); // the alert's day (yesterday, just after midnight)
-      const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, day)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(day);
-      if (!logged) {
-        // Calculate current streak
+      // Trained days by the shared rule (src/lib/trained-day.js), the one
+      // the app's streak counts: a workout opened and never trained neither
+      // keeps the streak nor stops the alert.
+      const trained = trainedDateSet(userId);
+      if (!trained.has(day)) {
         // Calendar days back from the same today the check above used,
         // stepped in UTC on the bare date (#101).
         let streak = 0;
         let ds = _shiftDay(day, -1); // start from the day before
-        while (true) {
-          const row = userId
-            ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, ds)
-            : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(ds);
-          if (!row) break;
+        while (trained.has(ds)) {
           streak++;
           ds = _shiftDay(ds, -1);
         }
@@ -216,7 +212,7 @@ async function _processUser(userId) {
     }
   }
 
-  // Weekly summary (issue #98): sessions against the weekly goal, sets,
+  // Weekly summary (issue #98): days trained against the weekly goal, sets,
   // volume with its unit, time trained, PRs and sets per muscle group, each
   // compared with the user's average week over the month before.
   const weeklySummary = _getUserSetting(userId, 'notifWeeklySummary', false);
@@ -232,11 +228,17 @@ async function _processUser(userId) {
       const workouts = userId
         ? db.prepare('SELECT date, exercises, duration_min FROM workout_log WHERE user_id = ? AND deleted_at IS NULL').all(userId)
         : db.prepare('SELECT date, exercises, duration_min FROM workout_log WHERE deleted_at IS NULL').all();
+      const cardioOn = cardioCounts(userId);
+      const cardio = cardioOn
+        ? db.prepare(`SELECT date FROM cardio_log WHERE ${userId ? 'user_id = ?' : 'user_id IS NULL'}`).all(...(userId ? [userId] : []))
+        : [];
       const summary = buildWeeklySummary({
         workouts,
         library: _exerciseLibrary(),
         today: _shiftDay(today, due),
         goal: _getUserSetting(userId, 'weeklyWorkoutGoal', 4),
+        cardio,
+        cardioOn,
       });
       const unit = _getUserSetting(userId, 'weightUnit', 'lbs') === 'kg' ? 'kg' : 'lbs';
       const locale = String(_getUserSetting(userId, 'language', 'en') || 'en');

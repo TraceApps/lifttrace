@@ -278,14 +278,16 @@ export function renderWeeklySummary(name, summary, origin = '', { unit = 'lbs', 
   };
 
   let bodyMain;
-  if (!week.sessions) {
+  if (!week.days) {
     bodyMain = `<p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">No workouts logged this week${goal ? ` (your goal is ${goal})` : ''}. A fresh week starts now.</p>`;
   } else {
+    // Days trained against the goal, as the Statistics ring counts them.
+    const target = summary.progress?.target ?? goal;
     const planned = goal
-      ? `${week.sessions} of ${goal} planned ${goal === 1 ? 'session' : 'sessions'}${week.sessions >= goal ? ', goal met' : ''}`
-      : `${week.sessions} ${week.sessions === 1 ? 'session' : 'sessions'}`;
+      ? `${week.days} of ${target} planned ${target === 1 ? 'day' : 'days'}${week.days >= target ? ', goal met' : ''}`
+      : `${week.days} ${week.days === 1 ? 'day' : 'days'}`;
     const rows = [
-      _statRow('🗓️', 'Sessions', `${planned}${cmp(week.sessions, summary.avg.sessions)}`),
+      _statRow('🗓️', 'Days Trained', `${planned}${cmp(week.days, summary.avg.days)}`),
       _statRow('✅', 'Working Sets', `${nf.format(week.sets)}${cmp(week.sets, summary.avg.sets)}`),
     ];
     if (week.volume > 0) rows.push(_statRow('🏋️', 'Volume', `${nf.format(week.volume)} ${_escapeHtml(unit)}${cmp(week.volume, summary.avg.volume)}`));

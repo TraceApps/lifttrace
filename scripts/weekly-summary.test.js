@@ -115,7 +115,7 @@ test('the push line has the goal, sets, PRs and volume with its unit', () => {
     ],
   });
   const line = summaryLine(s, { unit: 'kg', locale: 'en' });
-  assert.match(line, /^1 of 4 sessions, 2 sets, 1 PR, 1,025 kg volume \([+-]\d+% vs your 4-week average\)\.$/);
+  assert.match(line, /^1 of 4 training days, 2 sets, 1 PR, 1,025 kg volume \([+-]\d+% vs your 4-week average\)\.$/);
   assert.equal(summaryLine(buildWeeklySummary({ today: TODAY, workouts: [] })), 'No workouts logged this week.');
   assert.match(summaryLine(s, { unit: 'kg', locale: 'de' }), /1\.025 kg/, 'numbers follow the language setting');
 });
@@ -139,4 +139,21 @@ test('the scheduler uses the user\'s own weekday and the shared summary', () => 
 test('the email links back to that week in Statistics', () => {
   assert.match(read('../server/email.js'), /\/#\/statistics\?range=1W/);
   assert.match(read('../src/routes/Statistics.svelte'), /get\('range'\)/);
+});
+
+test('days trained follow the shared rule: two workouts a day are one, cardio counts while on (#121)', () => {
+  const workouts = [
+    w('2026-09-15', [ex(1, 'Bench Press', [bench(100)])]),
+    w('2026-09-15', [ex(2, 'Squat', [bench(140)])]),
+    w('2026-09-16', [ex(1, 'Bench Press', [bench(60, 10, { warmup: true })])]),
+  ];
+  const cardio = [{ date: '2026-09-16' }, { date: '2026-09-18' }];
+  const off = buildWeeklySummary({ library, today: TODAY, goal: 4, workouts, cardio, cardioOn: false });
+  assert.equal(off.week.sessions, 2, 'workouts with a working set');
+  assert.equal(off.week.days, 1, 'one day, and a warm-up alone is not training');
+  const on = buildWeeklySummary({ library, today: TODAY, goal: 4, workouts, cardio, cardioOn: true });
+  assert.equal(on.week.days, 3, 'the cardio days count once cardio is on');
+  assert.deepEqual(on.progress, { goal: 4, count: 3, excused: 0, target: 4, left: 1, pct: 75, met: false, allExcused: false });
+  assert.match(summaryLine(on, { unit: 'kg' }), /^3 of 4 training days, /);
+  assert.equal(summaryLine(buildWeeklySummary({ today: TODAY, workouts: [], cardio, cardioOn: true })), '2 training days.', 'a cardio-only week is not an empty one');
 });

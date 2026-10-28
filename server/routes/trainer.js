@@ -9,6 +9,8 @@ import { setVolume } from '../lib/volume.js';
 import { sendCoachFeedback, isEmailConfigured } from '../email.js';
 import { guardClient, activePairing, requireCoachRole, requestClient, endPairing, person, notifyPrescription } from '../lib/coaching.js';
 import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
+import { trainedDateSet } from '../lib/trained-days.js';
+import { currentStreak } from '../../src/lib/trained-day.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -123,26 +125,9 @@ router.get('/members/:id', wrap((req, res) => {
     };
   });
 
-  const streak = (() => {
-    // Current streak: consecutive days with a completed workout ending today or yesterday
-    const rows = db.prepare(
-      `SELECT DISTINCT date FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL ORDER BY date DESC LIMIT 365`
-    ).all(memberId).map(r => r.date);
-    if (!rows.length) return 0;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const toDate = (s) => { const d = new Date(s + 'T12:00:00'); d.setHours(0,0,0,0); return d; };
-    const first = toDate(rows[0]);
-    const dayDiff = Math.round((today - first) / (1000 * 60 * 60 * 24));
-    if (dayDiff > 1) return 0;
-    let streakN = 1;
-    for (let i = 1; i < rows.length; i++) {
-      const prev = toDate(rows[i-1]);
-      const cur = toDate(rows[i]);
-      if (Math.round((prev - cur) / (1000 * 60 * 60 * 24)) === 1) streakN++;
-      else break;
-    }
-    return streakN;
-  })();
+  // The client's current streak, by the trained-day rule the client's own
+  // app counts (src/lib/trained-day.js), so coach and client see one number.
+  const streak = currentStreak(trainedDateSet(memberId), new Date().toLocaleDateString('sv-SE'));
 
   // Member's chosen weight unit so the coach UI labels volume + set weights
   // in whatever the member actually trains in (rather than always lbs).

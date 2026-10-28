@@ -3,8 +3,9 @@
  *
  * The Diary's streak, "This Week" dots and calendar month view all derived
  * "done" from `workout_log` alone, so a run with no lifting behind it read
- * as an empty day. They now read `activeDateSet` — lifting days union cardio
- * days — with two conditions on that union:
+ * as an empty day. They now read `activeDateSet`, the trained days by the
+ * shared rule (src/lib/trained-day.js, issue #121), lifting days and cardio
+ * days, with two conditions on the cardio:
  *
  *   1. Cardio is opt-in (`settings.cardioEnabled`, off by default). While it
  *      is off the Diary must not fetch cardio at all, and must not count it,
@@ -31,8 +32,8 @@ const code = (src) => src
   .filter(l => !/^\s*\/\//.test(l))
   .join('\n');
 
-test('the streak, week strip and calendar all read the union, not the lifting set', () => {
-  assert.match(code(diary), /\$: activeDateSet = \$cardioEnabled/);
+test('the streak, week strip and calendar all read the trained days, not the lifting set', () => {
+  assert.match(code(diary), /\$: activeDateSet = trainedDates\(\{ workouts: recentWorkoutRows, cardio: cardioRows, cardioOn: \$cardioEnabled \}\)/);
   const streak = code(diary).slice(code(diary).indexOf('$: streakCount'), code(diary).indexOf('$: streakCount') + 900);
   assert.doesNotMatch(streak, /workoutDateSet/, 'the streak counts any activity, not only lifting');
   assert.match(code(diary), /done: activeDateSet\.has\(key\)/, 'the week-strip dots');
@@ -47,9 +48,9 @@ test('cardio is neither fetched nor counted while the setting is off', () => {
   const fetchAt = body.indexOf('LtApi.listCardio()');
   assert.ok(guard > -1, 'the load is gated on the setting');
   assert.ok(guard < fetchAt, 'the gate comes before the fetch');
-  assert.match(body.slice(guard, fetchAt), /cardioDateSet = new Set\(\);/, 'and clears what an earlier load left');
-  // The union is gated too, so it can never outlive the opt-in.
-  assert.match(code(diary), /\$: activeDateSet = \$cardioEnabled\s*\n?\s*\?[\s\S]{0,80}:\s*workoutDateSet/);
+  assert.match(body.slice(guard, fetchAt), /cardioRows = \[\];/, 'and clears what an earlier load left');
+  // The rule is told the setting too, so cardio can never outlive the opt-in.
+  assert.match(code(diary), /cardioOn: \$cardioEnabled/);
 });
 
 test('saving or deleting a session tells the Diary, and the Diary reloads', () => {

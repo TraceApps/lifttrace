@@ -24,6 +24,7 @@ import { musclesOf } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
 import { getServerUrl } from './platform.js';
 import { newTempId } from './offline-edits.js';
+import { trainedDates, currentStreak, longestStreak, trainedDaysByWeek, weekdayCounts, hasWorkingSet } from './trained-day.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -1087,16 +1088,23 @@ const Stats = {
     );
     return rows.map(_workoutFromRow);
   },
-  // Same test as the server's hasCompletedSet (stats.js): any ticked set,
-  // warm-ups included, makes it a workout day for streaks and frequency.
+  // Any ticked set: a workout worth reading for volume, records and the
+  // rest. Whether its DAY was trained is the shared rule's (_trained).
   _hasCompletedSet(w) {
     return (w.exercises || []).some(ex => (ex.sets || []).some(s => s?.completed));
   },
+  // Trained days by the rule the server and every screen use
+  // (src/lib/trained-day.js). `cardio`: the app's Track Cardio switch, sent
+  // with the request as it is to the server.
+  async _trained(cardio) {
+    const on = cardio === '1' || cardio === 1 || cardio === true;
+    const cardioRows = on ? await dbQuery(`SELECT date FROM cardio_log WHERE user_id = ?`, [ME]) : [];
+    return trainedDates({ workouts: await Stats._allWorkouts(), cardio: cardioRows, cardioOn: on });
+  },
   _inRange(w, from, to) { return (!from || w.date >= from) && (!to || w.date <= to); },
-  // Workout dates are calendar days, so weekday and week maths run in UTC on
-  // the bare date. Parsing them as local time put every workout on the
-  // previous day for anyone west of UTC.
-  _weekday(date) { return new Date(`${date}T00:00:00Z`).getUTCDay(); },
+  // Workout dates are calendar days, so week maths run in UTC on the bare
+  // date. Parsing them as local time put every workout on the previous day
+  // for anyone west of UTC.
   _weekStart(date) {   // Monday, like the server
     const d = new Date(`${date}T00:00:00Z`);
     const day = d.getUTCDay();
@@ -1121,30 +1129,13 @@ const Stats = {
     const rows = await dbQuery(`SELECT MIN(date) AS d FROM workout_log WHERE user_id = ? AND deleted_at IS NULL`, [ME]);
     return { date: rows[0]?.d || null };
   },
-  async streaks() {
-    // Mirror of GET /api/stats/streaks. The current streak survives a day
-    // not trained yet: it counts back from today, or from yesterday when
-    // today has nothing logged so far, as the server does.
-    const all = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet);
-    const dates = new Set(all.map(w => w.date));
-    const shift = (date, n) => {
-      const d = new Date(`${date}T00:00:00Z`);
-      d.setUTCDate(d.getUTCDate() + n);
-      return d.toISOString().slice(0, 10);
-    };
+  async streaks(cardio) {
+    // Mirror of GET /api/stats/streaks: trained days, counted back from
+    // today, or from yesterday while today isn't trained yet.
+    const dates = await Stats._trained(cardio);
     const today = new Date().toLocaleDateString('sv-SE');
-    let currentStreak = 0;
-    for (let i = 0; i < 365; i++) {
-      if (dates.has(shift(today, -i))) currentStreak++;
-      else if (i > 0) break;
-    }
-    let longestStreak = 0, run = 0, prev = null;
-    for (const d of [...dates].sort()) {
-      run = prev && shift(prev, 1) === d ? run + 1 : 1;
-      longestStreak = Math.max(longestStreak, run);
-      prev = d;
-    }
-    return { currentStreak, longestStreak, totalWorkouts: dates.size, totalSessions: all.length };
+    const sessions = (await Stats._allWorkouts()).filter(w => hasWorkingSet(w.exercises)).length;
+    return { currentStreak: currentStreak(dates, today), longestStreak: longestStreak(dates), totalWorkouts: dates.size, totalSessions: sessions };
   },
   async volume(from, to) {
     // Mirror of GET /api/stats/volume: [{ week, volume }] by Monday week,
@@ -1161,15 +1152,9 @@ const Stats = {
     }
     return Object.entries(byWeek).map(([week, volume]) => ({ week, volume }));
   },
-  async frequency(from, to) {
-    // Mirror of GET /api/stats/frequency: sessions per Monday week.
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
-    const byWeek = {};
-    for (const w of rows) {
-      const week = Stats._weekStart(w.date);
-      byWeek[week] = (byWeek[week] || 0) + 1;
-    }
-    return Object.entries(byWeek).map(([week, count]) => ({ week, count })).sort((a, b) => a.week.localeCompare(b.week));
+  async frequency(from, to, cardio) {
+    // Mirror of GET /api/stats/frequency: trained days per Monday week.
+    return trainedDaysByWeek(await Stats._trained(cardio), from, to);
   },
   async records() {
     // Match server shape: [{ exerciseId, name, maxWeight, maxReps, date, e1rm }].
@@ -1288,11 +1273,8 @@ const Stats = {
     }
     return load;
   },
-  async weekdayDistribution(from, to) {
-    const rows = (await Stats._allWorkouts()).filter(Stats._hasCompletedSet).filter(w => Stats._inRange(w, from, to));
-    const out = [0, 0, 0, 0, 0, 0, 0];
-    for (const w of rows) out[Stats._weekday(w.date)]++;
-    return out.map((count, day) => ({ day, count }));
+  async weekdayDistribution(from, to, cardio) {
+    return weekdayCounts(await Stats._trained(cardio), from, to);
   },
 };
 
@@ -1629,13 +1611,13 @@ async function handle(method, path, body, query) {
     // range used to be ignored here).
     const from = query?.start ?? query?.from, to = query?.end ?? query?.to;
     if (id === 'earliest-workout-date')  return Stats.earliestWorkoutDate();
-    if (id === 'streaks')                return Stats.streaks();
+    if (id === 'streaks')                return Stats.streaks(query?.cardio);
     if (id === 'volume')                 return Stats.volume(from, to);
-    if (id === 'frequency')              return Stats.frequency(from, to);
+    if (id === 'frequency')              return Stats.frequency(from, to, query?.cardio);
     if (id === 'records')                return Stats.records();
     if (id === 'muscle-group-volume')    return Stats.muscleGroupVolume(from, to);
     if (id === 'muscle-effective-sets')  return Stats.muscleEffectiveSets(from, to);
-    if (id === 'weekday-distribution')   return Stats.weekdayDistribution(from, to);
+    if (id === 'weekday-distribution')   return Stats.weekdayDistribution(from, to, query?.cardio);
     if (id === 'progress' && /^-?\d+$/.test(sub)) return Stats.progressFor(Number(sub), from, to);
   }
 

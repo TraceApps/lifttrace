@@ -19,6 +19,7 @@
   import GymTools from '../components/diary/GymTools.svelte';
   import { showSuccess, showError } from '../stores/toast.js';
   import { localDateStr } from '../lib/db.js';
+  import { trainedDates } from '../lib/trained-day.js';
   import { LtApi } from '../lib/api.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { currentUser } from '../stores/auth.js';
@@ -221,46 +222,35 @@
   })();
   $: prCountToday = Object.values(prFlagsByIdx).reduce((sum, s) => sum + s.size, 0);
 
-  let workoutDateSet = new Set();
-  let cardioDateSet = new Set();
+  // The rows the trained-day rule reads (src/lib/trained-day.js), the same
+  // rule as Statistics and the server's streak: a day counts when it has a
+  // completed working set, or a cardio session while Track Cardio is on.
+  let recentWorkoutRows = [];
+  let cardioRows = [];
   async function loadWorkoutDates() {
     try {
-      const rows = await LtApi.getRecentWorkouts(365);
-      workoutDateSet = new Set(rows.filter(r => {
-        // Only count days with at least one completed set
-        const exs = typeof r.exercises === 'string' ? JSON.parse(r.exercises || '[]') : (r.exercises || []);
-        return exs.some(e => (e.sets || []).some(s => s.completed));
-      }).map(r => r.date));
+      recentWorkoutRows = await LtApi.getRecentWorkouts(365);
     } catch {}
     // Cardio is opt-in (settings.cardioEnabled, off by default), and turning
-    // it on is what makes those days count. While it's off we don't fetch it
-    // at all, and we drop anything fetched earlier, so nobody gets streak
-    // credit from sessions their Diary isn't showing them. The setting lives
-    // on the Settings page, so changing it means leaving the Diary — and the
-    // route key remounts this component on the way back, re-running mount.
+    // it on is what makes those days count. While it's off it isn't fetched,
+    // and anything fetched earlier is dropped, so nobody gets streak credit
+    // from sessions their Diary isn't showing them. Changing the setting
+    // means leaving the Diary, and the route key remounts this component on
+    // the way back.
     if (!$cardioEnabled) {
-      cardioDateSet = new Set();
+      cardioRows = [];
       return;
     }
     try {
-      // Bare GET (no start/end) — cardio's own recent-rows shape, capped
-      // at 500 server-side. Loaded alongside workoutDateSet so a cardio-only
-      // day counts as "done" too: the streak/week-strip/calendar dots below
-      // only ever meant "you did something today", not "you lifted today".
-      const cardioRows = await LtApi.listCardio();
-      cardioDateSet = new Set(cardioRows.map(r => r.date));
+      // Bare GET (no start/end): cardio's recent rows, capped at 500.
+      cardioRows = await LtApi.listCardio();
     } catch {}
   }
 
-  // Union of lifting days and cardio days — this is the "done" set every
-  // streak/dot indicator below actually wants. Kept separate from
-  // workoutDateSet itself since that still means "lifted", specifically,
-  // wherever it's read on its own (nowhere left in this file, but the name
-  // is worth keeping honest for the next reader). Gated on the setting here
-  // as well as at the fetch, so the union can never outlive the opt-in.
-  $: activeDateSet = $cardioEnabled
-    ? new Set([...workoutDateSet, ...cardioDateSet])
-    : workoutDateSet;
+  // Every trained day: what the streak, the week strip and the calendar
+  // dots below mark. Gated on the setting here as well as at the fetch, so
+  // cardio can never outlive the opt-in.
+  $: activeDateSet = trainedDates({ workouts: recentWorkoutRows, cardio: cardioRows, cardioOn: $cardioEnabled });
 
   // Current streak from activeDateSet — consecutive days back from today
   // (or yesterday, so the user doesn't lose their streak the moment a new

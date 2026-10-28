@@ -56,6 +56,19 @@ prop contract `{ visible, expanded, onToggle }`. Framework CSS
 is marked `:global()` in Settings.svelte so sub-components inherit it
 without importing.
 
+### One rule for a trained day
+
+`src/lib/trained-day.js` decides whether a day was trained: at least one
+completed working set (not a warm-up), or a cardio session while Track
+Cardio is on; several workouts on one day are one day. It also does the
+streak and weekly-goal maths. Everything that counts trained days uses it:
+the Diary, Statistics, the phone's own statistics (`api-native.js`), the
+server's stats routes, weekly summary, reminders and coaching view
+(through `server/lib/trained-days.js`, which reads the rows). It has no
+imports so the server can load it from `../../src/lib/`; the Dockerfile
+copies it there. The cardio switch lives only in the browser without
+accounts, so the app sends it with the stats requests (`?cardio=1|0`).
+
 ### Rest timer is superset-aware
 
 The timer only fires when a whole superset round is complete (every

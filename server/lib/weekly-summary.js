@@ -13,6 +13,7 @@
  */
 import { setVolume, resolveLoadType, isTimedSet, newRecord, accumulateRecord } from './volume.js';
 import { normalizeMuscle } from './muscle-groups.js';
+import { trainedDates, weeklyGoal } from '../../src/lib/trained-day.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -33,14 +34,17 @@ const _working = (s) => s && s.completed && !s.warmup;
  * @param {Array}  p.workouts  every live workout_log row for the user (any date order)
  * @param {Map}    p.library   exercise_id -> { muscles: string[], category, load_type }
  * @param {string} p.today     local YYYY-MM-DD for the user
- * @param {number} p.goal      sessions planned per week
+ * @param {number} p.goal      days planned per week (the weekly goal)
+ * @param {Array}  p.cardio    the user's cardio_log rows (dates)
+ * @param {boolean} p.cardioOn whether Track Cardio is on: a cardio session
+ *                             then makes its day a trained day
  */
-export function buildWeeklySummary({ workouts, library = new Map(), today, goal = 0 }) {
+export function buildWeeklySummary({ workouts, library = new Map(), today, goal = 0, cardio = [], cardioOn = false }) {
   const end = today;
   const start = shiftDate(today, -6);
   const prevStart = shiftDate(start, -28);
 
-  const blank = () => ({ sessions: 0, sets: 0, volume: 0, minutes: 0 });
+  const blank = () => ({ sessions: 0, days: 0, sets: 0, volume: 0, minutes: 0 });
   const week = blank();
   const prior = blank();
   const muscles = {};
@@ -88,6 +92,15 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
     }
   }
 
+  // Days trained, the shared rule's (src/lib/trained-day.js): what the weekly
+  // goal counts, as the Statistics ring does.
+  const trained = trainedDates({ workouts: rows.filter(r => r.date <= end), cardio: (cardio || []).filter(c => c.date <= end), cardioOn });
+  for (const d of trained) {
+    if (d >= start) week.days++;
+    else if (d >= prevStart) prior.days++;
+  }
+  const progress = weeklyGoal({ goal, trained, start, end });
+
   // A PR is a new best set this week on a lift you had trained before, so a
   // first ever session doesn't count every exercise as a record.
   const prs = [];
@@ -104,6 +117,7 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
 
   const avg = {
     sessions: prior.sessions / 4,
+    days: prior.days / 4,
     sets: prior.sets / 4,
     volume: prior.volume / 4,
     minutes: prior.minutes / 4,
@@ -112,9 +126,10 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
   return {
     start, end,
     goal: Number(goal) > 0 ? Number(goal) : 0,
+    progress,
     week: { ...week, volume: Math.round(week.volume) },
     avg,
-    hasBaseline: prior.sessions > 0,
+    hasBaseline: prior.days > 0,
     prs,
     muscles: Object.entries(muscles)
       .map(([muscle, sets]) => ({ muscle, sets }))
@@ -144,9 +159,10 @@ export function fmtHold(sec) {
 export function summaryLine(summary, { unit = 'lbs', locale = 'en' } = {}) {
   const nf = new Intl.NumberFormat(locale);
   const { week, goal, prs } = summary;
-  if (!week.sessions) return 'No workouts logged this week.';
-  const parts = [goal ? `${week.sessions} of ${goal} sessions` : `${week.sessions} ${week.sessions === 1 ? 'session' : 'sessions'}`];
-  parts.push(`${nf.format(week.sets)} sets`);
+  if (!week.days) return 'No workouts logged this week.';
+  const target = summary.progress?.target ?? goal;
+  const parts = [goal ? `${week.days} of ${target} training days` : `${week.days} ${week.days === 1 ? 'training day' : 'training days'}`];
+  if (week.sets > 0) parts.push(`${nf.format(week.sets)} sets`);
   if (prs.length) parts.push(`${prs.length} ${prs.length === 1 ? 'PR' : 'PRs'}`);
   if (week.volume > 0) {
     const pct = summary.hasBaseline ? changeVsAvg(week.volume, summary.avg.volume) : null;

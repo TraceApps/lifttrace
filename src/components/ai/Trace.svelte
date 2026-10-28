@@ -18,7 +18,8 @@
     return navigator.language || 'en-US';
   }
   import { currentUser } from '../../stores/auth.js';
-  import { DB } from '../../lib/db.js';
+  import { DB, localDateStr } from '../../lib/db.js';
+  import { trainedDates, shiftDate, hasWorkingSet, exercisesOf } from '../../lib/trained-day.js';
   import { LtApi } from '../../lib/api.js';
   import { currentDate, todayLog, activeProgram, saveWorkout } from '../../stores/workout.js';
   import { isPlaying, currentTrack, getAudioForAnalyser } from '../../stores/player.js';
@@ -547,17 +548,24 @@
     const parts = [];
     if ($activeProgram?.name) parts.push(`Active program: ${$activeProgram.name}`);
     try {
-      const wRes = await fetch('/api/workout/recent?limit=7', { credentials: 'include' });
+      const wRes = await fetch('/api/workout/recent?limit=14', { credentials: 'include' });
       if (wRes.ok) {
         const recent = await wRes.json();
-        const withWork = (recent || []).filter(r => (r.exercises || []).some(e => (e.sets || []).some(s => s.completed && !s.warmup)));
-        const daysCovered = new Set(withWork.map(r => r.date)).size;
+        // The last seven days, today included, counted by the trained-day
+        // rule every screen uses (src/lib/trained-day.js).
+        const today = localDateStr();
+        const from = shiftDate(today, -6);
+        const cardioOn = !!DB.getSetting('cardioEnabled', false);
+        const cardio = cardioOn ? await LtApi.listCardio(from, today).catch(() => []) : [];
+        const trained = trainedDates({ workouts: recent || [], cardio, cardioOn });
+        const daysCovered = [...trained].filter(d => d >= from && d <= today).length;
+        const withWork = (recent || []).filter(r => hasWorkingSet(exercisesOf(r)));
         let line = `Trained on ${daysCovered} of the last 7 days.`;
         const last = withWork[0];
         if (last) {
           const lastDate = new Date(last.date + 'T12:00:00');
-          const today = new Date($currentDate + 'T12:00:00');
-          const daysAgo = Math.max(0, Math.round((today - lastDate) / (24 * 3600 * 1000)));
+          const ref = new Date($currentDate + 'T12:00:00');
+          const daysAgo = Math.max(0, Math.round((ref - lastDate) / (24 * 3600 * 1000)));
           const when = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
           const name = last.name ? ` (${last.name})` : '';
           line += ` Last session: ${when}${name}.`;

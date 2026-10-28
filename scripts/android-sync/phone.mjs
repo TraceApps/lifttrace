@@ -89,6 +89,31 @@ function _decodeTitle(v) {
 const me = () => localStorage.setItem('wl:userId', process.env.LT_PHONE_USER);
 
 const scenarios = {
+  // The trained-day rule's cases (scripts/fixtures/trained-day-cases.mjs,
+  // issue #121) through the phone's own statistics, standalone: no server,
+  // so api-native answers, on the same day the server test runs them.
+  async trainedDayRule() {
+    const { CASES, TODAY } = await import('../fixtures/trained-day-cases.mjs');
+    const R = Date, OFF = Date.parse(`${TODAY}T12:00:00`) - R.now();
+    globalThis.Date = class extends R { constructor(...a) { if (a.length === 0) super(R.now() + OFF); else super(...a); } static now() { return R.now() + OFF; } };
+    process.env.LT_SERVER = '';
+    for (const w of CASES.workouts) {
+      await api.saveWorkout(w.date, { ...(w.second ? { new_session: true } : {}), name: w.why || 'W', exercises: w.exercises });
+    }
+    for (const c of CASES.cardio) await api.createCardio({ date: c.date, activity: 'Run', duration_min: 30 });
+    const out = {};
+    for (const on of [false, true]) {
+      const s = await api.getStreaks(on);
+      out[on ? 'cardioOn' : 'cardioOff'] = {
+        streaks: { current: s.currentStreak, longest: s.longestStreak, days: s.totalWorkouts },
+        sessions: s.totalSessions,
+        byWeek: await api.getFrequency(CASES.from, TODAY, on),
+        weekdays: await api.getWeekdayDistribution(CASES.from, TODAY, on),
+      };
+    }
+    globalThis.Date = R;
+    return out;
+  },
   // Rows made offline (a plan, a day in it, an exercise, a workout using all
   // three) while another account takes the server ids the phone would use.
   // Trace through the server (set by environment variables) is never put

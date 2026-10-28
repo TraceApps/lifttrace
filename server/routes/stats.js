@@ -5,6 +5,8 @@ import { requireAuth, uid } from '../middleware/auth.js';
 import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } from '../lib/volume.js';
 import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
 import { musclesOf } from '../lib/muscle-load.js';
+import { trainedDateSet } from '../lib/trained-days.js';
+import { currentStreak, longestStreak, trainedDaysByWeek, weekdayCounts, hasWorkingSet } from '../../src/lib/trained-day.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -68,16 +70,13 @@ router.get('/volume', wrap((req, res) => {
   res.json(Object.entries(byWeek).map(([week, volume]) => ({ week, volume })));
 }));
 
-// GET /api/stats/frequency?start=&end=
+// GET /api/stats/frequency?start=&end=[&cardio=1|0]
+//   Trained days per Monday week (src/lib/trained-day.js): several sessions
+//   on one day are one day, as the weekly goal counts them.
 router.get('/frequency', wrap((req, res) => {
-  const { start, end } = req.query;
-  const rows = getWorkouts(uid(req), start, end);
-  const byWeek = {};
-  for (const row of rows) {
-    const weekStart = _weekStart(row.date);
-    byWeek[weekStart] = (byWeek[weekStart] || 0) + 1;
-  }
-  res.json(Object.entries(byWeek).map(([week, count]) => ({ week, count })));
+  const { start, end, cardio } = req.query;
+  const days = trainedDateSet(uid(req), { start, end, cardio });
+  res.json(trainedDaysByWeek(days, start, end));
 }));
 
 // GET /api/stats/records — personal records per exercise
@@ -215,18 +214,12 @@ router.get('/muscle-effective-sets', wrap((req, res) => {
   res.json(load);
 }));
 
-// GET /api/stats/weekday-distribution?start=&end=
-//   Returns workout counts per day of week: [{ day: 0-6, count: N }]
-//   0=Sunday, 6=Saturday
+// GET /api/stats/weekday-distribution?start=&end=[&cardio=1|0]
+//   Trained days per day of week: [{ day: 0-6, count: N }], 0=Sunday.
+//   Weekdays of calendar dates, read in UTC so no time zone moves them.
 router.get('/weekday-distribution', wrap((req, res) => {
-  const { start, end } = req.query;
-  const rows = getWorkouts(uid(req), start, end);
-  const counts = Array.from({ length: 7 }, (_, i) => ({ day: i, count: 0 }));
-  for (const row of rows) {
-    const d = new Date(row.date + 'T12:00:00');
-    counts[d.getDay()].count++;
-  }
-  res.json(counts);
+  const { start, end, cardio } = req.query;
+  res.json(weekdayCounts(trainedDateSet(uid(req), { start, end, cardio }), start, end));
 }));
 
 // GET /api/stats/earliest-workout-date — used by Statistics "All" range to
@@ -240,54 +233,22 @@ router.get('/earliest-workout-date', wrap((req, res) => {
   res.json({ date: row?.date || null });
 }));
 
-// GET /api/stats/streaks
+// GET /api/stats/streaks[?cardio=1|0]
+//   Streaks of trained days (src/lib/trained-day.js), counted back from the
+//   server's own today, or from yesterday while today isn't trained yet.
+//   totalWorkouts is the number of trained days; totalSessions the number
+//   of workouts with a completed working set.
 router.get('/streaks', wrap((req, res) => {
-  const rows = getAllWorkouts(uid(req));
-  const dates = new Set(rows.map(r => r.date));
-  const sortedDates = [...dates].sort();
-
-  let currentStreak = 0;
-  let longestStreak = 0;
-  let tempStreak = 0;
-
-  // Check from today backward for current streak. Calendar days: the
-  // server's own today, stepped back in UTC on the bare date (#101), as the
-  // phone does. Stepping local time and reading the UTC date started from
-  // tomorrow or yesterday for part of every night off UTC.
+  const userId = uid(req);
+  const dates = trainedDateSet(userId, { cardio: req.query.cardio });
   const today = new Date().toLocaleDateString('sv-SE');
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(`${today}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-    if (dates.has(dateStr)) {
-      currentStreak++;
-    } else if (i > 0) {
-      break;
-    }
-  }
-
-  // Longest streak
-  for (let i = 0; i < sortedDates.length; i++) {
-    if (i === 0) { tempStreak = 1; continue; }
-    const prev = new Date(sortedDates[i - 1]);
-    const curr = new Date(sortedDates[i]);
-    const diff = (curr - prev) / (1000 * 60 * 60 * 24);
-    if (diff === 1) {
-      tempStreak++;
-    } else {
-      longestStreak = Math.max(longestStreak, tempStreak);
-      tempStreak = 1;
-    }
-  }
-  longestStreak = Math.max(longestStreak, tempStreak);
-
-  // totalWorkouts stays "distinct days with a completed workout" (a day
-  // counts as done if ANY session that day is completed — the right call
-  // once a date can have multiple sessions, issue #76, so a still-open
-  // daily-stretch session doesn't cost the lifting streak). totalSessions
-  // is the true per-session count, additive so existing consumers of
-  // totalWorkouts see no change in meaning.
-  res.json({ currentStreak, longestStreak, totalWorkouts: dates.size, totalSessions: rows.length });
+  const sessions = getAllWorkouts(userId).filter(r => hasWorkingSet(r.exercises)).length;
+  res.json({
+    currentStreak: currentStreak(dates, today),
+    longestStreak: longestStreak(dates),
+    totalWorkouts: dates.size,
+    totalSessions: sessions,
+  });
 }));
 
 export default router;

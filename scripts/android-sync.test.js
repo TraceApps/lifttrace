@@ -854,3 +854,14 @@ test('a program\'s maker sees its owner controls in every mode, starters stay re
   // Standalone: the one local user made them.
   assert.equal(isOwner({ id: 1 }, { created_by: 1, visibility: 'private' }, false), true);
 });
+
+test("the phone's own statistics count trained days by the shared rule, as the server does (#121)", { skip, timeout: SCENARIO_MS }, async () => {
+  const { CASES } = await import('./fixtures/trained-day-cases.mjs');
+  const { out } = await scenario('trainedDayRule', { accounts: false });
+  for (const k of ['cardioOff', 'cardioOn']) {
+    assert.deepEqual(out[k].streaks, CASES.expect[k].streaks, `${k} streaks`);
+    assert.equal(out[k].sessions, CASES.expect.sessions, `${k} sessions`);
+    assert.deepEqual(out[k].byWeek, CASES.expect[k].byWeek, `${k} per week`);
+    assert.deepEqual(out[k].weekdays, CASES.expect[k].weekdays, `${k} weekdays`);
+  }
+});

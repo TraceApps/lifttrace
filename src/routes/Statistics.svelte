@@ -18,6 +18,7 @@
   import { estimateWorkoutCalories, ageFromDob, isTimedSet, fmtSetDuration } from '../lib/workout.js';
   import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
+  import { trainedDates, weeklyGoal, weekStartOf, shiftDate, hasWorkingSet, exercisesOf } from '../lib/trained-day.js';
   import { showError } from '../stores/toast.js';
   import { foldText } from '../lib/search-text.js';
 
@@ -97,10 +98,6 @@
   let cardioSessions = []; // individual sessions in range, newest first, for the session list under the chart
   let workoutDates = new Set();
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
-  const _hasCompletedSet = w => {
-    const exs = typeof w.exercises === 'string' ? JSON.parse(w.exercises || '[]') : (w.exercises || []);
-    return exs.some(e => (e.sets || []).some(s => s.completed));
-  };
   let exercises = [];
   let loading = true;
 
@@ -235,12 +232,12 @@
     try {
       const results = await Promise.allSettled([
         LtApi.getVolume(startDate, endDate),
-        LtApi.getFrequency(startDate, endDate),
+        LtApi.getFrequency(startDate, endDate, $cardioEnabled),
         LtApi.getRecords(),
-        LtApi.getStreaks(),
+        LtApi.getStreaks($cardioEnabled),
         LtApi.getMuscleGroupVolume(startDate, endDate),
         LtApi.getMuscleEffectiveSets(startDate, endDate),
-        LtApi.getWeekdayDistribution(startDate, endDate),
+        LtApi.getWeekdayDistribution(startDate, endDate, $cardioEnabled),
         LtApi.getCardioWeekly(startDate, endDate).catch(() => []),
         LtApi.listCardio(startDate, endDate).catch(() => []),
       ]);
@@ -265,15 +262,17 @@
       try {
         const recent = await fetch('/api/workout/recent?limit=365', { credentials: 'include' });
         if (recent.ok) {
-          // A day counts only if it has at least one completed set, the same
-          // rule as the Diary's dots and /api/stats/streaks. Clearing a day,
-          // or removing its last exercise, leaves an empty workout behind,
-          // which lit that day here while the Diary showed nothing (issue
-          // #124, PR #120). Empty workouts are dropped from the cached
-          // records too; the phone's standalone mode already leaves them out.
-          const logs = (await recent.json()).filter(l =>
-            (typeof l.exercises === 'string' ? JSON.parse(l.exercises || '[]') : (l.exercises || [])).length > 0);
-          workoutDates = new Set(logs.filter(_hasCompletedSet).map(l => l.date));
+          // Trained days by the shared rule (src/lib/trained-day.js), the one
+          // the Diary's dots and /api/stats/streaks use: a completed working
+          // set, or a cardio session while Track Cardio is on. Clearing a
+          // day, or removing its last exercise, leaves an empty workout
+          // behind, which lit that day here while the Diary showed nothing
+          // (issue #124, PR #120). Empty workouts are dropped from the
+          // cached records too; the phone's standalone mode already leaves
+          // them out.
+          const logs = (await recent.json()).filter(l => exercisesOf(l).length > 0);
+          const cardioRows = $cardioEnabled ? await LtApi.listCardio().catch(() => []) : [];
+          workoutDates = trainedDates({ workouts: logs, cardio: cardioRows, cardioOn: $cardioEnabled });
           recentWorkouts = logs;
         }
       } catch {}
@@ -351,21 +350,13 @@
   })();
   $: avgFreq = frequency.length ? (totalWorkoutsInRange / frequency.length).toFixed(1) : 0;
 
-  // Weekly goal progress for the Overview ring. Uses the current ISO-style
-  // week (Mon-first like every other week-anchored stat here) so the ring
-  // fills as the user trains through the week and resets each Monday.
+  // Weekly goal progress for the Overview ring: trained days this Monday to
+  // Sunday against the goal, by the shared rule (src/lib/trained-day.js).
+  // It used to count finished sessions, so two workouts on one day counted
+  // twice and a day trained without pressing Finish didn't count.
   $: weekProgress = (() => {
-    const goal = $weeklyWorkoutGoal || 4;
-    const today = new Date();
-    const dow = (today.getDay() + 6) % 7;  // Mon=0..Sun=6
-    const start = new Date(today); start.setDate(today.getDate() - dow);
-    const startStr = localDateStr(start);
-    const todayStr = localDateStr();
-    const count = recentWorkouts.filter(w =>
-      w.completed && _hasCompletedSet(w) && w.date >= startStr && w.date <= todayStr
-    ).length;
-    const pct = Math.min(100, Math.round((count / goal) * 100));
-    return { count, goal, pct };
+    const start = weekStartOf(localDateStr());
+    return weeklyGoal({ goal: $weeklyWorkoutGoal || 4, trained: workoutDates, start, end: shiftDate(start, 6) });
   })();
 
   // Period-over-period deltas. Compares the current range's volume +
@@ -382,9 +373,11 @@
     const priorEndStr = localDateStr(priorEnd);
     const priorStartStr = localDateStr(priorStart);
     const priorWorkouts = recentWorkouts.filter(w =>
-      w.completed && w.date >= priorStartStr && w.date <= priorEndStr
+      hasWorkingSet(exercisesOf(w)) && w.date >= priorStartStr && w.date <= priorEndStr
     );
-    if (priorWorkouts.length === 0) return null;
+    // Trained days, as the range's own count (frequency) is.
+    const priorDays = [...workoutDates].filter(d => d >= priorStartStr && d <= priorEndStr).length;
+    if (priorDays === 0) return null;
     let priorVol = 0;
     for (const w of priorWorkouts) {
       const exs = (typeof w.exercises === 'string' ? JSON.parse(w.exercises || '[]') : (w.exercises || []));
@@ -406,10 +399,8 @@
       }
     }
     const volPct = priorVol ? Math.round(((totalVolume - priorVol) / priorVol) * 100) : null;
-    const cntPct = priorWorkouts.length
-      ? Math.round(((totalWorkoutsInRange - priorWorkouts.length) / priorWorkouts.length) * 100)
-      : null;
-    return { volPct, cntPct, priorVol, priorCount: priorWorkouts.length };
+    const cntPct = Math.round(((totalWorkoutsInRange - priorDays) / priorDays) * 100);
+    return { volPct, cntPct, priorVol, priorCount: priorDays };
   })();
   $: maxVolWeek = volume.length ? Math.max(...volume.map(v => v.volume)) : 0;
   $: maxFreqWeek = frequency.length ? Math.max(...frequency.map(f => f.count)) : 0;
@@ -713,7 +704,7 @@
         {#if weekProgress.goal > 0}
           {@const ringCirc = 2 * Math.PI * 32}
           {@const ringOffset = ringCirc * (1 - weekProgress.pct / 100)}
-          <div class="goal-ring-card" class:hit={weekProgress.pct >= 100}>
+          <div class="goal-ring-card" class:hit={weekProgress.met}>
             <svg class="goal-ring" viewBox="0 0 80 80" aria-hidden="true">
               <circle class="goal-ring-bg" cx="40" cy="40" r="32" />
               <circle class="goal-ring-fg" cx="40" cy="40" r="32"
@@ -724,14 +715,14 @@
               <div class="goal-ring-top">
                 <span class="goal-ring-num">{weekProgress.count}</span>
                 <span class="goal-ring-of">{$_('statistics.of')}</span>
-                <span class="goal-ring-num">{weekProgress.goal}</span>
+                <span class="goal-ring-num">{weekProgress.target}</span>
                 <span class="goal-ring-of">{$_('statistics.this_week')}</span>
               </div>
               <span class="goal-ring-pct">
-                {#if weekProgress.pct >= 100}
+                {#if weekProgress.met}
                   🎯 {$_('statistics.goal_hit')}
                 {:else}
-                  {$_('statistics.to_go', { values: { n: weekProgress.goal - weekProgress.count } })}
+                  {$_('statistics.to_go', { values: { n: weekProgress.left } })}
                 {/if}
               </span>
             </div>

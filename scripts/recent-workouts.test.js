@@ -21,9 +21,9 @@ const diary = read('../src/routes/Diary.svelte');
 
 test('Statistics leaves out a workout with no exercises before counting days', () => {
   const at = stats.indexOf("fetch('/api/workout/recent?limit=365'");
-  const block = stats.slice(at, stats.indexOf('workoutDates = new Set', at) + 60);
-  assert.match(block, /\.filter\(l =>\s*\n?\s*\(typeof l\.exercises === 'string' \? JSON\.parse\(l\.exercises \|\| '\[\]'\) : \(l\.exercises \|\| \[\]\)\)\.length > 0\)/);
-  assert.ok(block.indexOf('.filter(') < block.indexOf('workoutDates = new Set'), 'filtered before the heatmap and streak dots read it');
+  const block = stats.slice(at, stats.indexOf('workoutDates = trainedDates', at) + 60);
+  assert.match(block, /const logs = \(await recent\.json\(\)\)\.filter\(l => exercisesOf\(l\)\.length > 0\);/);
+  assert.ok(block.indexOf('.filter(') < block.indexOf('workoutDates = trainedDates'), 'filtered before the heatmap and streak dots read it');
 });
 
 test('the Diary reads a recent workout as the list it arrives as', () => {
@@ -55,16 +55,17 @@ test('what the two cards say is translatable', () => {
   assert.doesNotMatch(diary, /exs\.length === 1 \? 'exercise' : 'exercises'/);
 });
 
-test('Statistics counts a day the way the Diary does: a completed set (PR #120)', () => {
-  const m = stats.match(/const _hasCompletedSet = w => \{([\s\S]*?)\n  \};/);
-  assert.ok(m, 'one rule for the heatmap, the streak dots and the goal ring');
-  const hasCompletedSet = new Function('w', m[1]);
-  assert.equal(hasCompletedSet({ exercises: [] }), false, 'a cleared day');
-  assert.equal(hasCompletedSet({ exercises: [{ sets: [{ completed: false }] }] }), false, 'planned, not done');
-  assert.equal(hasCompletedSet({ exercises: [{ sets: [{ completed: true }] }] }), true);
-  assert.equal(hasCompletedSet({ exercises: '[{"sets":[{"completed":true}]}]' }), true, 'text still works');
-  assert.match(stats, /workoutDates = new Set\(logs\.filter\(_hasCompletedSet\)\.map\(l => l\.date\)\)/);
-  assert.match(stats, /w\.completed && _hasCompletedSet\(w\) && w\.date >= startStr/, 'the weekly goal ring');
+test('Statistics counts a day the way the Diary does, by the shared rule (PR #120, #121)', async () => {
+  // The rule itself is held to its cases in trained-day.test.js.
+  const { hasWorkingSet, exercisesOf } = await import('../src/lib/trained-day.js');
+  const counts = (w) => hasWorkingSet(exercisesOf(w));
+  assert.equal(counts({ exercises: [] }), false, 'a cleared day');
+  assert.equal(counts({ exercises: [{ sets: [{ completed: false }] }] }), false, 'planned, not done');
+  assert.equal(counts({ exercises: [{ sets: [{ completed: true }] }] }), true);
+  assert.equal(counts({ exercises: '[{"sets":[{"completed":true}]}]' }), true, 'text still works');
+  assert.match(stats, /workoutDates = trainedDates\(\{ workouts: logs,/, 'the heatmap and the streak dots');
+  assert.match(diary, /\$: activeDateSet = trainedDates\(\{ workouts: recentWorkoutRows,/, "the Diary's dots");
+  assert.match(stats, /weeklyGoal\(\{ goal: \$weeklyWorkoutGoal \|\| 4, trained: workoutDates/, 'the weekly goal ring');
 });
 
 test('Clear Workout unmarks the day as finished and refreshes its dots (PR #120)', () => {

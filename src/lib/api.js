@@ -15,6 +15,10 @@ async function _json(res) {
 }
 
 const opts = { credentials: 'include' };
+// Whether cardio counts as training (Track Cardio), for the statistics that
+// count trained days. Said by the app: without accounts the switch lives
+// only on this device (server/lib/trained-days.js cardioCounts).
+const _cardio = (on) => (on == null ? '' : `cardio=${on ? 1 : 0}`);
 const jsonOpts = { ...opts, headers: { 'Content-Type': 'application/json' } };
 
 export const LtApi = {
@@ -140,10 +144,10 @@ export const LtApi = {
 
   // ── Statistics ─────────────────────────────────────────────────────────
   getVolume: (start, end) => fetch(`/api/stats/volume?start=${start}&end=${end}`, opts).then(_json),
-  getFrequency: (start, end) => fetch(`/api/stats/frequency?start=${start}&end=${end}`, opts).then(_json),
+  getFrequency: (start, end, cardio) => fetch(`/api/stats/frequency?start=${start}&end=${end}${cardio == null ? '' : '&' + _cardio(cardio)}`, opts).then(_json),
   getRecords: () => fetch('/api/stats/records', opts).then(_json),
   getProgress: (exerciseId, start, end) => fetch(`/api/stats/progress/${exerciseId}?start=${start}&end=${end}`, opts).then(_json),
-  getStreaks: () => fetch('/api/stats/streaks', opts).then(_json),
+  getStreaks: (cardio) => fetch(`/api/stats/streaks${cardio == null ? '' : '?' + _cardio(cardio)}`, opts).then(_json),
   getMuscleGroupVolume: (start, end) => fetch(`/api/stats/muscle-group-volume?start=${start}&end=${end}`, opts).then(_json),
   getMuscleEffectiveSets: (start, end) => fetch(`/api/stats/muscle-effective-sets?start=${start}&end=${end}`, opts).then(_json),
 
@@ -159,7 +163,7 @@ export const LtApi = {
   getCardioWeekly: (start, end) => fetch(`/api/cardio/stats/weekly?start=${start}&end=${end}`, opts).then(_json),
   getCardioTemplates: () => fetch('/api/cardio/templates', opts).then(_json),
   toggleCardioTemplate: (id, is_template) => fetch(`/api/cardio/${id}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ is_template: is_template ? 1 : 0 }) }).then(_json),
-  getWeekdayDistribution: (start, end) => fetch(`/api/stats/weekday-distribution?start=${start}&end=${end}`, opts).then(_json),
+  getWeekdayDistribution: (start, end, cardio) => fetch(`/api/stats/weekday-distribution?start=${start}&end=${end}${cardio == null ? '' : '&' + _cardio(cardio)}`, opts).then(_json),
 
   // ── Settings ───────────────────────────────────────────────────────────
   getSettings: () => fetch('/api/settings', opts).then(_json),

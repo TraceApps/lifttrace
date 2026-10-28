@@ -1147,10 +1147,12 @@ async function _getStatsOverview({ range } = {}) {
   }
   const to = _today();
 
+  // Trained days count cardio while Track Cardio is on, as on Statistics.
+  const cardio = _cardioOn() ? 1 : 0;
   const [streaks, volume, frequency, muscleSets, records] = await Promise.all([
-    _get('/api/stats/streaks').catch(() => ({})),
+    _get(`/api/stats/streaks?cardio=${cardio}`).catch(() => ({})),
     _get(`/api/stats/volume?start=${from}&end=${to}`).catch(() => []),
-    _get(`/api/stats/frequency?start=${from}&end=${to}`).catch(() => []),
+    _get(`/api/stats/frequency?start=${from}&end=${to}&cardio=${cardio}`).catch(() => []),
     _get(`/api/stats/muscle-effective-sets?start=${from}&end=${to}`).catch(() => ({})),
     _get('/api/stats/records').catch(() => []),
   ]);
