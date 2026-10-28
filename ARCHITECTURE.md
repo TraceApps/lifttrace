@@ -496,7 +496,15 @@ changes it later.
   the newer edit of each field, or group of fields, from each row's
   `field_times` (`server/lib/newer-wins.js`; a create is stamped with its
   own edit time, and updated_at, which housekeeping moves, never counts); a
-  delete loses (409) to a later edit of the row. The web app's outbox sends the same headers,
+  delete loses (409) to a later edit of the row. `POST /api/sync/push`
+  (no LiftTrace app has ever sent it; third-party clients may) meets rows the same
+  way: a row older than the server's, to the second, changes nothing; a
+  newer one is an edit made at its own `updated_at` (zone offsets read as
+  instants), changing the fields it lists in `changed_fields`, or every
+  field it sends, decided and stamped field by field with the same fields
+  and groups as the matching route (workouts, exercises, programs, program
+  days, body stats, settings); a pushed delete of a workout, exercise,
+  program or program day made before a later edit leaves the row. The web app's outbox sends the same headers,
   on the clock from `X-Server-Time`. Sessions come from the
   `Authorization` header before the cookie when it is one of this server's
   (`req.authVia`). Signed out, no sync runs.

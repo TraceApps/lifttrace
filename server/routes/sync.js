@@ -6,10 +6,13 @@
  *                                       a fresh server_time the client
  *                                       sends back as `since` next pull.
  *   POST /api/sync/push              → batch upsert of pending writes
- *                                       from the client. Last-write-wins
- *                                       by updated_at. Returns
- *                                       client_id → server_id mappings
- *                                       for newly created rows.
+ *                                       from the client. A row older than
+ *                                       the server's (updated_at) changes
+ *                                       nothing; a newer one meets the
+ *                                       row field by field, as the app's
+ *                                       own saves do (lib/newer-wins.js).
+ *                                       Returns client_id → server_id
+ *                                       mappings for newly created rows.
  *
  * Scope (LiftTrace tables): exercises (custom + user), programs,
  * workout_templates, program_assignments, workout_log, body_stats_log,
@@ -38,6 +41,7 @@ import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
+import { applyToBody, createdTimes, decide, deleteLoses, stampMerged } from '../lib/newer-wins.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
@@ -97,6 +101,37 @@ function localizeOr(value, fallback, opts) {
     logger.warn(`[sync] push: an embedded image was not stored: ${e.message}`);
     return fallback;
   }
+}
+
+// A pushed row read as the edit it is, for lib/newer-wins.js: made at the
+// row's updated_at (the device's clock, never later than now), changing the
+// fields it lists in `changed_fields` (as X-Changed-Fields does for the
+// app's own saves), or every field it sends when it lists none. The newer edit of each field then stays, as for
+// the app's own saves (PUT /api/workout/:date and friends), so a copy made
+// before a change elsewhere (a workout started from Home Assistant, an edit
+// on another device) can't put back what it had, and what a push writes is
+// stamped, so an older edit queued on a phone can't overwrite it.
+function pushedEdit(row) {
+  const ms = instantMs(row?.updated_at);
+  const at = Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
+  const changed = Array.isArray(row?.changed_fields) ? row.changed_fields.map(String).join(',') : undefined;
+  return {
+    get: (h) => {
+      const k = String(h).toLowerCase();
+      return k === 'x-edited-at' ? at : k === 'x-changed-fields' ? changed : undefined;
+    },
+  };
+}
+
+// A pushed time as an instant: an ISO time with its zone (Z or an offset),
+// or the server's own 'YYYY-MM-DD HH:MM:SS', and a time with no zone, read
+// as UTC as the server writes them. NaN when it isn't a time.
+function instantMs(ts) {
+  if (ts == null || ts === '') return NaN;
+  if (typeof ts === 'number') return ts;
+  let t = String(ts).trim().replace(' ', 'T');
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(t)) t += 'Z';
+  return Date.parse(t);
 }
 
 // ── Settings keys that should never be pushed to the client ─────────────
@@ -378,13 +413,21 @@ router.post('/push', wrap((req, res) => {
   };
 
   const norm = ts => ts ? toSqlTime(ts) : '';
-  const wins = (clientTs, serverTs) => norm(clientTs) >= norm(serverTs || '');
+  // A pushed row as new as the server's, to the second (the server keeps
+  // whole seconds; a tie goes to the device), compared as instants, so a
+  // time written with a zone offset counts as the time it is. One that
+  // can't be read is compared as text, as before.
+  const wins = (clientTs, serverTs) => {
+    const c = instantMs(clientTs), sv = instantMs(serverTs);
+    if (Number.isFinite(c) && Number.isFinite(sv)) return Math.floor(c / 1000) >= Math.floor(sv / 1000);
+    return norm(clientTs) >= norm(serverTs || '');
+  };
 
   const run = db.transaction(() => {
     // ── exercises ──────────────────────────────────────────────────────
     for (const e of (body.exercises || [])) {
       const existing = e.server_id
-        ? db.prepare('SELECT updated_at, is_global, created_by, img_url, gif_url FROM exercises WHERE id = ?').get(e.server_id)
+        ? db.prepare('SELECT * FROM exercises WHERE id = ?').get(e.server_id)
         : null;
       if (e.server_id && existing) {
         // Only a row this user owns is written. A library exercise, or
@@ -393,18 +436,32 @@ router.post('/push', wrap((req, res) => {
         // timestamp race, so the phone stops sending it and nothing changes
         // underneath anyone else (see lib/exercise-owner.js).
         if (canChangeExercise(existing, u) && wins(e.updated_at, existing.updated_at)) {
+          const edit = pushedEdit(e);
           if (e.deleted_at) {
-            db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
+            // Kept when something in it changed after the delete was made
+            // (DELETE /api/exercises/:id does the same); touched, so the
+            // device gets it back with its next pull.
+            if (deleteLoses(edit, existing)) db.prepare(`UPDATE exercises SET updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
+            else db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
           } else {
+            // The newer edit of each field stays (PUT /api/exercises/:id).
+            const JSON_FIELDS = new Set(['primary_muscles', 'secondary_muscles', 'equipment']);
+            const v = { ...e };
+            const times = applyToBody(edit, existing, v, {
+              fields: ['name', 'category', 'primary_muscles', 'secondary_muscles', 'equipment', 'instructions', 'tips', 'img_url', 'gif_url', 'video_url'],
+              groups: [['img_url', 'gif_url', 'video_url']],
+              current: f => (JSON_FIELDS.has(f) ? JSON.parse(existing[f] || '[]') : existing[f]),
+            });
             db.prepare(
-              `UPDATE exercises SET name=?, category=?, primary_muscles=?, secondary_muscles=?, equipment=?, instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE exercises SET name=?, category=?, primary_muscles=?, secondary_muscles=?, equipment=?, instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, field_times=?, updated_at=datetime('now') WHERE id=?`
             ).run(
-              e.name, e.category || null,
-              JSON.stringify(e.primary_muscles || []),
-              JSON.stringify(e.secondary_muscles || []),
-              JSON.stringify(e.equipment || []),
-              e.instructions || null, e.tips || null,
-              localizeOr(e.img_url, existing.img_url) || null, localizeOr(e.gif_url, existing.gif_url) || null, e.video_url || null,
+              v.name, v.category || null,
+              JSON.stringify(v.primary_muscles || []),
+              JSON.stringify(v.secondary_muscles || []),
+              JSON.stringify(v.equipment || []),
+              v.instructions || null, v.tips || null,
+              localizeOr(v.img_url, existing.img_url) || null, localizeOr(v.gif_url, existing.gif_url) || null, v.video_url || null,
+              times,
               e.server_id
             );
           }
@@ -412,8 +469,8 @@ router.post('/push', wrap((req, res) => {
         result.exercises.push({ client_id: e.client_id, server_id: e.server_id });
       } else if (!e.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, source, is_global, created_by, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?, datetime('now'))`
+          `INSERT INTO exercises (name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, img_url, gif_url, video_url, source, is_global, created_by, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 0, ?, ?, datetime('now'))`
         ).run(
           e.name, e.category || null,
           JSON.stringify(e.primary_muscles || []),
@@ -421,7 +478,7 @@ router.post('/push', wrap((req, res) => {
           JSON.stringify(e.equipment || []),
           e.instructions || null, e.tips || null,
           localizeOr(e.img_url, null) || null, localizeOr(e.gif_url, null) || null, e.video_url || null,
-          u
+          u, createdTimes(pushedEdit(e))
         );
         result.exercises.push({ client_id: e.client_id, server_id: r.lastInsertRowid });
       }
@@ -430,26 +487,39 @@ router.post('/push', wrap((req, res) => {
     // ── programs ──────────────────────────────────────────────────────
     for (const p of (body.programs || [])) {
       const existing = p.server_id
-        ? db.prepare('SELECT id, updated_at, created_by FROM programs WHERE id = ?').get(p.server_id)
+        ? db.prepare('SELECT * FROM programs WHERE id = ?').get(p.server_id)
         : null;
       if (p.server_id && existing) {
         // Only the program's maker changes it (program-access.js); anyone
         // else is answered as if they lost the timestamp race.
         if (canChangeProgram(existing, u) && wins(p.updated_at, existing.updated_at)) {
+          const edit = pushedEdit(p);
           if (p.deleted_at) {
-            db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
+            // Kept when it or one of its days changed after the delete was
+            // made (DELETE /api/programs/:id does the same).
+            const days = db.prepare('SELECT * FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL').all(p.server_id);
+            if ([existing, ...days].some(r => deleteLoses(edit, r))) db.prepare(`UPDATE programs SET updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
+            else db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
           } else {
+            // The newer edit of each field stays; the length and how a plan
+            // moves on go together (PUT /api/programs/:id).
+            const v = { ...p };
+            const times = applyToBody(edit, existing, v, {
+              fields: ['name', 'description', 'goal', 'visibility', 'duration_weeks', 'advance_mode', 'on_complete'],
+              groups: [['duration_weeks', 'advance_mode', 'on_complete']],
+              current: f => existing[f],
+            });
             db.prepare(
-              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, duration_weeks=?, advance_mode=?, on_complete=?, updated_at=datetime('now') WHERE id=?`
-            ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold', p.server_id);
+              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, duration_weeks=?, advance_mode=?, on_complete=?, field_times=?, updated_at=datetime('now') WHERE id=?`
+            ).run(v.name, v.description || null, v.goal || 'general', v.visibility || 'private', v.duration_weeks ?? 1, v.advance_mode || 'sessions', v.on_complete || 'hold', times, p.server_id);
           }
         }
         result.programs.push({ client_id: p.client_id, server_id: p.server_id });
       } else if (!p.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO programs (name, description, goal, visibility, duration_weeks, advance_mode, on_complete, created_by, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-        ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold', u);
+          `INSERT INTO programs (name, description, goal, visibility, duration_weeks, advance_mode, on_complete, created_by, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(p.name, p.description || null, p.goal || 'general', p.visibility || 'private', p.duration_weeks ?? 1, p.advance_mode || 'sessions', p.on_complete || 'hold', u, createdTimes(pushedEdit(p)));
         result.programs.push({ client_id: p.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -468,8 +538,12 @@ router.post('/push', wrap((req, res) => {
       const canChangeDay = id => toId(id) != null && programFor(toId(id), u).canChange;
       if (t.server_id && existing) {
         if (canChangeDay(existing.program_id) && wins(t.updated_at, existing.updated_at)) {
+          const edit = pushedEdit(t);
           if (t.deleted_at) {
-            db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
+            // Kept when it changed after the delete was made (DELETE
+            // /api/templates/:id does the same).
+            if (!existing.deleted_at && deleteLoses(edit, existing)) db.prepare(`UPDATE workout_templates SET updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
+            else db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
           } else {
             // Per-uuid merge instead of wholesale replace. Note (issue
             // #85): serverExs is intentionally NOT pre-backfilled -- see
@@ -488,9 +562,14 @@ router.post('/push', wrap((req, res) => {
               delExUuids, priorExTs,
               delSetsByEx, priorSetTsByEx
             );
+            // The newer edit of the name and label stays (PUT
+            // /api/templates/:id); the exercises merge one by one, above.
+            const v = { ...t };
+            let times = applyToBody(edit, existing, v, { fields: ['name', 'day_label'], current: f => existing[f] });
+            if (Array.isArray(t.exercises) || t.deleted_uuids) times = stampMerged(edit, times, ['exercises']);
             db.prepare(
-              `UPDATE workout_templates SET name=?, day_label=?, order_index=?, exercises=?, updated_at=datetime('now') WHERE id=?`
-            ).run(t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(merged), t.server_id);
+              `UPDATE workout_templates SET name=?, day_label=?, order_index=?, exercises=?, field_times=?, updated_at=datetime('now') WHERE id=?`
+            ).run(v.name, v.day_label || null, t.order_index ?? 0, JSON.stringify(merged), times, t.server_id);
             const tsKey = `template:${t.server_id}`;
             const insertTs = db.prepare(
               `INSERT OR IGNORE INTO workout_tombstones (user_id, date, kind, ex_uuid, uuid, deleted_at)
@@ -507,9 +586,9 @@ router.post('/push', wrap((req, res) => {
         // Fresh insert: uuids ensured up-front so subsequent merges have identity.
         const exs = ensureExerciseUuids(t.exercises || []);
         const r = db.prepare(
-          `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`
-        ).run(toId(t.program_id), t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs));
+          `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(toId(t.program_id), t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs), createdTimes(pushedEdit(t)));
         result.workout_templates.push({ client_id: t.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -554,6 +633,21 @@ router.post('/push', wrap((req, res) => {
         ).get(...(u != null ? [u, w.date] : [w.date]));
       }
 
+      // The newer edit of each of the session's own fields stays, its
+      // program, program workout and week together, as PUT
+      // /api/workout/:date decides it (lib/newer-wins.js); decided on what
+      // the row sent, before the refs below are checked, as there.
+      const edit = pushedEdit(w);
+      let times = null;
+      if (existing && !w.deleted_at && wins(w.updated_at, existing.updated_at)) {
+        times = applyToBody(edit, existing, w, {
+          fields: ['name', 'notes', 'duration_min', 'completed', 'program_week', 'program_id', 'template_id'],
+          groups: [['program_id', 'template_id', 'program_week']],
+          current: f => existing[f],
+        });
+        if (Array.isArray(w.exercises) || w.deleted_uuids) times = stampMerged(edit, times, ['exercises']);
+      }
+
       // Only a program, day and exercises this account may see.
       Object.assign(w, cleanWorkoutRefs(u, { ...w, exercises: w.exercises || [] }, existing));
 
@@ -569,7 +663,11 @@ router.post('/push', wrap((req, res) => {
       if (existing) {
         if (wins(w.updated_at, existing.updated_at)) {
           if (w.deleted_at) {
-            db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+            // Kept when something in it changed after the delete was made
+            // (DELETE /api/workout/:date does the same); touched, so the
+            // device gets it back with its next pull.
+            if (deleteLoses(edit, existing)) db.prepare(`UPDATE workout_log SET updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+            else db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
           } else {
             // Note (issue #85): serverExs is intentionally NOT
             // pre-backfilled -- see workout-merge.js's mergeEntries()
@@ -585,8 +683,8 @@ router.post('/push', wrap((req, res) => {
               delSetsByEx, priorSetTsByEx
             );
             db.prepare(
-              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, program_week=?, updated_at=datetime('now') WHERE id=?`
-            ).run(w.name || null, JSON.stringify(merged), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, existing.id);
+              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, program_week=?, field_times=?, updated_at=datetime('now') WHERE id=?`
+            ).run(w.name || null, JSON.stringify(merged), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, times, existing.id);
             for (const uuid of newTombstoneExerciseUuids) insertTs.run(u, w.date, existing.id, 'exercise', '', uuid);
             for (const [exUuid, uuids] of Object.entries(newTombstoneSetUuidsByExercise)) {
               for (const uuid of uuids) insertTs.run(u, w.date, existing.id, 'set', exUuid, uuid);
@@ -603,9 +701,9 @@ router.post('/push', wrap((req, res) => {
         // possible value.
         const exs = ensureExerciseUuids(w.exercises || []);
         const r = db.prepare(
-          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, program_week, session_seq, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-        ).run(u, w.date, w.name || null, JSON.stringify(exs), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, w.session_seq ?? 0);
+          `INSERT INTO workout_log (user_id, date, name, exercises, notes, duration_min, completed, template_id, program_id, program_week, session_seq, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(u, w.date, w.name || null, JSON.stringify(exs), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, w.session_seq ?? 0, createdTimes(edit));
         result.workout_log.push({ client_id: w.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -623,18 +721,27 @@ router.post('/push', wrap((req, res) => {
           if (b.deleted_at) {
             db.prepare(`UPDATE body_stats_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
           } else {
+            // The newer edit of each measurement stays (PUT /api/body-stats/:date).
             const serverStats = JSON.parse(existing.stats || '{}');
-            const merged = mergeStatsObject(serverStats, b.stats);
+            const incoming = b.stats && typeof b.stats === 'object' && !Array.isArray(b.stats) ? { ...b.stats } : b.stats;
+            let times = null;
+            if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
+              times = applyToBody(pushedEdit(b), existing, incoming, { fields: Object.keys(incoming), current: f => serverStats[f] });
+              for (const k of Object.keys(incoming)) if (incoming[k] === undefined) delete incoming[k];
+            }
+            const merged = mergeStatsObject(serverStats, incoming);
             db.prepare(
-              `UPDATE body_stats_log SET stats=?, updated_at=datetime('now') WHERE id=?`
-            ).run(JSON.stringify(merged), existing.id);
+              `UPDATE body_stats_log SET stats=?, field_times=COALESCE(?, field_times), updated_at=datetime('now') WHERE id=?`
+            ).run(JSON.stringify(merged), times, existing.id);
           }
         }
         result.body_stats_log.push({ client_id: b.client_id, server_id: existing.id });
       } else if (!b.deleted_at) {
+        const stats = b.stats && typeof b.stats === 'object' && !Array.isArray(b.stats) ? b.stats : {};
+        const times = applyToBody(pushedEdit(b), null, { ...stats }, { fields: Object.keys(stats), current: () => undefined });
         const r = db.prepare(
-          `INSERT INTO body_stats_log (user_id, date, stats, updated_at) VALUES (?, ?, ?, datetime('now'))`
-        ).run(u, b.date, JSON.stringify(b.stats || {}));
+          `INSERT INTO body_stats_log (user_id, date, stats, field_times, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`
+        ).run(u, b.date, JSON.stringify(b.stats || {}), times);
         result.body_stats_log.push({ client_id: b.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -689,18 +796,21 @@ router.post('/push', wrap((req, res) => {
     for (const s of (body.user_settings || [])) {
       if (!s.key || isServerOnlyKey(s.key)) continue;
       const existing = u != null
-        ? db.prepare('SELECT updated_at FROM user_settings WHERE user_id = ? AND key = ?').get(u, s.key)
+        ? db.prepare('SELECT * FROM user_settings WHERE user_id = ? AND key = ?').get(u, s.key)
         : null;
       if (existing) {
         if (wins(s.updated_at, existing.updated_at)) {
+          // The newer edit of a setting stays (PUT /api/settings).
+          const { keep, times } = decide(pushedEdit(s), existing, { value: s.value ?? null }, { fields: ['value'] });
           db.prepare(
-            `UPDATE user_settings SET value=?, updated_at=datetime('now') WHERE user_id=? AND key=?`
-          ).run(s.value ?? null, u, s.key);
+            `UPDATE user_settings SET value=?, field_times=?, updated_at=datetime('now') WHERE user_id=? AND key=?`
+          ).run(keep.has('value') ? existing.value : (s.value ?? null), times, u, s.key);
         }
       } else if (u != null) {
+        const { times } = decide(pushedEdit(s), null, { value: s.value ?? null }, { fields: ['value'] });
         db.prepare(
-          `INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))`
-        ).run(u, s.key, s.value ?? null);
+          `INSERT INTO user_settings (user_id, key, value, field_times, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`
+        ).run(u, s.key, s.value ?? null, times);
       }
       result.user_settings.push({ key: s.key });
     }
