@@ -537,8 +537,18 @@
           if (sidebarOpen && !sidebarPinned) { sidebarOpen = false; return; }
           if (canGoBack) window.history.back();
         });
+        // The app icon's shortcuts (from TraceApps/nutritrace#278): one that
+        // starts the app arrives as the launch URL, and appUrlOpen below fires
+        // for it too (lib/app-shortcut.js lets only the first through).
+        App.getLaunchUrl?.().then(async (r) => {
+          if (!/^lifttrace:\/\/new\//i.test(String(r?.url || ''))) return;
+          const [{ parseAppLink }, sc] = await Promise.all([import('./lib/app-link.js'), import('./lib/app-shortcut.js')]);
+          const route = sc.shortcutRoute(sc.shortcutFromAppLink(parseAppLink(r.url)));
+          if (route) (await import('svelte-spa-router'))[sc.shortcutNav(window.location.hash)](route);
+        }).catch(() => {});
         App.addListener('appUrlOpen', async ({ url }) => {
-          try {
+          // A shortcut never comes from a sign-in browser: leave one open.
+          if (!/^lifttrace:\/\/new\//i.test(String(url))) try {
             const { Browser } = await import('@capacitor/browser');
             await Browser.close().catch(() => {});
           } catch {}
@@ -550,6 +560,13 @@
             if (!link) throw new Error('not an app link');
             const host = link.host;
             const params = link.params;
+            if (host === 'new') {
+              // A shortcut (res/xml/shortcuts.xml): the Diary opens what it asks for.
+              const sc = await import('./lib/app-shortcut.js');
+              const route = sc.shortcutRoute(sc.shortcutFromAppLink(link));
+              if (route) (await import('svelte-spa-router'))[sc.shortcutNav(window.location.hash)](route);
+              return;
+            }
             if (host === 'oidc-callback') {
               const errMsg = params.get('error');
               const linked = params.get('linked');
@@ -610,6 +627,9 @@
                   } catch {}
                 }
                 const { showSuccess } = await import('./stores/toast.js');
+                // A shortcut waiting under the sign-in screen opens next.
+                const { isShortcutHash } = await import('./lib/app-shortcut.js');
+                const shortcutWaiting = isShortcutHash(window.location.hash);
                 showSuccess('Signed in');
                 await loadAuthState();
                 // Re-evaluate the NativeSetup gate. Without this the user
@@ -621,7 +641,7 @@
                 // OIDC browser, so this correctly flips to false and reveals
                 // the router. Cross-app fix mirrored from NutriTrace #110.
                 showNativeSetup = needsNativeSetup();
-                window.location.hash = '#/';
+                if (!shortcutWaiting) window.location.hash = '#/';
                 // A plain-HTTP server confirmed on the setup screen isn't in the
                 // image and media policy set at start (from
                 // TraceApps/nutritrace#194); only a reload adds it.

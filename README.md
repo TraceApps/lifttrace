@@ -53,6 +53,7 @@ LiftTrace runs entirely in a single Docker container on your own hardware, with 
 ## Features
 
 - **Diary and set logging.** Weight, reps, RPE, warm-up marking, Smart Add prose parser, superset-aware rest timer (with Pause, and on Android in the notification shade and on the lock screen), floating workout mode bar, workout completion share card. → [full guide](https://traceapps.github.io/docs/lifttrace/diary/)
+- **App icon shortcuts.** Long-press the app icon (Android, or the installed web app) for Start Workout (today's workout, or Load Workout when there's none under way) and Log Weight. → [full guide](https://traceapps.github.io/docs/lifttrace/diary/#app-icon-shortcuts)
 - **Programs and templates.** Starter templates (Push/Pull/Legs, Upper/Lower, Full Body 3x), multi-week progression with Sessions or Calendar advance modes (v1.0.1); an excused day pauses a Calendar program a day. → [full guide](https://traceapps.github.io/docs/lifttrace/programs/)
 - **Exercise library.** Four sources: wger (~600, CC-BY-SA), Free Exercise DB (~870, public domain), ExerciseDB (~1,300, RapidAPI BYO key), and ExerciseDB Open Source (self-hostable mirror, no key). Plus custom exercises and XLSX bulk import. → [full guide](https://traceapps.github.io/docs/lifttrace/exercises/)
 - **Statistics and PRs.** Overview, Exercise Progress, Records, Volume, Frequency, and Body Measurements views, plus Cardio (weekly minutes against your target) when you track cardio; automatic PR detection. → [full guide](https://traceapps.github.io/docs/lifttrace/statistics/)

@@ -4,4 +4,6 @@
     <string name="title_activity_main">LiftTrace</string>
     <string name="package_name">com.lifttrace.app</string>
     <string name="custom_url_scheme">com.lifttrace.app</string>
+    <string name="shortcut_workout">Start Workout</string>
+    <string name="shortcut_weight">Log Weight</string>
 </resources>

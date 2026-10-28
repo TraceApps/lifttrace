@@ -160,6 +160,13 @@ export default defineConfig({
         // location. Makes PWA install work at any subpath without rebuild.
         start_url: './',
         scope: './',
+        // Long-press the installed app's icon (from TraceApps/nutritrace#278):
+        // start or resume today's workout, or log your weight
+        // (src/lib/app-shortcut.js).
+        shortcuts: [
+          { name: 'Start Workout', short_name: 'Start Workout', url: './#/?new=workout', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
+          { name: 'Log Weight', short_name: 'Log Weight', url: './#/?new=weight', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
+        ],
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

@@ -192,6 +192,9 @@
     }
   },
   "diary": {
+    "shortcut": {
+      "weight_hidden": "Weight is hidden in Body Stats. Turn it on under Body Measurements to log it."
+    },
     "prescription": {
       "title":            "Coach {name} prescribed:",
       "your_coach":       "your coach",

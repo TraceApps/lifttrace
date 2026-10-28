@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon (from TraceApps/nutritrace#278): start or resume today's workout, or log your weight. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="workout"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_workout"
+        android:shortcutShortLabel="@string/shortcut_workout">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.lifttrace.app"
+            android:targetClass="com.lifttrace.app.MainActivity"
+            android:data="lifttrace://new/workout" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="weight"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_weight"
+        android:shortcutShortLabel="@string/shortcut_weight">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.lifttrace.app"
+            android:targetClass="com.lifttrace.app.MainActivity"
+            android:data="lifttrace://new/weight" />
+    </shortcut>
+</shortcuts>

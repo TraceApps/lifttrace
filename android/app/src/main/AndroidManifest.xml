@@ -22,6 +22,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
 
             <!-- OIDC SSO callback deep link: server callback redirects to
                  lifttrace://oidc-callback/?token=<jwt> (slash before query
@@ -32,6 +33,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="lifttrace" android:host="oidc-callback" />
+                <!-- Not lifttrace://new: the app icon's shortcuts open it with
+                     explicit intents, and no web page needs to. -->
             </intent-filter>
 
         </activity>

@@ -14,6 +14,7 @@ import {
 } from '../lib/oidc.js';
 import db from '../db.js';
 import { claimAnonymousData } from '../lib/claim-anonymous-data.js';
+import { oidcReturnHash } from '../lib/oidc-return.js';
 
 const router = Router();
 
@@ -228,13 +229,8 @@ router.post('/handoff', wrap((req, res) => {
 
 function _redirectToLogin(res, returnPath, error, ok) {
   const basePath = (process.env.BASE_URL || '').replace(/\/$/, '');
-  let dest = `${basePath}/`;
-  let hash = returnPath || '/';
-  if (!hash.startsWith('/')) hash = '/' + hash;
-  let qs = '';
-  if (error) qs = `?oidc_error=${error}`;
-  else if (ok) qs = `?oidc=${ok}`;
-  res.redirect(`${dest}#${hash}${qs}`);
+  // Always come back through the SPA root + hash so svelte-spa-router can route.
+  res.redirect(`${basePath}/#${oidcReturnHash(returnPath, error, ok)}`);
 }
 
 /**

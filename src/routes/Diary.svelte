@@ -1,13 +1,14 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { withFreshIds } from '../lib/workout-uuid.js';
   import { buildPlannedExercises } from '../lib/planned-workout.js';
-  import { push } from 'svelte-spa-router';
+  import { push, replace, querystring } from 'svelte-spa-router';
+  import { shortcutFromQuery, startWorkoutPlan } from '../lib/app-shortcut.js';
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
-  import { currentDate, todayLog, loadWorkout, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
+  import { currentDate, todayLog, loadWorkout, loadWorkoutSessions, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, bodyStatsVisible, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
@@ -18,7 +19,7 @@
   import { nextUp, lastTimeFor } from '../lib/rest-next.js';
   import BodyStats from '../components/diary/BodyStats.svelte';
   import GymTools from '../components/diary/GymTools.svelte';
-  import { showSuccess, showError } from '../stores/toast.js';
+  import { showSuccess, showError, showToast } from '../stores/toast.js';
   import { localDateStr } from '../lib/db.js';
   import { trainedDates, excusedOnly, hasWorkingSet } from '../lib/trained-day.js';
   import { LtApi } from '../lib/api.js';
@@ -925,6 +926,8 @@
     if (lateDate && lateDate !== $currentDate) await loadWorkout(lateDate);
     notes = $todayLog?.notes || '';
     loading = false;
+    // A shortcut that arrived during the first load.
+    if (_pendingShortcut) _runShortcut();
     loadActiveProgram();
     loadSuggestedPrescriptions();
     loadCoachFeedback($currentDate);
@@ -994,6 +997,48 @@
     if (loading) return;
     const d = _takeOpenDate();
     if (d && d !== $currentDate) goToDiaryDate(d);
+  }
+
+  // ── App icon shortcuts (from TraceApps/nutritrace#278) ─────────────
+  // /?new=workout|weight (lib/app-shortcut.js), always for today. Start
+  // Workout shows the workout under way as it is (the latest session), opens
+  // Load Workout for a new session when every one is finished, and Load
+  // Workout on an empty day. Log
+  // Weight opens Body Stats. Taken off the address at once, so going back
+  // here doesn't open it again; run once the first load is done.
+  let _pendingShortcut = null;
+  $: _queueShortcut(shortcutFromQuery($querystring));
+  function _queueShortcut(kind) {
+    if (!kind) return;
+    replace('/');
+    _pendingShortcut = kind;
+    if (!loading) _runShortcut();
+  }
+  async function _runShortcut() {
+    const kind = _pendingShortcut;
+    _pendingShortcut = null;
+    if (!kind) return;
+    const today = localDateStr();
+    if ($currentDate !== today) {
+      await loadWorkout(today);
+      notes = $todayLog?.notes || '';
+      loadCoachFeedback(today);
+      loadSetMedia(today);
+    }
+    await tick();
+    if (kind === 'weight') {
+      // Weight hidden from Body Stats: say where it is turned on.
+      if (($bodyStatsVisible || []).includes('weight')) showBodyStats = true;
+      else { showToast($_('diary.shortcut.weight_hidden'), 4000); push('/settings/workout'); }
+      return;
+    }
+    // Every workout of the day, read fresh: the one opened by date alone is
+    // the first, and a second one may be the one under way.
+    try { await loadWorkoutSessions(today); } catch {}
+    const plan = startWorkoutPlan($todaySessions, $todayLog);
+    if (plan.action === 'switch') await handleSwitchSession(plan.id);
+    else if (plan.action === 'load') openLoadWorkout();
+    else if (plan.action === 'new_session') openLoadWorkoutForNewSession();
   }
 
   // Pull-to-refresh: track touch deltas while at scrollY 0. Past a

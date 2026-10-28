@@ -12,6 +12,7 @@
   import { _ } from 'svelte-i18n';
   import { setAuthToken, resolveAssetUrl, iconUrl, isNative, apiUrl, getServerUrl } from '../lib/platform.js';
   import { responseJson, discoverSignIn } from '../lib/server-signin.js';
+  import { isShortcutHash } from '../lib/app-shortcut.js';
 
   let username = '';
   let password = '';
@@ -128,6 +129,8 @@
   }
 
   async function biometricLogin() {
+    // An app icon shortcut waiting under this screen opens once signed in.
+    const shortcutWaiting = isShortcutHash(window.location.hash);
     try {
       const bio = await import('../lib/biometric.js');
       const ok = await bio.authenticate('Sign in to LiftTrace');
@@ -151,7 +154,7 @@
         return;
       }
       await loadServerSettings();
-      push('/');
+      if (!shortcutWaiting) push('/');
     } catch (e) {
       console.warn('[login] biometric flow failed:', e);
       showError($_('login.biometric_failed'));
@@ -186,6 +189,9 @@
 
   async function login() {
     if (!username.trim() || !password) return;
+    // An app icon shortcut waiting under this screen opens once signed in:
+    // read now, as the Diary may take it (and change the address) first.
+    const shortcutWaiting = isShortcutHash(window.location.hash);
     loading = true;
     try {
       const res = await fetch('/api/auth/login', {
@@ -239,7 +245,7 @@
           await fullSync();
         } catch (e) { console.warn('[login] post-login sync failed:', e?.message || e); }
       }
-      push('/');
+      if (!shortcutWaiting) push('/');
     } catch(e) {
       // A sign-in proxy's web page in place of the server: said as such (TraceApps/notetrace#36).
       showError(e?.webPage ? e.message : $_('common.errors.cant_reach_server'));
