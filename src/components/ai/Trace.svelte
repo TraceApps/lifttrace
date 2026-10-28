@@ -701,6 +701,9 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
         });
       }
 
+      // No words: said as an error, never shown or saved as a blank answer
+      // (TraceApps/nutritrace#286).
+      if (!String(reply ?? '').trim()) throw new Error($_('trace_reply.stopped_empty'));
       const aMsg = { role: 'assistant', content: reply, time: new Date().toISOString() };
       messages = [...messages, aMsg];
       if (toolsNote) messages = toolsNotice.add(messages, $_(toolsNote));
