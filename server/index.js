@@ -267,7 +267,7 @@ router.use('/api/v1', publicApiRoutes);
 router.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Serve Svelte frontend (production build) — anything except index.html.
-// Templated index.html (with __NT_CONFIG__ injected) handles the SPA fallback.
+// Templated index.html (with __LT_CONFIG__ injected) handles the SPA fallback.
 router.use(express.static(path.join(__dirname, 'dist'), {
   index: false,
   setHeaders(res, filePath) {

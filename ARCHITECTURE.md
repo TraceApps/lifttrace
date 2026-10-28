@@ -212,6 +212,34 @@ once, and a BroadcastChannel keeps them in step. Not built on Background Sync
 (Safari lacks it): the page flushes on a backoff, on `online`, and when the
 tab comes to the front.
 
+The service worker precaches the built app. Page loads go to the server first
+and fall back to the precached `index.html` offline, after 3 seconds, or on a
+5xx from a proxy, and nothing is stored from them, so a reload after a deploy
+gets the new app and a sign-in proxy can show its page
+(`src/lib/pwa-navigation.js`, notetrace#37). The API and uploads opened as a
+page always go to the server and are never kept (`NetworkOnly`), so an export
+or a backup can't outlive the session; `public/sw-retired-caches.js` deletes the
+old `pages-cache` that held them.
+
+A server that takes the connection and never answers fails no request, so
+each request with an offline answer gets a deadline for the server's first
+answer (a long body still downloads at its own pace)
+(`src/lib/request-deadline.js`, the same file in the four Trace apps): the
+sign-in check at startup with an account kept here (3 s), a read (4 s: the
+copy answers, or it says it needs a connection, as with none; 10 s for the
+reads the app names heavy, whole lists and stats, for a small server with a
+big account). One that runs out counts as no connection (`err.offline`),
+and the server counts as quiet for 20 s: reads wait 1.5 s, and changes go
+into the outbox without being sent, unless one sent before is still waiting
+(`queueUnsent`), so the older one can't land last over it. A change that is sent (and the outbox's
+replay) has no deadline, as before: one cut off might have landed, and sent
+again it could be made twice. Any answer from the server ends that
+early, and a read that runs out while quiet doesn't start it again, so a
+server slower than 1.5 s is asked at full length when it ends. Reads the app
+names slow wait as long as they take: Trace, the music and radio
+proxies, NutriTrace, the exercise sources, backups and imports
+(`readDeadlineMsFor()` in `offline-api.js`).
+
 ### Coaching is consent first
 
 `server/lib/coaching.js` holds who coaches whom (`coach_clients`, the same

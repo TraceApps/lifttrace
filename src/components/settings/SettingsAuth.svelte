@@ -206,7 +206,7 @@
 
   function _defaultRedirectUri() {
     if (typeof window === 'undefined') return '';
-    const basePath = window.__NT_CONFIG__?.basePath || '';
+    const basePath = window.__LT_CONFIG__?.basePath || '';
     const id = oidcEditing?.id || ':providerId';
     return `${window.location.origin}${basePath}/api/auth/oidc/callback/${id}`;
   }

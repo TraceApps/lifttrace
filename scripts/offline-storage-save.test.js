@@ -156,3 +156,89 @@ test('Profile keeps who is signed in after a save kept for later, and says when 
   const en = JSON.parse(readFileSync(new URL('../src/i18n/en.json', import.meta.url), 'utf8'));
   assert.ok(en.profile.errors.not_kept);
 });
+
+// ── A server that takes the connection and never answers ─────────────
+// Past a deadline it counts as no connection (lib/request-deadline.js): a
+// read answers from the copy or says it needs a connection, a change goes
+// into the queue, and while the server is quiet a change doesn't wait at all.
+const deadline = await import('../src/lib/request-deadline.js');
+/** A server that takes every request and never answers, until it is given up on. */
+function silentServer() {
+  const seen = [];
+  const fetch = (url, init = {}) => {
+    seen.push({ method: (init.method || 'GET').toUpperCase(), url: String(url), signal: init.signal });
+    return new Promise((_, reject) => init.signal?.addEventListener('abort', () => reject(init.signal.reason)));
+  };
+  return { seen, fetch };
+}
+
+test('a silent server: a read gives up at its deadline and answers as with no connection', { timeout: 15_000 }, async () => {
+  setOnline(true);
+  deadline.noteAnswered();
+  const { mod } = await page();
+  const silent = silentServer();
+  let settled = false;
+  const answer = mod.offlineFetch('/api/templates', { method: 'GET' }, silent.fetch).finally(() => { settled = true; });
+  for (let i = 0; i < 50 && !silent.seen.length; i++) await new Promise(r => setImmediate(r));
+  mock.timers.tick(deadline.READ_MS - 1);
+  await new Promise(r => setImmediate(r));
+  assert.equal(settled, false, 'still waiting just before the deadline');
+  mock.timers.tick(1);
+  const res = await answer;
+  assert.equal(res.status, 503);
+  assert.equal((await res.json()).offline, true);
+  assert.equal(deadline.isQuiet(), true);
+  deadline.noteAnswered();
+});
+
+test('reads by kind: the services the server asks wait as long as they take, stats and history longer', async () => {
+  deadline.noteAnswered();
+  const { readDeadlineMsFor } = await import('../src/lib/offline-api.js');
+  for (const p of ['/api/templates', '/api/programs/4', '/api/workout/2026-04-01', '/api/workout/2026-04-01/sessions', '/api/settings', '/api/ai/history', '/api/exercises/12', '/api/cardio/2026-04-01', '/api/body-stats/2026-04-01']) assert.equal(readDeadlineMsFor(p), deadline.READ_MS, p);
+  for (const p of ['/api/stats/volume?start=a&end=b', '/api/stats/progress/12?start=a&end=b', '/api/stats/records', '/api/workout/recent?limit=365', '/api/workout/history/12', '/api/exercises', '/api/exercises?search=a&limit=5', '/api/exercises/usage', '/api/cardio?start=a&end=b', '/api/cardio/stats/weekly?start=a&end=b', '/api/body-stats/range?start=a&end=b', '/api/body-stats/photos?start=a&end=b', '/api/set-media?date=2026-04-01', '/lifttrace/api/stats/streaks']) {
+    assert.equal(readDeadlineMsFor(p), deadline.HEAVY_READ_MS, p);
+  }
+  for (const p of ['/api/ai/models', '/api/nt/test', '/api/radio-proxy/info', '/api/exercises/sources/list', '/api/updates/server-status']) assert.equal(readDeadlineMsFor(p), null, p);
+});
+
+test('a change that is sent has no deadline; while the server is known quiet, it goes into the queue unsent', async () => {
+  setOnline(true);
+  deadline.noteAnswered();
+  const { mod } = await page();
+  // Sent: no deadline of ours (one cut off might have landed).
+  const given = [];
+  const ok = async (url, init = {}) => { given.push(init.signal ?? null); return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }); };
+  await mod.offlineFetch('/api/settings', { method: 'PUT', body: JSON.stringify({ key: 'units', value: 'kg' }) }, ok);
+  assert.deepEqual(given, [null], 'sent with no deadline');
+  // A read runs out of time: the server is quiet now.
+  const timedOut = async () => { throw new DOMException('The operation timed out.', 'TimeoutError'); };
+  await mod.offlineFetch('/api/templates', { method: 'GET' }, timedOut);
+  assert.equal(deadline.isQuiet(), true);
+  const silent = silentServer();
+  const queued = await mod.offlineFetch('/api/settings', { method: 'PUT', body: JSON.stringify({ key: 'theme', value: 'dark' }) }, silent.fetch);
+  assert.equal((await queued.json()).queued, true);
+  assert.equal(silent.seen.length, 0, 'not sent while the server is quiet');
+  assert.equal(await mod.pendingCount(), 1);
+  deadline.noteAnswered();
+});
+
+test('work that asks another service, or brings its own deadline, keeps it', async () => {
+  setOnline(true);
+  deadline.noteAnswered();
+  const { mod } = await page();
+  const given = [];
+  const ok = async (url, init = {}) => { given.push([String(url), init.signal ?? null]); return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }); };
+  for (const url of ['/api/ai/models', '/api/full-backup', '/api/nt/status', '/lifttrace/api/subsonic/ping']) await mod.offlineFetch(url, { method: 'GET' }, ok);
+  assert.deepEqual(given.map(g => g[1]), [null, null, null, null]);
+  const own = AbortSignal.timeout(60_000);
+  await mod.offlineFetch('/api/auth/me', { method: 'GET', signal: own }, ok);
+  assert.equal(given.at(-1)[1], own, 'the sign-in check keeps its own deadline');
+  await mod.offlineFetch('/lifttrace/api/stats/summary', { method: 'GET' }, ok);
+  assert.ok(given.at(-1)[1], 'under BASE_URL too');
+});
+
+test('the sign-in check waits less with an account kept here', async () => {
+  const { readFileSync } = await import('node:fs');
+  const auth = readFileSync(new URL('../src/stores/auth.js', import.meta.url), 'utf8');
+  assert.match(auth, /signal: deadlineSignal\(kept \? SIGN_IN_CHECK_MS : 8000\)/);
+});

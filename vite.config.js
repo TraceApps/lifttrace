@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
+import { isAppPageLoad, treatServerErrorAsOffline, keepNoPageCopy, useCachedAppOnTimeout } from './src/lib/pwa-navigation.js';
 
 export default defineConfig({
   // Use relative asset URLs so the bundle works regardless of the path the
@@ -22,6 +23,10 @@ export default defineConfig({
       // instead of ripping the page out from under the user mid-session.
       // Activation is driven by lib/pwa-update.js via virtual:pwa-register.
       registerType: 'prompt',
+      // Browsers fetch the manifest without the sign-in proxy's cookie unless
+      // told otherwise, and the proxy answers with its sign-in page
+      // (TraceApps/notetrace#37).
+      useCredentials: true,
       workbox: {
         // Precache the app itself, not just the fallback page: with only
         // offline.html here a reload with no connection served a shell whose
@@ -32,10 +37,14 @@ export default defineConfig({
         globIgnores: ['vendor/**', 'icons/**', '**/*.map', '**/heic2any-*.js', '**/hls-*.js'],
         // Some chunks (charts, the exercise catalogue) are over the 2 MiB default.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        // navigateFallback explicitly disabled — navigation requests are
-        // handled by the NetworkFirst runtimeCaching route below.
+        // Deletes caches an older service worker kept (public/sw-retired-caches.js).
+        importScripts: ['sw-retired-caches.js'],
+        // Page loads go to the server first (the first page route below), so
+        // no navigateFallback (null, or Vite PWA puts its own back), and '/'
+        // isn't answered from the cache as index.html: the precache answered
+        // it before any route ran, so a deploy waited a reload.
         navigateFallback: null,
-        navigateFallbackDenylist: [/.*/],
+        directoryIndex: null,
         cleanupOutdatedCaches: true,
         // skipWaiting + clientsClaim ensure new SW activates immediately
         skipWaiting: true,
@@ -49,15 +58,22 @@ export default defineConfig({
             handler: 'NetworkOnly',
           },
           {
-            // Navigation: network first (3s timeout), cache index.html for
-            // offline use. Deploys are picked up instantly because the
-            // network response always wins when the server is reachable.
-            urlPattern: ({ request }) => request.mode === 'navigate',
+            // The app page: from the server, the cached copy only offline
+            // (src/lib/pwa-navigation.js).
+            urlPattern: isAppPageLoad,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'pages-cache',
+              cacheName: 'app-page',
               networkTimeoutSeconds: 3,
+              precacheFallback: { fallbackURL: 'index.html' },
+              plugins: [{ fetchDidSucceed: treatServerErrorAsOffline, cacheWillUpdate: keepNoPageCopy, cachedResponseWillBeUsed: useCachedAppOnTimeout }],
             }
+          },
+          {
+            // The API and uploads opened as a page:
+            // never kept, so an export or a backup can't outlive the session.
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkOnly',
           },
           {
             urlPattern: /^https:\/\/wger\.de\/.*/i,

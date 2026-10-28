@@ -31,12 +31,15 @@ import {
 // no copy of it. This is what "Failed to fetch dynamically imported module"
 // looked like from the outside.
 import { embeddableDataUrl } from './image-embed.js';
+import { readDeadlineFor, queueUnsent, noteAnswered, fetchWithDeadline, sendingChange } from './request-deadline.js';
 
 const RETRY_MIN_MS = 3_000;
 const RETRY_MAX_MS = 30_000;
 let _retryMs = RETRY_MIN_MS;
 const _backoff = () => { const ms = _retryMs; _retryMs = Math.min(RETRY_MAX_MS, _retryMs * 2); return ms; };
-const _resetBackoff = () => { _retryMs = RETRY_MIN_MS; };
+// The server took what was waiting, or the connection came back: not quiet
+// either (request-deadline.js).
+const _resetBackoff = () => { _retryMs = RETRY_MIN_MS; noteAnswered(); };
 
 /** { online, pending, syncing, error } for the header badge and Settings. */
 export const offlineState = writable({
@@ -838,14 +841,44 @@ const _bodyOf = (init) => {
   try { return JSON.parse(raw); } catch { return undefined; }
 };
 
+// Reads the server answers by asking another service (Trace, the music and
+// radio proxies, NutriTrace, update checks, the exercise sources) or that
+// carry a whole account (backups, imports) wait as long as they take
+// (request-deadline.js). Stats, history and whole lists get longer, for a
+// small server with years of training. Under BASE_URL the path starts with it.
+const _SLOW_READS = /\/api\/(ai(?!\/history)|proxy|radio-proxy|subsonic|updates|nt|full-backup|exercise-import|workout-import|exercises\/sources)(\/|\?|$)/;
+// The server's own routes (server/routes/stats.js, workout.js, exercises.js,
+// cardio.js, body-stats.js, set-media.js).
+const _HEAVY_READS = /\/api\/(stats\/[^/?]+(\/[^/?]+)?|workout\/(recent|history\/[^/?]+)|exercises(\/usage)?|cardio(\/stats\/weekly)?|body-stats\/(range|photos)|set-media(\/usage)?)(\?|$)/;
+
+/** How long a read may wait for the server, or null to wait as long as it takes. */
+export function readDeadlineMsFor(url) {
+  const p = pathOf(String(url));
+  return readDeadlineFor(_SLOW_READS.test(p) ? 'slow' : _HEAVY_READS.test(p) ? 'heavy' : 'read');
+}
+
+/**
+ * A read with a deadline for a server that doesn't answer, kept with the
+ * caller's own signal: it then answers from the copy kept here or says it
+ * needs a connection, as with none. Past it, no connection
+ * (request-deadline.js). A change that is sent waits as long as it takes.
+ */
+function _timed(send, ms) {
+  return (url, init = {}) => fetchWithDeadline(send, url, init, ms);
+}
+
 /**
  * The web app's request, with the mirror and the outbox behind it. Returns a
  * Response either way, so nothing above this knows the difference.
  */
 export async function offlineFetch(url, init, origFetch) {
   _fetch = origFetch || _fetch;
-  const send = origFetch || _fetch;
   const method = (init?.method || 'GET').toUpperCase();
+  const isRead = method === 'GET' || method === 'HEAD';
+  // A read that brings its own signal has its own deadline (the sign-in check).
+  const send = isRead && !_SLOW_READS.test(pathOf(String(url)))
+    ? _timed(origFetch || _fetch, init?.signal ? null : readDeadlineMsFor(url))
+    : (origFetch || _fetch);
 
   if (method === 'GET' || method === 'HEAD') {
     // A row made here, by the id the server has since given it.
@@ -995,10 +1028,11 @@ export async function offlineFetch(url, init, origFetch) {
   // what is queued, so changes go up in the order they were made
   // (TraceApps/nutritrace#269).
   const isProfile = op.kind === 'profile';
-  const tried = _online() && (isProfile || !queued.length);
+  // A server that has just gone quiet isn't waited on again: the queue.
+  const tried = _online() && !queueUnsent() && (isProfile || !queued.length);
   if (tried) {
     try {
-      return isProfile && queued.some(o => o.key === 'profile') ? await _superseding('profile', direct) : await direct();
+      return await sendingChange(() => isProfile && queued.some(o => o.key === 'profile') ? _superseding('profile', direct) : direct());
     } catch (err) {
       if (!isOfflineError(err)) throw err;
       _publish({ online: false });

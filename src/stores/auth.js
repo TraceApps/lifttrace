@@ -5,6 +5,7 @@ import { clearPhotoBlobs } from '../lib/photo-blobs.js';
 import { setCoachingFromServer, loadCachedCoaching, clearCoaching } from './coaching.js';
 import { authPlan, signedOutAtLaunch, tokenClaims } from '../lib/auth-plan.js';
 import { responseJson, serverJson, readSession, webPageError } from '../lib/server-signin.js';
+import { deadlineSignal, SIGN_IN_CHECK_MS } from '../lib/request-deadline.js';
 
 export const currentUser = writable(null);
 export const userMgmtActive = writable(false);
@@ -121,7 +122,12 @@ export async function loadAuthState() {
       me     = serverJson(r.me);
       replies = [[r.status.status, status], [r.me.status, me]];
     } else {
-      const ask = { credentials: 'include', redirect: 'manual' };
+      // With an account kept here (or a server without accounts) to open
+      // with, a server that doesn't answer isn't waited on long: the app
+      // opens as it does offline (lib/request-deadline.js).
+      let kept = known === '0';
+      try { kept = kept || !!localStorage.getItem('wl:userId'); } catch { /* none */ }
+      const ask = { credentials: 'include', redirect: 'manual', signal: deadlineSignal(kept ? SIGN_IN_CHECK_MS : 8000) };
       const [statusRes, meRes] = await Promise.all([
         fetch('/api/auth/status', ask),
         fetch('/api/auth/me',     ask),
