@@ -349,4 +349,15 @@ app.listen(PORT, async () => {
   } catch (e) {
     logger.warn(`[claim] orphan repair skipped: ${e.message}`);
   }
+
+  // Without accounts, a program followed from before its start was kept
+  // gets one, so a calendar program moves (lib/solo-program.js, issue
+  // #121). Idempotent; a read of it does the same.
+  try {
+    const { migrateSoloStart } = await import('./lib/solo-program.js');
+    const start = migrateSoloStart();
+    if (start) logger.info(`[programs] the program followed without accounts counts its weeks from ${start}`);
+  } catch (e) {
+    logger.warn(`[programs] program start migration skipped: ${e.message}`);
+  }
 });

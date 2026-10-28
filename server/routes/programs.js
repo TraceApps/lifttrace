@@ -4,6 +4,9 @@ import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid, userMgmtActive } from '../middleware/auth.js';
 import { coachesClient } from '../lib/coaching.js';
 import { planWeekFor, zoneFrom } from '../lib/program-pause.js';
+import { calendarDaysSince } from '../lib/programWeek.js';
+import { activateSolo, deactivateSolo, readSoloAssignment, soloActiveId } from '../lib/solo-program.js';
+import { rememberZone, userZone } from '../lib/user-zone.js';
 import { programFor } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
@@ -48,9 +51,8 @@ router.get('/', wrap((req, res) => {
   } else {
     programs = db.prepare('SELECT *, 0 as is_active FROM programs ORDER BY created_at DESC').all();
     // Check single-user active
-    const active = db.prepare("SELECT value FROM app_config WHERE key = 'active_program'").get();
-    if (active) {
-      const activeId = parseInt(active.value);
+    const activeId = soloActiveId();
+    if (activeId != null) {
       programs = programs.map(p => ({ ...p, is_active: p.id === activeId ? 1 : 0 }));
     }
   }
@@ -71,12 +73,10 @@ router.get('/', wrap((req, res) => {
            FROM program_assignments
           WHERE program_id = ? AND assigned_to = ? AND active = 1`
       ).get(p.id, userId);
-      if (assigned?.assigned_at) {
-        const since = new Date(assigned.assigned_at).getTime();
-        const days = Math.max(0, Math.floor((Date.now() - since) / 86400000));
-        p.weeks_active = Math.floor(days / 7) + 1;
-        p.days_active  = days;
-      }
+      // Calendar days since it started (its start date, else when it was
+      // assigned), in the athlete's zone, counted at midnight as the
+      // calendar clock is (not 24-hour blocks).
+      _putActive(p, assigned?.start_date || assigned?.assigned_at, weekOpts);
       // Count completed workouts that used this program's templates since
       // assignment. Cheap subquery; the joined template_id lets us
       // attribute a workout to its program without storing program_id on
@@ -98,11 +98,14 @@ router.get('/', wrap((req, res) => {
         sessionsPerWeek: p.template_count,
       }));
     } else if (p.is_active && userId == null) {
-      // Single-user mode has no program_assignments row — the active flag and
-      // the manual week cursor both live in app_config. Resolve current_week
-      // here too so the list card matches the detail view + Load-Workout sheet.
-      const cursor = readSoloCursor();
+      // Single-user mode has no program_assignments row: the active flag,
+      // its start and the manual week cursor live in app_config
+      // (lib/solo-program.js). Resolve current_week here too so the list
+      // card matches the detail view + Load-Workout sheet.
+      const cursor = readSoloAssignment();
       p.sessions_in_program = sessionsInProgram(null, p.id, null);
+      // Since it was started (issue #121), as with accounts.
+      _putActive(p, cursor.start_date, weekOpts);
       _putWeek(p, planWeekFor(null, p, cursor, {
         ...weekOpts,
         sessionsInProgram: p.sessions_in_program,
@@ -135,9 +138,8 @@ router.get('/:id', wrap((req, res) => {
     ).get(id, userId);
     program.is_active = assignment?.active === 1;
   } else {
-    const active = db.prepare("SELECT value FROM app_config WHERE key = 'active_program'").get();
-    program.is_active = active && parseInt(active.value) === id;
-    if (program.is_active) assignment = readSoloCursor();
+    program.is_active = soloActiveId() === id;
+    if (program.is_active) assignment = readSoloAssignment();
   }
 
   if (program.is_active) {
@@ -153,9 +155,24 @@ router.get('/:id', wrap((req, res) => {
 }));
 
 // The athlete's zone and Track Cardio switch as the app sends them
-// (?tz=&cardio=), for which days are today's and which were trained.
+// (?tz=&cardio=), for which days are today's and which were trained. A zone
+// sent is remembered for the account (lib/user-zone.js), so the coach's view
+// of them counts their days too; none sent, the one remembered.
 function _weekOpts(req) {
-  return { timeZone: zoneFrom(req.query?.tz), cardio: req.query?.cardio };
+  const userId = uid(req);
+  const sent = zoneFrom(req.query?.tz);
+  rememberZone(userId, sent);
+  return { timeZone: sent ?? userZone(userId), cardio: req.query?.cardio };
+}
+
+// days_active and weeks_active (the card's "Week N" for a one-week program):
+// whole calendar days since `since` in the athlete's zone, counted at their
+// midnight as the calendar clock is, not in 24-hour blocks (issue #121).
+function _putActive(p, since, { timeZone }) {
+  const days = calendarDaysSince(since, { timeZone });
+  if (days == null) return;
+  p.days_active  = Math.max(0, days);
+  p.weeks_active = Math.floor(p.days_active / 7) + 1;
 }
 
 // current_week, and paused_days: days excused days pushed a calendar-mode
@@ -180,21 +197,6 @@ function sessionsInProgram(userId, programId, assignedAt) {
         AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
         ${sinceFilter}
   `).get(...args)?.c || 0;
-}
-
-// Single-user (no-auth) mode has no program_assignments row, so the manual
-// week cursor lives in app_config as JSON alongside the active_program key.
-function readSoloCursor() {
-  const row = db.prepare("SELECT value FROM app_config WHERE key = 'active_program_cursor'").get();
-  if (!row?.value) return {};
-  try {
-    const { week, base, pinnedAt } = JSON.parse(row.value);
-    return {
-      week_cursor: week ?? null,
-      week_cursor_session_base: base ?? 0,
-      week_cursor_pinned_at: pinnedAt ?? null,
-    };
-  } catch { return {}; }
 }
 
 // POST /api/programs
@@ -280,8 +282,7 @@ router.post('/deactivate', wrap((req, res) => {
   if (userId != null) {
     db.prepare('UPDATE program_assignments SET active = 0 WHERE assigned_to = ?').run(userId);
   } else {
-    db.prepare("DELETE FROM app_config WHERE key = 'active_program'").run();
-    db.prepare("DELETE FROM app_config WHERE key = 'active_program_cursor'").run();
+    deactivateSolo();
   }
   res.json({ ok: true });
 }));
@@ -304,10 +305,9 @@ router.post('/:id/activate', wrap((req, res) => {
         .run(id, userId, userId);
     }
   } else {
-    db.prepare("INSERT INTO app_config (key, value) VALUES ('active_program', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .run(String(id));
-    // Switching the solo active program invalidates any pinned week cursor.
-    db.prepare("DELETE FROM app_config WHERE key = 'active_program_cursor'").run();
+    // Starts its calendar clock (a different program), and drops any
+    // pinned week cursor (lib/solo-program.js).
+    activateSolo(id);
   }
   res.json({ ok: true });
 }));

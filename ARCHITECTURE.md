@@ -90,7 +90,9 @@ A program advanced by the calendar moves a week every 7 days from its
 start date (or the day it was assigned, or the day a week was chosen by
 hand), counting calendar days in the athlete's zone. Each excused day from that day through today that wasn't
 trained pushes it back a day (issue #121); a day ahead counts once it
-comes, and with Hold nothing counts after the last week is over. The rule
+comes, and with Hold nothing counts once the program is on its last week
+(the week can't move; a day that kept it out of the last week still
+counts). The rule
 is `planWeekState` in `server/lib/programWeek.js` and its identical copy
 `src/lib/programWeek.js`; both are pure, so callers read the excused and
 trained days for `pauseWindow` and pass them in
@@ -98,10 +100,35 @@ trained days for `pauseWindow` and pass them in
 phone). Every week reported carries `paused_days`: the programs routes,
 the coach's view of a client, MCP `get_active_program`, `/api/v1` and the
 `program.advanced` webhook. The app sends its time zone and Track Cardio
-switch with program reads (`src/lib/plan-week-query.js`), so "today" is
-the athlete's. Programs advanced by sessions never pause. Without accounts the server
-keeps no start for the active program, so a calendar program there only
-moves on, and pauses, from a week chosen by hand.
+switch with program reads (`src/lib/plan-week-query.js`), and the Android
+app with every sync pull; the server keeps the account's last valid zone
+in its `timezone` setting (`server/lib/user-zone.js`, written only when it
+changes), so a caller that isn't the athlete (the coach's view of a
+client, with its streak, MCP, `/api/v1`, the webhook, a prescription
+counted as missed, `/api/stats/streaks`, and the scheduler, which always
+read that setting) uses the athlete's "today", and the server's when none
+is known. Programs advanced by sessions never pause. The Programs card's
+"Week N" for a one-week program counts the same calendar days
+(`calendarDaysSince`) from the start date, else when it was assigned (or
+started, without accounts), on the server and the phone.
+
+Without accounts there is no `program_assignments` row: `app_config` holds
+`active_program`, `active_program_cursor` and `active_program_start`
+(`server/lib/solo-program.js`). The start is set when a different program
+becomes the one followed (choosing the same one keeps it; stopping clears
+it) and read as the calendar clock only (`start_date`), so the workouts a
+program advanced by sessions counts are unchanged (all of them). One
+followed from before starts were kept gets one at startup, or on its next
+read (a backup from then restored, say): the date of its first completed
+workout since the last one from any other program (no activation time was
+stored anywhere), else the migration's time. The phone's pull carries it as
+`solo_active.started_at`, kept in the phone's `start_date` (starting the
+program again on the phone clears it). The first account made goes on
+following it (`claimSoloProgram`, keys read before the rows move):
+`start_date` the start, `assigned_at` the first completed workout from it
+when earlier, so the same workouts count and a chosen week's base lines up.
+Turning accounts off with one account does the reverse
+(`releaseSoloProgram`), replacing keys an older build left behind.
 
 ### Rest timer is superset-aware
 

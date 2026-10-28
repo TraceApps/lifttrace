@@ -13,7 +13,7 @@ import { trainedDateSet } from '../lib/trained-days.js';
 import { currentStreak, shiftDate } from '../../src/lib/trained-day.js';
 import { getExcusedDay, listExcusedDays } from '../lib/excused-days.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
-import { zoneFrom } from '../lib/program-pause.js';
+import { userToday } from '../lib/user-zone.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -81,11 +81,11 @@ router.get('/members/:id', wrap((req, res) => {
      WHERE pa.assigned_to = ? AND pa.active = 1 LIMIT 1`
   ).get(memberId) || null;
   // Where the client is in it: the plan week, and the days their excused
-  // days have paused a calendar program (#121). "Today" is in the zone of
-  // the coach's device (?tz=); the server keeps no zone for the client, so
-  // around midnight the two can be a day apart.
+  // days have paused a calendar program (#121). "Today" is the client's: in
+  // the zone their app said last (lib/user-zone.js), else the server's. The
+  // coach's own zone (?tz=, sent by apps before this) says nothing of it.
   if (activeProgram) {
-    const where = getActiveProgramCore(memberId, { timeZone: zoneFrom(req.query?.tz) });
+    const where = getActiveProgramCore(memberId);
     if (where.active && where.program_id === activeProgram.id) {
       Object.assign(activeProgram, {
         duration_weeks: where.duration_weeks,
@@ -144,8 +144,10 @@ router.get('/members/:id', wrap((req, res) => {
   });
 
   // The client's current streak, by the trained-day rule the client's own
-  // app counts (src/lib/trained-day.js), so coach and client see one number.
-  const streak = currentStreak(trainedDateSet(memberId), new Date().toLocaleDateString('sv-SE'));
+  // app counts (src/lib/trained-day.js), so coach and client see one number,
+  // from the client's today.
+  const clientToday = userToday(memberId);
+  const streak = currentStreak(trainedDateSet(memberId), clientToday);
 
   // Member's chosen weight unit so the coach UI labels volume + set weights
   // in whatever the member actually trains in (rather than always lbs).
@@ -166,10 +168,7 @@ router.get('/members/:id', wrap((req, res) => {
     recent_workouts: recentWorkouts,
     // Days the client excused (issue #121), the last eight weeks and what's
     // planned ahead, newest first, with the reason and note.
-    excused_days: (() => {
-      const today = new Date().toLocaleDateString('sv-SE');
-      return listExcusedDays(memberId, { start: shiftDate(today, -56), end: shiftDate(today, 56) }).reverse();
-    })(),
+    excused_days: listExcusedDays(memberId, { start: shiftDate(clientToday, -56), end: shiftDate(clientToday, 56) }).reverse(),
     streak,
     weight_unit,
   });

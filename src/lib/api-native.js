@@ -18,7 +18,7 @@ import {
   getSyncMeta,
   setSyncMeta,
 } from './db-native.js';
-import { planWeekState, pauseWindow } from './programWeek.js';
+import { planWeekState, pauseWindow, calendarDaysSince } from './programWeek.js';
 import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
 import { musclesOf } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
@@ -612,6 +612,15 @@ const Programs = {
         ))[0];
         const wk = await _resolveCurrentWeek(prog, assignment, query);
         if (wk) Object.assign(entry, wk);
+        // The card's "Week N" for a one-week program, as the server counts
+        // it (issue #121): calendar days since its start date (a coach's,
+        // or the one a server without accounts sent), else since it was
+        // started.
+        const days = calendarDaysSince(assignment?.start_date || assignment?.assigned_at);
+        if (days != null) {
+          entry.days_active = Math.max(0, days);
+          entry.weeks_active = Math.floor(entry.days_active / 7) + 1;
+        }
       }
       out.push(entry);
     }
@@ -673,12 +682,17 @@ const Programs = {
     return { ok: true };
   },
   async activate(id) {
+    // A row a server without accounts sent (no assigned_at) carries that
+    // server's start as start_date (sync.js _applySoloActive): starting it
+    // here starts it now, so that start goes (issue #121). A coach's start
+    // date stays. SQLite reads the row as it was in every SET expression.
     await dbRun(`UPDATE program_assignments SET active = 0 WHERE assigned_to = ?`, [ME]);
     await dbRun(
       `INSERT INTO program_assignments (id, program_id, assigned_to, active, assigned_at)
        VALUES (?, ?, ?, 1, ?)
        ON CONFLICT(program_id, assigned_to)
-       DO UPDATE SET active = 1, assigned_at = excluded.assigned_at`,
+       DO UPDATE SET active = 1, assigned_at = excluded.assigned_at,
+         start_date = CASE WHEN program_assignments.assigned_at IS NULL THEN NULL ELSE program_assignments.start_date END`,
       [_newId(), id, ME, _now()]
     );
     return { ok: true };

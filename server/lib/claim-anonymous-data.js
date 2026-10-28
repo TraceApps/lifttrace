@@ -1,6 +1,7 @@
 import db from '../db.js';
 import { deleteMediaForUser } from './body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from './set-media.js';
+import { readSoloKeys, writeSoloKeys } from './solo-program.js';
 
 // ── Claim anonymous (single-user mode) data for the first real account ────
 // Single-user mode has no users row, so `uid()` writes NULL and the
@@ -31,17 +32,57 @@ const ORPHAN_EXTRA_COUNTS = [
   'SELECT COUNT(*) AS c FROM exercises WHERE created_by IS NULL AND is_global = 0',
 ];
 
-export const claimAnonymousData = db.transaction((userId) => {
+export const claimAnonymousData = db.transaction((userId, { soloProgram = true } = {}) => {
+  // Read before the rows move: a start still to be chosen looks at the
+  // workouts without an owner (solo-program.js).
+  const solo = soloProgram ? readSoloKeys() : null;
   for (const t of CLAIM_NULL) {
     db.prepare(`UPDATE ${t} SET user_id = ? WHERE user_id IS NULL`).run(userId);
   }
   db.prepare('UPDATE programs SET created_by = ? WHERE created_by IS NULL').run(userId);
   db.prepare('UPDATE exercises SET created_by = ? WHERE created_by IS NULL AND is_global = 0').run(userId);
+  // The program being followed (app_config without accounts) goes on being
+  // followed, from the same start and at the same chosen week (issue #121).
+  // Only when the account is being made: the one-time repair below may find
+  // keys an older build left behind long ago.
+  if (solo) claimSoloProgram(userId, solo);
   // Re-enabling user management: clear the single_user_mode flag set by a
   // prior DELETE /management or POST /recover. Without this, /status keeps
   // reporting single_user_mode=true even though a real account now exists.
   db.prepare(`DELETE FROM app_config WHERE key = 'single_user_mode'`).run();
 });
+
+/**
+ * The program followed without accounts becomes the first account's active
+ * assignment (unless it follows one already), and the app_config keys go.
+ * The start stays the calendar clock (`start_date`, as programWeek.js reads
+ * it); `assigned_at` is the first day a workout from it was completed, if
+ * that's earlier, so the same workouts count toward a program advanced by
+ * sessions (all of them, without accounts) and a chosen week's base still
+ * lines up.
+ */
+function claimSoloProgram(userId, { id, start, cursor }) {
+  if (id != null && db.prepare('SELECT 1 FROM programs WHERE id = ?').get(id)
+      && !db.prepare('SELECT 1 FROM program_assignments WHERE assigned_to = ? AND active = 1').get(userId)) {
+    let c = {};
+    try { c = JSON.parse(cursor || '{}') || {}; } catch { /* none */ }
+    const first = db.prepare(
+      `SELECT MIN(date) AS d FROM workout_log
+        WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL
+          AND template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)`
+    ).get(userId, id)?.d;
+    const assignedAt = first && first < start ? first : start;
+    db.prepare(
+      `INSERT INTO program_assignments (program_id, assigned_to, assigned_by, start_date, active, assigned_at, week_cursor, week_cursor_session_base, week_cursor_pinned_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+       ON CONFLICT(program_id, assigned_to) DO UPDATE SET
+         active = 1, start_date = excluded.start_date, assigned_at = excluded.assigned_at,
+         week_cursor = excluded.week_cursor, week_cursor_session_base = excluded.week_cursor_session_base,
+         week_cursor_pinned_at = excluded.week_cursor_pinned_at`
+    ).run(id, userId, userId, start, assignedAt, c.week ?? null, c.week != null ? c.base ?? 0 : null, c.week != null ? c.pinnedAt ?? null : null);
+  }
+  writeSoloKeys({ id: null });
+}
 
 // ── One-time repair for instances that upgraded past the old bug ──────────
 // The claim above only runs while the first account is being created, so an
@@ -71,7 +112,7 @@ export function repairOrphanedData() {
   const rows = countOrphanedRows();
   if (rows === 0) return { repaired: 0, rows: 0 };
   if (users.length > 1) return { repaired: 0, rows, ambiguous: true };
-  claimAnonymousData(users[0].id);
+  claimAnonymousData(users[0].id, { soloProgram: false });
   return { repaired: users[0].id, rows };
 }
 
@@ -89,12 +130,41 @@ export function repairOrphanedData() {
 // one account: merging several users into one unowned dataset would collide
 // on UNIQUE(user_id, date) and silently interleave their histories.
 export const anonymizeUserData = db.transaction((userId) => {
+  // The program the account follows goes on being followed without
+  // accounts (issue #121), replacing any keys an older build left behind.
+  releaseSoloProgram(userId);
   for (const t of CLAIM_NULL) {
     db.prepare(`UPDATE ${t} SET user_id = NULL WHERE user_id = ?`).run(userId);
   }
   db.prepare('UPDATE programs SET created_by = NULL WHERE created_by = ?').run(userId);
   db.prepare('UPDATE exercises SET created_by = NULL WHERE created_by = ? AND is_global = 0').run(userId);
 });
+
+/**
+ * The account's active program as the keys without accounts: its calendar
+ * clock (start date, else when assigned) and a chosen week, whose base is
+ * moved so it lines up with every workout counting (as without accounts)
+ * rather than those since it was assigned. None: no keys.
+ */
+function releaseSoloProgram(userId) {
+  const a = db.prepare(
+    `SELECT program_id, start_date, assigned_at, week_cursor, week_cursor_session_base, week_cursor_pinned_at
+       FROM program_assignments WHERE assigned_to = ? AND active = 1 LIMIT 1`
+  ).get(userId);
+  if (!a) return writeSoloKeys({ id: null });
+  let cursor = null;
+  if (a.week_cursor != null) {
+    const count = (since) => db.prepare(
+      `SELECT COUNT(*) AS c FROM workout_log
+        WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL
+          AND template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
+          ${since ? 'AND date >= date(?)' : ''}`
+    ).get(userId, a.program_id, ...(since ? [since] : [])).c;
+    const before = a.assigned_at ? count(null) - count(a.assigned_at) : 0;
+    cursor = JSON.stringify({ week: a.week_cursor, base: (a.week_cursor_session_base || 0) + before, pinnedAt: a.week_cursor_pinned_at });
+  }
+  writeSoloKeys({ id: a.program_id, start: a.start_date || a.assigned_at, cursor });
+}
 
 /** Prepare the data before DELETE /management drops every account.
  *

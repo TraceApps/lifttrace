@@ -143,7 +143,9 @@ test("your own calendar program: excused days push it back, and undoing them giv
   const ahead = await S.ok('solo', 'GET', `/api/programs/${p.id}?tz=Pacific/Kiritimati`);
   const kiriToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Kiritimati' }).format(new Date());
   assert.equal(ahead.paused_days, kiriToday > TODAY ? 3 : 2, "tomorrow's excuse counts where tomorrow has begun");
-  assert.equal((await S.ok('solo', 'GET', `/api/programs/${p.id}?tz=Not/AZone`)).paused_days, 2, 'a zone that is not one: the server\'s today');
+  // A zone that is not one: the one the app said last (Kiritimati, just
+  // above), never the bad one (issue #121, server/lib/user-zone.js).
+  assert.equal((await S.ok('solo', 'GET', `/api/programs/${p.id}?tz=Not/AZone`)).paused_days, ahead.paused_days, 'a zone that is not one: the one said last');
 });
 
 test('advanced by sessions: excused days never pause it', { skip }, async () => {

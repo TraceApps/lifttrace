@@ -877,6 +877,7 @@ test("excused days pause a calendar program on the phone's own (#121): the share
   assert.deepEqual(out.beforePin, both({ week: 2, pausedDays: 2 }), 'today and two days ago count');
   assert.deepEqual(out.beforePin.one, out.beforePin.list);
   assert.deepEqual(out.pinned, both({ week: 2, pausedDays: 1 }), 'a week chosen today: today counts, two days ago no longer does');
+  assert.equal(out.oneWeek, 2, "a one-week program's card: 7 calendar days, Week 2");
 });
 
 test('excused days pause a calendar program on a connected phone at once, offline, and the server agrees (#121)', { skip, timeout: SCENARIO_MS }, async () => {
@@ -885,6 +886,41 @@ test('excused days pause a calendar program on a connected phone at once, offlin
   assert.deepEqual(out.offline, [1, 1, 1, 1], 'excused today, offline: paused a day');
   assert.deepEqual(out.server, [1, 1]);
   assert.deepEqual(out.synced, [1, 1, 1, 1]);
+});
+
+test("without accounts, a calendar program moves on the phone from the server's start, and pauses there (#121)", { skip, timeout: SCENARIO_MS }, async () => {
+  const srv = await startServer({ accounts: false, env: { TZ: 'UTC' } });
+  try {
+    const p = await srv.call(null, 'POST', '/api/programs', { name: 'Home Block', duration_weeks: 4, advance_mode: 'calendar' });
+    await srv.call(null, 'POST', `/api/programs/${p.id}/activate`);
+    // Followed for 14 days: week 3.
+    const db = new Database(srv.dbPath);
+    db.prepare("UPDATE app_config SET value = datetime('now', '-14 days') WHERE key = 'active_program_start'").run();
+    const start = db.prepare("SELECT value FROM app_config WHERE key = 'active_program_start'").get().value;
+    db.close();
+    assert.equal((await srv.call(null, 'GET', `/api/programs/${p.id}?tz=UTC`)).current_week, 3, 'the server');
+    const out = await runPhone(srv, 'soloStart', null, { LT_PROGRAM: String(p.id), TZ: 'UTC' });
+    assert.deepEqual(out.row, { start_date: start, assigned_at: null }, "the server's start, as the calendar clock only");
+    assert.deepEqual(out.synced, [3, 0, 3, 0], 'the phone agrees');
+    assert.equal(out.weeksActive, 3, "the card's count too");
+    assert.equal(out.quiet, true, 'the next pull changes nothing');
+    assert.deepEqual(out.offline, [2, 1, 2, 1], 'excused today, offline: paused a day');
+    assert.equal(out.serverPaused, 1, 'the server too, once the excuse went up');
+    assert.equal(out.restartedServer, 1, 'and the server, once it went up: started again, week 1');
+    assert.deepEqual(out.restarted, { start: null, week: 1 }, "started again on the phone: from now, not the server's old start");
+  } finally { srv.stop(); }
+});
+
+test("the phone's pull says its zone, which the server keeps for the account (#121)", { skip, timeout: SCENARIO_MS }, async () => {
+  const srv = await startServer();
+  try {
+    const out = await runPhone(srv, 'zoneOnPull', null, { TZ: 'Pacific/Kiritimati' });
+    assert.equal(out.zone, 'Pacific/Kiritimati');
+    const db = new Database(srv.dbPath);
+    const row = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'timezone'").get(srv.memberId);
+    db.close();
+    assert.equal(row?.value, JSON.stringify('Pacific/Kiritimati'));
+  } finally { srv.stop(); }
 });
 
 test('excused days (#121): saved online, changed offline, from the web, and never shown to another account', { skip, timeout: SCENARIO_MS }, async () => {

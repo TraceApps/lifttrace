@@ -42,6 +42,8 @@ import { canChangeExercise } from '../lib/exercise-owner.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
 import { readablePairingIds, messageOut } from '../lib/coaching-messages.js';
+import { soloStart } from '../lib/solo-program.js';
+import { rememberZone } from '../lib/user-zone.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
 // Same shape as workout.js — duplicated here to keep both routes
@@ -122,6 +124,10 @@ function toSqlTime(iso) {
 // ── GET /pull ────────────────────────────────────────────────────────────
 router.get('/pull', wrap((req, res) => {
   const u = uid(req);
+  // The phone's zone (?tz=), kept for the account so its "today" is right
+  // where the server works one out for it, the coach's view of it included
+  // (lib/user-zone.js, issue #121).
+  rememberZone(u, req.query.tz);
   const since = req.query.since || '1970-01-01T00:00:00.000Z';
   const sinceSql = toSqlTime(since);
   const serverTime = new Date().toISOString();
@@ -284,6 +290,8 @@ router.get('/pull', wrap((req, res) => {
   // Without user accounts the program being followed lives in app_config,
   // not in program_assignments, so it went nowhere and a phone never learned
   // of a change made on the web. Sent in full every pull: it's one row.
+  // `started_at`: when it became the one followed, its calendar clock
+  // (lib/solo-program.js, issue #121); a phone from before ignores it.
   let solo_active;
   if (u == null) {
     const cfg = (k) => db.prepare('SELECT value FROM app_config WHERE key = ?').get(k)?.value ?? null;
@@ -291,7 +299,7 @@ router.get('/pull', wrap((req, res) => {
     let cursor = {};
     try { cursor = JSON.parse(cfg('active_program_cursor') || '{}') || {}; } catch { /* none */ }
     solo_active = pid && db.prepare('SELECT 1 FROM programs WHERE id = ?').get(pid)
-      ? { program_id: pid, week_cursor: cursor.week ?? null, week_cursor_session_base: cursor.base ?? null, week_cursor_pinned_at: cursor.pinnedAt ?? null }
+      ? { program_id: pid, week_cursor: cursor.week ?? null, week_cursor_session_base: cursor.base ?? null, week_cursor_pinned_at: cursor.pinnedAt ?? null, started_at: soloStart() }
       : null;
   }
 

@@ -77,9 +77,26 @@ export function pauseWindow(program, assignment, { now = Date.now(), timeZone } 
 // The calendar day the clock runs from: a start date as written, a time as
 // the day it fell on in `timeZone`. Null with no anchor or one unreadable.
 function _anchorDay(assignment, timeZone) {
-  const { value } = _clock(assignment);
+  return _dayOfValue(_clock(assignment).value, timeZone);
+}
+
+// A date as written, or the day a time fell on in `timeZone`; null for none.
+function _dayOfValue(value, timeZone) {
   if (!value) return null;
   return YMD.test(String(value)) ? String(value) : dayOf(anchorTime(value), timeZone);
+}
+
+/**
+ * Whole calendar days (in `timeZone`) from the day `value` fell on (a
+ * date, a SQLite UTC stamp or ISO) to today, counted at local midnight like
+ * the calendar clock: the Programs card's "Week N" for a one-week program.
+ * Below zero for a day ahead; null when there's none or it can't be read.
+ */
+export function calendarDaysSince(value, { now = Date.now(), timeZone } = {}) {
+  const from = _dayOfValue(value, timeZone);
+  const today = dayOf(now, timeZone);
+  if (!from || !today) return null;
+  return _dayNumber(today) - _dayNumber(from);
 }
 
 /**
@@ -94,7 +111,9 @@ function _anchorDay(assignment, timeZone) {
  * (src/lib/trained-day.js). A day ahead of today doesn't count until it
  * comes; a day trained on, or no longer excused, gives its day back. With a
  * week chosen by hand only days from that one on count. A program set to
- * Hold stops counting once its last week is over. Sessions mode never pauses.
+ * Hold stops counting once it is on its last week, where a day can't move
+ * it any more; a day that keeps it out of the last week still counts.
+ * Sessions mode never pauses.
  *
  * @param {object} program    - programs row (duration_weeks, advance_mode, on_complete)
  * @param {object} assignment - program_assignments row (start_date, assigned_at,
@@ -137,11 +156,16 @@ export function planWeekState(program, assignment, {
         if (!d || (e && typeof e === 'object' && e.deleted_at)) continue;
         if (d >= window.from && d <= window.to && !trained.has(d)) dates.add(d);
       }
-      // Hold: a day after the plan's last week has gone by pauses nothing.
+      // Hold: the last week starts once `lastWeekAt` days have counted. A
+      // day on which more than that had counted already finds the program
+      // held there, so it moves nothing; a day on or before it keeps the
+      // last week off a day. Counting in date order, the days paused before
+      // a day come off first, so an earlier pause still lets it count.
       const weeksLeft = pinned ? duration - cursor + 1 : duration;
+      const lastWeekAt = (weeksLeft - 1) * 7;
       const start = _dayNumber(window.from);
       for (const d of [...dates].sort()) {
-        if (program?.on_complete !== 'repeat' && _dayNumber(d) - start - pausedDays >= weeksLeft * 7) break;
+        if (program?.on_complete !== 'repeat' && (lastWeekAt <= 0 || _dayNumber(d) - start - pausedDays > lastWeekAt)) break;
         pausedDays++;
       }
     }

@@ -55,6 +55,21 @@ test('basic weeks without excused days: calendar, chosen, sessions, repeat', () 
   }
 });
 
+test("calendarDaysSince: whole days at the zone's midnight, as the calendar clock counts (the card's one-week Week N)", () => {
+  for (const rule of [server, client]) {
+    // 6 days 13 hours by the clock, 7 calendar days in UTC: Week 2, not 1.
+    assert.equal(rule.calendarDaysSince('2026-10-08 23:00:00', { now: NOW, timeZone: 'UTC' }), 7);
+    // 2 am UTC on the 9th was still the 8th in New York: 7 days there, 6 in UTC.
+    assert.equal(rule.calendarDaysSince('2026-10-09 02:00:00', { now: NOW, timeZone: 'America/New_York' }), 7);
+    assert.equal(rule.calendarDaysSince('2026-10-09 02:00:00', { now: NOW, timeZone: 'UTC' }), 6);
+    assert.equal(rule.calendarDaysSince('2026-10-08T23:00:00.000Z', { now: NOW, timeZone: 'UTC' }), 7, 'ISO reads the same');
+    assert.equal(rule.calendarDaysSince('2026-10-15', { now: NOW, timeZone: 'UTC' }), 0, 'a date as written: today is day 0');
+    assert.equal(rule.calendarDaysSince('2026-10-17', { now: NOW, timeZone: 'UTC' }), -2, 'a day ahead is below zero');
+    assert.equal(rule.calendarDaysSince(null, { now: NOW }), null);
+    assert.equal(rule.calendarDaysSince('not a date', { now: NOW }), null);
+  }
+});
+
 test('pauseWindow: what callers read excused days for', () => {
   const p = { advance_mode: 'calendar', duration_weeks: 4 };
   const now = NOW, timeZone = 'UTC';
@@ -74,7 +89,10 @@ test('every place that reports a week passes the excused days in', () => {
   assert.match(programs, /p\.paused_days = pausedDays/);
   assert.match(read('../server/lib/mcp/tools/get-active-program.js'), /planWeekFor\(userId, assignment, assignment/);
   assert.match(read('../server/lib/mcp/tools/get-active-program.js'), /paused_days: pausedDays/);
-  assert.match(read('../server/routes/trainer.js'), /getActiveProgramCore\(memberId, \{ timeZone: zoneFrom\(req\.query\?\.tz\) \}\)/);
+  // The coach's view counts the client's days, in the client's zone
+  // (planWeekFor falls back to it), not the coach's.
+  assert.match(read('../server/routes/trainer.js'), /getActiveProgramCore\(memberId\);/);
+  assert.match(read('../server/lib/program-pause.js'), /timeZone = timeZone \?\? userZone\(userId\);/);
   const native = read('../src/lib/api-native.js');
   assert.doesNotMatch(native, /currentPlanWeek\(/);
   assert.match(native, /planWeekState\(program, assignment, \{[\s\S]*?excusedDays,[\s\S]*?trainedDays,/);

@@ -32,6 +32,38 @@ export const CASES = [
     program: cal({ duration_weeks: 2 }), assignment: { start_date: '2026-09-20' },
     excused: ['2026-09-22', '2026-10-10'], expect: { week: 2, pausedDays: 1 },
   },
+  // Hold, already on the last week: a day can't move it, so it isn't
+  // counted (it used to be, until the last week was over).
+  {
+    why: 'hold: a day once held on the last week pauses nothing',
+    program: cal({ duration_weeks: 2 }), assignment: { start_date: '2026-10-05' },
+    excused: ['2026-10-13'], expect: { week: 2, pausedDays: 0 },
+  },
+  {
+    why: "hold: the last week's first day still counts, keeping it off a day",
+    program: cal({ duration_weeks: 2 }), assignment: { start_date: '2026-10-08' },
+    excused: ['2026-10-15'], expect: { week: 1, pausedDays: 1 },
+  },
+  {
+    why: 'hold: an earlier pause kept it out of the last week, so a later day still counts; one after it got there does not',
+    program: cal({ duration_weeks: 2 }), assignment: { start_date: '2026-10-04' },
+    excused: ['2026-10-05', '2026-10-06', '2026-10-13', '2026-10-15'], expect: { week: 2, pausedDays: 3 },
+  },
+  {
+    why: 'hold: the last week chosen by hand: nothing counts',
+    program: cal(), assignment: { start_date: '2026-09-01', week_cursor: 4, week_cursor_pinned_at: '2026-10-08T09:00:00.000Z' },
+    excused: ['2026-10-08', '2026-10-10'], expect: { week: 4, pausedDays: 0 },
+  },
+  {
+    why: 'hold: a week chosen by hand before the last: days up to the last week count, not after',
+    program: cal(), assignment: { start_date: '2026-09-01', week_cursor: 3, week_cursor_pinned_at: '2026-10-05T09:00:00.000Z' },
+    excused: ['2026-10-06', '2026-10-14'], expect: { week: 4, pausedDays: 1 },
+  },
+  {
+    why: 'repeat: a day in the last week still counts (the loop moves)',
+    program: cal({ duration_weeks: 2, on_complete: 'repeat' }), assignment: { start_date: '2026-10-05' },
+    excused: ['2026-10-13'], expect: { week: 2, pausedDays: 1 },
+  },
   {
     why: 'repeat: every day counts, and the week loops',
     program: cal({ duration_weeks: 2, on_complete: 'repeat' }), assignment: { start_date: '2026-09-29' },

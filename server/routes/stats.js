@@ -7,6 +7,7 @@ import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
 import { musclesOf } from '../lib/muscle-load.js';
 import { trainedDateSet } from '../lib/trained-days.js';
 import { currentStreak, longestStreak, trainedDaysByWeek, weekdayCounts, hasWorkingSet } from '../../src/lib/trained-day.js';
+import { userToday } from '../lib/user-zone.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -235,13 +236,15 @@ router.get('/earliest-workout-date', wrap((req, res) => {
 
 // GET /api/stats/streaks[?cardio=1|0]
 //   Streaks of trained days (src/lib/trained-day.js), counted back from the
-//   server's own today, or from yesterday while today isn't trained yet.
+//   account's today (in the zone its app said last, lib/user-zone.js, else
+//   the server's), or from yesterday while today isn't trained yet. The
+//   coach's view of a client counts the same.
 //   totalWorkouts is the number of trained days; totalSessions the number
 //   of workouts with a completed working set.
 router.get('/streaks', wrap((req, res) => {
   const userId = uid(req);
   const dates = trainedDateSet(userId, { cardio: req.query.cardio });
-  const today = new Date().toLocaleDateString('sv-SE');
+  const today = userToday(userId);
   const sessions = getAllWorkouts(userId).filter(r => hasWorkingSet(r.exercises)).length;
   res.json({
     currentStreak: currentStreak(dates, today),

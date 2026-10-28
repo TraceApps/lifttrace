@@ -144,6 +144,13 @@ const scenarios = {
     out.beforePin = await now();
     await api.setProgramWeekCursor(p.id, 2);
     out.pinned = await now();
+    // A one-week program's card: calendar days since it was started, not
+    // 24-hour blocks (23:59:59 seven days ago, in this device's zone).
+    const one = await api.createProgram({ name: 'One Week', duration_weeks: 1 });
+    await api.setActiveProgram(one.id);
+    const ago = new Date(Date.parse(`${today}T00:00:00Z`) - 7 * 864e5).toISOString().slice(0, 10);
+    await dbRun(`UPDATE program_assignments SET assigned_at = ? WHERE program_id = ?`, [new Date(`${ago}T23:59:59`).toISOString(), one.id]);
+    out.oneWeek = (await api.getPrograms()).find(x => x.id === one.id).weeks_active;
     return out;
   },
   // Connected: the plan comes from the server, an excuse made offline
@@ -174,6 +181,45 @@ const scenarios = {
     out.server = [srv.current_week, srv.paused_days];
     out.synced = await local();
     return out;
+  },
+  // Without accounts (issue #121): the server's start for the program
+  // followed comes down with the pull, so a calendar program moves on the
+  // phone as on the server, and an excuse made offline pauses it at once.
+  async soloStart() {
+    const id = Number(process.env.LT_PROGRAM);
+    await syncNow();
+    const read = async () => {
+      const list = (await api.getPrograms()).find(x => x.id === id);
+      const one = await api.getProgram(id);
+      return [list.current_week, list.paused_days, one.current_week, one.paused_days];
+    };
+    const row = (await q(`SELECT start_date, assigned_at FROM program_assignments WHERE active = 1`, []))[0];
+    const card = (await api.getPrograms()).find(x => x.id === id);
+    const out = { row, synced: await read(), weeksActive: card.weeks_active };
+    await syncNow();
+    out.quiet = (await q(`SELECT start_date FROM program_assignments WHERE active = 1`, []))[0].start_date === row.start_date;
+    offline(true);
+    await api.saveExcusedDay(new Date().toLocaleDateString('sv-SE'), { reason: 'illness' });
+    out.offline = await read();
+    offline(false);
+    await syncNow();
+    out.serverPaused = (await web('other', 'GET', `/api/programs/${id}?tz=UTC`)).paused_days;
+    // Stopped and started again here: it starts now, not from the server's
+    // old start (as the server does once the change goes up).
+    offline(true);
+    await api.deactivateProgram();
+    await api.setActiveProgram(id);
+    out.restarted = { start: (await q(`SELECT start_date FROM program_assignments WHERE active = 1`, []))[0].start_date, week: (await api.getProgram(id)).current_week };
+    offline(false);
+    await syncNow();
+    out.restartedServer = (await web('other', 'GET', `/api/programs/${id}?tz=UTC`)).current_week;
+    return out;
+  },
+  // The phone's zone goes up with its pull (issue #121).
+  async zoneOnPull() {
+    me();
+    await syncNow();
+    return { zone: Intl.DateTimeFormat().resolvedOptions().timeZone };
   },
   // Rows made offline (a plan, a day in it, an exercise, a workout using all
   // three) while another account takes the server ids the phone would use.

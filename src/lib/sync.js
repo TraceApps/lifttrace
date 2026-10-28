@@ -399,8 +399,12 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
       // Coaching conversations come along only for someone in coaching (an
       // older server ignores the ask); everyone else's pull is as before.
       const coaching = await _inCoaching() ? '&coaching=1' : '';
+      // This phone's zone, which the server keeps for the account, so its
+      // "today" there (the coach's view, reminders) is this person's
+      // (server/lib/user-zone.js, issue #121). An older server ignores it.
+      const tz = _zoneParam();
       const sentAt = Date.now();
-      pull = await _serverFetch('GET', `/api/sync/pull?since=${encodeURIComponent(since)}${held}${coaching}`);
+      pull = await _serverFetch('GET', `/api/sync/pull?since=${encodeURIComponent(since)}${held}${coaching}${tz}`);
       if (pull?.server_time) _noteServerClock(pull.server_time, sentAt);
     } catch (e) {
       result.ok = false;
@@ -495,6 +499,14 @@ const _NO_GUARD = {
 
 // Server timestamps as comparable text, whichever format they arrive in.
 const _sqlTime = (v) => String(v || '').replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '');
+
+/** `&tz=<this device's zone>` for the pull, or nothing when it can't say. */
+function _zoneParam() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz ? `&tz=${encodeURIComponent(tz)}` : '';
+  } catch { return ''; }
+}
 
 /** One pull's rows, table by table, into this device's copy. */
 /** Someone in coaching, as this account last knew it (stores/coaching.js). */
@@ -1343,7 +1355,10 @@ async function _applyAssignments(rows, result, guard = _NO_GUARD) {
  * A server without user accounts keeps the one program being followed (and
  * its pinned week) in its own settings, and sends it in full every pull.
  * This device's copy becomes exactly that, unless a start, stop or week
- * change made here is still on its way up.
+ * change made here is still on its way up. `started_at` (issue #121), when
+ * it became the one followed, is its calendar clock: kept as `start_date`,
+ * which programWeek.js reads first, and not as `assigned_at`, which would
+ * also limit the workouts counted (the server counts all of them).
  */
 async function _applySoloActive(active, result, guard = _NO_GUARD) {
   if (guard.assignments) { result.tables.assignments = 0; return; }
@@ -1351,21 +1366,23 @@ async function _applySoloActive(active, result, guard = _NO_GUARD) {
   const pid = Number(active?.program_id);
   // Sent with every pull: the same program at the same week is not a
   // change, and counting it as one reloaded the pages after every sync.
-  const here = await dbQuery(`SELECT program_id, week_cursor, week_cursor_session_base, week_cursor_pinned_at FROM program_assignments WHERE active = 1`, []);
+  const here = await dbQuery(`SELECT program_id, week_cursor, week_cursor_session_base, week_cursor_pinned_at, start_date FROM program_assignments WHERE active = 1`, []);
   const same = (v, w) => (v ?? null) === (w ?? null) || (v != null && w != null && String(v) === String(w));
   const want = Number.isSafeInteger(pid) && pid > 0;
+  // A server from before starts sends none: none here either, as before.
+  const start = active?.started_at ?? null;
   if ((!want && here.length === 0) || (want && here.length === 1 && Number(here[0].program_id) === pid
       && same(here[0].week_cursor, active.week_cursor) && same(here[0].week_cursor_session_base, active.week_cursor_session_base)
-      && same(here[0].week_cursor_pinned_at, active.week_cursor_pinned_at))) {
+      && same(here[0].week_cursor_pinned_at, active.week_cursor_pinned_at) && same(here[0].start_date, start))) {
     result.tables.assignments = 0;
     return;
   }
   await dbRun(`DELETE FROM program_assignments`, []);
   if (Number.isSafeInteger(pid) && pid > 0) {
     await dbRun(
-      `INSERT INTO program_assignments (id, program_id, assigned_to, active, week_cursor, week_cursor_session_base, week_cursor_pinned_at, assigned_at, updated_at)
-       VALUES (?, ?, 1, 1, ?, ?, ?, NULL, ?)`,
-      [newTempId(), pid, active.week_cursor ?? null, active.week_cursor_session_base ?? null, active.week_cursor_pinned_at ?? null, new Date().toISOString()]
+      `INSERT INTO program_assignments (id, program_id, assigned_to, active, week_cursor, week_cursor_session_base, week_cursor_pinned_at, start_date, assigned_at, updated_at)
+       VALUES (?, ?, 1, 1, ?, ?, ?, ?, NULL, ?)`,
+      [newTempId(), pid, active.week_cursor ?? null, active.week_cursor_session_base ?? null, active.week_cursor_pinned_at ?? null, start ?? null, new Date().toISOString()]
     );
   }
   result.tables.assignments = 1;

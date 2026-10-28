@@ -17,6 +17,7 @@ import db from '../db.js';
 import { logger } from '../logger.js';
 import { pushNotify } from './push-notify.js';
 import { getExcusedDay } from './excused-days.js';
+import { userToday } from './user-zone.js';
 
 const REASON_LABEL = { injury: 'Injury', illness: 'Illness', appointment: 'Appointment', other: 'Other' };
 
@@ -105,15 +106,18 @@ export function onWorkoutCompleted(workout, { history = false } = {}) {
 }
 
 /**
- * Daily scan: any dated prescription whose date is yesterday or earlier and
- * whose member did NOT log a completed workout that day → fire 'missed'
- * activity + notify, or 'excused' with the reason when the member excused
- * that day. Idempotent via the UNIQUE index.
+ * Daily scan: any dated prescription whose date is over for its member (before
+ * their today, in the zone their app said last, lib/user-zone.js, else the
+ * server's) and whose member did NOT log a completed workout that day → fire
+ * 'missed' activity + notify, or 'excused' with the reason when the member
+ * excused that day. Idempotent via the UNIQUE index.
  */
 export function checkMissedPrescriptions() {
-  const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10);
+  // No zone is more than a day ahead of UTC, so no day after UTC's today can
+  // be over anywhere yet; each member's own today decides the rest.
+  const latest = new Date().toISOString().slice(0, 10);
 
-  // Pull prescriptions with date <= yesterday that don't have an activity row
+  // Pull prescriptions with date <= that day that don't have an activity row
   // of either kind yet. completed-kind would have fired on workout-save; if
   // it didn't, we now record 'missed'.
   const rows = db.prepare(`
@@ -133,10 +137,13 @@ export function checkMissedPrescriptions() {
             AND wl.deleted_at IS NULL
             AND (cp.template_id IS NULL OR wl.template_id = cp.template_id)
        )
-  `).all(yesterday);
+  `).all(latest);
 
   let fired = 0;
+  const todays = new Map();
   for (const p of rows) {
+    if (!todays.has(p.member_id)) todays.set(p.member_id, userToday(p.member_id));
+    if (p.date >= todays.get(p.member_id)) continue;
     // The client excused that day (an injury, an illness, an appointment):
     // the coach is told why rather than that it wasn't logged, and the feed
     // shows it as excused, not missed (issue #121).
