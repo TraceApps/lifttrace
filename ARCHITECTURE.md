@@ -262,7 +262,11 @@ recovery flow relinks them later.
 Sets carry an optional `warmup: true` flag. All display counters,
 volume, PRs, rest-timer firing, auto-collapse, and superset-round
 gating filter warm-ups out. Generator is `generateWarmupSets(W, unit)`
-in `src/lib/workout.js`. RPE is `set.rpe: number | null`; chip +
+in `src/lib/planned-workout.js` (re-exported from `src/lib/workout.js`;
+`server/lib/planned-workout.js` is the same file): the bar, then 50%, 70%
+and 85% of the working weight rounded to 2.5 kg / 5 lbs, each kept only
+when heavier than the set before it and lighter than the working weight,
+so a light load gets fewer steps instead of a ramp that goes down. RPE is `set.rpe: number | null`; chip +
 picker lives in `SetRow.svelte`, gated by the `$trackRpe` setting.
 Similar-exercise scoring is in `src/lib/exerciseSimilarity.js`,
 `primary*3 + secondary - (differentEquipment ? 1 : 0)`, requires

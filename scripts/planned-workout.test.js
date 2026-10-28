@@ -153,6 +153,72 @@ test('planning: the week wins inside a block, history otherwise, timed sets and 
   }
 });
 
+// ── Auto Warm-Ups ───────────────────────────────────────────────────────
+
+// The ramp as it was before the light-load fix (dev 2ebb436), to show the
+// fix changed only the ramps that went down or repeated a weight.
+function warmupsBefore(workingWeight, unit = 'lbs') {
+  const W = parseFloat(workingWeight) || 0;
+  const bar = unit === 'kg' ? 20 : 45;
+  const step = unit === 'kg' ? 2.5 : 5;
+  const roundTo = (n) => Math.round(n / step) * step;
+  if (W <= bar) return [];
+  const sets = [bar];
+  const p50 = roundTo(W * 0.5);  if (p50 > bar) sets.push(p50);
+  const p70 = roundTo(W * 0.7);  if (p70 > p50) sets.push(p70);
+  const p85 = roundTo(W * 0.85); if (p85 > p70) sets.push(p85);
+  return sets;
+}
+
+test('warm-ups only climb, from the bar to below the working weight', () => {
+  for (const lib of [client, server]) {
+    const ramp = (w, unit) => lib.generateWarmupSets(w, unit).map(s => [s.weight, s.reps]);
+    // A light load gets fewer steps, never a ramp that goes down.
+    assert.deepEqual(ramp(25, 'kg'), [[20, 8], [22.5, 2]], '25 kg used to be 20, 17.5, 22.5');
+    assert.deepEqual(ramp(30, 'kg'), [[20, 8], [25, 2]], '30 kg used to be 20, 20, 25');
+    assert.deepEqual(ramp(22.5, 'kg'), [[20, 8]], '22.5 kg used to be 20, 15, 20');
+    assert.deepEqual(ramp(50, 'lbs'), [[45, 8]], '50 lbs used to be 45, 35, 45');
+    assert.deepEqual(ramp(60, 'lbs'), [[45, 8], [50, 2]]);
+    // A load that ramps as before is unchanged.
+    assert.deepEqual(ramp(100, 'kg'), [[20, 8], [50, 5], [70, 3], [85, 2]]);
+    assert.deepEqual(ramp(225, 'lbs'), [[45, 8], [115, 5], [160, 3], [190, 2]]);
+    // At or under the bar, or nothing usable: no warm-ups.
+    for (const [w, unit] of [[20, 'kg'], [45, 'lbs'], [0, 'kg'], [-5, 'lbs'], ['', 'kg'], [null, 'lbs'], ['abc', 'kg'], [NaN, 'kg']]) {
+      assert.deepEqual(ramp(w, unit), [], `${w} ${unit}`);
+    }
+    assert.deepEqual(ramp('25', 'kg'), ramp(25, 'kg'), 'a weight typed as text');
+    assert.ok(lib.generateWarmupSets(100, 'kg').every(s => s.warmup === true && s.completed === false && s.notes === ''));
+  }
+});
+
+test('warm-ups over every weight in both units: climbing, below the work, nothing else changed', () => {
+  for (const lib of [client, server]) {
+    let changed = 0, kept = 0;
+    for (const unit of ['kg', 'lbs']) {
+      const bar = unit === 'kg' ? 20 : 45;
+      const top = unit === 'kg' ? 500 : 1100;
+      for (let W = 0; W <= top; W += unit === 'kg' ? 0.25 : 0.5) {
+        const ws = lib.generateWarmupSets(W, unit).map(s => s.weight);
+        const at = `${W} ${unit}: [${ws}]`;
+        if (W <= bar) { assert.deepEqual(ws, [], at); continue; }
+        assert.equal(ws[0], bar, `${at} starts at the bar`);
+        for (let i = 1; i < ws.length; i++) assert.ok(ws[i] > ws[i - 1], `${at} climbs`);
+        assert.ok(ws.every(w => w < W), `${at} stays below the working weight`);
+        assert.ok(ws.length <= 4, at);
+        // Every step is a whole plate step.
+        const step = unit === 'kg' ? 2.5 : 5;
+        assert.ok(ws.every(w => Math.abs(w / step - Math.round(w / step)) < 1e-9), `${at} in plate steps`);
+        // Where the old ramp was already sound, the new one is the same.
+        const before = warmupsBefore(W, unit);
+        const sound = before.every((w, i) => (i === 0 || w > before[i - 1]) && w < W);
+        if (sound) { assert.deepEqual(ws, before, `${at} unchanged`); kept++; } else changed++;
+      }
+    }
+    // The fix reaches only the light loads (under 2.5 x the bar or so).
+    assert.ok(changed > 0 && kept > changed * 10, `${changed} changed, ${kept} kept`);
+  }
+});
+
 // ── Logging a done set into planned ones ────────────────────────────────
 
 test('a done set fills the first planned set still to do, of its own kind, keeping what it doesn\'t send', () => {

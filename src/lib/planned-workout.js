@@ -92,9 +92,15 @@ export function lastCompletedSession(history, { before } = {}) {
 /**
  * Generate a reasonable warm-up progression from a working weight.
  * Classic 5-step ramp: bar x 8, 50% x 5, 70% x 3, 85% x 2, then the working set.
- * Returns only the warm-up sets (4 of them); caller appends working sets.
+ * Returns only the warm-up sets (up to 4); caller appends working sets.
  * If the working weight is at or below the empty bar, returns [] (no warm-up
  * needed for bodyweight / light accessory work).
+ *
+ * Each step is rounded to the plate step (2.5 kg / 5 lbs) and kept only when
+ * it is heavier than the set before it and lighter than the working weight,
+ * so the ramp only ever climbs, never repeats a weight and never drops below
+ * the bar. A light load gets fewer steps (25 kg: bar x 8, 22.5 x 2), not a
+ * ramp that goes down.
  */
 export function generateWarmupSets(workingWeight, unit = 'lbs') {
   const W = parseFloat(workingWeight) || 0;
@@ -103,11 +109,15 @@ export function generateWarmupSets(workingWeight, unit = 'lbs') {
   const roundTo = (n) => Math.round(n / step) * step;
   if (W <= bar) return [];
   const base = { completed: false, warmup: true, notes: '' };
-  const sets = [];
-  sets.push({ ...base, weight: bar,               reps: 8 });
-  const p50 = roundTo(W * 0.5);  if (p50 > bar) sets.push({ ...base, weight: p50, reps: 5 });
-  const p70 = roundTo(W * 0.7);  if (p70 > p50) sets.push({ ...base, weight: p70, reps: 3 });
-  const p85 = roundTo(W * 0.85); if (p85 > p70) sets.push({ ...base, weight: p85, reps: 2 });
+  const sets = [{ ...base, weight: bar, reps: 8 }];
+  let last = bar;
+  for (const [pct, reps] of [[0.5, 5], [0.7, 3], [0.85, 2]]) {
+    const weight = roundTo(W * pct);
+    if (weight > last && weight < W) {
+      sets.push({ ...base, weight, reps });
+      last = weight;
+    }
+  }
   return sets;
 }
 
