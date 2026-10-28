@@ -29,7 +29,7 @@ import { _ } from 'svelte-i18n';
 import { getOpenAIChatParams, openAIBase } from './openai-chat-params.js';
 import { createToolSupportMemory, sendWithToolFallback } from './tool-support.js';
 import { geminiToolResponse } from './gemini-tool-response.js';
-import { REPLY_MAX_TOKENS, sendForReply, stoppedShort, stoppedShortError } from './trace-reply.js';
+import { REPLY_MAX_TOKENS, sendForReply, stoppedShort, stoppedShortError, createRepeatGuard, toolStuckNote, TOOL_REPEATED } from './trace-reply.js';
 
 // A reply that stopped short, said in the app's language (trace-reply.js).
 function _inLanguage(e) {
@@ -69,17 +69,47 @@ export const TOOL_SKIPPED = "Not run: this answer has already gathered as much a
 export const TOOLS_DROPPED = "These tool calls you asked for weren't run, for lack of room:";
 // What a round's answers may still add before the rest of its calls are skipped.
 const _budget = (history, start) => ({ left: HISTORY_MAX_BYTES - (_bytes(history) - start) });
-async function _runTool(onToolCall, onToolResult, name, args, budget) {
+// Tools that only read (TraceApps/nutritrace#287): the same call a second
+// time in one answer gets the result the model already has, and a third
+// makes the next request the last (trace-reply.js). Logging, starting a
+// workout and changing a program aren't here: they run every time, since two
+// of the same can be meant, and running one starts the count over.
+export const READ_TOOLS = new Set([
+  'get_workouts', 'get_workout', 'get_exercises', 'get_exercise', 'get_programs', 'get_program',
+  'get_active_program', 'get_prs', 'get_body_stats', 'get_progress_photos', 'get_cardio',
+  'get_excused_days', 'get_stats_overview', 'get_coach_prescription',
+]);
+// A name that isn't one of the tools offered changes nothing either: a model
+// asking for a made-up tool again is counted the same way.
+const _repeatGuard = (tools) => {
+  const offered = new Set((tools || []).map((t) => t.name));
+  return createRepeatGuard((name) => READ_TOOLS.has(name) || !offered.has(name));
+};
+// A call that failed (offline, say) may be made once more.
+const _failed = (r) => !!r && typeof r === 'object' && !Array.isArray(r) && r.error != null;
+// What the last request says: out of rounds, and the tool a model got stuck on.
+const _lastNote = (guard) => (guard.stuck ? `${OUT_OF_ROUNDS}\n\n${toolStuckNote(guard.stuck)}` : OUT_OF_ROUNDS);
+async function _runTool(onToolCall, onToolResult, name, args, budget, guard) {
   if (budget.left <= 0) return { error: TOOL_SKIPPED };
+  if (guard && guard.check(name, args) !== 'run') return { error: TOOL_REPEATED };
   const result = onToolCall ? await _safeExec(onToolCall, name, args) : { error: 'Tool handler not registered' };
+  if (guard && _failed(result)) guard.forget(name, args);
   if (onToolResult) { try { onToolResult(name, args, result); } catch {} }
   budget.left -= _bytes(JSON.stringify(result)); // as it's sent: a JSON string inside the request
   return result;
 }
 
-// The last round's answer, or, when a model gave none at all, why there's none.
-function _finalAnswer(text) {
+// The last round's answer, or, when a model gave none at all, why there's
+// none: the tool it got stuck repeating, when it did (TraceApps/nutritrace#287).
+function _finalAnswer(text, stuck) {
   if (String(text || '').trim()) return text;
+  if (stuck) {
+    try {
+      const said = get(_)('trace_reply.stuck_on_tool');
+      if (said && !said.startsWith('trace_reply.')) return said;
+    } catch { /* i18n not ready: the English line */ }
+    return 'Trace kept asking for the same information and got no answer, so it stopped. Try asking another way.';
+  }
   try {
     const said = get(_)('trace_reply.out_of_rounds');
     if (said && !said.startsWith('trace_reply.')) return said;
@@ -184,8 +214,9 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, o
 
   const startBytes = _bytes(currentMessages);
   const dropped = [];
+  const guard = _repeatGuard(tools);
   for (let round = 0; round <= TOOL_ROUNDS; round++) {
-    const last = _lastRound(round, currentMessages, startBytes) || (round > 0 && currentMessages.length > PROXY_MAX_MESSAGES - 12);
+    const last = _lastRound(round, currentMessages, startBytes) || (round > 0 && currentMessages.length > PROXY_MAX_MESSAGES - 12) || !!guard.stuck;
     const headers = { 'Content-Type': 'application/json' };
     if (isNative && getServerUrl()) {
       const token = getAuthToken();
@@ -199,7 +230,7 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, o
       // from before `last` passes on too.
       body: JSON.stringify({
         messages: currentMessages,
-        systemPrompt: last ? `${systemPrompt}\n\n${OUT_OF_ROUNDS}${dropped.length ? `\n\n${TOOLS_DROPPED} ${dropped.join(', ')}.` : ''}` : systemPrompt,
+        systemPrompt: last ? `${systemPrompt}\n\n${_lastNote(guard)}${dropped.length ? `\n\n${TOOLS_DROPPED} ${dropped.join(', ')}.` : ''}` : systemPrompt,
         tools,
         ...(last ? { last: true } : {}),
       }),
@@ -214,7 +245,7 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, o
     // The server's model can't use tools and answered without them.
     if (data.toolsUnsupported) onToolsUnsupported?.({ routed: !!data.toolsRouted });
     // A server that still asks for a tool on the last round: its text, if any, is the answer.
-    if (last) return _finalAnswer(data.toolCalls?.length ? data.assistantMessage?.content : data.text);
+    if (last) return _finalAnswer(data.toolCalls?.length ? data.assistantMessage?.content : data.text, guard.stuck);
     if (!data.toolCalls || data.toolCalls.length === 0) {
       return data.text || '';
     }
@@ -239,7 +270,7 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, o
     const budget = _budget(currentMessages, startBytes);
     currentMessages.push(assistantMessage);
     for (const tc of calls) {
-      const result = await _runTool(onToolCall, onToolResult, tc.name, tc.args || {}, budget);
+      const result = await _runTool(onToolCall, onToolResult, tc.name, tc.args || {}, budget, guard);
       currentMessages.push({
         role: 'tool',
         tool_call_id: tc.id,
@@ -369,15 +400,16 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
   // the tool-use loop below.
   let currentMessages = messages.map(m => ({ role: m.role, content: _toClaudeContent(m.content) }));
   const startBytes = _bytes(currentMessages);
+  const guard = _repeatGuard(tools);
 
   for (let round = 0; round <= TOOL_ROUNDS; round++) {
-    const last = _lastRound(round, currentMessages, startBytes);
+    const last = _lastRound(round, currentMessages, startBytes) || !!guard.stuck;
     const body = {
       model: model || AI_DEFAULT_MODELS.claude,
       max_tokens: REPLY_MAX_TOKENS,
       // Out of rounds: told to answer in the system prompt, so the
       // conversation itself stays in the order the provider expects.
-      system: last ? `${systemPrompt}\n\n${OUT_OF_ROUNDS}` : systemPrompt,
+      system: last ? `${systemPrompt}\n\n${_lastNote(guard)}` : systemPrompt,
       messages: currentMessages,
     };
     if (claudeTools.length) body.tools = claudeTools;
@@ -407,7 +439,7 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
 
     const toolUses   = (data.content || []).filter(b => b.type === 'tool_use');
     const textBlocks = (data.content || []).filter(b => b.type === 'text');
-    if (last) return _finalAnswer(textBlocks.map(b => b.text).join('\n'));
+    if (last) return _finalAnswer(textBlocks.map(b => b.text).join('\n'), guard.stuck);
     if (toolUses.length === 0 || data.stop_reason !== 'tool_use') {
       return textBlocks.map(b => b.text).join('\n') || '';
     }
@@ -416,7 +448,7 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
     currentMessages.push({ role: 'assistant', content: data.content });
     const toolResults = [];
     for (const tu of toolUses) {
-      const result = await _runTool(onToolCall, onToolResult, tu.name, tu.input || {}, budget);
+      const result = await _runTool(onToolCall, onToolResult, tu.name, tu.input || {}, budget, guard);
       toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) });
     }
     currentMessages.push({ role: 'user', content: toolResults });
@@ -444,14 +476,15 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     ...messages.map(m => ({ role: m.role, content: _toOpenAIContent(m.content) })),
   ];
   const startBytes = _bytes(currentMessages);
+  const guard = _repeatGuard(tools);
 
   for (let round = 0; round <= TOOL_ROUNDS; round++) {
-    const last = _lastRound(round, currentMessages, startBytes);
+    const last = _lastRound(round, currentMessages, startBytes) || !!guard.stuck;
     const selectedModel = model || AI_DEFAULT_MODELS.openai;
     const body = {
       model: selectedModel,
       // Out of rounds: told to answer in the system prompt (see Claude above).
-      messages: last ? [{ role: 'system', content: `${systemPrompt}\n\n${OUT_OF_ROUNDS}` }, ...currentMessages.slice(1)] : currentMessages,
+      messages: last ? [{ role: 'system', content: `${systemPrompt}\n\n${_lastNote(guard)}` }, ...currentMessages.slice(1)] : currentMessages,
       ...getOpenAIChatParams({
         baseUrl,
         model: selectedModel,
@@ -496,7 +529,7 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     const msg = data.choices?.[0]?.message || {};
     // A server that ignores tool_choice may still ask for a tool on the last
     // round: its text, if any, is the answer.
-    if (last) return _finalAnswer(msg.content);
+    if (last) return _finalAnswer(msg.content, guard.stuck);
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       return msg.content || '';
     }
@@ -505,7 +538,7 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     currentMessages.push(msg);
     for (const tc of msg.tool_calls) {
       const args = _safeJsonParse(tc.function?.arguments, {});
-      const result = await _runTool(onToolCall, onToolResult, tc.function?.name, args, budget);
+      const result = await _runTool(onToolCall, onToolResult, tc.function?.name, args, budget, guard);
       currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
     }
   }
@@ -552,11 +585,12 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
   }));
 
   const startBytes = _bytes(contents);
+  const guard = _repeatGuard(tools);
   for (let round = 0; round <= TOOL_ROUNDS; round++) {
-    const last = _lastRound(round, contents, startBytes);
+    const last = _lastRound(round, contents, startBytes) || !!guard.stuck;
     const body = {
       // Out of rounds: told to answer in the system prompt (see Claude above).
-      systemInstruction: { parts: [{ text: last ? `${systemPrompt}\n\n${OUT_OF_ROUNDS}` : systemPrompt }] },
+      systemInstruction: { parts: [{ text: last ? `${systemPrompt}\n\n${_lastNote(guard)}` : systemPrompt }] },
       contents,
     };
     if (geminiTools) body.tools = geminiTools;
@@ -583,7 +617,7 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     const functionCalls = parts.filter(p => p.functionCall);
     const textParts     = parts.filter(p => p.text);
 
-    if (last) return _finalAnswer(textParts.map(p => p.text).join('\n'));
+    if (last) return _finalAnswer(textParts.map(p => p.text).join('\n'), guard.stuck);
     if (functionCalls.length === 0) {
       return textParts.map(p => p.text).join('\n') || '';
     }
@@ -592,7 +626,7 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     contents.push({ role: 'model', parts });
     const responseParts = [];
     for (const fc of functionCalls) {
-      const result = await _runTool(onToolCall, onToolResult, fc.functionCall.name, fc.functionCall.args || {}, budget);
+      const result = await _runTool(onToolCall, onToolResult, fc.functionCall.name, fc.functionCall.args || {}, budget, guard);
       responseParts.push({ functionResponse: { name: fc.functionCall.name, response: geminiToolResponse(result) } });
     }
     contents.push({ role: 'user', parts: responseParts });
