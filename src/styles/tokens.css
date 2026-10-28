@@ -35,6 +35,10 @@
   --lift-pr:       #FFD54F;   /* personal record gold */
   --lift-rest:     #4FC3F7;   /* rest timer */
   --lift-complete: #4FFFB0;   /* workout complete */
+  /* An excused day (issue #121): a calm slate, apart from the accent (a
+     workout) and the plain surface (a rest day) whichever accent is picked;
+     marks pair it with a pattern or an outline, never color alone. */
+  --excused:       #93A3C0;
 
   --shadow-sm:     0 1px  3px rgba(0,0,0,0.4);
   --shadow-md:     0 4px 12px rgba(0,0,0,0.5);
@@ -75,6 +79,7 @@
   --lift-pr:       #F9A825;
   --lift-rest:     #0277BD;
   --lift-complete: #00C47A;
+  --excused:       #56657F;
 
   --shadow-sm:     0 1px  3px rgba(0,0,0,0.10);
   --shadow-md:     0 4px 12px rgba(0,0,0,0.12);

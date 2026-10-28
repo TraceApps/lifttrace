@@ -15,7 +15,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -183,4 +183,62 @@ test('every place that counts trained days asks the rule', () => {
   }
   assert.match(code(read('../src/components/ai/Trace.svelte')), /trainedDates\(\{ workouts: recent \|\| \[\], cardio, cardioOn \}\)/, "Trace's recent-activity line");
   assert.match(read('../Dockerfile'), /COPY src\/lib\/trained-day\.js \/src\/lib\/trained-day\.js/, 'the image has the rule where the server imports it');
+});
+
+// ── Excused days (issue #121) ───────────────────────────────────────────────
+test('an excused day comes off the weekly goal: 4 planned, 1 excused, 3 trained is 3 of 3', () => {
+  const week = { start: '2026-10-12', end: '2026-10-18' };
+  const trained = new Set(['2026-10-12', '2026-10-14', '2026-10-16']);
+  const g = rule.weeklyGoal({ goal: 4, trained, excused: rule.excusedOnly([{ date: '2026-10-13', reason: 'injury' }], trained), ...week });
+  assert.deepEqual(g, { goal: 4, count: 3, excused: 1, target: 3, left: 0, pct: 100, met: true, allExcused: false });
+});
+
+test('a fully excused week reads as excused, never 0 of 0 or a goal met, and the target never goes below zero', () => {
+  const week = { start: '2026-10-12', end: '2026-10-18' };
+  const days = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'];
+  const g = rule.weeklyGoal({ goal: 4, trained: new Set(), excused: new Set(days), ...week });
+  assert.equal(g.target, 0, 'not -1');
+  assert.equal(g.allExcused, true);
+  assert.equal(g.met, false, 'no fake success');
+  assert.equal(g.pct, 0);
+  assert.equal(g.left, 0);
+  assert.equal(g.excused, 5);
+  // Excused days outside the week, or a goal of 0, change nothing.
+  assert.equal(rule.weeklyGoal({ goal: 4, excused: new Set(['2026-10-19', '2026-10-11']), ...week }).target, 4);
+  assert.equal(rule.weeklyGoal({ goal: 0, excused: new Set(days), ...week }).allExcused, false);
+});
+
+test('a day trained on counts as trained, whatever its excuse says; removed excuses count for nothing', () => {
+  const trained = new Set(['2026-10-13']);
+  const rows = [{ date: '2026-10-13', reason: 'illness' }, { date: '2026-10-14', reason: 'other' }, { date: '2026-10-15', reason: 'other', deleted_at: 'x' }];
+  assert.deepEqual([...rule.excusedOnly(rows, trained)], ['2026-10-14']);
+  const g = rule.weeklyGoal({ goal: 3, trained, excused: new Set(['2026-10-13', '2026-10-14']), start: '2026-10-12', end: '2026-10-18' });
+  assert.deepEqual([g.count, g.excused, g.target], [1, 1, 2], 'the trained one is not taken off as well');
+  // The streak is unchanged by excuses: an excused day ends it like any day off.
+  assert.equal(rule.currentStreak(new Set(['2026-10-15', '2026-10-13']), '2026-10-15'), 1);
+});
+
+test('an excuse is one of four reasons, with an optional note of at most 500 characters', () => {
+  assert.deepEqual(rule.EXCUSE_REASONS, ['injury', 'illness', 'appointment', 'other']);
+  assert.deepEqual(rule.cleanExcuse({ reason: ' Injury ', note: '  sore  ' }), { reason: 'injury', note: 'sore' });
+  assert.deepEqual(rule.cleanExcuse({ reason: 'other', note: '' }), { reason: 'other', note: null });
+  assert.throws(() => rule.cleanExcuse({ reason: 'tired' }), /reason must be one of/);
+  assert.throws(() => rule.cleanExcuse({}), /reason/);
+  assert.throws(() => rule.cleanExcuse({ reason: 'other', note: 'x'.repeat(501) }), /at most 500/);
+  assert.equal(rule.cleanExcuse({ reason: 'other', note: 'x'.repeat(500) }).note.length, 500);
+});
+
+test('every file the server imports from src/lib is in the Docker image', () => {
+  const docker = read('../Dockerfile');
+  const files = [];
+  const walk = (d) => { for (const n of readdirSync(new URL(d, import.meta.url))) { const p = `${d}/${n}`; if (n === 'node_modules') continue; if (statSync(new URL(p, import.meta.url)).isDirectory()) walk(p); else if (n.endsWith('.js')) files.push(p); } };
+  walk('../server');
+  const missing = [];
+  for (const f of files) {
+    for (const m of read(f).matchAll(/from '(?:\.\.\/)+src\/lib\/([^']+)'/g)) {
+      const covered = docker.includes(`COPY src/lib/${m[1]} /src/lib/${m[1]}`) || [...docker.matchAll(/COPY src\/lib\/([\w-]+)\/ \/src\/lib\//g)].some(c => m[1].startsWith(c[1] + '/'));
+      if (!covered) missing.push(`${f}: src/lib/${m[1]}`);
+    }
+  }
+  assert.deepEqual(missing, [], 'imported by the server but not copied into the image, so the container crashes at start');
 });

@@ -7,6 +7,7 @@ import { checkMissedPrescriptions } from './coach-activity.js';
 import { buildWeeklySummary, summaryLine } from './weekly-summary.js';
 import { isBackupDue } from './backup-schedule.js';
 import { trainedDateSet, cardioCounts } from './trained-days.js';
+import { getExcusedDay, listExcusedDays } from './excused-days.js';
 
 /**
  * Server-side scheduler — runs every 15 minutes.
@@ -146,10 +147,11 @@ async function _processUser(userId) {
     if (due !== null && !_ranRecently(userId, 'workoutReminder', 3600000)) {
       // Check if a workout is already logged on the reminder's day
       const day = _shiftDay(today, due);
-      const logged = userId
-        ? db.prepare('SELECT 1 FROM workout_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL').get(userId, day)
-        : db.prepare('SELECT 1 FROM workout_log WHERE date = ? AND deleted_at IS NULL').get(day);
-      if (!logged) {
+      // Trained already by the shared rule (src/lib/trained-day.js): a
+      // workout loaded but not started still gets its reminder. An excused
+      // day (issue #121) is a day off: no reminder to train.
+      const logged = trainedDateSet(userId, { start: day, end: day }).has(day);
+      if (!logged && !getExcusedDay(userId, day)) {
         // Get active program template name
         let templateName = '';
         const activeRow = userId
@@ -196,7 +198,9 @@ async function _processUser(userId) {
       // the app's streak counts: a workout opened and never trained neither
       // keeps the streak nor stops the alert.
       const trained = trainedDateSet(userId);
-      if (!trained.has(day)) {
+      // Nobody injured, ill or at an appointment needs telling their streak
+      // is at risk (an excused day, issue #121).
+      if (!trained.has(day) && !getExcusedDay(userId, day)) {
         // Calendar days back from the same today the check above used,
         // stepped in UTC on the bare date (#101).
         let streak = 0;
@@ -239,6 +243,7 @@ async function _processUser(userId) {
         goal: _getUserSetting(userId, 'weeklyWorkoutGoal', 4),
         cardio,
         cardioOn,
+        excused: listExcusedDays(userId),
       });
       const unit = _getUserSetting(userId, 'weightUnit', 'lbs') === 'kg' ? 'kg' : 'lbs';
       const locale = String(_getUserSetting(userId, 'language', 'en') || 'en');

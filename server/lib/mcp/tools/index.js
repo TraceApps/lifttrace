@@ -24,6 +24,7 @@ import { registerGetBodyStat } from './get-body-stat.js';
 import { registerGetBodyStats } from './get-body-stats.js';
 import { registerListProgressPhotos } from './list-progress-photos.js';
 import { registerGetCardio } from './get-cardio.js';
+import { registerGetExcusedDays } from './get-excused-days.js';
 import { registerLogSet } from './log-set.js';
 import { registerLogBodyStat } from './log-body-stat.js';
 import { registerAddProgressPhoto } from './add-progress-photo.js';
@@ -43,6 +44,7 @@ export function registerReadTools(server, ctx) {
   registerGetBodyStats(server, ctx);
   registerListProgressPhotos(server, ctx);
   registerGetCardio(server, ctx);
+  registerGetExcusedDays(server, ctx);
 }
 
 export function registerWriteTools(server, ctx) {

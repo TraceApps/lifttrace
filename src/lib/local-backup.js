@@ -44,6 +44,9 @@ const TABLES = [
   'program_assignments',
   'workout_log',
   'body_stats_log',
+  // Excused days (issue #121). A backup from before them has none, and a
+  // restore replaces everything, so it restores none.
+  'excused_days',
   'coach_prescriptions',
 ];
 

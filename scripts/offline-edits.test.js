@@ -779,3 +779,26 @@ test('a delete by key stands: a second delete or a late save of the row does not
   assert.equal(late[0].byKey.key, 'web-workout-77');
   assert.deepEqual(sentSeqs([w, op(2, 'DELETE', `/api/workout/${DAY2}?id=-77`), op(3, 'PUT', `/api/workout/${DAY2}`, { id: -77 })], [`workout:${DAY2}#-77`]).sort(), [1, 2, 3]);
 });
+
+test('excused days (#121): queued by date, shown at once, the latest change of a day goes up', async () => {
+  const { writeOp, answerWithOps, queuedReply, isMirroredGet, describeOp } = await import('../src/lib/offline-edits.js');
+  assert.equal(isMirroredGet('/api/excused-days'), true, 'the list is kept for reading offline');
+  const put = writeOp('PUT', '/api/excused-days/2026-10-20', { reason: 'injury' });
+  const del = writeOp('DELETE', '/api/excused-days/2026-10-21');
+  assert.deepEqual(put, { kind: 'excused', key: 'excused:2026-10-20' });
+  assert.deepEqual(del, { kind: 'excused-delete', key: 'excused:2026-10-21' });
+  assert.equal(writeOp('PUT', '/api/excused-days/today', {}), null, 'not a date: still the server\'s job');
+  const held = [{ date: '2026-10-19', reason: 'other', note: null }, { date: '2026-10-21', reason: 'illness', note: 'Flu' }];
+  const ops = [
+    { ...put, seq: 1, body: { reason: 'injury', note: 'Knee' } },
+    { ...del, seq: 2, body: null },
+    { ...writeOp('PUT', '/api/excused-days/2026-10-19', {}), seq: 3, body: { reason: 'appointment', note: null } },
+  ];
+  const shown = answerWithOps('/api/excused-days', held, ops);
+  assert.deepEqual(shown.map(r => `${r.date}:${r.reason}:${r.note}`), ['2026-10-19:appointment:null', '2026-10-20:injury:Knee']);
+  assert.deepEqual(answerWithOps('/api/excused-days', undefined, ops.slice(0, 1)).map(r => r.date), ['2026-10-20'], 'nothing held yet: what is queued');
+  assert.equal(queuedReply(put, { reason: 'injury', note: null }).excused.reason, 'injury', 'the reply the Diary reads offline');
+  assert.equal(queuedReply(put, { reason: 'injury', note: null }).excused.date, '2026-10-20');
+  assert.equal(queuedReply(del, null).removed, true);
+  assert.match(describeOp({ ...put, path: '/api/excused-days/2026-10-20' }), /excused day on 2026-10-20/);
+});

@@ -23,7 +23,7 @@ import { deleteMediaForUser as deleteSetMediaForUser } from './set-media.js';
 // route and both call it.
 export const CLAIM_NULL = [
   'workout_log', 'workout_tombstones', 'body_stats_log',
-  'body_stat_media', 'set_media', 'cardio_log', 'ai_chat_history',
+  'body_stat_media', 'set_media', 'cardio_log', 'ai_chat_history', 'excused_days',
 ];
 
 const ORPHAN_EXTRA_COUNTS = [
@@ -142,7 +142,7 @@ const purgeAllUserData = db.transaction((userId) => {
 // no-op. It matters if a future path ever reaches purgeUserRows without
 // the helper: rows would still go, rather than surviving a deleted
 // account entirely.
-const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state', 'body_stat_media', 'set_media', 'sync_deletions'];
+const NO_CASCADE_TABLES = ['cardio_log', 'workout_tombstones', 'oauth_state', 'body_stat_media', 'set_media', 'excused_days', 'sync_deletions'];
 
 export const purgeUserRows = db.transaction((userId) => {
   for (const t of NO_CASCADE_TABLES) {

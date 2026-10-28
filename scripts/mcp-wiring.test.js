@@ -105,6 +105,7 @@ test('All read tools are registered in registerReadTools', () => {
     'registerGetBodyStat',
     'registerGetBodyStats',
     'registerGetCardio',
+    'registerGetExcusedDays',
   ];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);

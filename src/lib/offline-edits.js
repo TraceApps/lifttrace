@@ -51,6 +51,8 @@ export const MIRRORED_GETS = [
   /^\/api\/programs\/\d+$/,
   /^\/api\/templates\/\d+$/,
   /^\/api\/body-stats\/[\w-]+$/,
+  // Excused days (issue #121): the whole list, read at once.
+  /^\/api\/excused-days$/,
   /^\/api\/settings$/,
   /^\/api\/stats(\/|$)/,
   // Cardio and the coaching side of the diary: read-only lists that would
@@ -100,6 +102,10 @@ export function writeOp(method, url, body) {
   }
   match = path.match(/^\/api\/body-stats\/([\w-]+)$/);
   if (match && m === 'PUT') return { kind: 'body-stats', key: `body:${match[1]}` };
+  // An excused day, by its date: a later change or removal of the same day
+  // goes up in place of an earlier one still waiting.
+  match = path.match(/^\/api\/excused-days\/(\d{4}-\d{2}-\d{2})$/);
+  if (match && (m === 'PUT' || m === 'DELETE')) return { kind: m === 'PUT' ? 'excused' : 'excused-delete', key: `excused:${match[1]}` };
 
   if (path === '/api/exercises' && m === 'POST') return { kind: 'exercise-create', key: null };
   match = path.match(/^\/api\/exercises\/(-?\d+)$/);
@@ -517,6 +523,21 @@ export function answerWithOps(url, mirrored, ops, firstId = undefined) {
     }
     return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   }
+  // Excused days: one excused or removed here shows that way at once.
+  if (path === '/api/excused-days') {
+    const queued = (ops || []).filter(op => op.kind === 'excused' || op.kind === 'excused-delete')
+      .sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    if (!queued.length) return mirrored;
+    const held = Array.isArray(mirrored) ? mirrored : mirrored === undefined ? [] : null;
+    if (held === null) return mirrored;
+    const byDate = new Map(held.map(r => [r.date, r]));
+    for (const op of queued) {
+      const date = op.key.slice('excused:'.length);
+      if (op.kind === 'excused-delete') byDate.delete(date);
+      else byDate.set(date, { ...(byDate.get(date) || {}), date, reason: op.body?.reason, note: op.body?.note ?? null, _pending: true });
+    }
+    return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  }
   if (path === '/api/settings') {
     const queued = (ops || []).filter(op => op.kind === 'setting');
     if (!queued.length) return mirrored;
@@ -613,6 +634,10 @@ export function queuedReply(op, body, tempId) {
       return { user: { ...(body || {}) }, ...queued };
     case 'body-stats':
       return { stats: { date: op.key?.split(':')[1] || null, stats: body?.stats || {}, updated_at: now }, ...queued };
+    case 'excused':
+      return { excused: { date: op.key?.slice('excused:'.length) || null, reason: body?.reason, note: body?.note ?? null, updated_at: now }, ...queued };
+    case 'excused-delete':
+      return { ok: true, removed: true, ...queued };
     case 'cardio-create':
     case 'exercise-create':
     case 'prescription-create': {
@@ -659,6 +684,8 @@ export function describeOp(op) {
     case 'workout':          return `your workout${on}`;
     case 'workout-delete':   return `deleting the workout${on}`;
     case 'body-stats':       return `your body stats${on}`;
+    case 'excused':          return `the excused day${on}`;
+    case 'excused-delete':   return `removing the excused day${on}`;
     case 'cardio-create':    return `the ${op.body?.activity || 'cardio'} you logged`;
     case 'cardio-update':    return 'a cardio session you changed';
     case 'cardio-delete':    return 'a cardio session you deleted';

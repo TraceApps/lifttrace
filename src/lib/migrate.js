@@ -26,7 +26,10 @@
  * What went up intact is then removed here (the next sync brings the
  * server's copy); what didn't stays.
  *
- * Workouts, body stats and cardio go up marked `history_upload`: it is
+ * Excused days (issue #121) go up by date, each with when it was made
+ * (X-Edited-At), so the server keeps whichever edit of that day is newer.
+ *
+ * Workouts, body stats, cardio and excused days go up marked `history_upload`: it is
  * history arriving, not something logged now, so the server sends none of
  * their webhooks (server/lib/log-webhooks.js isHistoryUpload).
  */
@@ -53,11 +56,11 @@ export async function countLocalData({ serverUrl = getServerUrl(), userId, confi
     const back = match ? await (await import('./sync.js')).countFromOrigin(match) : {};
     const up = await _toUpload({ before: phones, back });
     const w = up.workouts.length, b = up.bodyStats.length, p = up.programs.length,
-      e = up.customExercises.length, s = up.settings.length, c = up.cardio.length;
+      e = up.customExercises.length, s = up.settings.length, c = up.cardio.length, x = up.excused.length;
     let t = 0;
     for (const prog of up.programs) t += (await up.daysOf(prog.id)).length;
-    const total = w + b + p + t + e + s + c;
-    return { workouts: w, bodyStats: b, programs: p, templates: t, customExercises: e, cardio: c, settings: s, total };
+    const total = w + b + p + t + e + s + c + x;
+    return { workouts: w, bodyStats: b, programs: p, templates: t, customExercises: e, cardio: c, excusedDays: x, settings: s, total };
   } catch (err) {
     console.warn('[migrate] countLocalData failed:', err?.message || err);
     return _empty();
@@ -80,7 +83,7 @@ export async function uploadLocalToServer({ onProgress, userId, confirmServer } 
   if (!getAuthToken())  throw new Error('Auth token missing — log in first');
 
   const summary = {
-    success: { workouts: 0, bodyStats: 0, programs: 0, templates: 0, customExercises: 0, cardio: 0, settings: 0 },
+    success: { workouts: 0, bodyStats: 0, programs: 0, templates: 0, customExercises: 0, cardio: 0, excusedDays: 0, settings: 0 },
     errors: [],
     total: 0,
     totalSuccess: 0,
@@ -277,6 +280,29 @@ export async function uploadLocalToServer({ onProgress, userId, confirmServer } 
     }
   }
 
+  // ── Excused days (by date) ────────────────────────────────────────────────
+  // Each as it was made: the server keeps a later edit of the same day made
+  // elsewhere. A removal goes up only for a day the server has (server_id;
+  // one meant for another server was dropped when the copy was prepared).
+  const excused = up.excused;
+  const excusedDone = [];
+  for (let i = 0; i < excused.length; i++) {
+    onProgress?.('excusedDays', i, excused.length);
+    const x = excused[i];
+    try {
+      if (x.deleted_at) {
+        await _request('DELETE', `/api/excused-days/${encodeURIComponent(x.date)}`, null, { 'X-Edited-At': x.deleted_at });
+      } else {
+        await _put(`/api/excused-days/${encodeURIComponent(x.date)}`, { reason: x.reason, note: x.note ?? null, history_upload: true },
+          x.updated_at ? { 'X-Edited-At': x.updated_at } : {});
+      }
+      excusedDone.push(x.date);
+      summary.success.excusedDays++;
+    } catch (e) {
+      summary.errors.push({ stage: 'excusedDays', name: x.date, message: e.message });
+    }
+  }
+
   // ── User settings (upsert per-key) ────────────────────────────────────────
   const settings = up.settings;
   for (let i = 0; i < settings.length; i++) {
@@ -300,6 +326,12 @@ export async function uploadLocalToServer({ onProgress, userId, confirmServer } 
   for (const id of uploaded.workouts) await dbRun(`DELETE FROM workout_log WHERE id = ?`, [id]);
   for (const id of uploaded.bodyStats) await dbRun(`DELETE FROM body_stats_log WHERE id = ?`, [id]);
   for (const id of uploaded.cardio) await dbRun(`DELETE FROM cardio_log WHERE id = ?`, [id]);
+  // An excused day is the server's now (the online save brought its answer
+  // here too); a removal is done with.
+  for (const date of excusedDone) {
+    await dbRun(`DELETE FROM excused_days WHERE date = ? AND deleted_at IS NOT NULL`, [date]);
+    await dbRun(`UPDATE excused_days SET sync_state = 'clean' WHERE date = ?`, [date]);
+  }
   for (const id of uploaded.days) await dbRun(`DELETE FROM workout_templates WHERE id = ?`, [id]);
   for (const id of uploaded.programs) await dbRun(`DELETE FROM programs WHERE id = ?`, [id]);
   for (const id of uploaded.exercises) await dbRun(`DELETE FROM exercises WHERE id = ?`, [id]);
@@ -359,8 +391,14 @@ export async function uploadLocalToServer({ onProgress, userId, confirmServer } 
  */
 async function _toUpload({ before = false, back = {} } = {}) {
   const queued = new Set();
+  const queuedExcused = new Set();
   for (const r of await dbQuery(`SELECT payload FROM sync_queue`)) {
-    try { const p = JSON.parse(r.payload); if (p?.localId != null) queued.add(Number(p.localId)); } catch { /* not a create */ }
+    try {
+      const p = JSON.parse(r.payload);
+      if (p?.localId != null) queued.add(Number(p.localId));
+      const x = String(p?.path || '').match(/^\/api\/excused-days\/(\d{4}-\d{2}-\d{2})/);
+      if (x) queuedExcused.add(x[1]);
+    } catch { /* not a create */ }
   }
   // After the copy is prepared (uploadLocalToServer), every row that is the
   // phone's own has an id below zero. Counted before that (the dialog), a
@@ -380,6 +418,14 @@ async function _toUpload({ before = false, back = {} } = {}) {
     // Cardio has no change marker: on the phone's own copy all of it is its own.
     cardio: keep('cardio_log')(await dbQuery(`SELECT * FROM cardio_log${before ? '' : ' WHERE id < 0'} ORDER BY date ASC, id ASC`)),
     settings: await dbQuery(`SELECT * FROM user_settings`),
+    // Excused days this phone changed (made, edited or removed), not one a
+    // queued write is already sending. Before the copy is prepared a
+    // removal can't be told apart from one meant for another server, so
+    // only live days are counted then.
+    // Counted before that, days Disconnect kept from this same account go
+    // back in place (sync.js _adoptExcused), not up.
+    excused: (await dbQuery(`SELECT * FROM excused_days WHERE COALESCE(sync_state, 'pending') = 'pending'${before ? ' AND deleted_at IS NULL' : ''}${before && back.excusedBack ? ' AND server_id IS NULL' : ''} ORDER BY date ASC`))
+      .filter(r => !queuedExcused.has(r.date)),
   };
 }
 
@@ -448,7 +494,7 @@ function _mapExercises(list, exId) {
   return list.map(e => (e && typeof e === 'object' && 'exercise_id' in e ? { ...e, exercise_id: exId(e.exercise_id) } : e));
 }
 function _empty() {
-  return { workouts: 0, bodyStats: 0, programs: 0, templates: 0, customExercises: 0, settings: 0, total: 0 };
+  return { workouts: 0, bodyStats: 0, programs: 0, templates: 0, customExercises: 0, excusedDays: 0, settings: 0, total: 0 };
 }
 
 function _parseJson(s, fallback = null) {
@@ -460,18 +506,18 @@ function _parseJson(s, fallback = null) {
 async function _post(path, body) {
   return _request('POST', path, body);
 }
-async function _put(path, body) {
-  return _request('PUT', path, body);
+async function _put(path, body, headers = {}) {
+  return _request('PUT', path, body, headers);
 }
-async function _request(method, path, body) {
+async function _request(method, path, body, headers = {}) {
   // Goes through the patched fetch in apiFetch.js — once nativeMode is
   // 'server' and a token is set, this rewrites to the server origin and
   // attaches Authorization: Bearer. We don't call apiFetch directly because
   // it's installed as a global window.fetch override.
   const res = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body || {}),
+    headers: { 'Content-Type': 'application/json', ...headers },
+    ...(method === 'DELETE' && body == null ? {} : { body: JSON.stringify(body || {}) }),
   });
   if (!res.ok) {
     let msg = `${method} ${path} → ${res.status}`;

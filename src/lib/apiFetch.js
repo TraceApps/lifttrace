@@ -342,7 +342,12 @@ let _localWrites = Promise.resolve();
 // only follows it while that account still holds it.
 async function _mirrorWorkoutWrite(url, method, res, gen) {
   try {
-    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate, forgetDeletedRow } = await import('./sync.js');
+    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate, forgetDeletedRow, mirrorExcusedWrite } = await import('./sync.js');
+    // An excused day (issue #121): the copy follows, for reading offline.
+    if (/^\/api\/excused-days\//.test(_stripBase(url))) {
+      await mirrorExcusedWrite(_stripBase(url), method, method === 'DELETE' ? null : await res.clone().json(), gen);
+      return;
+    }
     // A program, program workout or exercise deleted online goes from this
     // device's copy too, which the lists read first; it used to stay.
     if (method === 'DELETE') await forgetDeletedRow(_stripBase(url), gen);

@@ -405,6 +405,7 @@
           {#if localCounts.programs}<li>{localCounts.programs} program{localCounts.programs === 1 ? '' : 's'}{localCounts.templates ? ` (${localCounts.templates} template${localCounts.templates === 1 ? '' : 's'})` : ''}</li>{/if}
           {#if localCounts.customExercises}<li>{localCounts.customExercises} custom exercise{localCounts.customExercises === 1 ? '' : 's'}</li>{/if}
           {#if localCounts.cardio}<li>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</li>{/if}
+          {#if localCounts.excusedDays}<li>{$_('sync.count_excused_days', { values: { count: localCounts.excusedDays } })}</li>{/if}
           {#if localCounts.settings}<li>{localCounts.settings} setting{localCounts.settings === 1 ? '' : 's'}</li>{/if}
         </ul>
       </div>
@@ -456,6 +457,7 @@
           {#if migrateSummary.success.programs}<li>{migrateSummary.success.programs} program{migrateSummary.success.programs === 1 ? '' : 's'} uploaded</li>{/if}
           {#if migrateSummary.success.templates}<li>{migrateSummary.success.templates} template{migrateSummary.success.templates === 1 ? '' : 's'} uploaded</li>{/if}
           {#if migrateSummary.success.customExercises}<li>{migrateSummary.success.customExercises} custom exercise{migrateSummary.success.customExercises === 1 ? '' : 's'} uploaded</li>{/if}
+          {#if migrateSummary.success.excusedDays}<li>{$_('sync.uploaded_excused_days', { values: { count: migrateSummary.success.excusedDays } })}</li>{/if}
           {#if migrateSummary.success.settings}<li>{migrateSummary.success.settings} setting{migrateSummary.success.settings === 1 ? '' : 's'} uploaded</li>{/if}
         </ul>
         {#if migrateSummary.errors.length > 0}

@@ -13,7 +13,8 @@
  *
  * Scope (LiftTrace tables): exercises (custom + user), programs,
  * workout_templates, program_assignments, workout_log, body_stats_log,
- * user_settings, ai_chat_history.
+ * user_settings, ai_chat_history, excused_days (pull only: the phone sends
+ * its changes to them through /api/excused-days, as queued writes).
  *
  * Schema requirement: every syncable table has updated_at + deleted_at
  * columns auto-touched by the triggers in server/db.js. Soft-deleted
@@ -204,6 +205,12 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM body_stat_media WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(sinceSql, ...userParams).map(parseRow);
 
+  // Excused days (issue #121), removed ones included (deleted_at), so a
+  // removal reaches the phone. Keyed by date on the phone.
+  const excused_days = db.prepare(
+    `SELECT id, date, reason, note, updated_at, deleted_at FROM excused_days WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
+  ).all(sinceSql, ...userParams);
+
   // Set videos (issue #57). The rows travel; the files do not, they are
   // fetched on demand from /api/set-media/:id/file, which is also why a clip
   // is the one piece of the diary that needs a connection to watch.
@@ -253,6 +260,7 @@ router.get('/pull', wrap((req, res) => {
   workout_log.push(...gone('workout_log'));
   body_stats_log.push(...gone('body_stats_log'));
   ai_chat_history.push(...gone('ai_chat_history'));
+  excused_days.push(...gone('excused_days'));
   // A setting deleted: { key, deleted_at } in the settings list (db.js keeps
   // the key with the record).
   if (u != null && !fullPull) {
@@ -312,6 +320,7 @@ router.get('/pull', wrap((req, res) => {
     body_stats_log,
     body_stat_media,
     set_media,
+    excused_days,
     workout_tombstones,
     user_settings: settings,
     ai_chat_history,

@@ -561,6 +561,11 @@
         const daysCovered = [...trained].filter(d => d >= from && d <= today).length;
         const withWork = (recent || []).filter(r => hasWorkingSet(exercisesOf(r)));
         let line = `Trained on ${daysCovered} of the last 7 days.`;
+        // Excused days in the same window (issue #121), with their reasons,
+        // so a week off for an injury isn't read as a lapse.
+        const excused = (await LtApi.listExcusedDays().catch(() => []))
+          .filter(e => e.date >= from && e.date <= today && !trained.has(e.date));
+        if (excused.length) line += ` Excused (couldn't train): ${excused.length} of them (${[...new Set(excused.map(e => e.reason))].join(', ')}).`;
         const last = withWork[0];
         if (last) {
           const lastDate = new Date(last.date + 'T12:00:00');
@@ -638,7 +643,9 @@ Before generating a workout, fetch what matters: get_coach_prescription (a train
 
 Timed exercises (plank, wall sit, dead hang, carries) are logged by duration, not reps: tool results show them with duration_sec, and log_set / log_workout take duration_sec in seconds instead of reps. Never report a hold's seconds as reps.
 
-Cardio is logged in its own table and does NOT appear in get_workouts or get_stats_overview. Call get_cardio before commenting on weekly training load, conditioning or recovery, and use log_cardio (not log_workout) for runs, rides, rows and walks.
+Cardio is logged in its own table and does NOT appear in get_workouts (get_stats_overview counts a cardio day as a day trained while cardio is on, but has no sessions). Call get_cardio before commenting on weekly training load, conditioning or recovery, and use log_cardio (not log_workout) for runs, rides, rows and walks.
+
+The user can mark a day excused when they couldn't train (injury, illness, appointment, other). Each excused day comes off that week's goal, so never call an excused day or week missed or a lapse; call get_excused_days before judging a gap, and be supportive about the reason.
 
 get_progress_photos returns dates, counts and the weight logged that day, never image content. You cannot see a user's progress photos. If they want your eyes on one, ask them to attach it to a message.
 

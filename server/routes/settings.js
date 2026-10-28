@@ -69,6 +69,9 @@ router.delete('/clear-data', wrap((req, res) => {
   const userId = uid(req);
   db.prepare('DELETE FROM workout_log WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM body_stats_log WHERE user_id = ?').run(userId);
+  // Excused days are the diary's too (issue #121). Without accounts they're
+  // the NULL owner's, which `= ?` never matches.
+  db.prepare('DELETE FROM excused_days WHERE user_id IS ?').run(userId);
   // Progress photos own files on disk, so they need the file-aware
   // helper rather than a plain row delete, or the images are orphaned.
   deleteMediaForUser(userId);

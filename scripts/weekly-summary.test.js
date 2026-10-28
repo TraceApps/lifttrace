@@ -157,3 +157,40 @@ test('days trained follow the shared rule: two workouts a day are one, cardio co
   assert.match(summaryLine(on, { unit: 'kg' }), /^3 of 4 training days, /);
   assert.equal(summaryLine(buildWeeklySummary({ today: TODAY, workouts: [], cardio, cardioOn: true })), '2 training days.', 'a cardio-only week is not an empty one');
 });
+
+test('excused days come off the goal in the summary, and a fully excused week says so (#121)', () => {
+  const workouts = [w('2026-09-15', [ex(1, 'Bench Press', [bench(100)])]), w('2026-09-16', [ex(1, 'Bench Press', [bench(100)])]), w('2026-09-17', [ex(1, 'Bench Press', [bench(100)])])];
+  const excused = [{ date: '2026-09-18', reason: 'injury' }, { date: '2026-09-17', reason: 'other' }, { date: '2026-09-01', reason: 'illness' }];
+  const s = buildWeeklySummary({ library, today: TODAY, goal: 4, workouts, excused });
+  assert.deepEqual(s.excused, [{ date: '2026-09-18', reason: 'injury' }], 'only this week, and not a day trained anyway');
+  assert.deepEqual([s.progress.count, s.progress.target, s.progress.met], [3, 3, true], '4 planned, 1 excused, 3 trained: 3 of 3');
+  assert.match(summaryLine(s, { unit: 'kg' }), /^3 of 3 training days \(1 excused\), 3 sets/);
+  const off = buildWeeklySummary({ library, today: TODAY, goal: 2, workouts: [], excused: [{ date: '2026-09-15', reason: 'illness' }, { date: '2026-09-16', reason: 'illness' }] });
+  assert.equal(off.progress.allExcused, true);
+  assert.equal(summaryLine(off), 'Excused week (2 excused): nothing to make up.');
+  const none = buildWeeklySummary({ library, today: TODAY, goal: 4, workouts: [], excused: [{ date: '2026-09-15', reason: 'illness' }] });
+  assert.equal(summaryLine(none), 'No workouts logged this week (1 excused).');
+});
+
+test('the weekly summary email says the excused days with the goal (#121)', async (t) => {
+  // email.js opens the database, so it renders in a child on a scratch one.
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createRequire } = await import('node:module');
+  try { createRequire(new URL('../server/package.json', import.meta.url))('better-sqlite3'); } catch { t.skip('server packages missing'); return; }
+  const dir = mkdtempSync(join(tmpdir(), 'lt-summary-email-'));
+  const render = (summary) => execFileSync(process.execPath, ['--input-type=module', '-e',
+    `const { renderWeeklySummary } = await import('./email.js'); process.stdout.write(renderWeeklySummary('Cleo', ${JSON.stringify(summary)}).html);`],
+  { cwd: new URL('../server/', import.meta.url), env: { PATH: process.env.PATH, DB_PATH: join(dir, 'lt.db'), LOG_LEVEL: 'error', NODE_ENV: 'test' }, encoding: 'utf8' });
+  try {
+    const workouts = [w('2026-09-15', [ex(1, 'Bench Press', [bench(100)])])];
+    const s = buildWeeklySummary({ library, today: TODAY, goal: 2, workouts, excused: [{ date: '2026-09-16', reason: 'injury' }] });
+    assert.match(render(s), /1 of 1 planned day, goal met \(1 excused day\)/);
+    const off = buildWeeklySummary({ library, today: TODAY, goal: 1, workouts: [], excused: [{ date: '2026-09-16', reason: 'injury' }] });
+    const html = render(off);
+    assert.match(html, /An excused week \(1 excused day\): nothing to make up/);
+    assert.doesNotMatch(html, /0 of 0/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

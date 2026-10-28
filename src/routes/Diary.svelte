@@ -19,7 +19,7 @@
   import GymTools from '../components/diary/GymTools.svelte';
   import { showSuccess, showError } from '../stores/toast.js';
   import { localDateStr } from '../lib/db.js';
-  import { trainedDates } from '../lib/trained-day.js';
+  import { trainedDates, excusedOnly, hasWorkingSet } from '../lib/trained-day.js';
   import { LtApi } from '../lib/api.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { currentUser } from '../stores/auth.js';
@@ -44,6 +44,9 @@
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import ActionSheet from '../components/ui/ActionSheet.svelte';
+  import ExcuseDaySheet from '../components/diary/ExcuseDaySheet.svelte';
+  import { coachingState } from '../stores/coaching.js';
+  import { excusedMap, excuseIcon } from '../lib/excused-view.js';
 
   let showPicker = false;
   let showSmartLog = false;
@@ -227,9 +230,14 @@
   // completed working set, or a cardio session while Track Cardio is on.
   let recentWorkoutRows = [];
   let cardioRows = [];
+  // Days excused (issue #121): one small row each, all of them at once.
+  let excusedRows = [];
   async function loadWorkoutDates() {
     try {
       recentWorkoutRows = await LtApi.getRecentWorkouts(365);
+    } catch {}
+    try {
+      excusedRows = await LtApi.listExcusedDays();
     } catch {}
     // Cardio is opt-in (settings.cardioEnabled, off by default), and turning
     // it on is what makes those days count. While it's off it isn't fetched,
@@ -251,6 +259,68 @@
   // dots below mark. Gated on the setting here as well as at the fetch, so
   // cardio can never outlive the opt-in.
   $: activeDateSet = trainedDates({ workouts: recentWorkoutRows, cardio: cardioRows, cardioOn: $cardioEnabled });
+
+  // Excused days, by date, and the ones that still read as excused: a day
+  // trained anyway counts as trained (the workout wins; its excuse stays).
+  $: excusedByDate = excusedMap(excusedRows);
+  $: excusedDateSet = excusedOnly(excusedRows, activeDateSet);
+  $: excusedHere = excusedByDate.get($currentDate) || null;
+  // "Excused · Injury": a function, so the calendar's cells (whose loop
+  // names its item `_`) can say it too.
+  $: excuseLabel = (reason) => $_('excused.banner', { values: { reason: $_(`excused.reason.${reason}`) } });
+  // This day trained: by the rule, or by the workout on screen, which a
+  // save may not have brought into the date sets yet.
+  $: trainedHere = activeDateSet.has($currentDate) || hasWorkingSet($todayLog?.exercises);
+
+  let showExcuseSheet = false;
+  let excuseSaving = false;
+  function openExcuseSheet() { showExcuseSheet = true; }
+  function _longDate(dateStr) {
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: dateStr.slice(0, 4) === String(new Date().getFullYear()) ? undefined : 'numeric' });
+  }
+  async function saveExcuse(e) {
+    const { date, reason, note } = e.detail;
+    const was = excusedByDate.get(date);
+    excuseSaving = true;
+    try {
+      const res = await LtApi.saveExcusedDay(date, { reason, note });
+      showExcuseSheet = false;
+      // Removed elsewhere after this change was made: that stands.
+      if (res && 'excused' in res && res.excused === null) {
+        excusedRows = excusedRows.filter(r => r.date !== date);
+        showError($_('excused.toast_removed_elsewhere'));
+        loadWorkoutDates();
+        return;
+      }
+      const row = res?.excused || { date, reason, note };
+      excusedRows = [...excusedRows.filter(r => r.date !== date), row];
+      showSuccess(was ? $_('excused.toast_updated') : $_('excused.toast_saved'));
+    } catch (err) {
+      showError(err?.message || $_('excused.toast_failed'));
+    } finally {
+      excuseSaving = false;
+    }
+  }
+  async function removeExcuse(date = $currentDate) {
+    // A note is the one thing Remove loses for good: asked first then.
+    if (excusedByDate.get(date)?.note && !await confirmDialog({
+      title: $_('excused.remove_title'),
+      message: $_('excused.remove_msg'),
+      confirmText: $_('excused.remove'),
+      dangerous: true,
+    })) return;
+    excuseSaving = true;
+    try {
+      await LtApi.removeExcusedDay(date);
+      excusedRows = excusedRows.filter(r => r.date !== date);
+      showExcuseSheet = false;
+      showSuccess($_('excused.toast_removed'));
+    } catch (err) {
+      showError(err?.message || $_('excused.toast_failed'));
+    } finally {
+      excuseSaving = false;
+    }
+  }
 
   // Current streak from activeDateSet — consecutive days back from today
   // (or yesterday, so the user doesn't lose their streak the moment a new
@@ -397,6 +467,7 @@
         dow: d.toLocaleDateString(undefined, { weekday: 'narrow' }),
         dom: d.getDate(),
         done: activeDateSet.has(key),
+        excused: excusedDateSet.has(key) ? excusedByDate.get(key) : null,
         isToday: i === 0,
       });
     }
@@ -555,6 +626,10 @@
   $: workoutActions = [
     { label: 'Replace Workout', icon: 'swap_horiz', value: 'replace' },
     { label: 'Copy From Yesterday', icon: 'content_copy', value: 'copy_yesterday' },
+    // Excuse a day you couldn't train (issue #121); a day trained already
+    // counts as trained, so it isn't offered there.
+    ...(excusedHere ? [{ label: $_('excused.action_edit'), icon: 'edit_calendar', value: 'excuse' }]
+      : !trainedHere ? [{ label: $_('excused.action'), icon: 'event_busy', value: 'excuse' }] : []),
     ...($timerState ? [{ label: 'Reset Timer', icon: 'timer_off', value: 'reset_timer' }] : []),
     { label: 'Clear Workout', icon: 'delete_sweep', value: 'clear', danger: true },
     // Issue #76: distinct from "Clear" (empties this session's content but
@@ -1091,6 +1166,8 @@
       showSuccess($_('diary.toast.workout_cleared'));
     } else if (action === 'copy_yesterday') {
       await copyFromYesterday();
+    } else if (action === 'excuse') {
+      openExcuseSheet();
     } else if (action === 'reset_timer') {
       // Zeroing the length is not undoable and sits one row from the rest of
       // this menu, so it asks first.
@@ -2628,11 +2705,37 @@
     </div>
   {/if}
 
-  <!-- Planning badge when viewing a future date -->
-  {#if isFuture}
+  <!-- Planning badge when viewing a future date (not on one excused ahead:
+       the banner below says what that day is). -->
+  {#if isFuture && !excusedHere}
     <div class="planning-badge">
       <span class="material-symbols-rounded">event_note</span>
       Planning ahead — this workout is scheduled for {formatDateHeader($currentDate)}
+    </div>
+  {/if}
+
+  <!-- An excused day (issue #121): the reason, the note, and Edit / Remove.
+       Trained anyway, it says the day counts as trained. -->
+  {#if excusedHere}
+    <div class="excused-banner" class:trained={trainedHere} role="status" in:fade={{ duration: 180 }}>
+      <span class="material-symbols-rounded excused-icon" aria-hidden="true">{excuseIcon(excusedHere.reason)}</span>
+      <div class="excused-body">
+        <div class="excused-title" class:muted={trainedHere}>{excuseLabel(excusedHere.reason)}</div>
+        {#if excusedHere.note}<div class="excused-note">{excusedHere.note}</div>{/if}
+        <!-- The empty day below says what an excused day means; with work on
+             the day, this line does. -->
+        {#if trainedHere}
+          <div class="excused-sub">{$_('excused.trained_anyway')}</div>
+        {:else if exercises.length > 0}
+          <div class="excused-sub">{$_('excused.banner_hint')}</div>
+        {/if}
+      </div>
+      <div class="excused-actions">
+        <button type="button" class="excused-btn" on:click={openExcuseSheet} disabled={excuseSaving}
+                aria-label={$_('excused.edit_aria')}>{$_('common.edit')}</button>
+        <button type="button" class="excused-btn" on:click={() => removeExcuse($currentDate)} disabled={excuseSaving}
+                aria-label={$_('excused.remove_aria')}>{$_('excused.remove')}</button>
+      </div>
     </div>
   {/if}
 
@@ -2817,9 +2920,15 @@
       <Spinner block label="Loading workout…" />
     {:else if exercises.length === 0}
       <div class="empty-state">
-        <span class="material-symbols-rounded empty-icon">{isFuture ? 'event_note' : 'fitness_center'}</span>
-        <h3>{isFuture ? 'Plan ahead' : 'Ready to train?'}</h3>
-        <p>{isFuture ? 'Schedule a workout for this day or add exercises manually.' : 'Pick a quick start, or build from scratch.'}</p>
+        {#if excusedHere}
+          <span class="material-symbols-rounded empty-icon excused-empty-icon">{excuseIcon(excusedHere.reason)}</span>
+          <h3>{$_('excused.empty_title')}</h3>
+          <p>{$_('excused.empty_desc')}</p>
+        {:else}
+          <span class="material-symbols-rounded empty-icon">{isFuture ? 'event_note' : 'fitness_center'}</span>
+          <h3>{isFuture ? 'Plan ahead' : 'Ready to train?'}</h3>
+          <p>{isFuture ? 'Schedule a workout for this day or add exercises manually.' : 'Pick a quick start, or build from scratch.'}</p>
+        {/if}
 
         <!-- Quick-start cards: active program, coach pick, last workout.
              Replaces the plain Recent list with three tappable cards so
@@ -2862,6 +2971,13 @@
             Add Exercise
           </button>
         </div>
+        {#if !excusedHere && !trainedHere}
+          <!-- Couldn't train? The quiet way to say why (issue #121). -->
+          <button type="button" class="excuse-link" on:click={openExcuseSheet}>
+            <span class="material-symbols-rounded" aria-hidden="true">event_busy</span>
+            {$_('excused.empty_link')}
+          </button>
+        {/if}
       </div>
     {:else}
       {#each supersetGroups as group, gIdx (group.startIdx)}
@@ -3147,12 +3263,13 @@
             type="button"
             class="rail-week-day"
             class:done={day.done}
+            class:excused={!!day.excused}
             class:today={day.isToday}
             on:click={() => goToDiaryDate(day.key)}
-            title={day.key}>
+            title={day.excused ? `${day.key} · ${excuseLabel(day.excused.reason)}` : day.key}>
             <span class="rail-week-dow">{day.dow}</span>
             <span class="rail-week-dom">{day.dom}</span>
-            <span class="rail-week-dot" class:on={day.done}></span>
+            <span class="rail-week-dot" class:on={day.done} class:excused={!!day.excused}></span>
           </button>
         {/each}
       </div>
@@ -3568,25 +3685,40 @@
                    helpers that worked the month out inside, which the calendar
                    never re-ran when the arrows changed month: the workout dots
                    stayed on the first month's days (issue #125). -->
+              {@const excusedDay = excusedDateSet.has(dateStr) ? excusedByDate.get(dateStr) : null}
               <button class="dp-day"
                 class:dp-today={dateStr === localDateStr()}
                 class:dp-sel={dateStr === $currentDate}
                 class:dp-has-workout={activeDateSet.has(dateStr)}
                 class:dp-has-feedback={hasUnread}
+                class:dp-excused={!!excusedDay}
+                title={excusedDay ? excuseLabel(excusedDay.reason) : undefined}
                 on:click={() => calPickDay(day)}
               >
                 {day}
                 {#if activeDateSet.has(dateStr)}<span class="dp-dot"></span>{/if}
+                {#if excusedDay}<span class="dp-dot dp-dot-excused"><span class="sr-only">{excuseLabel(excusedDay.reason)}</span></span>{/if}
                 {#if hasUnread}<span class="dp-dot dp-dot-feedback"></span>{/if}
               </button>
             {/each}
           </div>
+          <!-- What the marks mean, once there's more than one kind. -->
+          {#if excusedDateSet.size > 0}
+            <div class="dp-legend" aria-hidden="true">
+              <span class="dp-legend-item"><span class="dp-dot"></span>{$_('excused.legend_workout')}</span>
+              <span class="dp-legend-item"><span class="dp-dot dp-dot-excused"></span>{$_('excused.legend_excused')}</span>
+            </div>
+          {/if}
         {/if}
       </div>
     </div>
   {/if}
 </div>
 
+<ExcuseDaySheet bind:open={showExcuseSheet} date={$currentDate} current={excusedHere}
+  coachSees={!!$coachingState?.as_client}
+  dateLabel={_longDate($currentDate)} saving={excuseSaving}
+  on:save={saveExcuse} on:remove={(e) => removeExcuse(e.detail.date)} />
 <BodyStats bind:open={showBodyStats} />
 <GymTools bind:open={showGymTools} />
 
@@ -4616,6 +4748,12 @@
   .dp-day.dp-sel { background: var(--accent) !important; color: #fff; font-weight: 600; }
   .dp-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
   .dp-day.dp-sel .dp-dot { background: #fff; }
+  /* Excused (issue #121): a ring, not a dot, so it never reads as a
+     workout whatever the accent; selected, it turns white like the dot. */
+  .dp-dot.dp-dot-excused { width: 6px; height: 6px; background: transparent; border: 1.5px solid var(--excused); box-sizing: border-box; }
+  .dp-day.dp-sel .dp-dot.dp-dot-excused { background: transparent; border-color: #fff; }
+  .dp-legend { display: flex; justify-content: center; gap: 16px; padding: 4px 8px 12px; font-size: 12px; color: var(--text-3); }
+  .dp-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 
   /* ── Superset picker ─────────────────────────────────────────────── */
   .ss-picker-body { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 16px; }
@@ -4653,6 +4791,52 @@
     font-size: 13px; font-weight: 500; color: var(--accent);
   }
   .planning-badge .material-symbols-rounded { font-size: 18px; }
+
+  /* An excused day (issue #121): calm, not an alert. The slate of
+     --excused on the left edge and the reason's icon say what the day is;
+     the actions stay quiet text buttons. */
+  .excused-banner {
+    display: flex; align-items: flex-start; gap: 12px;
+    margin: 12px var(--page-px) 0;
+    padding: 12px 12px 12px 14px;
+    background: color-mix(in srgb, var(--excused) 10%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--excused) 35%, var(--border));
+    border-left: 3px solid var(--excused);
+    border-radius: var(--radius-md);
+  }
+  .excused-icon { font-size: 22px; color: var(--excused); flex-shrink: 0; margin-top: 1px; }
+  .excused-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .excused-title { font-size: 14px; font-weight: 700; color: var(--text-1); line-height: 1.35; }
+  .excused-note { font-size: 13px; color: var(--text-2); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .excused-sub { font-size: 12px; color: var(--text-3); line-height: 1.35; }
+  .excused-actions { display: flex; gap: 2px; flex-shrink: 0; margin: -4px -4px 0 0; }
+  .excused-btn {
+    min-height: 32px; padding: 0 10px;
+    border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 600; color: var(--text-2);
+    background: transparent;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  .excused-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--excused) 16%, transparent); color: var(--text-1); }
+  .excused-btn:focus-visible { outline: 2px solid var(--excused); outline-offset: 1px; }
+  .excused-btn:disabled { opacity: 0.5; }
+  /* Narrow: the actions go under the text rather than squeezing it. */
+  @media (max-width: 360px) {
+    .excused-banner { flex-wrap: wrap; }
+    .excused-actions { width: 100%; justify-content: flex-end; margin: 0; }
+  }
+  .excused-empty-icon { color: color-mix(in srgb, var(--excused) 45%, transparent); }
+  .excused-title.muted { color: var(--text-2); font-weight: 600; }
+  .excuse-link {
+    display: flex; align-items: center; gap: 6px;
+    margin: 14px auto 0; padding: 8px 12px; min-height: 40px;
+    border-radius: var(--radius-sm);
+    background: transparent; color: var(--text-2);
+    font-size: 14px; font-weight: 600;
+  }
+  .excuse-link .material-symbols-rounded { font-size: 18px; color: var(--excused); }
+  .excuse-link:hover { background: var(--surface-2); color: var(--text-1); }
+  .excuse-link:focus-visible { outline: 2px solid var(--excused); outline-offset: 2px; }
 
   /* ────────────────────────────────────────────────────────────────
      Diary large-screen layout (>=1280px, non-forced-mobile).
@@ -4756,6 +4940,13 @@
     background: var(--accent);
     border-color: var(--accent);
   }
+  /* Excused (issue #121): an outlined ring in --excused, beside the filled
+     accent of a trained day and the plain dot of a rest day. */
+  .rail-week-dot.excused {
+    background: transparent;
+    border: 1.5px solid var(--excused);
+  }
+  .rail-week-day.excused { color: var(--text-1); }
   /* Recent workouts list — three most-recent completed sessions. */
   .rail-recent-list { display: flex; flex-direction: column; gap: 2px; }
   .rail-recent-row {
@@ -4963,6 +5154,7 @@
     :global(html.wide-content) .diary-body > .diary-main-col > .coach-feedback-banner,
     :global(html.wide-content) .diary-body > .diary-main-col > .suggested-section,
     :global(html.wide-content) .diary-body > .diary-main-col > .cardio-slot,
+    :global(html.wide-content) .diary-body > .diary-main-col > .excused-banner,
     :global(html.wide-content) .diary-body > .diary-main-col > .planning-badge {
       margin-left: 0;
       margin-right: 0;

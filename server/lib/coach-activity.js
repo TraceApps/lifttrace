@@ -16,6 +16,9 @@
 import db from '../db.js';
 import { logger } from '../logger.js';
 import { pushNotify } from './push-notify.js';
+import { getExcusedDay } from './excused-days.js';
+
+const REASON_LABEL = { injury: 'Injury', illness: 'Illness', appointment: 'Appointment', other: 'Other' };
 
 function _getSetting(userId, key, def) {
   if (userId == null) return def;
@@ -104,7 +107,8 @@ export function onWorkoutCompleted(workout, { history = false } = {}) {
 /**
  * Daily scan: any dated prescription whose date is yesterday or earlier and
  * whose member did NOT log a completed workout that day → fire 'missed'
- * activity + notify. Idempotent via the UNIQUE index.
+ * activity + notify, or 'excused' with the reason when the member excused
+ * that day. Idempotent via the UNIQUE index.
  */
 export function checkMissedPrescriptions() {
   const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -133,11 +137,16 @@ export function checkMissedPrescriptions() {
 
   let fired = 0;
   for (const p of rows) {
+    // The client excused that day (an injury, an illness, an appointment):
+    // the coach is told why rather than that it wasn't logged, and the feed
+    // shows it as excused, not missed (issue #121).
+    const excused = getExcusedDay(p.member_id, p.date);
+    const kind = excused ? 'prescription_excused' : 'prescription_missed';
     const result = db.prepare(`
       INSERT OR IGNORE INTO coach_activity
         (trainer_id, member_id, kind, prescription_id)
-      VALUES (?, ?, 'prescription_missed', ?)
-    `).run(p.trainer_id, p.member_id, p.id);
+      VALUES (?, ?, ?, ?)
+    `).run(p.trainer_id, p.member_id, kind, p.id);
     if (result.changes === 0) continue;
     fired++;
 
@@ -146,6 +155,15 @@ export function checkMissedPrescriptions() {
 
     const memberName = _memberLabel(p.member_id);
     const templateName = _templateLabel(p);
+    if (excused) {
+      pushNotify(
+        p.trainer_id,
+        '📅 Day Excused',
+        `${memberName} excused ${templateName} on ${p.date}: ${REASON_LABEL[excused.reason] || excused.reason}.`,
+        3,
+      ).catch(() => {});
+      continue;
+    }
     pushNotify(
       p.trainer_id,
       '⚠️ Prescription Missed',

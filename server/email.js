@@ -277,15 +277,21 @@ export function renderWeeklySummary(name, summary, origin = '', { unit = 'lbs', 
     return `<div style="font-size:12px;font-weight:500;color:${colour};margin-top:2px;">${text}</div>`;
   };
 
+  // Excused days (issue #121) come off the goal, and are said with it.
+  const excusedCount = summary.excused?.length || 0;
+  const excusedText = excusedCount ? `${excusedCount} excused ${excusedCount === 1 ? 'day' : 'days'}` : '';
+  const allExcused = !!summary.progress?.allExcused;
   let bodyMain;
   if (!week.days) {
-    bodyMain = `<p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">No workouts logged this week${goal ? ` (your goal is ${goal})` : ''}. A fresh week starts now.</p>`;
+    bodyMain = allExcused
+      ? `<p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">An excused week (${excusedText}): nothing to make up. A fresh week starts now.</p>`
+      : `<p style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">No workouts logged this week${goal ? ` (your goal is ${goal}${excusedText ? `, ${excusedText}` : ''})` : ''}. A fresh week starts now.</p>`;
   } else {
-    // Days trained against the goal, as the Statistics ring counts them.
+    // Days trained against the goal, over the summary's seven days.
     const target = summary.progress?.target ?? goal;
-    const planned = goal
-      ? `${week.days} of ${target} planned ${target === 1 ? 'day' : 'days'}${week.days >= target ? ', goal met' : ''}`
-      : `${week.days} ${week.days === 1 ? 'day' : 'days'}`;
+    const planned = goal && !allExcused
+      ? `${week.days} of ${target} planned ${target === 1 ? 'day' : 'days'}${week.days >= target ? ', goal met' : ''}${excusedText ? ` (${excusedText})` : ''}`
+      : `${week.days} ${week.days === 1 ? 'day' : 'days'}${excusedText ? ` (${excusedText})` : ''}`;
     const rows = [
       _statRow('🗓️', 'Days Trained', `${planned}${cmp(week.days, summary.avg.days)}`),
       _statRow('✅', 'Working Sets', `${nf.format(week.sets)}${cmp(week.sets, summary.avg.sets)}`),

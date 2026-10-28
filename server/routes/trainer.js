@@ -10,7 +10,8 @@ import { sendCoachFeedback, isEmailConfigured } from '../email.js';
 import { guardClient, activePairing, requireCoachRole, requestClient, endPairing, person, notifyPrescription } from '../lib/coaching.js';
 import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 import { trainedDateSet } from '../lib/trained-days.js';
-import { currentStreak } from '../../src/lib/trained-day.js';
+import { currentStreak, shiftDate } from '../../src/lib/trained-day.js';
+import { getExcusedDay, listExcusedDays } from '../lib/excused-days.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -146,6 +147,12 @@ router.get('/members/:id', wrap((req, res) => {
     active_program: activeProgram,
     assigned_programs: assignedPrograms,
     recent_workouts: recentWorkouts,
+    // Days the client excused (issue #121), the last eight weeks and what's
+    // planned ahead, newest first, with the reason and note.
+    excused_days: (() => {
+      const today = new Date().toLocaleDateString('sv-SE');
+      return listExcusedDays(memberId, { start: shiftDate(today, -56), end: shiftDate(today, 56) }).reverse();
+    })(),
     streak,
     weight_unit,
   });
@@ -171,6 +178,8 @@ router.get('/members/:id/workout/:date', wrap((req, res) => {
      WHERE cf.workout_id = ?
      ORDER BY cf.updated_at DESC
   `).all(row.id);
+  // The day excused too (issue #121): trained anyway, it still shows why.
+  row.excused = getExcusedDay(memberId, req.params.date);
   res.json(row);
 }));
 
@@ -312,10 +321,13 @@ router.get('/members/:id/prescriptions', wrap((req, res) => {
                   AND (cp.template_id IS NULL OR wl.template_id = cp.template_id)
               ) THEN 1
               ELSE 0
-            END as completed
+            END as completed,
+            -- The day excused by the member (issue #121): why it wasn't done.
+            ed.reason AS excused_reason, ed.note AS excused_note
      FROM coach_prescriptions cp
      LEFT JOIN workout_templates wt ON wt.id = cp.template_id
      LEFT JOIN programs p ON p.id = wt.program_id
+     LEFT JOIN excused_days ed ON ed.user_id = cp.member_id AND ed.date = cp.date AND ed.deleted_at IS NULL
      WHERE cp.member_id = ?
      ORDER BY COALESCE(cp.date, cp.created_at) DESC`
   ).all(memberId);
@@ -463,7 +475,8 @@ router.get('/activity', wrap((req, res) => {
            cp.date AS prescription_date, cp.template_id, cp.name AS prescription_name,
            wt.name AS template_name, p.name AS program_name,
            cf.note AS feedback_note, cf.member_reply AS feedback_reply_text,
-           wl.date AS workout_date
+           wl.date AS workout_date,
+           ed.reason AS excused_reason, ed.note AS excused_note
       FROM coach_activity ca
       LEFT JOIN users u ON u.id = ca.member_id
       LEFT JOIN coach_prescriptions cp ON cp.id = ca.prescription_id
@@ -471,6 +484,7 @@ router.get('/activity', wrap((req, res) => {
       LEFT JOIN programs           p  ON p.id  = wt.program_id
       LEFT JOIN coach_feedback    cf ON cf.id = ca.feedback_id
       LEFT JOIN workout_log       wl ON wl.id = ca.workout_id
+      LEFT JOIN excused_days      ed ON ca.kind = 'prescription_excused' AND ed.user_id = ca.member_id AND ed.date = cp.date AND ed.deleted_at IS NULL
       ${where}
      ORDER BY ca.occurred_at DESC
      LIMIT ?

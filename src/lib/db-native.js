@@ -289,6 +289,21 @@ async function _createSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_cardio_log_user_date ON cardio_log(user_id, date);
 
+    -- Excused days (issue #121), keyed by date: the copy belongs to one
+    -- account. server_id: the server's row, once known (a pulled deletion
+    -- names it). deleted_at: removed here while the server still has it, to
+    -- go up as a removal (standalone, after Disconnect). sync_state
+    -- 'pending': changed here, the server not told yet.
+    CREATE TABLE IF NOT EXISTS excused_days (
+      date       TEXT PRIMARY KEY,
+      server_id  INTEGER,
+      reason     TEXT NOT NULL,
+      note       TEXT,
+      updated_at TEXT,
+      deleted_at TEXT,
+      sync_state TEXT DEFAULT 'pending'
+    );
+
     -- ── Trainer prescriptions ──────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS coach_prescriptions (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -666,7 +681,7 @@ export async function setSyncMeta(key, value) {
 export async function dbCountUnsynced() {
   const queue = await dbQuery(`SELECT payload FROM sync_queue`, []);
   // A row a queued write makes or changes is counted once, by that write.
-  const ids = new Set(), dates = new Set();
+  const ids = new Set(), dates = new Set(), excusedDates = new Set();
   for (const r of queue) {
     try {
       const p = JSON.parse(r.payload);
@@ -675,6 +690,8 @@ export async function dbCountUnsynced() {
       for (const m of path.matchAll(/\/(-?\d+)(?=\/|$)/g)) ids.add(Number(m[1]));
       const d = path.match(/^\/api\/(?:workout|body-stats)\/(\d{4}-\d{2}-\d{2})$/);
       if (d) dates.add(d[1]);
+      const x = path.match(/^\/api\/excused-days\/(\d{4}-\d{2}-\d{2})$/);
+      if (x) excusedDates.add(x[1]);
     } catch { /* counted anyway */ }
   }
   let total = queue.length;
@@ -688,6 +705,11 @@ export async function dbCountUnsynced() {
   for (const r of await dbQuery(`SELECT id FROM cardio_log WHERE id < 0`, [])) {
     if (!ids.has(Number(r.id))) total++;
   }
+  // Excused days changed here that no queued write covers (made standalone,
+  // or kept by Disconnect), removals included.
+  for (const r of await dbQuery(`SELECT date FROM excused_days WHERE sync_state = 'pending'`, [])) {
+    if (!excusedDates.has(r.date)) total++;
+  }
   // Coaching messages written here that haven't gone yet (and deletes).
   try {
     total += Number((await dbQuery(`SELECT COUNT(*) AS n FROM coach_messages WHERE sync_status IN ('pending', 'pending_delete')`, []))[0]?.n || 0);
@@ -699,7 +721,7 @@ export async function dbCountUnsynced() {
  *  cursor, so the next sync fills it from the account now signed in.
  *  One-time markers in sync_meta (migrations) stay. */
 const CLEARED_TABLES = ['exercises', 'programs', 'workout_templates', 'program_assignments', 'workout_log',
-  'workout_tombstones', 'body_stats_log', 'cardio_log', 'coach_prescriptions', 'ai_chat_history',
+  'workout_tombstones', 'body_stats_log', 'cardio_log', 'excused_days', 'coach_prescriptions', 'ai_chat_history',
   'user_settings', 'sync_queue', 'row_origin', 'id_remap', 'coach_messages'];
 export async function dbClearUserData() {
   // One statement per call: the Android plugin runs only the first

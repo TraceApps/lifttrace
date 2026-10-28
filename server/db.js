@@ -342,6 +342,30 @@ db.exec(`
     WHERE external_id IS NOT NULL;
 `);
 
+// ── Excused days (issue #121) ─────────────────────────────────────────────
+// A day you couldn't train (an injury, an illness, an appointment), with a
+// reason and an optional note: it comes off that week's goal and shows as
+// excused instead of missed. Its own row, one per account and date, not a
+// workout: a workout row with no sets counts as nothing (#120), and an
+// excused day has nothing to do with sets. Removing one keeps the row with
+// deleted_at, so the removal reaches every device on its next pull and a
+// day excused again is the same row. user_id NULL without accounts, hence
+// the IFNULL in the unique index (NULLs never collide in SQLite).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS excused_days (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER,
+    date        TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    note        TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT,
+    deleted_at  TEXT,
+    field_times TEXT
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_excused_days_user_date ON excused_days(IFNULL(user_id, 0), date);
+`);
+
 // ── OAuth/OIDC state + provider tables ───────────────────────────────────
 db.exec(`
   -- OAuth/OIDC PKCE state store — persisted so server restarts during auth flow don't break it
@@ -800,6 +824,7 @@ const SYNCABLE = [
   { table: 'body_stat_media',   hasCreated: 'created_at',  byUser: 'user_id' },
   { table: 'set_media',         hasCreated: 'created_at',  byUser: 'user_id' },
   { table: 'ai_chat_history',   hasCreated: 'created_at',  byUser: 'user_id' },
+  { table: 'excused_days',      hasCreated: 'created_at',  byUser: 'user_id' },
 ];
 
 for (const { table, hasCreated } of SYNCABLE) {
@@ -1132,6 +1157,7 @@ const SYNC_DELETION_OWNER = {
   workout_log:         'OLD.user_id',
   body_stats_log:      'OLD.user_id',
   ai_chat_history:     'OLD.user_id',
+  excused_days:        'OLD.user_id',
 };
 for (const [t, owner] of Object.entries(SYNC_DELETION_OWNER)) {
   // The first three predate the owner column; recreate those so the

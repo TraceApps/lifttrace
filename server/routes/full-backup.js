@@ -372,6 +372,16 @@ function restoreFromZip(zip) {
     // from before it has none.
     for (const c of data.cardio_log || []) insCardio.run({ is_template: 0, external_id: null, ...c });
 
+    // Excused days (issue #121). A backup from before them has none: the
+    // restore is the backup's data, so none stay. Removed ones keep their
+    // deleted_at, so a phone still showing one drops it. updated_at is left
+    // to the trigger (now), so every phone pulls what was restored.
+    db.prepare('DELETE FROM excused_days').run();
+    const insExcused = db.prepare(`INSERT OR IGNORE INTO excused_days (id,user_id,date,reason,note,created_at,deleted_at,field_times) VALUES (@id,@user_id,@date,@reason,@note,@created_at,@deleted_at,@field_times)`);
+    for (const e of data.excused_days || []) {
+      insExcused.run({ note: null, created_at: null, deleted_at: null, field_times: null, ...e });
+    }
+
     const insSettings = db.prepare(`INSERT OR IGNORE INTO user_settings (user_id,key,value) VALUES (@user_id,@key,@value)`);
     for (const s of data.user_settings || []) insSettings.run(s);
 
@@ -463,6 +473,7 @@ function dumpDatabase() {
     body_stat_media:     safe('SELECT * FROM body_stat_media'),
     set_media:           safe('SELECT * FROM set_media'),
     cardio_log:          safe('SELECT * FROM cardio_log'),
+    excused_days:        safe('SELECT * FROM excused_days'),
     user_settings:       db.prepare('SELECT * FROM user_settings').all(),
     app_config:          db.prepare('SELECT * FROM app_config').all(),
     ai_chat_history:     db.prepare('SELECT * FROM ai_chat_history').all(),

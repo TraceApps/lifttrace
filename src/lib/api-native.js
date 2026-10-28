@@ -24,7 +24,7 @@ import { musclesOf } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
 import { getServerUrl } from './platform.js';
 import { newTempId } from './offline-edits.js';
-import { trainedDates, currentStreak, longestStreak, trainedDaysByWeek, weekdayCounts, hasWorkingSet } from './trained-day.js';
+import { trainedDates, currentStreak, longestStreak, trainedDaysByWeek, weekdayCounts, hasWorkingSet, cleanExcuse, isCalendarDate } from './trained-day.js';
 
 const ME = 1; // single-user id in standalone mode
 
@@ -259,6 +259,7 @@ const Settings = {
   async clearData() {
     await dbRun(`DELETE FROM workout_log WHERE user_id = ?`, [ME]);
     await dbRun(`DELETE FROM body_stats_log WHERE user_id = ?`, [ME]);
+    await dbRun(`DELETE FROM excused_days`, []);
     await dbRun(`DELETE FROM ai_chat_history WHERE user_id = ?`, [ME]);
     return { ok: true };
   },
@@ -1005,6 +1006,56 @@ const BodyStats = {
   },
 };
 
+// Excused days (issue #121), by date, as server/routes/excused-days.js
+// answers. Standalone, and connected while offline (apiFetch.js queues the
+// same request for the server and answers with this). A change here is
+// 'pending' until the server has it. A day the server has (server_id) that is
+// removed here is kept with deleted_at until the server hears of it; one only
+// this device ever had just goes.
+// When a change is made, on the server's clock as far as this device knows
+// it (sync.js serverNow keeps the offset): the server keeps the newer edit.
+const _editTime = () => {
+  let off = 0;
+  try { off = Number(localStorage.getItem('lt:clockOffset')) || 0; } catch { /* no storage */ }
+  return new Date(Date.now() + off).toISOString();
+};
+
+const Excused = {
+  _out(r) {
+    return r ? { id: r.server_id ?? null, date: r.date, reason: r.reason, note: r.note ?? null, updated_at: r.updated_at } : null;
+  },
+  async list() {
+    const rows = await dbQuery(`SELECT * FROM excused_days WHERE deleted_at IS NULL ORDER BY date ASC`, []);
+    return rows.map(Excused._out);
+  },
+  async put(date, body) {
+    if (!isCalendarDate(date)) throw new Error('date must be a calendar date, YYYY-MM-DD');
+    const clean = cleanExcuse(body || {});
+    const was = (await dbQuery(`SELECT * FROM excused_days WHERE date = ?`, [date]))[0];
+    const note = was && !was.deleted_at && !Object.prototype.hasOwnProperty.call(body || {}, 'note') ? was.note : clean.note;
+    await dbRun(
+      `INSERT INTO excused_days (date, server_id, reason, note, updated_at, deleted_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, NULL, 'pending')
+       ON CONFLICT(date) DO UPDATE SET reason = excluded.reason, note = excluded.note,
+         updated_at = excluded.updated_at, deleted_at = NULL, sync_state = 'pending'`,
+      [date, was?.server_id ?? null, clean.reason, note, _editTime()]
+    );
+    return { excused: Excused._out((await dbQuery(`SELECT * FROM excused_days WHERE date = ?`, [date]))[0]) };
+  },
+  async del(date) {
+    if (!isCalendarDate(date)) throw new Error('date must be a calendar date, YYYY-MM-DD');
+    const was = (await dbQuery(`SELECT * FROM excused_days WHERE date = ?`, [date]))[0];
+    if (!was || was.deleted_at) return { ok: true, removed: false };
+    if (was.server_id != null) {
+      const at = _editTime();
+      await dbRun(`UPDATE excused_days SET deleted_at = ?, updated_at = ?, sync_state = 'pending' WHERE date = ?`, [at, at, date]);
+    } else {
+      await dbRun(`DELETE FROM excused_days WHERE date = ?`, [date]);
+    }
+    return { ok: true, removed: true };
+  },
+};
+
 // Standalone-mode Cardio session logging. Mirrors server/routes/cardio.js
 // so the Diary CardioCard + Statistics Cardio metric work offline.
 const Cardio = {
@@ -1590,6 +1641,13 @@ async function handle(method, path, body, query) {
     if (id === 'range' && m === 'GET') return BodyStats.range(query?.from, query?.to);
     if (id              && m === 'GET') return { stats: await BodyStats.get(id) };
     if (id              && m === 'PUT') return { stats: await BodyStats.put(id, body || {}) };
+  }
+
+  // ── /api/excused-days[/:date] ─────────────────────────────────────────
+  if (r === 'excused-days') {
+    if (!id && m === 'GET')    return Excused.list();
+    if (id && m === 'PUT')     return Excused.put(id, body || {});
+    if (id && m === 'DELETE')  return Excused.del(id);
   }
 
   // ── /api/cardio/* ─────────────────────────────────────────────────────

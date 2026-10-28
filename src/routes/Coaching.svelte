@@ -19,6 +19,7 @@
   import RequestSheet from '../components/coaching/RequestSheet.svelte';
   import CoachingNeedsServer from '../components/coaching/CoachingNeedsServer.svelte';
   import Conversation from '../components/coaching/Conversation.svelte';
+  import { excuseIcon } from '../lib/excused-view.js';
 
   // Android with no server: say so, never an empty list.
   const needsServer = coachingNeedsServer();
@@ -153,6 +154,7 @@
     const tpl = a.template_name || a.prescription_name || $_('coaching.activity.a_workout');
     if (a.kind === 'prescription_completed') return $_('coaching.activity.completed', { values: { workout: tpl } });
     if (a.kind === 'prescription_missed')    return $_('coaching.activity.missed', { values: { workout: tpl, date: a.prescription_date } });
+    if (a.kind === 'prescription_excused')   return $_('coaching.activity.excused', { values: { workout: tpl, date: a.prescription_date, reason: a.excused_reason ? $_(`excused.reason.${a.excused_reason}`) : $_('excused.reason.other') } });
     if (a.kind === 'feedback_reply') {
       const text = a.feedback_reply_text || '';
       const max = 80;
@@ -165,6 +167,7 @@
   function activityIcon(a) {
     if (a.kind === 'prescription_completed') return 'check_circle';
     if (a.kind === 'prescription_missed')    return 'error';
+    if (a.kind === 'prescription_excused')   return excuseIcon(a.excused_reason);
     if (a.kind === 'feedback_reply')         return 'reply';
     return 'notifications';
   }
@@ -172,6 +175,7 @@
   function activityColor(a) {
     if (a.kind === 'prescription_completed') return 'var(--success)';
     if (a.kind === 'prescription_missed')    return 'var(--danger)';
+    if (a.kind === 'prescription_excused')   return 'var(--excused)';
     if (a.kind === 'feedback_reply')         return 'var(--accent)';
     return 'var(--text-3)';
   }
@@ -847,7 +851,9 @@
                     {#if p.status === 'declined'} · <span style="color:var(--danger)">{$_('coaching.px_declined')}</span>{/if}
                     {#if p.status === 'accepted' && p.responded_at && p.completed !== 1} · {$_('coaching.px_accepted')}{/if}
                     {#if p.completed === 1} · <span style="color:var(--success)">{$_('coaching.completed')}</span>{/if}
-                    {#if p.completed === 0 && p.status !== 'declined' && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
+                    <!-- Excused by the client (issue #121): why, instead of "missed". -->
+                    {#if p.completed !== 1 && p.status !== 'declined' && p.excused_reason} · <span class="px-excused">{$_('excused.banner', { values: { reason: $_(`excused.reason.${p.excused_reason}`) } })}</span>{#if p.excused_note} ({p.excused_note}){/if}
+                    {:else if p.completed === 0 && p.status !== 'declined' && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
                     {#if p.notes} · {p.notes}{/if}
                   </span>
                 </div>
@@ -861,6 +867,27 @@
             {/each}
           {/if}
         </section>
+
+        <!-- Days the client excused (issue #121): the last eight weeks and
+             any marked ahead, newest first, with the reason and note. -->
+        {#if overview.excused_days?.length}
+          <section class="block">
+            <div class="block-head">
+              <h3 class="block-title">{$_('coaching.excused_days')}</h3>
+            </div>
+            {#each overview.excused_days as e (e.date)}
+              <div class="list-row excused-row">
+                <span class="material-symbols-rounded row-icon" style:color="var(--excused)" aria-hidden="true">{excuseIcon(e.reason)}</span>
+                <div class="row-body">
+                  <span class="row-title">{$_(`excused.reason.${e.reason}`)}</span>
+                  <span class="row-sub">
+                    {new Date(e.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}{#if e.note} · {e.note}{/if}
+                  </span>
+                </div>
+              </div>
+            {/each}
+          </section>
+        {/if}
 
         <!-- Recent workouts -->
         <section class="block">
@@ -977,6 +1004,13 @@
           return a + w * (s.reps || 0);
         }, 0);
       }, 0)}
+      <!-- The day was excused too (issue #121): trained anyway, it still says why. -->
+      {#if workoutDetail.excused}
+        <div class="wd-excused">
+          <span class="material-symbols-rounded" aria-hidden="true">{excuseIcon(workoutDetail.excused.reason)}</span>
+          <span>{$_('excused.banner', { values: { reason: $_(`excused.reason.${workoutDetail.excused.reason}`) } })}{#if workoutDetail.excused.note} · {workoutDetail.excused.note}{/if}</span>
+        </div>
+      {/if}
       <div class="wd-summary">
         <div class="wd-stat"><span class="wd-stat-val">{new Date(workoutDetail.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span><span class="wd-stat-label">{$_('coaching.date')}</span></div>
         <div class="wd-stat"><span class="wd-stat-val">{workoutDetail.duration_min ? Math.round(workoutDetail.duration_min) + 'm' : '—'}</span><span class="wd-stat-label">{$_('coaching.duration')}</span></div>
@@ -1564,6 +1598,16 @@
     background: var(--accent); flex-shrink: 0;
   }
   .px-waiting { color: var(--accent); }
+  .px-excused { color: var(--excused); font-weight: 600; }
+  .wd-excused {
+    display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px;
+    padding: 10px 12px; border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--excused) 10%, var(--surface-1));
+    border-left: 3px solid var(--excused);
+    font-size: 13px; color: var(--text-2); line-height: 1.4; overflow-wrap: anywhere;
+  }
+  .wd-excused .material-symbols-rounded { font-size: 18px; color: var(--excused); }
+  .excused-row .row-sub { white-space: normal; overflow-wrap: anywhere; }
   .btn-link {
     background: none; border: none; cursor: pointer;
     color: var(--accent); font-size: 12px; font-weight: 600;

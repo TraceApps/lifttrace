@@ -63,6 +63,7 @@ a token lacking the required scope returns `403`.
 | GET | `/api/v1/body-stats/photos?start=&end=` | Progress photos with their dates, newest first. Range defaults to the last year. Each photo has a `file_url` to fetch its image with the same token. |
 | GET | `/api/v1/body-stats/photos/:id/file` | The image itself, for a photo you own. Returns 409 for a photo attached by external URL, which has no local file. |
 | GET | `/api/v1/cardio?start=&end=&activity=` | Cardio sessions (runs, rides, rows, walks, swims) in an inclusive date range, oldest first. Both bounds omitted means the last 90 days; one bound leaves the other open. `activity` is an optional case-insensitive substring, so `run` matches `Running` and `Trail run`. Each session includes the `external_id` it was logged with, if any, and the response's `cardio_enabled` says whether the user has cardio turned on. |
+| GET | `/api/v1/excused-days?start=&end=` | Days marked as excused (the user couldn't train), oldest first, each `{date, reason, note}` with `reason` one of `injury`, `illness`, `appointment`, `other` and `note` text or `null`. Both bounds omitted means the last 90 days; one bound leaves the other open, so future days marked ahead are included. Each excused day comes off that week's workout goal; a day with a workout on it counts as trained even if it was excused. The MCP tool is `get_excused_days`. |
 
 ### Write (require `mcp:write` and `PUBLIC_API_WRITE_ENABLED=1`)
 

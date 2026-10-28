@@ -165,6 +165,14 @@ export const LtApi = {
   toggleCardioTemplate: (id, is_template) => fetch(`/api/cardio/${id}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ is_template: is_template ? 1 : 0 }) }).then(_json),
   getWeekdayDistribution: (start, end, cardio) => fetch(`/api/stats/weekday-distribution?start=${start}&end=${end}${cardio == null ? '' : '&' + _cardio(cardio)}`, opts).then(_json),
 
+  // ── Excused days (issue #121) ──────────────────────────────────────────
+  // Days you couldn't train, with a reason. The app reads them all at once
+  // (one small row each), so one copy answers every screen offline.
+  listExcusedDays: () => fetch('/api/excused-days', opts).then(_json),
+  saveExcusedDay: (date, { reason, note }) =>
+    fetch(`/api/excused-days/${date}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ reason, note: note ?? null }) }).then(_json),
+  removeExcusedDay: (date) => fetch(`/api/excused-days/${date}`, { ...opts, method: 'DELETE' }).then(_json),
+
   // ── Settings ───────────────────────────────────────────────────────────
   getSettings: () => fetch('/api/settings', opts).then(_json),
   saveSetting: (key, value) => fetch('/api/settings', { ...jsonOpts, method: 'PUT', body: JSON.stringify({ key, value }) }).then(_json),

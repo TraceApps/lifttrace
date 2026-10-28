@@ -865,3 +865,44 @@ test("the phone's own statistics count trained days by the shared rule, as the s
     assert.deepEqual(out[k].weekdays, CASES.expect[k].weekdays, `${k} weekdays`);
   }
 });
+
+test('excused days (#121): saved online, changed offline, from the web, and never shown to another account', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('excusedConnected');
+  assert.deepEqual(out.pulled, ['2026-06-03:other:web:clean'], 'pulled from the server');
+  assert.ok(out.online.includes('2026-06-01:injury:Knee:clean'), 'an online save is in the copy');
+  assert.deepEqual(out.offlineList, ['2026-06-01:injury:Knee, worse', '2026-06-02:illness:'], 'offline: shown at once');
+  assert.ok(out.offlineRows.includes('2026-06-03:other:web:pending:removed'), 'a removal of a server day waits to go up');
+  assert.deepEqual(out.queued, ['PUT /api/excused-days/2026-06-02 at', 'PUT /api/excused-days/2026-06-01 at', 'DELETE /api/excused-days/2026-06-03 at'], 'queued with when each was made');
+  assert.equal(out.unsynced, 3);
+  assert.deepEqual(out.server, ['2026-06-01:injury:Knee, worse', '2026-06-02:illness:', '2026-06-04:appointment:']);
+  assert.deepEqual(out.phone, ['2026-06-01:injury:Knee, worse:clean', '2026-06-02:illness::clean', '2026-06-04:appointment::clean']);
+  assert.deepEqual(out.afterWebRemove, ['2026-06-01', '2026-06-02'], 'removed on the web: gone here too');
+  assert.equal(out.queue, 0);
+  assert.deepEqual(out.coachPhone, [], 'another account signing in sees none of it');
+  assert.deepEqual(out.coachList, []);
+});
+
+test('excused days made without a server go up with an Upload, once each', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('excusedStandalone');
+  assert.match(out.refused, /reason must be one of/);
+  assert.deepEqual(out.local, ['2026-07-01:illness:Flu', '2026-07-02:appointment:Physio']);
+  assert.equal(out.gone, 0, 'removed before it ever reached a server: just gone');
+  assert.equal(out.counted, 2);
+  assert.equal(out.uploaded, 2, 'the dialog counted what went up');
+  assert.equal(out.errors, 0);
+  assert.deepEqual(out.server, ['2026-07-01:illness:Flu', '2026-07-02:appointment:Physio', '2026-07-05:other:server only']);
+  assert.deepEqual(out.phone, ['2026-07-01:clean', '2026-07-02:clean', '2026-07-05:clean']);
+  assert.equal(out.queue, 0);
+});
+
+test('excused days kept by Disconnect go back to the same account: changes, a removal, a new day, and a later web edit stays', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('excusedDisconnect');
+  assert.deepEqual(out.afterDisconnect, ['2026-08-10:pending', '2026-08-11:pending', '2026-08-12:pending'], "the phone's own after Disconnect");
+  assert.deepEqual(out.standalone, ['2026-08-11', '2026-08-12', '2026-08-13']);
+  assert.equal(out.counted, 1, 'only the new day goes up; the rest go back in place');
+  assert.equal(out.uploaded, 1);
+  assert.equal(out.errors, 0);
+  assert.deepEqual(out.server, ['2026-08-11:illness:Still sick', '2026-08-12:other:web, later', '2026-08-13:appointment:']);
+  assert.deepEqual(out.phone, ['2026-08-11:illness:Still sick:clean', '2026-08-12:other:web, later:clean', '2026-08-13:appointment::clean']);
+  assert.equal(out.queue, 0);
+});

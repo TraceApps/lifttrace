@@ -13,7 +13,7 @@
  */
 import { setVolume, resolveLoadType, isTimedSet, newRecord, accumulateRecord } from './volume.js';
 import { normalizeMuscle } from './muscle-groups.js';
-import { trainedDates, weeklyGoal } from '../../src/lib/trained-day.js';
+import { trainedDates, weeklyGoal, excusedOnly } from '../../src/lib/trained-day.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -38,8 +38,10 @@ const _working = (s) => s && s.completed && !s.warmup;
  * @param {Array}  p.cardio    the user's cardio_log rows (dates)
  * @param {boolean} p.cardioOn whether Track Cardio is on: a cardio session
  *                             then makes its day a trained day
+ * @param {Array}  p.excused   the user's excused days ({ date, reason }):
+ *                             each in the week comes off its goal (#121)
  */
-export function buildWeeklySummary({ workouts, library = new Map(), today, goal = 0, cardio = [], cardioOn = false }) {
+export function buildWeeklySummary({ workouts, library = new Map(), today, goal = 0, cardio = [], cardioOn = false, excused = [] }) {
   const end = today;
   const start = shiftDate(today, -6);
   const prevStart = shiftDate(start, -28);
@@ -99,7 +101,12 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
     if (d >= start) week.days++;
     else if (d >= prevStart) prior.days++;
   }
-  const progress = weeklyGoal({ goal, trained, start, end });
+  const off = excusedOnly(excused, trained);
+  const progress = weeklyGoal({ goal, trained, excused: off, start, end });
+  const excusedThisWeek = (excused || [])
+    .filter(e => e && !e.deleted_at && off.has(e.date) && e.date >= start && e.date <= end)
+    .map(e => ({ date: e.date, reason: e.reason }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
 
   // A PR is a new best set this week on a lift you had trained before, so a
   // first ever session doesn't count every exercise as a record.
@@ -127,6 +134,7 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
     start, end,
     goal: Number(goal) > 0 ? Number(goal) : 0,
     progress,
+    excused: excusedThisWeek,
     week: { ...week, volume: Math.round(week.volume) },
     avg,
     hasBaseline: prior.days > 0,
@@ -159,9 +167,13 @@ export function fmtHold(sec) {
 export function summaryLine(summary, { unit = 'lbs', locale = 'en' } = {}) {
   const nf = new Intl.NumberFormat(locale);
   const { week, goal, prs } = summary;
-  if (!week.days) return 'No workouts logged this week.';
+  const excused = summary.excused?.length || 0;
+  const off = excused ? ` (${excused} excused)` : '';
+  // Every planned day excused: an excused week, not a goal met or missed.
+  if (summary.progress?.allExcused && !week.days) return `Excused week${off}: nothing to make up.`;
+  if (!week.days) return `No workouts logged this week${off}.`;
   const target = summary.progress?.target ?? goal;
-  const parts = [goal ? `${week.days} of ${target} training days` : `${week.days} ${week.days === 1 ? 'training day' : 'training days'}`];
+  const parts = [goal && target ? `${week.days} of ${target} training days${off}` : `${week.days} ${week.days === 1 ? 'training day' : 'training days'}${off}`];
   if (week.sets > 0) parts.push(`${nf.format(week.sets)} sets`);
   if (prs.length) parts.push(`${prs.length} ${prs.length === 1 ? 'PR' : 'PRs'}`);
   if (week.volume > 0) {

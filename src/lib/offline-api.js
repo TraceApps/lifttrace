@@ -321,6 +321,14 @@ async function _changedFields(method, target, body) {
       if (!held || !body.stats || typeof body.stats !== 'object') return null;
       return Object.keys(body.stats).filter(k => _norm(body.stats[k]) !== _norm(held[k]));
     }
+    // An excused day (issue #121): against the list held here.
+    const excused = p.match(/^\/api\/excused-days\/(\d{4}-\d{2}-\d{2})$/);
+    if (excused) {
+      const list = await _recall('/api/excused-days');
+      const held = Array.isArray(list) ? list.find(r => r.date === excused[1]) : null;
+      if (!held) return null;
+      return ['reason', 'note'].filter(f => body[f] !== undefined && _norm(body[f]) !== _norm(held[f]));
+    }
     const rule = _EDIT_FIELDS.find(([re]) => re.test(p));
     if (!rule) return null;
     let held = await _recall(target);
@@ -763,6 +771,7 @@ async function _forgetTouched(sent) {
     if (op.kind?.startsWith('exercise')) prefixes.add('/api/exercises');
     if (op.kind?.startsWith('program')) prefixes.add('/api/programs');
     if (op.kind === 'body-stats') prefixes.add('/api/body-stats');
+    if (op.kind?.startsWith('excused')) prefixes.add('/api/excused-days');
     if (op.kind?.startsWith('photo')) prefixes.add('/api/body-stats');
     if (op.kind?.startsWith('coach') || op.kind?.startsWith('prescription') || op.kind === 'seen') {
       prefixes.add('/api/trainer'); prefixes.add('/api/coach-feedback'); prefixes.add('/api/prescriptions');

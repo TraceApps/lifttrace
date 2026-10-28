@@ -88,6 +88,7 @@ const EXEMPT = {
 const COVERED = {
   body_stats_log:      /\/api\/body-stats/,
   cardio_log:          /\/api\/cardio/,
+  excused_days:        /\/api\/excused-days/,
   exercises:           /\/api\/exercises/,
   programs:            /\/api\/programs/,
   workout_log:         /\/api\/workout/,

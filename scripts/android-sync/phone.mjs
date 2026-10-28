@@ -116,6 +116,131 @@ const scenarios = {
   },
   // Rows made offline (a plan, a day in it, an exercise, a workout using all
   // three) while another account takes the server ids the phone would use.
+  // Excused days (issue #121), connected: an online save lands in the phone's
+  // copy; offline, excusing, editing and removing show at once and go up
+  // when the connection is back; changes and removals from the web arrive;
+  // another account signing in sees none of it.
+  async excusedConnected() {
+    const platform = await import('./platform.mjs');
+    const la = await import('../../src/lib/local-account.js');
+    const athlete = { id: Number(process.env.LT_PHONE_USER) }, coach = { id: Number(process.env.LT_OTHER_USER) };
+    const rows = async () => (await q(`SELECT date, reason, note, sync_state, deleted_at FROM excused_days ORDER BY date`))
+      .map(r => `${r.date}:${r.reason}:${r.note ?? ''}:${r.sync_state}${r.deleted_at ? ':removed' : ''}`);
+    const list = async () => (await api.listExcusedDays()).map(r => `${r.date}:${r.reason}:${r.note ?? ''}`);
+    me();
+    await la.prepareLocalAccount(athlete, { confirm: async () => true });
+    await web('phone', 'PUT', '/api/excused-days/2026-06-03', { reason: 'other', note: 'web' });
+    await syncNow();
+    const pulled = await rows();
+    await api.saveExcusedDay('2026-06-01', { reason: 'injury', note: 'Knee' });
+    await until(async () => (await q(`SELECT 1 FROM excused_days WHERE date = '2026-06-01'`)).length, 'the online save in the copy');
+    const online = await rows();
+    offline(true);
+    await api.saveExcusedDay('2026-06-02', { reason: 'illness', note: null });
+    await api.saveExcusedDay('2026-06-01', { reason: 'injury', note: 'Knee, worse' });
+    await api.removeExcusedDay('2026-06-03');
+    const offlineList = await list();
+    const offlineRows = await rows();
+    const queued = (await q(`SELECT payload FROM sync_queue ORDER BY id`)).map(r => JSON.parse(r.payload)).map(p => `${p.method} ${p.path}${p.editedAt ? ' at' : ''}`);
+    const unsynced = await (await import('../../src/lib/db-native.js')).dbCountUnsynced();
+    await web('phone', 'PUT', '/api/excused-days/2026-06-04', { reason: 'appointment' });
+    offline(false);
+    await syncNow(); await syncNow();
+    const server = (await web('phone', 'GET', '/api/excused-days')).map(r => `${r.date}:${r.reason}:${r.note ?? ''}`);
+    const phone = await rows();
+    await web('phone', 'DELETE', '/api/excused-days/2026-06-04');
+    await syncNow();
+    const afterWebRemove = (await q(`SELECT date FROM excused_days ORDER BY date`)).map(r => r.date);
+    // The coach signs in on this phone: none of the athlete's days.
+    platform.setAuthToken(tokens.other);
+    localStorage.setItem('wl:userId', String(coach.id));
+    await la.prepareLocalAccount(coach, { confirm: async () => true });
+    await syncNow();
+    return {
+      pulled, online, offlineList, offlineRows, queued, unsynced, server, phone, afterWebRemove,
+      queue: (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n,
+      coachPhone: await rows(), coachList: await list(),
+    };
+  },
+
+  // Excused days made standalone (no server), then an Upload: they go up as
+  // they are, one each, and the phone's copy is the server's afterwards.
+  async excusedStandalone() {
+    const platform = await import('./platform.mjs');
+    const la = await import('../../src/lib/local-account.js');
+    const srv = process.env.LT_SERVER;
+    const athlete = { id: Number(process.env.LT_PHONE_USER) };
+    process.env.LT_SERVER = '';
+    platform.setAuthToken(null);
+    await api.saveExcusedDay('2026-07-01', { reason: 'illness', note: 'Flu' });
+    await api.saveExcusedDay('2026-07-02', { reason: 'injury' });
+    await api.saveExcusedDay('2026-07-02', { reason: 'appointment', note: 'Physio' });
+    await api.saveExcusedDay('2026-07-03', { reason: 'other' });
+    await api.removeExcusedDay('2026-07-03');
+    const refused = await api.saveExcusedDay('2026-07-04', { reason: 'nap' }).then(() => 'saved', e => e.message);
+    const local = (await api.listExcusedDays()).map(r => `${r.date}:${r.reason}:${r.note ?? ''}`);
+    const gone = (await q(`SELECT COUNT(*) AS n FROM excused_days WHERE date = '2026-07-03'`))[0].n;
+    await web('phone', 'PUT', '/api/excused-days/2026-07-05', { reason: 'other', note: 'server only' });
+    process.env.LT_SERVER = srv;
+    platform.setAuthToken(tokens.phone);
+    me();
+    const { countLocalData, uploadLocalToServer } = await import('../../src/lib/migrate.js');
+    const counts = await countLocalData();
+    const sum = await uploadLocalToServer();
+    await la.claimForServer(srv, athlete.id, { clear: false });
+    await syncNow(); await syncNow();
+    return {
+      refused, local, gone,
+      counted: counts.excusedDays, uploaded: sum.success.excusedDays, errors: sum.errors.length,
+      server: (await web('phone', 'GET', '/api/excused-days')).map(r => `${r.date}:${r.reason}:${r.note ?? ''}`),
+      phone: (await q(`SELECT date, sync_state FROM excused_days ORDER BY date`)).map(r => `${r.date}:${r.sync_state}`),
+      queue: (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n,
+    };
+  },
+
+  // Disconnect keeps the account's excused days as the phone's own; changed,
+  // removed and added there, then connected back to the same account: the
+  // changes and the removal go to the server's days, the new one goes up,
+  // and a later edit made on the web stays.
+  async excusedDisconnect() {
+    const platform = await import('./platform.mjs');
+    const la = await import('../../src/lib/local-account.js');
+    const srv = process.env.LT_SERVER;
+    const athlete = { id: Number(process.env.LT_PHONE_USER) };
+    for (const [d, reason] of [['2026-08-10', 'injury'], ['2026-08-11', 'illness'], ['2026-08-12', 'other']]) {
+      await web('phone', 'PUT', `/api/excused-days/${d}`, { reason });
+    }
+    me();
+    await la.prepareLocalAccount(athlete, { confirm: async () => true });
+    await syncNow();
+    await la.settleQueuedChanges('disconnect', { ask: async () => true });
+    await la.setLocalOwner();
+    process.env.LT_SERVER = '';
+    platform.setAuthToken(null);
+    const afterDisconnect = (await q(`SELECT date, sync_state FROM excused_days ORDER BY date`)).map(r => `${r.date}:${r.sync_state}`);
+    await api.removeExcusedDay('2026-08-10');
+    await api.saveExcusedDay('2026-08-11', { reason: 'illness', note: 'Still sick' });
+    await api.saveExcusedDay('2026-08-13', { reason: 'appointment' });
+    const standalone = (await api.listExcusedDays()).map(r => r.date);
+    await later(1100);
+    await web('phone', 'PUT', '/api/excused-days/2026-08-12', { reason: 'other', note: 'web, later' });
+    process.env.LT_SERVER = srv;
+    platform.setAuthToken(tokens.phone);
+    me();
+    const { countLocalData, uploadLocalToServer } = await import('../../src/lib/migrate.js');
+    const counts = await countLocalData();
+    const sum = await uploadLocalToServer();
+    await la.claimForServer(srv, athlete.id, { clear: false });
+    await syncNow(); await syncNow();
+    return {
+      afterDisconnect, standalone,
+      counted: counts.excusedDays, uploaded: sum.success.excusedDays, errors: sum.errors.length,
+      server: (await web('phone', 'GET', '/api/excused-days')).map(r => `${r.date}:${r.reason}:${r.note ?? ''}`),
+      phone: (await q(`SELECT date, reason, note, sync_state FROM excused_days ORDER BY date`)).map(r => `${r.date}:${r.reason}:${r.note ?? ''}:${r.sync_state}`),
+      queue: (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n,
+    };
+  },
+
   // Trace through the server (set by environment variables) is never put
   // in the queue to be asked again on a later sync, and a server slow to
   // answer is said as that, not as offline (TraceApps/notetrace#23).

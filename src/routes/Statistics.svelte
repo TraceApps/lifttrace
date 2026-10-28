@@ -18,7 +18,8 @@
   import { estimateWorkoutCalories, ageFromDob, isTimedSet, fmtSetDuration } from '../lib/workout.js';
   import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
-  import { trainedDates, weeklyGoal, weekStartOf, shiftDate, hasWorkingSet, exercisesOf } from '../lib/trained-day.js';
+  import { trainedDates, weeklyGoal, weekStartOf, shiftDate, hasWorkingSet, exercisesOf, excusedOnly } from '../lib/trained-day.js';
+  import { excusedMap } from '../lib/excused-view.js';
   import { showError } from '../stores/toast.js';
   import { foldText } from '../lib/search-text.js';
 
@@ -97,6 +98,12 @@
   let cardioWeekly = []; // [{ week, minutes }] for the Cardio metric
   let cardioSessions = []; // individual sessions in range, newest first, for the session list under the chart
   let workoutDates = new Set();
+  // Excused days (issue #121): their own mark on the heatmap, and off the
+  // week's goal. A day trained anyway counts as trained.
+  let excusedRows = [];
+  $: excusedByDate = excusedMap(excusedRows);
+  $: excusedDates = excusedOnly(excusedRows, workoutDates);
+  $: excusedWeeks = [...excusedDates].reduce((m, d) => { const w = weekStartOf(d); m[w] = (m[w] || 0) + 1; return m; }, {});
   let recentWorkouts = []; // full records (exercises + duration) — used by the calorie estimator
   let exercises = [];
   let loading = true;
@@ -273,6 +280,7 @@
           const logs = (await recent.json()).filter(l => exercisesOf(l).length > 0);
           const cardioRows = $cardioEnabled ? await LtApi.listCardio().catch(() => []) : [];
           workoutDates = trainedDates({ workouts: logs, cardio: cardioRows, cardioOn: $cardioEnabled });
+          excusedRows = await LtApi.listExcusedDays().catch(() => excusedRows);
           recentWorkouts = logs;
         }
       } catch {}
@@ -356,7 +364,7 @@
   // twice and a day trained without pressing Finish didn't count.
   $: weekProgress = (() => {
     const start = weekStartOf(localDateStr());
-    return weeklyGoal({ goal: $weeklyWorkoutGoal || 4, trained: workoutDates, start, end: shiftDate(start, 6) });
+    return weeklyGoal({ goal: $weeklyWorkoutGoal || 4, trained: workoutDates, excused: excusedDates, start, end: shiftDate(start, 6) });
   })();
 
   // Period-over-period deltas. Compares the current range's volume +
@@ -704,27 +712,50 @@
         {#if weekProgress.goal > 0}
           {@const ringCirc = 2 * Math.PI * 32}
           {@const ringOffset = ringCirc * (1 - weekProgress.pct / 100)}
-          <div class="goal-ring-card" class:hit={weekProgress.met}>
+          <!-- Excused days (issue #121) come off the target. A week with
+               every planned day excused reads as excused: no fraction, no
+               goal met, the ring left as a quiet dashed track. -->
+          <div class="goal-ring-card" class:hit={weekProgress.met} class:excused-week={weekProgress.allExcused}>
             <svg class="goal-ring" viewBox="0 0 80 80" aria-hidden="true">
               <circle class="goal-ring-bg" cx="40" cy="40" r="32" />
-              <circle class="goal-ring-fg" cx="40" cy="40" r="32"
-                stroke-dasharray={ringCirc}
-                stroke-dashoffset={ringOffset} />
+              {#if !weekProgress.allExcused}
+                <circle class="goal-ring-fg" cx="40" cy="40" r="32"
+                  stroke-dasharray={ringCirc}
+                  stroke-dashoffset={ringOffset} />
+              {/if}
             </svg>
             <div class="goal-ring-body">
-              <div class="goal-ring-top">
-                <span class="goal-ring-num">{weekProgress.count}</span>
-                <span class="goal-ring-of">{$_('statistics.of')}</span>
-                <span class="goal-ring-num">{weekProgress.target}</span>
-                <span class="goal-ring-of">{$_('statistics.this_week')}</span>
-              </div>
-              <span class="goal-ring-pct">
-                {#if weekProgress.met}
-                  🎯 {$_('statistics.goal_hit')}
-                {:else}
-                  {$_('statistics.to_go', { values: { n: weekProgress.left } })}
+              {#if weekProgress.allExcused}
+                <div class="goal-ring-top">
+                  <span class="goal-ring-title">{$_('statistics.week_excused')}</span>
+                </div>
+                <span class="goal-ring-pct">
+                  {$_('statistics.week_excused_hint', { values: { n: weekProgress.excused } })}
+                </span>
+                {#if weekProgress.count > 0}
+                  <span class="goal-ring-excused">{$_('statistics.trained_days', { values: { n: weekProgress.count } })}</span>
                 {/if}
-              </span>
+              {:else}
+                <div class="goal-ring-top">
+                  <span class="goal-ring-num">{weekProgress.count}</span>
+                  <span class="goal-ring-of">{$_('statistics.of')}</span>
+                  <span class="goal-ring-num">{Math.max(weekProgress.target, weekProgress.count)}</span>
+                  <span class="goal-ring-of">{$_('statistics.this_week')}</span>
+                </div>
+                <span class="goal-ring-pct">
+                  {#if weekProgress.met}
+                    🎯 {$_('statistics.goal_hit')}
+                  {:else}
+                    {$_('statistics.to_go', { values: { n: weekProgress.left } })}
+                  {/if}
+                </span>
+                {#if weekProgress.excused > 0}
+                  <span class="goal-ring-excused">
+                    <span class="material-symbols-rounded" aria-hidden="true">event_busy</span>
+                    {$_('statistics.excused_off_goal', { values: { n: weekProgress.excused, goal: weekProgress.goal } })}
+                  </span>
+                {/if}
+              {/if}
             </div>
           </div>
         {/if}
@@ -777,16 +808,19 @@
           <h3 class="chart-title">{$_('statistics.activity_90d')}</h3>
           <div class="heatmap">
             {#each heatmapDays as day}
+              {@const excusedDay = excusedDates.has(day) ? excusedByDate.get(day) : null}
               <div class="hm-cell"
                 class:hm-active={workoutDates.has(day)}
+                class:hm-excused={!!excusedDay}
                 class:hm-today={day === localDateStr()}
-                title={day + (workoutDates.has(day) ? ' ✓' : '')}></div>
+                title={day + (workoutDates.has(day) ? ' ✓' : excusedDay ? ` · ${$_('excused.banner', { values: { reason: $_(`excused.reason.${excusedDay.reason}`) } })}` : '')}></div>
             {/each}
           </div>
           <div class="hm-legend">
             <div class="hm-legend-scale">
               <div class="hm-cell"></div><span>{$_('statistics.hm_rest')}</span>
               <div class="hm-cell hm-active"></div><span>{$_('statistics.hm_workout')}</span>
+              <div class="hm-cell hm-excused"></div><span>{$_('statistics.hm_excused')}</span>
             </div>
             <span class="hm-legend-label">{$_('statistics.total_workouts', { values: { n: streaks.totalWorkouts } })}</span>
           </div>
@@ -795,7 +829,7 @@
         <MuscleRecovery workouts={recentWorkouts} {exercises} windowDays={7} />
 
         <WeeklyVolumeChart {volume} unit={$weightUnit} detailed total={totalVolume} />
-        <WorkoutFrequencyChart {frequency} detailed avg={avgFreq} goal={$weeklyWorkoutGoal} />
+        <WorkoutFrequencyChart {frequency} detailed avg={avgFreq} goal={$weeklyWorkoutGoal} {excusedWeeks} />
 
         {#if totalWorkoutsInRange === 0}
           <div class="empty-state">
@@ -1063,7 +1097,7 @@
           </div>
         </div>
 
-        <WorkoutFrequencyChart {frequency} goal={$weeklyWorkoutGoal} />
+        <WorkoutFrequencyChart {frequency} goal={$weeklyWorkoutGoal} {excusedWeeks} />
 
         {#if weekdayDist.length > 0 && totalWorkoutsInRange > 0}
           <div class="chart-card">
@@ -1438,6 +1472,13 @@
   .goal-ring-of  { font-size: 13px; color: var(--text-3); font-weight: 500; }
   .goal-ring-pct { font-size: 12px; font-weight: 700; color: var(--accent); }
   .goal-ring-card.hit .goal-ring-pct { color: var(--success); }
+  /* Excused (issue #121): days off the goal, and a fully excused week. */
+  .goal-ring-excused { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+  .goal-ring-excused .material-symbols-rounded { font-size: 15px; color: var(--excused); }
+  .goal-ring-title { font-size: 18px; font-weight: 800; color: var(--text-1); }
+  .goal-ring-card.excused-week { border-color: color-mix(in srgb, var(--excused) 45%, var(--border)); background: color-mix(in srgb, var(--excused) 7%, var(--surface-1)); }
+  .goal-ring-card.excused-week .goal-ring-bg { stroke: color-mix(in srgb, var(--excused) 55%, transparent); stroke-dasharray: 5 6; }
+  .goal-ring-card.excused-week .goal-ring-pct { color: var(--text-2); font-weight: 600; }
 
   /* Period-over-period delta chip on the "This {range}" card */
   .sc-delta {
@@ -1557,9 +1598,17 @@
   .heatmap { display: grid; grid-template-columns: repeat(13, 1fr); gap: 3px; margin: 8px 0; }
   .hm-cell { aspect-ratio: 1; border-radius: 3px; background: var(--surface-3); }
   .hm-cell.hm-active { background: var(--accent); }
+  /* Excused (issue #121): its own slate, striped so it stays apart from a
+     workout and a rest day whatever the accent. */
+  .hm-cell.hm-excused {
+    background:
+      repeating-linear-gradient(135deg, var(--excused) 0 2px, transparent 2px 4px),
+      color-mix(in srgb, var(--excused) 30%, var(--surface-3));
+  }
   .hm-cell.hm-today { outline: 2px solid var(--text-1); outline-offset: -1px; }
   .hm-legend {
     display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 6px 12px;
     font-size: 11px; color: var(--text-3); margin-top: 6px;
   }
   .hm-legend-scale { display: flex; align-items: center; gap: 6px; }

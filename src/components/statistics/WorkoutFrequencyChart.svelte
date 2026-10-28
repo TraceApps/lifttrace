@@ -13,6 +13,11 @@
    *  render a dashed horizontal line across the chart at that y-position
    *  so the user can see which weeks hit target at a glance. */
   export let goal = 0;
+  /** Excused days per week ({ [weekMonday]: n }, issue #121): each comes
+   *  off that week's target, as on the weekly goal ring. */
+  export let excusedWeeks = {};
+  const target = (week) => Math.max(0, goal - (excusedWeeks[week] || 0));
+  const hit = (f) => goal > 0 && target(f.week) > 0 && f.count >= target(f.week);
 
   $: max = frequency.length ? Math.max(...frequency.map(f => f.count)) : 0;
   // Height % from the bottom of the chart. Using the SAME max as the bars,
@@ -34,8 +39,8 @@
       {/if}
       {#each frequency as f}
         <div class="bar-col">
-          <div class="bar freq" class:hit-goal={goal > 0 && f.count >= goal} style="height: {max ? (f.count / max * 100) : 0}%"
-            title={`${f.week}: ${f.count} workouts${goal > 0 ? (f.count >= goal ? ' (hit goal)' : '') : ''}`}></div>
+          <div class="bar freq" class:hit-goal={hit(f)} style="height: {max ? (f.count / max * 100) : 0}%"
+            title={`${f.week}: ${f.count} workouts${goal > 0 ? (hit(f) ? ' (hit goal)' : '') : ''}`}></div>
           <span class="bar-label">{fmtWeekLabel(f.week)}</span>
         </div>
       {/each}

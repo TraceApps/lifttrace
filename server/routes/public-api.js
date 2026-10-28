@@ -53,6 +53,7 @@ import { logSetCore } from '../lib/mcp/tools/log-set.js';
 import { logBodyStatCore } from '../lib/mcp/tools/log-body-stat.js';
 import { getCardioCore } from '../lib/mcp/tools/get-cardio.js';
 import { logCardioCore } from '../lib/mcp/tools/log-cardio.js';
+import { getExcusedDaysCore } from '../lib/mcp/tools/get-excused-days.js';
 import { resolvePhotoFileForUser } from '../lib/body-stat-media.js';
 import { errorCode } from '../lib/mcp/_util.js';
 
@@ -186,6 +187,11 @@ router.get('/cardio', requireScope('mcp:read'), core(req =>
     end: req.query.end,
     activity: req.query.activity,
   })
+));
+
+// Days marked as excused, with the reason (issue #121).
+router.get('/excused-days', requireScope('mcp:read'), core(req =>
+  getExcusedDaysCore(req.apiUser.id, { start: req.query.start, end: req.query.end })
 ));
 
 router.post('/workouts/:date/sets', requireWriteEnabled, requireScope('mcp:write'), core(req =>

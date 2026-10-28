@@ -19,6 +19,11 @@
  * place in the image, as it does the exercise-source fetchers.
  */
 
+/** Why a day was excused, in the order the app offers them. */
+export const EXCUSE_REASONS = ['injury', 'illness', 'appointment', 'other'];
+/** The longest note an excused day keeps. */
+export const EXCUSE_NOTE_MAX = 500;
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -131,13 +136,28 @@ export function weekdayCounts(dates, from, to) {
 }
 
 /**
+ * Excused days that still count as excused: a day you trained on counts as
+ * trained whatever its excuse says (the workout wins, and the excuse stays
+ * in the history). `excused`: dates, or rows with a `date`.
+ */
+export function excusedOnly(excused, trained = new Set()) {
+  const out = new Set();
+  for (const e of excused || []) {
+    const d = typeof e === 'string' ? e : e?.date;
+    if (d && !(e && typeof e === 'object' && e.deleted_at) && !trained.has(d)) out.add(d);
+  }
+  return out;
+}
+
+/**
  * Where a week stands against the weekly goal (days to train per week).
  * Each excused day in the week takes one day off the target, never below
  * zero: 4 planned with 1 excused and 3 trained is 3 of 3. A week with
  * every planned day excused is an excused week, not a goal met.
  *
- * `trained` and `excused` are Sets of dates; only those from `start` to
- * `end` count, and a day in both counts as trained.
+ * `trained` and `excused` are Sets of dates (excusedOnly gives the
+ * latter); only those from `start` to `end` count, and a day in both
+ * counts as trained.
  * Returns { goal, count, excused, target, left, pct, met, allExcused }.
  */
 export function weeklyGoal({ goal, trained = new Set(), excused = new Set(), start, end }) {
@@ -157,4 +177,22 @@ export function weeklyGoal({ goal, trained = new Set(), excused = new Set(), sta
     met: target > 0 && count >= target,
     allExcused,
   };
+}
+
+/**
+ * An excused day's reason and note, checked and tidied. Throws an Error with
+ * a message fit to show when the reason isn't one of EXCUSE_REASONS or the
+ * note is too long. An empty note is null.
+ */
+export function cleanExcuse({ reason, note } = {}) {
+  const r = typeof reason === 'string' ? reason.trim().toLowerCase() : '';
+  if (!EXCUSE_REASONS.includes(r)) {
+    throw new Error(`reason must be one of: ${EXCUSE_REASONS.join(', ')}`);
+  }
+  let n = note == null ? null : String(note).trim();
+  if (n === '') n = null;
+  if (n != null && n.length > EXCUSE_NOTE_MAX) {
+    throw new Error(`note must be at most ${EXCUSE_NOTE_MAX} characters`);
+  }
+  return { reason: r, note: n };
 }

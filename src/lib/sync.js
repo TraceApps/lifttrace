@@ -418,6 +418,9 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
     // pull is a small batch in steady state. Rows a queued write is still
     // on its way to change are left alone (see _queuedTargets).
     const guard = await _queuedTargets();
+    // A pull from the beginning lists every excused day the account has
+    // (removed ones too), so one this copy holds that isn't listed is gone.
+    guard.full = since.startsWith('1970');
     let skippedFrom = null;
     guard.skip = (ts) => { const t = _sqlTime(ts || '1970-01-01 00:00:00'); if (skippedFrom == null || t < skippedFrom) skippedFrom = t; };
     try {
@@ -487,7 +490,7 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
 
 const _NO_GUARD = {
   programs: new Set(), workout_templates: new Set(), exercises: new Set(), reorder: new Set(),
-  workoutDates: new Set(), bodyDates: new Set(), assignments: false, creates: false, skip() {},
+  workoutDates: new Set(), bodyDates: new Set(), excusedDates: new Set(), assignments: false, creates: false, skip() {},
 };
 
 // Server timestamps as comparable text, whichever format they arrive in.
@@ -530,6 +533,7 @@ async function _applyPull(pull, result, guard) {
   // so it filters the freshly-mirrored rows in one pass.
   await _applyWorkoutTombstones(pull.workout_tombstones, result);
   await _applyBodyStats(pull.body_stats_log, result, guard);
+  await _applyExcused(pull.excused_days, result, guard);
   await _applySettings(pull.user_settings, result, guard);
   await _applyChat(pull.ai_chat_history, result);
   // Rows the server deleted outright come in each table's list as
@@ -757,6 +761,10 @@ export async function renumberLocalRows({ all = false, origin = null, extra = []
   const after = [];
   if (all) {
     for (const t of _MARKED) if (maps[t]?.length) after.push({ statement: `UPDATE ${t} SET sync_state = 'pending' WHERE id IN (SELECT new FROM id_remap WHERE tbl = ?)`, values: [t] });
+    // Excused days, kept by date: all the phone's own now, remembering whose
+    // they were (connecting back to that account sends what changed).
+    after.push({ statement: `UPDATE excused_days SET sync_state = 'pending'`, values: [] });
+    after.push({ statement: `INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('excused_origin', ?)`, values: [origin ? JSON.stringify({ inst: origin.inst ?? null, uid: origin.uid == null ? null : String(origin.uid) }) : ''] });
   }
   if (origin) {
     for (const t of _ID_TABLES) {
@@ -812,6 +820,8 @@ export async function countFromOrigin(match) {
   for (const t of _ID_TABLES) {
     out[t] = new Set((await dbQuery(`SELECT o.local_id FROM row_origin o WHERE o.tbl = ? AND ${_ORIGIN_MATCH}`, [t, ..._originArgs(match)])).map(r => Number(r.local_id)));
   }
+  // Excused days from that account go back in place too (_adoptExcused).
+  out.excusedBack = await _excusedFromOrigin(match);
   return out;
 }
 
@@ -863,6 +873,7 @@ export async function adoptLocalCopy({ match = null, extra = [] } = {}) {
     const p = _remapPayload({ method, path, body }, lookup);
     after.push({ statement: `INSERT INTO sync_queue (table_name, row_id, operation, payload) VALUES (?, NULL, ?, ?)`, values: [p.path, method, JSON.stringify(p)] });
   }
+  after.push(...(await _adoptExcused(match)));
   // Origins whose row has gone (put back, uploaded, deleted) are done with.
   for (const t of _ID_TABLES) after.push({ statement: `DELETE FROM row_origin WHERE tbl = ? AND local_id NOT IN (SELECT id FROM ${t})`, values: [t] });
   after.push({ statement: `INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('id_block', ?)`, values: [String(block)] });
@@ -870,6 +881,41 @@ export async function adoptLocalCopy({ match = null, extra = [] } = {}) {
   const statements = await _remapRows(maps, [...after, ...extra]);
   if (rows) _dlog('[sync] copy made ready for its server:', rows, 'rows,', writes.length, 'changes queued,', statements, 'statements');
   return { rows, statements, queued: writes.length };
+}
+
+/**
+ * Excused days as the copy becomes `match`'s account (statements for
+ * adoptLocalCopy's transaction). Back to the account Disconnect took them
+ * from: every one changed here goes up as a queued write (a removal
+ * included), made when it was made, so the server keeps whichever edit is
+ * newer. Any other account: a removal meant for the old server is dropped,
+ * and the old server's ids with it; the days themselves stay the phone's
+ * own, for an Upload.
+ */
+async function _excusedFromOrigin(match) {
+  let origin = null;
+  try { origin = JSON.parse((await getSyncMeta('excused_origin')) || 'null'); } catch { origin = null; }
+  return !!(match?.inst && origin?.inst && origin.inst === match.inst
+    && (origin.uid == null || match.uid == null || String(origin.uid) === String(match.uid)));
+}
+
+async function _adoptExcused(match) {
+  const out = [];
+  if (await _excusedFromOrigin(match)) {
+    // Days the server has (server_id): back in place, changes and removals
+    // queued. Days made after Disconnect go up with an Upload, as new.
+    for (const r of await dbQuery(`SELECT * FROM excused_days WHERE sync_state = 'pending' AND server_id IS NOT NULL`, [])) {
+      const p = r.deleted_at
+        ? { method: 'DELETE', path: `/api/excused-days/${r.date}`, body: null, editedAt: r.deleted_at }
+        : { method: 'PUT', path: `/api/excused-days/${r.date}`, body: { reason: r.reason, note: r.note ?? null }, editedAt: r.updated_at };
+      out.push({ statement: `INSERT INTO sync_queue (table_name, row_id, operation, payload) VALUES (?, NULL, ?, ?)`, values: [p.path, p.method, JSON.stringify(p)] });
+    }
+  } else {
+    out.push({ statement: `DELETE FROM excused_days WHERE deleted_at IS NOT NULL`, values: [] });
+    out.push({ statement: `UPDATE excused_days SET server_id = NULL`, values: [] });
+  }
+  out.push({ statement: `INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('excused_origin', '')`, values: [] });
+  return out;
 }
 
 // ── A copy from an earlier version ───────────────────────────────────────
@@ -1110,7 +1156,7 @@ async function _queuedRowIds() {
 async function _queuedTargets() {
   const t = {
     programs: new Set(), workout_templates: new Set(), exercises: new Set(), reorder: new Set(),
-    workoutDates: new Set(), bodyDates: new Set(), assignments: false, creates: false,
+    workoutDates: new Set(), bodyDates: new Set(), excusedDates: new Set(), assignments: false, creates: false,
   };
   let rows = [];
   try { rows = await dbQuery(`SELECT payload FROM sync_queue`, []); } catch { return t; }
@@ -1125,6 +1171,7 @@ async function _queuedTargets() {
     else if ((m = path.match(/^\/api\/templates\/(-?\d+)$/))) t.workout_templates.add(Number(m[1]));
     else if ((m = path.match(/^\/api\/exercises\/(-?\d+)$/))) t.exercises.add(Number(m[1]));
     else if ((m = path.match(/^\/api\/body-stats\/(\d{4}-\d{2}-\d{2})$/))) t.bodyDates.add(m[1]);
+    else if ((m = path.match(_EXCUSED_PATH))) t.excusedDates.add(m[1]);
     else if (workoutDateOf(p.path)) t.workoutDates.add(workoutDateOf(p.path));
     if (p.method === 'POST' && /^\/api\/(programs|templates|exercises)$/.test(path)) t.creates = true;
   }
@@ -1468,6 +1515,65 @@ async function _applyBodyStats(rows, result, guard = _NO_GUARD) {
   result.tables.bodyStats = rows.length;
 }
 
+// ── Excused days (issue #121) ────────────────────────────────────────────
+// Kept by date: the copy is one account's, and the server's route is by
+// date too, so a queued change needs no id from the server.
+const _EXCUSED_PATH = /^\/api\/excused-days\/(\d{4}-\d{2}-\d{2})$/;
+
+async function _applyExcused(rows, result, guard = _NO_GUARD) {
+  const seen = new Set();
+  for (let e of rows || []) {
+    _assertAlive();
+    // Deleted outright on the server (sync_deletions): named by its id.
+    if (!e.date) e = { ...e, date: (await dbQuery(`SELECT date FROM excused_days WHERE server_id = ?`, [e.id]))[0]?.date };
+    if (!e.date) continue;
+    seen.add(e.date);
+    // A change of that day still on its way up wins; asked for again later.
+    if (guard.excusedDates.has(e.date)) { guard.skip(e.updated_at); continue; }
+    const mine = (await dbQuery(`SELECT sync_state FROM excused_days WHERE date = ?`, [e.date]))[0];
+    // This phone's own change the server hasn't had (made standalone, or
+    // kept by Disconnect): it stays, to go up with an Upload.
+    if (mine?.sync_state === 'pending') {
+      if (e.id != null && e.date) await dbRun(`UPDATE excused_days SET server_id = ? WHERE date = ? AND server_id IS NULL`, [e.id, e.date]);
+      continue;
+    }
+    if (e.deleted_at || !e.reason) { await dbRun(`DELETE FROM excused_days WHERE date = ?`, [e.date]); continue; }
+    await dbRun(
+      `INSERT OR REPLACE INTO excused_days (date, server_id, reason, note, updated_at, deleted_at, sync_state)
+       VALUES (?, ?, ?, ?, ?, NULL, 'clean')`,
+      [e.date, e.id ?? null, e.reason, e.note ?? null, e.updated_at || new Date().toISOString()]
+    );
+  }
+  if (guard.full) {
+    // Not on the server at all (a refused change, a restore without it):
+    // only what this phone has of its own stays.
+    for (const r of await dbQuery(`SELECT date FROM excused_days WHERE COALESCE(sync_state, 'clean') = 'clean'`, [])) {
+      if (!seen.has(r.date) && !guard.excusedDates.has(r.date)) await dbRun(`DELETE FROM excused_days WHERE date = ?`, [r.date]);
+    }
+  }
+  result.tables.excusedDays = rows?.length || 0;
+}
+
+/** An excused day saved or removed online: this device's copy follows the
+ *  server's answer, so the day reads right with no connection later. */
+export async function mirrorExcusedWrite(path, method, data, gen = accountGen()) {
+  const m = String(path || '').split('?')[0].match(_EXCUSED_PATH);
+  if (!m || !isNative || !getServerUrl() || gen !== accountGen() || copyMoving()) return;
+  // A change of that day still waiting in the queue is newer than this answer.
+  if ((await _queuedTargets()).excusedDates.has(m[1])) return;
+  if (method === 'DELETE') {
+    await dbRun(`DELETE FROM excused_days WHERE date = ?`, [m[1]]);
+    return;
+  }
+  const e = data?.excused;
+  if (!e?.reason) return;
+  await dbRun(
+    `INSERT OR REPLACE INTO excused_days (date, server_id, reason, note, updated_at, deleted_at, sync_state)
+     VALUES (?, ?, ?, ?, ?, NULL, 'clean')`,
+    [m[1], e.id ?? null, e.reason, e.note ?? null, e.updated_at || new Date().toISOString()]
+  );
+}
+
 /**
  * Setting keys with a write still queued for the server (made offline).
  * Those local values are newer than anything the server can send back.
@@ -1741,6 +1847,10 @@ export async function describeEdit(method, path, body) {
       if (!r || !body.stats || typeof body.stats !== 'object') return out;
       const mine = _json(r.stats, {});
       out.changed = Object.keys(body.stats).filter(k => _norm(body.stats[k]) !== _norm(mine[k]));
+      return out;
+    } else if ((m = p.match(_EXCUSED_PATH))) {
+      const r = (await dbQuery(`SELECT reason, note FROM excused_days WHERE date = ? AND deleted_at IS NULL`, [m[1]]))[0];
+      if (r) out.changed = ['reason', 'note'].filter(f => body[f] !== undefined && _norm(body[f]) !== _norm(r[f]));
       return out;
     } else if (p === '/api/settings') {
       if (typeof body.key === 'string') out.changed = ['value'];
@@ -2175,6 +2285,13 @@ async function _settled(payload) {
     await dbRun(`UPDATE ${table} SET sync_state = 'clean' WHERE id = ?`, [Number(m[2])]);
   } else if ((m = path.match(/^\/api\/body-stats\/(\d{4}-\d{2}-\d{2})$/))) {
     await dbRun(`UPDATE body_stats_log SET sync_state = 'clean' WHERE date = ?`, [m[1]]);
+  } else if ((m = path.match(_EXCUSED_PATH))) {
+    // Up (or refused, and the server's copy comes back down): a removal is
+    // done with here, a change is the server's again. Another change of the
+    // same day still queued keeps it this device's.
+    if ((await _queuedTargets()).excusedDates.has(m[1])) return;
+    await dbRun(`DELETE FROM excused_days WHERE date = ? AND deleted_at IS NOT NULL`, [m[1]]);
+    await dbRun(`UPDATE excused_days SET sync_state = 'clean' WHERE date = ?`, [m[1]]);
   }
 }
 

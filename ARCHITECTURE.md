@@ -69,6 +69,21 @@ imports so the server can load it from `../../src/lib/`; the Dockerfile
 copies it there. The cardio switch lives only in the browser without
 accounts, so the app sends it with the stats requests (`?cardio=1|0`).
 
+### Excused days are their own rows, keyed by date
+
+A day you couldn't train (issue #121) is a row in `excused_days`, one per
+account and date (reason, note), never a workout row: a workout with no
+sets counts as nothing. The routes are by date (`/api/excused-days/:date`),
+so a write sent twice is the same write and an offline device needs no id
+from the server; removing keeps the row with `deleted_at` so the removal
+reaches every device's pull. On the phone the table is keyed by date with
+the server's id beside it (`server_id`) and a `sync_state`; queued writes
+replay through the same routes, Disconnect keeps the days as the phone's
+own (remembering whose they were), and an Upload or connecting back to
+that account sends them. A trained day wins over an excuse
+(`excusedOnly` in `trained-day.js`): the excuse stays, the day counts as
+trained.
+
 ### Rest timer is superset-aware
 
 The timer only fires when a whole superset round is complete (every
@@ -81,7 +96,7 @@ survives reload. Countdown beeps schedule via `setTimeout`
 ### Trace assistant (tool use)
 
 Trace calls typed tools instead of relying on a pre-stuffed context
-payload. 18 tools live in `src/lib/aiTools.js` (11 read + 7 write):
+payload. 22 tools live in `src/lib/aiTools.js` (14 read + 8 write):
 workouts, exercises, programs, PRs, body stats, coach prescriptions,
 plus writers for logging a workout, adding an exercise, appending a
 set, logging a body stat, loading a template, switching active

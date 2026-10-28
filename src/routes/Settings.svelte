@@ -307,6 +307,7 @@
           programs:        $_('settings_main.merge.stage.programs'),
           templates:       $_('settings_main.merge.stage.templates'),
           customExercises: $_('settings_main.merge.stage.custom_exercises'),
+          excusedDays:     $_('settings_main.merge.stage.excused_days'),
         };
         migrationSummary = await uploadLocalToServer({
           userId: _pendingUserId,
@@ -1728,6 +1729,7 @@
             {#if localCounts.templates       > 0}<div><strong>{localCounts.templates}</strong> {$_('settings_main.merge.unit_templates', { values: { count: localCounts.templates } })}</div>{/if}
             {#if localCounts.customExercises > 0}<div><strong>{localCounts.customExercises}</strong> {$_('settings_main.merge.unit_custom_exercises', { values: { count: localCounts.customExercises } })}</div>{/if}
             {#if localCounts.cardio          > 0}<div>{$_('sync.count_cardio', { values: { count: localCounts.cardio } })}</div>{/if}
+            {#if localCounts.excusedDays     > 0}<div>{$_('sync.count_excused_days', { values: { count: localCounts.excusedDays } })}</div>{/if}
             {#if localCounts.settings        > 0}<div><strong>{localCounts.settings}</strong> {$_('settings_main.merge.unit_settings', { values: { count: localCounts.settings } })}</div>{/if}
           </div>
         </div>
@@ -1788,6 +1790,7 @@
           {#if migrationSummary.success.programs        > 0}<div><strong>{migrationSummary.success.programs}</strong> {$_('settings_main.merge.unit_programs', { values: { count: migrationSummary.success.programs } })}</div>{/if}
           {#if migrationSummary.success.templates       > 0}<div><strong>{migrationSummary.success.templates}</strong> {$_('settings_main.merge.unit_templates', { values: { count: migrationSummary.success.templates } })}</div>{/if}
           {#if migrationSummary.success.customExercises > 0}<div><strong>{migrationSummary.success.customExercises}</strong> {$_('settings_main.merge.unit_custom_exercises', { values: { count: migrationSummary.success.customExercises } })}</div>{/if}
+          {#if migrationSummary.success.excusedDays     > 0}<div>{$_('sync.count_excused_days', { values: { count: migrationSummary.success.excusedDays } })}</div>{/if}
           {#if migrationSummary.success.settings        > 0}<div><strong>{migrationSummary.success.settings}</strong> {$_('settings_main.merge.unit_settings', { values: { count: migrationSummary.success.settings } })}</div>{/if}
         </div>
       </div>

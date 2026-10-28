@@ -379,9 +379,21 @@ export const TOOLS = [
     },
   },
   {
+    name: 'get_excused_days',
+    description:
+      "Get the days the user marked as excused because they couldn't train (reason: injury, illness, appointment or other, plus an optional note), including days marked ahead. An excused day comes off that week's workout goal, so a quiet week with excused days is a planned break, not a missed week: check here before calling a gap missed or a week off track. A day with a workout on it counts as trained even when it was excused.",
+    parameters: {
+      type: 'object',
+      properties: {
+        date_from: { type: 'string', description: 'Inclusive YYYY-MM-DD. Omit unless the user named a date or period; defaults to 60 days ago.' },
+        date_to:   { type: 'string', description: 'Inclusive YYYY-MM-DD, future dates allowed. Omit unless the user named a date or period; defaults to 60 days from today.' },
+      },
+    },
+  },
+  {
     name: 'get_stats_overview',
     description:
-      "Snapshot the user's training over a window: workouts done, current + best streak, weekly averages, weekly volume + frequency series, muscle-group balance (with imbalance %), and top PRs set in range. Use for 'how am I doing?' / 'weekly summary'.",
+      "Snapshot the user's training over a window: days trained, current + best streak, weekly averages, weekly volume + frequency series, muscle-group balance (with imbalance %), top PRs set in range, and how many days in range were excused (couldn't train; each comes off that week's goal). Use for 'how am I doing?' / 'weekly summary'.",
     parameters: {
       type: 'object',
       properties: {
@@ -643,6 +655,7 @@ async function _dispatch(name, args) {
     case 'get_body_stats':         return _getBodyStats(args);
     case 'get_progress_photos':    return _getProgressPhotos(args);
     case 'get_cardio':             return _getCardio(args);
+    case 'get_excused_days':       return _getExcusedDays(args);
     case 'get_stats_overview':     return _getStatsOverview(args);
     case 'get_coach_prescription': return _getCoachPrescription(args);
 
@@ -1063,6 +1076,19 @@ async function _getProgressPhotos({ date_from, date_to } = {}) {
  * would tell a user training five days a week that they had done nothing
  * since Tuesday.
  */
+// Excused days (issue #121). The whole list is one small read; the range
+// may reach into the future (a day marked ahead), unlike the other reads.
+async function _getExcusedDays({ date_from, date_to } = {}) {
+  const ok = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  let from = ok(date_from) ? date_from : _daysAgo(60);
+  let to = ok(date_to) ? date_to : _daysAgo(-60);
+  if (from > to) [from, to] = [to, from];
+  const rows = (await _get('/api/excused-days')) || [];
+  const days = rows.filter(r => r.date >= from && r.date <= to)
+    .map(r => ({ date: r.date, reason: r.reason, ...(r.note ? { note: r.note } : {}) }));
+  return { start: from, end: to, today: _today(), count: days.length, excused_days: days };
+}
+
 async function _getCardio({ date_from, date_to, activity } = {}) {
   const from = date_from || _daysAgo(30);
   const to   = date_to   || _today();
@@ -1149,12 +1175,13 @@ async function _getStatsOverview({ range } = {}) {
 
   // Trained days count cardio while Track Cardio is on, as on Statistics.
   const cardio = _cardioOn() ? 1 : 0;
-  const [streaks, volume, frequency, muscleSets, records] = await Promise.all([
+  const [streaks, volume, frequency, muscleSets, records, excused] = await Promise.all([
     _get(`/api/stats/streaks?cardio=${cardio}`).catch(() => ({})),
     _get(`/api/stats/volume?start=${from}&end=${to}`).catch(() => []),
     _get(`/api/stats/frequency?start=${from}&end=${to}&cardio=${cardio}`).catch(() => []),
     _get(`/api/stats/muscle-effective-sets?start=${from}&end=${to}`).catch(() => ({})),
     _get('/api/stats/records').catch(() => []),
+    _get('/api/excused-days').catch(() => []),
   ]);
 
   const workouts_in_range = frequency.reduce((a, w) => a + (w.count || 0), 0);
@@ -1183,6 +1210,9 @@ async function _getStatsOverview({ range } = {}) {
     date_from: from,
     date_to: to,
     workouts_in_range,
+    // Days marked as excused in range (issue #121): each came off its week's
+    // goal, so fewer workouts in those weeks were planned.
+    excused_days_in_range: (excused || []).filter(e => e.date >= from && e.date <= to).length,
     streak_current: streaks.currentStreak ?? 0,
     streak_best:    streaks.longestStreak ?? 0,
     weekly_avg,
