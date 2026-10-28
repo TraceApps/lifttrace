@@ -238,7 +238,7 @@
                 {#if p.duration_weeks > 1 && p.current_week}
                   <span class="progress-stat">{$_('programs.week_of', { values: { week: p.current_week, total: p.duration_weeks } })}</span>
                 {:else if p.weeks_active > 0}
-                  <span class="progress-stat">Week {p.weeks_active}</span>
+                  <span class="progress-stat">{$_('workout_editor.week', { values: { n: p.weeks_active } })}</span>
                 {/if}
                 {#if p.sessions_in_program > 0}
                   <span class="progress-sep">·</span>

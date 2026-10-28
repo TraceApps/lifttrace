@@ -396,7 +396,7 @@
     <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
       <h1>{$_('routes.exercises.title')}</h1>
       <span class="exercise-count" title="Filtered / total">
-        {filtered.length}{#if filtered.length !== exercises.length} <span class="exercise-count-total">/ {exercises.length}</span>{/if}
+        {filtered.length}{#if filtered.length !== exercises.length}{' '}<span class="exercise-count-total">/ {exercises.length}</span>{/if}
       </span>
       <button class="create-btn" on:click={() => addMenuOpen = true} aria-label="Add exercise" title="Add exercise" disabled={importBusy}>
         <span class="material-symbols-rounded">{importBusy ? 'hourglass_top' : 'add'}</span>

@@ -376,7 +376,7 @@
               <div class="my-ex-info">
                 <span class="my-ex-name">{ex.name}</span>
                 <span class="my-ex-meta">
-                  {ex.category || $_('settings_catalog.uncategorized')}{#if (ex.primary_muscles || []).length} · {(ex.primary_muscles || []).slice(0, 3).join(', ')}{/if}
+                  {ex.category || $_('settings_catalog.uncategorized')}{#if (ex.primary_muscles || []).length}{' · '}{(ex.primary_muscles || []).slice(0, 3).join(', ')}{/if}
                 </span>
               </div>
               <button class="my-ex-btn" on:click={() => openEdit(ex)} title={$_('common.edit')}>

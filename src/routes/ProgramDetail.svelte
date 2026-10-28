@@ -333,7 +333,7 @@
         <span class="template-count">{program.templates?.length || 0} workouts</span>
         {#if program.duration_weeks > 1}
           <span class="goal-tag week-tag">
-            {program.is_active && program.current_week ? $_('programs.week_of', { values: { week: program.current_week, total: program.duration_weeks } }) : `${program.duration_weeks} weeks`}
+            {program.is_active && program.current_week ? $_('programs.week_of', { values: { week: program.current_week, total: program.duration_weeks } }) : $_('programs.n_weeks', { values: { n: program.duration_weeks } })}
           </span>
         {/if}
         {#if program.is_active}
@@ -449,7 +449,7 @@
                       <span class="ptp-ex-name">{ex.name || ex.exercise_name || 'Exercise'}</span>
                       {#if ex.target_sets || ex.target_reps || ex.target_weight || ex.target_duration}
                         <span class="ptp-ex-spec">
-                          {#if ex.target_sets}{ex.target_sets} × {/if}{#if ex.set_type === 'time'}{fmtSetDuration(parseDuration(ex.target_duration)) || ex.target_duration || ''}{:else if ex.target_reps}{ex.target_reps}{/if}{#if ex.target_weight}{' @ '}{ex.target_weight}{/if}
+                          {#if ex.target_sets}{ex.target_sets}{' × '}{/if}{#if ex.set_type === 'time'}{fmtSetDuration(parseDuration(ex.target_duration)) || ex.target_duration || ''}{:else if ex.target_reps}{ex.target_reps}{/if}{#if ex.target_weight}{' @ '}{ex.target_weight}{/if}
                         </span>
                       {/if}
                     </div>

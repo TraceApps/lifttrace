@@ -2695,7 +2695,7 @@
           {:else if f.member_reply}
             <button class="my-reply" on:click={() => openReply(f)}>
               <span class="my-reply-label">
-                You{#if f.member_replied_at} · {relInboxTime(f.member_replied_at)}{/if}
+                You{#if f.member_replied_at}{' · '}{relInboxTime(f.member_replied_at)}{/if}
               </span>
               <span class="my-reply-text">{f.member_reply}</span>
               <span class="material-symbols-rounded my-reply-edit-icon">edit</span>
@@ -2781,8 +2781,10 @@
       {#if $todayLog?.program_week}
         <!-- Plan week this session was logged in (issue #13). Persisted on the
              log, so it stays accurate even after the athlete advances. -->
-        <span class="week-chip" title="Program week this workout was logged in">
-          Week {$todayLog.program_week}{#if $todayLog.program_duration_weeks} of {$todayLog.program_duration_weeks}{/if}
+        <span class="week-chip" title={$_('diary.week_chip_title')}>
+          {$todayLog.program_duration_weeks
+            ? $_('programs.week_of', { values: { week: $todayLog.program_week, total: $todayLog.program_duration_weeks } })
+            : $_('workout_editor.week', { values: { n: $todayLog.program_week } })}
         </span>
       {/if}
     </div>
@@ -3187,11 +3189,13 @@
         </div>
         {#if $todayLog?.program_week}
           <div class="rail-card-meta">
-            Week {$todayLog.program_week}{#if $todayLog.program_duration_weeks} of {$todayLog.program_duration_weeks}{/if}
+            {$todayLog.program_duration_weeks
+              ? $_('programs.week_of', { values: { week: $todayLog.program_week, total: $todayLog.program_duration_weeks } })
+              : $_('workout_editor.week', { values: { n: $todayLog.program_week } })}
           </div>
         {:else if $activeProgram.duration_weeks}
           <div class="rail-card-meta">
-            {$activeProgram.duration_weeks}-week program
+            {$_('programs.n_week_program', { values: { n: $activeProgram.duration_weeks } })}
           </div>
         {/if}
       </div>

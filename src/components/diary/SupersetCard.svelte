@@ -190,7 +190,7 @@
                     {:else if f.member_reply}
                       <button class="my-reply" on:click={() => onOpenReply(f)}>
                         <span class="my-reply-label">
-                          You{#if f.member_replied_at} · {relTime(f.member_replied_at)}{/if}
+                          You{#if f.member_replied_at}{' · '}{relTime(f.member_replied_at)}{/if}
                         </span>
                         <span class="my-reply-text">{f.member_reply}</span>
                         <span class="material-symbols-rounded my-reply-edit-icon">edit</span>

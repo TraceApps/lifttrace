@@ -213,6 +213,7 @@
     },
     "workout_name_placeholder": "Workout name...",
     "tap_to_rename":            "Tap to rename",
+    "week_chip_title":          "Program week this workout was logged in",
     "nav": {
       "previous_day":  "Previous day",
       "next_day":      "Next day",
@@ -1027,6 +1028,8 @@
     "goal":                  "Goal",
     "cancel":                "Cancel",
     "week_of": "Week {week} of {total}",
+    "n_week_program": "{n}-week program",
+    "n_weeks": "{n, plural, one {# week} other {# weeks}}",
     "paused_days": "{count, plural, one {Paused # day for excused days} other {Paused # days for excused days}}"
   },
   "settings_workout_import": {

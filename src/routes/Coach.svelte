@@ -147,7 +147,7 @@
             <div class="past-pick" role="tablist">
               {#each past as p (p.id)}
                 <button class="past-chip" class:active={p.id === pastId} role="tab" aria-selected={p.id === pastId} on:click={() => pastId = p.id}>
-                  {p.coach.name}{#if p.unread} <span class="unread-pill">{p.unread}</span>{/if}
+                  {p.coach.name}{#if p.unread}{' '}<span class="unread-pill">{p.unread}</span>{/if}
                 </button>
               {/each}
             </div>

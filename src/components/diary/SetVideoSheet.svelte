@@ -244,7 +244,7 @@
           <!-- svelte-ignore a11y-media-has-caption -->
           <video class="sv-video" src={clipUrl} poster={posterUrl || undefined} preload="metadata" controls playsinline></video>
           <p class="sv-meta">
-            {#if elapsed}{clock(elapsed)} · {/if}{sizeMb} MB
+            {#if elapsed}{clock(elapsed)}{' · '}{/if}{sizeMb} MB
           </p>
           <div class="sv-confirm">
             <button type="button" class="btn-ghost" on:click={() => { stage = 'choose'; clipBlob = null; posterUrl = null; }}>
