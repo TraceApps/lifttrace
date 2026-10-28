@@ -19,6 +19,7 @@ import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settle
 import { foldText } from './search-text.js';
 import { OFFLINE_HEADER } from './offline-edits.js';
 import { DB } from './db.js';
+import { planWeekQuery } from './plan-week-query.js';
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -303,7 +304,7 @@ export const TOOLS = [
   {
     name: 'get_active_program',
     description:
-      "Get the user's currently active program in full (same shape as get_program). Returns { active: false } if none is active. Prefer this over get_programs+get_program when the user says 'my program' / 'today's plan'.",
+      "Get the user's currently active program in full (same shape as get_program). Returns { active: false } if none is active. Prefer this over get_programs+get_program when the user says 'my program' / 'today's plan'. current_week is the plan week they're on; paused_days, when present, is how many days their excused days (injury, illness...) have pushed a calendar-mode program back, already counted in current_week.",
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -893,7 +894,7 @@ async function _getExercise({ id, name } = {}) {
 }
 
 async function _getPrograms() {
-  const rows = await _get('/api/programs');
+  const rows = await _get(`/api/programs${planWeekQuery()}`);
   return rows.map(p => ({
     id: p.id,
     name: p.name,
@@ -902,12 +903,13 @@ async function _getPrograms() {
     weeks: p.duration_weeks ?? 1,
     is_active: !!p.is_active,
     ...(p.current_week ? { current_week: p.current_week } : {}),
+    ...(p.paused_days > 0 ? { paused_days: p.paused_days } : {}),
   }));
 }
 
 async function _getProgram({ id }) {
   if (id == null) throw new Error('id is required');
-  const p = await _get(`/api/programs/${Number(id)}`);
+  const p = await _get(`/api/programs/${Number(id)}${planWeekQuery()}`);
   return _shapeProgram(p);
 }
 
@@ -939,15 +941,16 @@ function _shapeProgram(p) {
     weeks: p.duration_weeks ?? 1,
     is_active: !!p.is_active,
     ...(p.current_week ? { current_week: p.current_week } : {}),
+    ...(p.paused_days > 0 ? { paused_days: p.paused_days } : {}),
     templates,
   };
 }
 
 async function _getActiveProgram() {
-  const rows = await _get('/api/programs');
+  const rows = await _get(`/api/programs${planWeekQuery()}`);
   const active = rows.find(p => p.is_active);
   if (!active) return { active: false };
-  const full = await _get(`/api/programs/${active.id}`);
+  const full = await _get(`/api/programs/${active.id}${planWeekQuery()}`);
   return _shapeProgram(full);
 }
 
@@ -1416,7 +1419,7 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
     tpl = await _get(`/api/templates/${Number(template_id)}`);
   } else {
     // Scan the user's programs to find a template by name.
-    const programs = await _get('/api/programs');
+    const programs = await _get(`/api/programs${planWeekQuery()}`);
     const lower = foldText(template_name);
     outer: for (const p of programs) {
       const full = await _get(`/api/programs/${p.id}`);
@@ -1434,7 +1437,7 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
   // program being followed. Unknown, it's left out, as for any other program.
   let planWeek = null;
   if (tpl.program_id != null) {
-    const prog = await _get(`/api/programs/${Number(tpl.program_id)}`).catch(() => null);
+    const prog = await _get(`/api/programs/${Number(tpl.program_id)}${planWeekQuery()}`).catch(() => null);
     planWeek = prog?.is_active ? (prog.current_week || null) : null;
   }
 
@@ -1479,7 +1482,7 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
 
 async function _setActiveProgram({ program_id, program_name }) {
   if (program_id == null && !program_name) throw new Error('program_id or program_name is required');
-  const programs = await _get('/api/programs');
+  const programs = await _get(`/api/programs${planWeekQuery()}`);
   let target = null;
   if (program_id != null) {
     target = programs.find(p => p.id === Number(program_id)) || null;

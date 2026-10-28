@@ -114,6 +114,67 @@ const scenarios = {
     globalThis.Date = R;
     return out;
   },
+  // Excused days pause a calendar program (issue #121), the dated case from
+  // scripts/fixtures/program-week-cases.mjs through the phone's own copy of
+  // the plan-week rule, standalone: no server, so api-native answers.
+  async programPauseStandalone() {
+    const { datedCase } = await import('../fixtures/program-week-cases.mjs');
+    const { dbRun } = await import('../../src/lib/db-native.js');
+    process.env.LT_SERVER = '';
+    const today = new Date().toLocaleDateString('sv-SE');
+    const D = datedCase(today);
+    const lift = [{ uuid: 'e1', exercise_id: 1, exercise_name: 'Squat', sets: [{ uuid: 's1', weight: 60, reps: 5, completed: true }] }];
+    const p = await api.createProgram({ name: 'Block', duration_weeks: 4, advance_mode: 'calendar' });
+    await api.setActiveProgram(p.id);
+    await dbRun(`UPDATE program_assignments SET start_date = ? WHERE program_id = ?`, [D.start, p.id]);
+    const now = async () => {
+      const list = (await api.getPrograms()).find(x => x.id === p.id);
+      const one = await api.getProgram(p.id);
+      return { list: { week: list.current_week, pausedDays: list.paused_days }, one: { week: one.current_week, pausedDays: one.paused_days } };
+    };
+    const out = { before: await now() };
+    for (const [k, d] of Object.entries(D.excused)) await api.saveExcusedDay(d, { reason: k === 'ahead' ? 'appointment' : 'injury' });
+    await api.saveWorkout(D.excused.trained, { name: 'W', exercises: lift });
+    out.excused = await now();
+    await api.removeExcusedDay(D.excused.start);
+    await api.saveWorkout(D.excused.counted, { name: 'W', exercises: lift });
+    out.undone = await now();
+    await api.saveExcusedDay(today, { reason: 'illness' });
+    await api.saveExcusedDay(new Date(Date.parse(`${today}T00:00:00Z`) - 2 * 864e5).toISOString().slice(0, 10), { reason: 'illness' });
+    out.beforePin = await now();
+    await api.setProgramWeekCursor(p.id, 2);
+    out.pinned = await now();
+    return out;
+  },
+  // Connected: the plan comes from the server, an excuse made offline
+  // pauses it at once on the phone, and the server says the same once it
+  // goes up.
+  async programPauseConnected() {
+    const la = await import('../../src/lib/local-account.js');
+    const athlete = { id: Number(process.env.LT_PHONE_USER) };
+    const today = new Date().toLocaleDateString('sv-SE');
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    me();
+    await la.prepareLocalAccount(athlete, { confirm: async () => true });
+    const p = await web('phone', 'POST', '/api/programs', { name: 'Server Block', duration_weeks: 4, advance_mode: 'calendar' });
+    await web('phone', 'POST', `/api/programs/${p.id}/activate`);
+    await syncNow();
+    const local = async () => {
+      const list = (await api.getPrograms()).find(x => x.name === 'Server Block');
+      const one = await api.getProgram(list.id);
+      return [list.current_week, list.paused_days, one.current_week, one.paused_days];
+    };
+    const out = { before: await local() };
+    offline(true);
+    await api.saveExcusedDay(today, { reason: 'illness' });
+    out.offline = await local();
+    offline(false);
+    await syncNow();
+    const srv = await web('phone', 'GET', `/api/programs/${p.id}?tz=${tz}`);
+    out.server = [srv.current_week, srv.paused_days];
+    out.synced = await local();
+    return out;
+  },
   // Rows made offline (a plan, a day in it, an exercise, a workout using all
   // three) while another account takes the server ids the phone would use.
   // Excused days (issue #121), connected: an online save lands in the phone's

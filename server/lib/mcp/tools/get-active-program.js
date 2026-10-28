@@ -7,7 +7,7 @@
  * search_exercises round-trip per exercise.
  */
 import db from '../../../db.js';
-import { currentPlanWeek } from '../../programWeek.js';
+import { planWeekFor } from '../../program-pause.js';
 import { toolResult } from '../_util.js';
 
 /**
@@ -15,8 +15,13 @@ import { toolResult } from '../_util.js';
  * (issue #77) at GET /api/v1/programs/active, and the program.advanced
  * webhook detection (issue #79) in workout.js, which calls this before
  * and after a completed save and compares current_week.
+ *
+ * paused_days: the days excused days (issue #121) have pushed a
+ * calendar-mode program back, already taken off current_week; 0 for a
+ * program advanced by sessions. "Today" is in `timeZone` (the coach's view
+ * of a client passes the coach's device zone), else the server's.
  */
-export function getActiveProgramCore(userId) {
+export function getActiveProgramCore(userId, { timeZone } = {}) {
   const assignment = db.prepare(
     `SELECT pa.*, p.* FROM program_assignments pa
        JOIN programs p ON p.id = pa.program_id
@@ -36,9 +41,10 @@ export function getActiveProgramCore(userId) {
         ${assignment.assigned_at ? 'AND date >= date(?)' : ''}
   `).get(...(assignment.assigned_at ? [userId, assignment.program_id, assignment.assigned_at] : [userId, assignment.program_id]))?.c || 0;
 
-  const currentWeek = currentPlanWeek(assignment, assignment, {
+  const { week: currentWeek, pausedDays } = planWeekFor(userId, assignment, assignment, {
     sessionsInProgram,
     sessionsPerWeek: templateCount,
+    timeZone,
   });
 
   return {
@@ -46,7 +52,9 @@ export function getActiveProgramCore(userId) {
     program_id: assignment.program_id,
     name: assignment.name,
     duration_weeks: assignment.duration_weeks,
+    advance_mode: assignment.advance_mode || 'sessions',
     current_week: currentWeek,
+    paused_days: pausedDays,
     templates: templates.map(t => ({
       template_id: t.id,
       name: t.name,
@@ -66,9 +74,11 @@ export function registerGetActiveProgram(server, { userId }) {
     {
       title: 'Get Active Program',
       description:
-        "The caller's currently active program: name, duration, current " +
-        'week, and every weekly template (name, day label, exercise list). ' +
-        'Returns active: false if no program is active.',
+        "The caller's currently active program: name, duration, how it " +
+        "advances ('sessions' or 'calendar'), current week, paused_days (days " +
+        'excused days have pushed a calendar program back, already counted in ' +
+        'current_week; 0 otherwise), and every weekly template (name, day ' +
+        'label, exercise list). Returns active: false if no program is active.',
       inputSchema: {},
     },
     async () => toolResult(getActiveProgramCore(userId))

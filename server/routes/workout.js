@@ -394,7 +394,9 @@ router.put('/:date', wrap((req, res) => {
     // session belongs to the program that was active before the save
     // (_programBefore, snapshotted above). Comparing current_week here
     // (not before the save) is deliberate: session count, and therefore
-    // current_week, only changes once this save has actually committed.
+    // current_week, only changes once this save has actually committed. A
+    // calendar program can move on here too: training on an excused day
+    // gives back the day it paused (issue #121).
     if (_programBefore?.active && _programBefore.program_id === program_id) {
       try {
         const programAfter = getActiveProgramCore(userId);

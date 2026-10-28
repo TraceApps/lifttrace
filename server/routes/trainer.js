@@ -12,6 +12,8 @@ import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/cr
 import { trainedDateSet } from '../lib/trained-days.js';
 import { currentStreak, shiftDate } from '../../src/lib/trained-day.js';
 import { getExcusedDay, listExcusedDays } from '../lib/excused-days.js';
+import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
+import { zoneFrom } from '../lib/program-pause.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -78,6 +80,21 @@ router.get('/members/:id', wrap((req, res) => {
      JOIN programs p ON p.id = pa.program_id
      WHERE pa.assigned_to = ? AND pa.active = 1 LIMIT 1`
   ).get(memberId) || null;
+  // Where the client is in it: the plan week, and the days their excused
+  // days have paused a calendar program (#121). "Today" is in the zone of
+  // the coach's device (?tz=); the server keeps no zone for the client, so
+  // around midnight the two can be a day apart.
+  if (activeProgram) {
+    const where = getActiveProgramCore(memberId, { timeZone: zoneFrom(req.query?.tz) });
+    if (where.active && where.program_id === activeProgram.id) {
+      Object.assign(activeProgram, {
+        duration_weeks: where.duration_weeks,
+        advance_mode: where.advance_mode,
+        current_week: where.current_week,
+        paused_days: where.paused_days,
+      });
+    }
+  }
 
   const assignedPrograms = db.prepare(
     `SELECT p.id, p.name, p.goal, pa.active, pa.assigned_at FROM program_assignments pa

@@ -18,7 +18,7 @@ import {
   getSyncMeta,
   setSyncMeta,
 } from './db-native.js';
-import { currentPlanWeek } from './programWeek.js';
+import { planWeekState, pauseWindow } from './programWeek.js';
 import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
 import { musclesOf } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
@@ -117,21 +117,43 @@ async function _sessionsInProgram(programId, assignedAt) {
 
 // Resolve current_week for an active program row + its assignment, so the
 // Diary's week bar and week-aware prefill work offline. Returns { current_week,
-// sessions_in_program } or null when the program isn't progressed/active.
-async function _resolveCurrentWeek(program, assignment) {
+// sessions_in_program, paused_days } or null when the program isn't
+// progressed/active. paused_days: the days this phone's excused days have
+// pushed a calendar-mode program back (issue #121), by the same rule and
+// window the server uses (programWeek.js). `query.cardio`: the Track Cardio
+// switch the app sends (plan-week-query.js).
+async function _resolveCurrentWeek(program, assignment, query = {}) {
   if (!program || (program.duration_weeks || 1) <= 1) return null;
   const tplCount = (await dbQuery(
     `SELECT COUNT(*) AS c FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL`,
     [program.id]
   ))[0]?.c || 0;
   const sessions = await _sessionsInProgram(program.id, assignment?.assigned_at);
-  return {
-    sessions_in_program: sessions,
-    current_week: currentPlanWeek(program, assignment, {
-      sessionsInProgram: sessions,
-      sessionsPerWeek: tplCount,
-    }),
-  };
+  const now = Date.now();
+  const window = pauseWindow(program, assignment, { now });
+  let excusedDays = [], trainedDays = new Set();
+  if (window) {
+    const range = [window.from, window.to];
+    excusedDays = (await dbQuery(
+      `SELECT date FROM excused_days WHERE deleted_at IS NULL AND date >= ? AND date <= ?`, range
+    )).map(r => r.date);
+    if (excusedDays.length) {
+      const on = query.cardio === '1' || query.cardio === 1 || query.cardio === true;
+      trainedDays = trainedDates({
+        workouts: await dbQuery(`SELECT date, exercises, deleted_at FROM workout_log WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?`, [ME, ...range]),
+        cardio: on ? await dbQuery(`SELECT date FROM cardio_log WHERE user_id = ? AND date >= ? AND date <= ?`, [ME, ...range]) : [],
+        cardioOn: on,
+      });
+    }
+  }
+  const { week, pausedDays } = planWeekState(program, assignment, {
+    sessionsInProgram: sessions,
+    sessionsPerWeek: tplCount,
+    excusedDays,
+    trainedDays,
+    now,
+  });
+  return { sessions_in_program: sessions, current_week: week, paused_days: pausedDays };
 }
 
 function _templateFromRow(r) {
@@ -553,7 +575,7 @@ async function nativeFetch(url, init = {}) {
 }
 
 const Programs = {
-  async list() {
+  async list(query = {}) {
     // Match server shape: each row gets is_active / is_assigned /
     // assigned_by_name / template_count alongside the core program fields.
     // Programs.svelte renders `p.is_active` directly; the previous
@@ -588,14 +610,14 @@ const Programs = {
              FROM program_assignments WHERE program_id = ? AND assigned_to = ? AND active = 1`,
           [r.id, ME]
         ))[0];
-        const wk = await _resolveCurrentWeek(prog, assignment);
+        const wk = await _resolveCurrentWeek(prog, assignment, query);
         if (wk) Object.assign(entry, wk);
       }
       out.push(entry);
     }
     return out;
   },
-  async get(id) {
+  async get(id, query = {}) {
     // Match server shape: single program with `is_active` and `templates`.
     const rows = await dbQuery(`SELECT * FROM programs WHERE id = ? AND deleted_at IS NULL`, [id]);
     if (!rows[0]) return null;
@@ -612,7 +634,7 @@ const Programs = {
     const prog = _programFromRow(rows[0]);
     const out = { ...prog, is_active: isActive, templates: tpls.map(_templateFromRow) };
     if (isActive) {
-      const wk = await _resolveCurrentWeek(prog, assignment);
+      const wk = await _resolveCurrentWeek(prog, assignment, query);
       if (wk) Object.assign(out, wk);
     }
     return out;
@@ -1590,10 +1612,10 @@ async function handle(method, path, body, query) {
 
   // ── /api/programs ──────────────────────────────────────────────────────
   if (r === 'programs') {
-    if (!id                  && m === 'GET')    return Programs.list();
+    if (!id                  && m === 'GET')    return Programs.list(query || {});
     if (!id                  && m === 'POST')   return Programs.create(body || {});
     if (id === 'deactivate'  && m === 'POST')   return Programs.deactivate();
-    if (/^-?\d+$/.test(id) && m === 'GET')        return Programs.get(Number(id));
+    if (/^-?\d+$/.test(id) && m === 'GET')        return Programs.get(Number(id), query || {});
     if (/^-?\d+$/.test(id) && m === 'PUT')        return Programs.update(Number(id), body || {});
     if (/^-?\d+$/.test(id) && m === 'DELETE')     return Programs.del(Number(id));
     if (/^-?\d+$/.test(id) && sub === 'activate'    && m === 'POST') return Programs.activate(Number(id));

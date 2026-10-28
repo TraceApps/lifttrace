@@ -332,8 +332,8 @@
         <span class="goal-tag">{program.goal}</span>
         <span class="template-count">{program.templates?.length || 0} workouts</span>
         {#if program.duration_weeks > 1}
-          <span class="goal-tag">
-            {program.is_active && program.current_week ? `Week ${program.current_week} of ${program.duration_weeks}` : `${program.duration_weeks} weeks`}
+          <span class="goal-tag week-tag">
+            {program.is_active && program.current_week ? $_('programs.week_of', { values: { week: program.current_week, total: program.duration_weeks } }) : `${program.duration_weeks} weeks`}
           </span>
         {/if}
         {#if program.is_active}
@@ -346,6 +346,13 @@
             <span class="material-symbols-rounded" style="font-size:16px">play_arrow</span>
             Set Active
           </button>
+        {/if}
+        <!-- Excused days push a calendar program back a day each (#121). -->
+        {#if program.is_active && program.paused_days > 0}
+          <span class="paused-note">
+            <span class="material-symbols-rounded" aria-hidden="true">event_busy</span>
+            {$_('programs.paused_days', { values: { count: program.paused_days } })}
+          </span>
         {/if}
       </div>
 
@@ -585,6 +592,12 @@
   .content { padding: 16px var(--page-px); }
 
   .info-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .goal-tag.week-tag { text-transform: none; }
+  .paused-note {
+    flex-basis: 100%; display: flex; align-items: center; gap: 4px;
+    font-size: 12px; color: var(--text-3);
+  }
+  .paused-note .material-symbols-rounded { font-size: 15px; color: var(--excused); }
   .goal-tag { padding: 4px 12px; border-radius: var(--radius-full); background: var(--surface-2); font-size: 13px; color: var(--text-2); text-transform: capitalize; }
   .template-count { font-size: 13px; color: var(--text-3); }
   .active-badge {

@@ -236,7 +236,7 @@
             {#if p.is_active && (p.weeks_active > 0 || p.sessions_in_program > 0)}
               <div class="card-progress">
                 {#if p.duration_weeks > 1 && p.current_week}
-                  <span class="progress-stat">Week {p.current_week} of {p.duration_weeks}</span>
+                  <span class="progress-stat">{$_('programs.week_of', { values: { week: p.current_week, total: p.duration_weeks } })}</span>
                 {:else if p.weeks_active > 0}
                   <span class="progress-stat">Week {p.weeks_active}</span>
                 {/if}
@@ -244,6 +244,13 @@
                   <span class="progress-sep">·</span>
                   <span class="progress-stat">{p.sessions_in_program} {p.sessions_in_program === 1 ? 'session' : 'sessions'}</span>
                 {/if}
+              </div>
+            {/if}
+            <!-- Excused days push a calendar program back a day each (#121). -->
+            {#if p.is_active && p.paused_days > 0}
+              <div class="card-paused">
+                <span class="material-symbols-rounded" aria-hidden="true">event_busy</span>
+                {$_('programs.paused_days', { values: { count: p.paused_days } })}
               </div>
             {/if}
           </button>
@@ -429,6 +436,11 @@
     margin-top: 2px;
   }
   .progress-sep { color: var(--text-3); font-weight: 500; }
+  .card-paused {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 500; color: var(--text-3);
+  }
+  .card-paused .material-symbols-rounded { font-size: 14px; color: var(--excused); }
 
   .empty { text-align: center; padding: 48px 24px; color: var(--text-3); }
   .empty .material-symbols-rounded { font-size: 48px; display: block; margin-bottom: 12px; color: var(--text-3); }

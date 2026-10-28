@@ -3,7 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid, userMgmtActive } from '../middleware/auth.js';
 import { coachesClient } from '../lib/coaching.js';
-import { currentPlanWeek } from '../lib/programWeek.js';
+import { planWeekFor, zoneFrom } from '../lib/program-pause.js';
 import { programFor } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
@@ -31,6 +31,7 @@ router.use(requireAuth);
 // seeds will live behind a future Templates/Discover tab.
 router.get('/', wrap((req, res) => {
   const userId = uid(req);
+  const weekOpts = _weekOpts(req);
   let programs;
   if (userId != null) {
     programs = db.prepare(
@@ -89,21 +90,24 @@ router.get('/', wrap((req, res) => {
             AND wl.template_id IN (SELECT id FROM workout_templates WHERE program_id = ?)
             ${sinceFilter}
       `).get(...args)?.c || 0;
-      // Multi-week progression: resolve which plan week the athlete is on.
-      p.current_week = currentPlanWeek(p, assigned, {
+      // Multi-week progression: resolve which plan week the athlete is on,
+      // and how many days excused days have paused a calendar one (#121).
+      _putWeek(p, planWeekFor(userId, p, assigned, {
+        ...weekOpts,
         sessionsInProgram: p.sessions_in_program,
         sessionsPerWeek: p.template_count,
-      });
+      }));
     } else if (p.is_active && userId == null) {
       // Single-user mode has no program_assignments row — the active flag and
       // the manual week cursor both live in app_config. Resolve current_week
       // here too so the list card matches the detail view + Load-Workout sheet.
       const cursor = readSoloCursor();
       p.sessions_in_program = sessionsInProgram(null, p.id, null);
-      p.current_week = currentPlanWeek(p, cursor, {
+      _putWeek(p, planWeekFor(null, p, cursor, {
+        ...weekOpts,
         sessionsInProgram: p.sessions_in_program,
         sessionsPerWeek: p.template_count,
-      });
+      }));
     }
   }
   res.json(programs);
@@ -139,13 +143,27 @@ router.get('/:id', wrap((req, res) => {
   if (program.is_active) {
     const sessions = sessionsInProgram(userId, id, assignment?.assigned_at);
     program.sessions_in_program = sessions;
-    program.current_week = currentPlanWeek(program, assignment, {
+    _putWeek(program, planWeekFor(userId, program, assignment, {
+      ..._weekOpts(req),
       sessionsInProgram: sessions,
       sessionsPerWeek: templates.length,
-    });
+    }));
   }
   res.json(program);
 }));
+
+// The athlete's zone and Track Cardio switch as the app sends them
+// (?tz=&cardio=), for which days are today's and which were trained.
+function _weekOpts(req) {
+  return { timeZone: zoneFrom(req.query?.tz), cardio: req.query?.cardio };
+}
+
+// current_week, and paused_days: days excused days pushed a calendar-mode
+// program back (issue #121), 0 for any other.
+function _putWeek(p, { week, pausedDays }) {
+  p.current_week = week;
+  p.paused_days = pausedDays;
+}
 
 // Completed program-attributed sessions since assignment. userId null =
 // single-user mode (no user_id filter needed).

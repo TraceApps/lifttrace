@@ -3443,7 +3443,7 @@
               on:click={() => setPlanWeek((selectedProgram.current_week || 1) - 1)}>
               <span class="material-symbols-rounded">chevron_left</span>
             </button>
-            <span class="lw-week-label">Week {selectedProgram.current_week || 1} of {selectedProgram.duration_weeks}</span>
+            <span class="lw-week-label">{$_('programs.week_of', { values: { week: selectedProgram.current_week || 1, total: selectedProgram.duration_weeks } })}</span>
             <button class="lw-week-nav" title="Advance a week"
               disabled={selectedProgram.on_complete !== 'repeat' && (selectedProgram.current_week || 1) >= selectedProgram.duration_weeks}
               on:click={advancePlanWeek}>
@@ -3452,6 +3452,13 @@
             <button class="lw-week-auto" title="Resume automatic week tracking"
               on:click={() => setPlanWeek(null)}>{$_('diary_extra.auto')}</button>
           </div>
+          <!-- Excused days push a calendar program back a day each (#121). -->
+          {#if selectedProgram.paused_days > 0}
+            <div class="lw-week-paused">
+              <span class="material-symbols-rounded" aria-hidden="true">event_busy</span>
+              {$_('programs.paused_days', { values: { count: selectedProgram.paused_days } })}
+            </div>
+          {/if}
         {/if}
 
         <!-- Templates list — restored to the original single-button-per-row
@@ -4621,6 +4628,11 @@
     font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer;
   }
   .lw-week-auto:hover { color: var(--text-1); border-color: var(--text-3); }
+  .lw-week-paused {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    margin: -6px 0 12px; font-size: 12px; color: var(--text-3);
+  }
+  .lw-week-paused .material-symbols-rounded { font-size: 15px; color: var(--excused); }
 
   .lw-templates {
     display: flex; flex-direction: column; gap: 4px;

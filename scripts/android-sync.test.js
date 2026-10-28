@@ -866,6 +866,27 @@ test("the phone's own statistics count trained days by the shared rule, as the s
   }
 });
 
+test("excused days pause a calendar program on the phone's own (#121): the shared dated case", { skip, timeout: SCENARIO_MS }, async () => {
+  const { datedCase } = await import('./fixtures/program-week-cases.mjs');
+  const D = datedCase(new Date().toISOString().slice(0, 10));
+  const { out } = await scenario('programPauseStandalone', { accounts: false });
+  const both = (v) => ({ list: v, one: v });
+  assert.deepEqual(out.before, both({ week: 3, pausedDays: 0 }));
+  assert.deepEqual(out.excused, both(D.expect), 'before the start, trained on and ahead do not count');
+  assert.deepEqual(out.undone, both(D.afterUndo), 'a removed excuse and a day trained on give their days back');
+  assert.deepEqual(out.beforePin, both({ week: 2, pausedDays: 2 }), 'today and two days ago count');
+  assert.deepEqual(out.beforePin.one, out.beforePin.list);
+  assert.deepEqual(out.pinned, both({ week: 2, pausedDays: 1 }), 'a week chosen today: today counts, two days ago no longer does');
+});
+
+test('excused days pause a calendar program on a connected phone at once, offline, and the server agrees (#121)', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('programPauseConnected');
+  assert.deepEqual(out.before, [1, 0, 1, 0]);
+  assert.deepEqual(out.offline, [1, 1, 1, 1], 'excused today, offline: paused a day');
+  assert.deepEqual(out.server, [1, 1]);
+  assert.deepEqual(out.synced, [1, 1, 1, 1]);
+});
+
 test('excused days (#121): saved online, changed offline, from the web, and never shown to another account', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('excusedConnected');
   assert.deepEqual(out.pulled, ['2026-06-03:other:web:clean'], 'pulled from the server');

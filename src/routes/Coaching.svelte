@@ -804,7 +804,14 @@
                 <span class="material-symbols-rounded row-icon">calendar_month</span>
                 <div class="row-body">
                   <span class="row-title">{p.name}</span>
-                  <span class="row-sub">{p.goal || 'general'}</span>
+                  <span class="row-sub">{p.goal || 'general'}{#if p.active && overview.active_program?.id === p.id && overview.active_program.duration_weeks > 1 && overview.active_program.current_week}{' · '}{$_('programs.week_of', { values: { week: overview.active_program.current_week, total: overview.active_program.duration_weeks } })}{/if}</span>
+                  <!-- The client's excused days push a calendar program back (#121). -->
+                  {#if p.active && overview.active_program?.id === p.id && overview.active_program.paused_days > 0}
+                    <span class="row-paused">
+                      <span class="material-symbols-rounded" aria-hidden="true">event_busy</span>
+                      {$_('programs.paused_days', { values: { count: overview.active_program.paused_days } })}
+                    </span>
+                  {/if}
                 </div>
                 {#if p.active}
                   <span class="badge active-badge">{$_('coaching.active')}</span>
@@ -852,9 +859,9 @@
                     {#if p.status === 'accepted' && p.responded_at && p.completed !== 1} · {$_('coaching.px_accepted')}{/if}
                     {#if p.completed === 1} · <span style="color:var(--success)">{$_('coaching.completed')}</span>{/if}
                     <!-- Excused by the client (issue #121): why, instead of "missed". -->
-                    {#if p.completed !== 1 && p.status !== 'declined' && p.excused_reason} · <span class="px-excused">{$_('excused.banner', { values: { reason: $_(`excused.reason.${p.excused_reason}`) } })}</span>{#if p.excused_note} ({p.excused_note}){/if}
+                    {#if p.completed !== 1 && p.status !== 'declined' && p.excused_reason}{' · '}<span class="px-excused">{$_('excused.banner', { values: { reason: $_(`excused.reason.${p.excused_reason}`) } })}</span>{#if p.excused_note} ({p.excused_note}){/if}
                     {:else if p.completed === 0 && p.status !== 'declined' && p.date && p.date < new Date().toISOString().slice(0,10)} · <span style="color:var(--danger)">{$_('coaching.missed')}</span>{/if}
-                    {#if p.notes} · {p.notes}{/if}
+                    {#if p.notes}{' · '}{p.notes}{/if}
                   </span>
                 </div>
                 <button class="btn-icon-sm" on:click={() => openEditPrescription(p)} title="Edit" aria-label="Edit prescription">
@@ -881,7 +888,7 @@
                 <div class="row-body">
                   <span class="row-title">{$_(`excused.reason.${e.reason}`)}</span>
                   <span class="row-sub">
-                    {new Date(e.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}{#if e.note} · {e.note}{/if}
+                    {new Date(e.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}{#if e.note}{' · '}{e.note}{/if}
                   </span>
                 </div>
               </div>
@@ -1008,7 +1015,7 @@
       {#if workoutDetail.excused}
         <div class="wd-excused">
           <span class="material-symbols-rounded" aria-hidden="true">{excuseIcon(workoutDetail.excused.reason)}</span>
-          <span>{$_('excused.banner', { values: { reason: $_(`excused.reason.${workoutDetail.excused.reason}`) } })}{#if workoutDetail.excused.note} · {workoutDetail.excused.note}{/if}</span>
+          <span>{$_('excused.banner', { values: { reason: $_(`excused.reason.${workoutDetail.excused.reason}`) } })}{#if workoutDetail.excused.note}{' · '}{workoutDetail.excused.note}{/if}</span>
         </div>
       {/if}
       <div class="wd-summary">
@@ -1349,6 +1356,8 @@
   .row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .row-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
   .row-sub { font-size: 11px; color: var(--text-3); }
+  .row-paused { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-3); }
+  .row-paused .material-symbols-rounded { font-size: 14px; color: var(--excused); }
 
   .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius-sm); text-transform: uppercase; letter-spacing: 0.05em; }
   .active-badge { background: var(--accent-dim); color: var(--accent); }

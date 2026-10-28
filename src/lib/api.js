@@ -1,6 +1,7 @@
 /**
  * api.js — LiftTrace API client
  */
+import { planWeekQuery } from './plan-week-query.js';
 
 async function _json(res) {
   const data = await res.json();
@@ -47,8 +48,8 @@ export const LtApi = {
     fetch('/api/exercises/sources/clear',  { ...jsonOpts, method: 'POST', body: JSON.stringify({ source }) }).then(_json),
 
   // ── Programs ───────────────────────────────────────────────────────────
-  getPrograms: () => fetch('/api/programs', opts).then(_json),
-  getProgram: (id) => fetch(`/api/programs/${id}`, opts).then(_json),
+  getPrograms: () => fetch(`/api/programs${planWeekQuery()}`, opts).then(_json),
+  getProgram: (id) => fetch(`/api/programs/${id}${planWeekQuery()}`, opts).then(_json),
   createProgram: (data) => fetch('/api/programs', { ...jsonOpts, method: 'POST', body: JSON.stringify(data) }).then(_json),
   updateProgram: (id, data) => fetch(`/api/programs/${id}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
   deleteProgram: (id) => fetch(`/api/programs/${id}`, { ...opts, method: 'DELETE' }).then(_json),
@@ -194,7 +195,7 @@ export const LtApi = {
   markCoachActivitySeen: (id = null) => fetch('/api/trainer/activity/seen', { ...jsonOpts, method: 'POST', body: JSON.stringify(id ? { id } : {}) }).then(_json),
   updatePrescription: (id, data) => fetch(`/api/trainer/prescriptions/${id}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
   saveCoachFeedback: (data) => fetch('/api/trainer/feedback', { ...jsonOpts, method: 'POST', body: JSON.stringify(data) }).then(_json),
-  getMemberOverview: (id) => fetch(`/api/trainer/members/${id}`, opts).then(_json),
+  getMemberOverview: (id) => fetch(`/api/trainer/members/${id}${planWeekQuery({ cardio: false })}`, opts).then(_json),
   getMemberWorkout: (id, date) => fetch(`/api/trainer/members/${id}/workout/${date}`, opts).then(_json),
   getMemberPrescriptions: (id) => fetch(`/api/trainer/members/${id}/prescriptions`, opts).then(_json),
   createPrescription: (memberId, data) => fetch(`/api/trainer/members/${memberId}/prescriptions`, { ...jsonOpts, method: 'POST', body: JSON.stringify(data) }).then(_json),

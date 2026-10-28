@@ -1024,7 +1024,9 @@
     "toast_activated": "Program set active",
     "toast_deactivated": "Program deactivated",
     "goal":                  "Goal",
-    "cancel":                "Cancel"
+    "cancel":                "Cancel",
+    "week_of": "Week {week} of {total}",
+    "paused_days": "{count, plural, one {Paused # day for excused days} other {Paused # days for excused days}}"
   },
   "settings_workout_import": {
     "how_to_export":         "How to Export",

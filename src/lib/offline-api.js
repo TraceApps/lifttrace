@@ -771,7 +771,8 @@ async function _forgetTouched(sent) {
     if (op.kind?.startsWith('exercise')) prefixes.add('/api/exercises');
     if (op.kind?.startsWith('program')) prefixes.add('/api/programs');
     if (op.kind === 'body-stats') prefixes.add('/api/body-stats');
-    if (op.kind?.startsWith('excused')) prefixes.add('/api/excused-days');
+    // An excused day pauses a calendar program (#121): its week changes too.
+    if (op.kind?.startsWith('excused')) { prefixes.add('/api/excused-days'); prefixes.add('/api/programs'); }
     if (op.kind?.startsWith('photo')) prefixes.add('/api/body-stats');
     if (op.kind?.startsWith('coach') || op.kind?.startsWith('prescription') || op.kind === 'seen') {
       prefixes.add('/api/trainer'); prefixes.add('/api/coach-feedback'); prefixes.add('/api/prescriptions');

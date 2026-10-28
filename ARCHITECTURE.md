@@ -84,6 +84,25 @@ that account sends them. A trained day wins over an excuse
 (`excusedOnly` in `trained-day.js`): the excuse stays, the day counts as
 trained.
 
+### Excused days pause a calendar program
+
+A program advanced by the calendar moves a week every 7 days from its
+start date (or the day it was assigned, or the day a week was chosen by
+hand), counting calendar days in the athlete's zone. Each excused day from that day through today that wasn't
+trained pushes it back a day (issue #121); a day ahead counts once it
+comes, and with Hold nothing counts after the last week is over. The rule
+is `planWeekState` in `server/lib/programWeek.js` and its identical copy
+`src/lib/programWeek.js`; both are pure, so callers read the excused and
+trained days for `pauseWindow` and pass them in
+(`server/lib/program-pause.js` on the server, `api-native.js` on the
+phone). Every week reported carries `paused_days`: the programs routes,
+the coach's view of a client, MCP `get_active_program`, `/api/v1` and the
+`program.advanced` webhook. The app sends its time zone and Track Cardio
+switch with program reads (`src/lib/plan-week-query.js`), so "today" is
+the athlete's. Programs advanced by sessions never pause. Without accounts the server
+keeps no start for the active program, so a calendar program there only
+moves on, and pauses, from a week chosen by hand.
+
 ### Rest timer is superset-aware
 
 The timer only fires when a whole superset round is complete (every
