@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Long-press the app icon (from TraceApps/nutritrace#278): start or resume today's workout, or log your weight. -->
+<!-- Each opens AppShortcutActivity, which hands the link to the running app
+     instead of letting the launcher restart it. Keep the shortcut ids: pinned
+     shortcuts are kept by id. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
         android:shortcutId="workout"
@@ -9,7 +12,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.lifttrace.app"
-            android:targetClass="com.lifttrace.app.MainActivity"
+            android:targetClass="com.lifttrace.app.AppShortcutActivity"
             android:data="lifttrace://new/workout" />
     </shortcut>
     <shortcut
@@ -20,7 +23,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.lifttrace.app"
-            android:targetClass="com.lifttrace.app.MainActivity"
+            android:targetClass="com.lifttrace.app.AppShortcutActivity"
             android:data="lifttrace://new/weight" />
     </shortcut>
 </shortcuts>

@@ -98,7 +98,7 @@ test('Android\'s shortcuts.xml: ids, labels, icons and explicit intents', () => 
     assert.match(read(`../android/app/src/main/res/drawable/${icon}.xml`), /<vector[\s\S]*android:viewportWidth="24"[\s\S]*<path android:fillColor="@android:color\/white" android:pathData="M[^"]+" \/>/);
     assert.equal(attr('action'), 'android.intent.action.VIEW');
     assert.equal(attr('targetPackage'), 'com.lifttrace.app');
-    assert.equal(attr('targetClass'), 'com.lifttrace.app.MainActivity');
+    assert.equal(attr('targetClass'), 'com.lifttrace.app.AppShortcutActivity', 'through the pass-through activity (app-shortcut-activity.test.js)');
     assert.equal(shortcutFromAppLink(parseAppLink(attr('data'))), attr('shortcutId'));
   }
   assert.deepEqual(ids, SHORTCUT_KINDS);
