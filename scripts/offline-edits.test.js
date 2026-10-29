@@ -8,7 +8,7 @@ import {
   isOfflineError, isMirroredGet, writeOp, collapseOps, sentSeqs, answerWithOps,
   queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, mirrorKey, pathOf,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, orphanWorkoutSave, opsAsKnown,
-  newClientKey, takesClientKey, isKeyedCreate, deleteOfSent, byKeyPath, deletePathWithId, editPathWithId,
+  newClientKey, takesClientKey, isKeyedCreate, deleteOfSent, byKeyPath, deletePathWithId, editPathWithId, opHeaders,
 } from '../src/lib/offline-edits.js';
 
 const op = (seq, method, path, body, extra = {}) => {
@@ -434,8 +434,9 @@ test('the browser\'s queued changes carry when they were made, on the server\'s 
   const { readFileSync } = await import('node:fs');
   const offline = readFileSync(new URL('../src/lib/offline-api.js', import.meta.url), 'utf8');
   assert.match(offline, /editedAt: _serverNow\(at\),[\s\S]{0,200}changed: newWorkout \|\| firstMadeHere \? null : \(_callerChanged\(init\) \?\? await _changedFields\(method, target, body\)\),/);
-  assert.match(offline, /if \(op\.editedAt\) headers\['X-Edited-At'\] = op\.editedAt;/);
-  assert.match(offline, /if \(Array\.isArray\(op\.changed\)\) headers\['X-Changed-Fields'\] = op\.changed\.join\(','\);/);
+  assert.match(offline, /\.\.\.opHeaders\(op\)/);
+  assert.deepEqual(opHeaders({ editedAt: 'T1', changed: ['name', 'notes'] }), { 'X-Edited-At': 'T1', 'X-Changed-Fields': 'name,notes' });
+  assert.deepEqual(opHeaders({ editedAt: 'T1', changed: null }), { 'X-Edited-At': 'T1' });
   assert.match(offline, /res\?\.headers\?\.get\?\.\('x-server-time'\)/);
   const server = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
   assert.match(server, /res\.set\('X-Server-Time', new Date\(\)\.toISOString\(\)\)/);
@@ -448,6 +449,46 @@ test('merging a change that can\'t say what it changed counts all fields, never 
   const later = op(2, 'PUT', '/api/exercises/7', { name: 'A', category: 'arms' }, { editedAt: '2026-10-07T10:05:00.000Z', changed: ['category'] });
   assert.equal(collapseOps([unknown, later])[0].changed, null);
   assert.equal(collapseOps([older, later])[0].changed, null);
+});
+
+test('changes queued for one row go up as one, each field at the time of the change that changed it', () => {
+  const a = op(1, 'PUT', '/api/exercises/7', { name: 'A', tips: 'x' }, { editedAt: '2026-10-07T10:00:00.000Z', changed: ['name'] });
+  const b = op(2, 'PUT', '/api/exercises/7', { name: 'A', tips: 'y' }, { editedAt: '2026-10-07T10:05:00.000Z', changed: ['tips'] });
+  const [one] = collapseOps([a, b]);
+  assert.deepEqual(one.changed, ['name', 'tips']);
+  assert.deepEqual(one.fieldEdits, { name: '2026-10-07T10:00:00.000Z', tips: '2026-10-07T10:05:00.000Z' });
+  assert.equal(opHeaders(one)['X-Field-Edits'], JSON.stringify(one.fieldEdits));
+  // Queued by an earlier version (no list): every field it sends, at its time.
+  const old = op(1, 'PUT', '/api/exercises/7', { name: 'B', tips: 'x' }, { editedAt: '2026-10-07T10:00:00.000Z' });
+  delete old.changed;
+  const [mixed] = collapseOps([old, b]);
+  assert.equal(mixed.changed, null);
+  assert.deepEqual(mixed.fieldEdits, { name: '2026-10-07T10:00:00.000Z', tips: '2026-10-07T10:05:00.000Z' });
+  // A day's measurements are its fields.
+  const s1 = op(1, 'PUT', '/api/body-stats/2026-10-07', { stats: { weight: 80, waist: 90 } }, { editedAt: '2026-10-07T10:00:00.000Z' });
+  delete s1.changed;
+  const s2 = op(2, 'PUT', '/api/body-stats/2026-10-07', { stats: { weight: 80, waist: 89 } }, { editedAt: '2026-10-07T10:05:00.000Z', changed: ['waist'] });
+  assert.deepEqual(collapseOps([s1, s2])[0].fieldEdits, { weight: '2026-10-07T10:00:00.000Z', waist: '2026-10-07T10:05:00.000Z' });
+  // One change alone goes as it always did: no per-field times.
+  assert.equal(collapseOps([a])[0].fieldEdits, undefined);
+  assert.equal(opHeaders(collapseOps([a])[0])['X-Field-Edits'], undefined);
+});
+
+test('an exercise changed offline reads as changed, alone and in the list, until it goes up', () => {
+  const edit = op(1, 'PUT', '/api/exercises/7', { name: 'Renamed offline', tips: 'x' });
+  assert.deepEqual(answerWithOps('/api/exercises/7', { id: 7, name: 'Old', tips: 'x' }, [edit]), { id: 7, name: 'Renamed offline', tips: 'x', _pending: true });
+  const list = answerWithOps('/api/exercises', [{ id: 7, name: 'Old' }, { id: 8, name: 'Other' }], [edit]);
+  assert.deepEqual(list.map(e => e.name), ['Renamed offline', 'Other']);
+  // Two changes: the later one's values over the earlier's.
+  const again = op(2, 'PUT', '/api/exercises/7', { name: 'Renamed offline', tips: 'y' });
+  assert.equal(answerWithOps('/api/exercises/7', { id: 7, name: 'Old', tips: 'x' }, [edit, again]).tips, 'y');
+  // Made offline and changed again: the list shows the change.
+  const made = { ...op(3, 'POST', '/api/exercises', { name: 'New one' }), tempId: -5 };
+  const madeEdit = op(4, 'PUT', '/api/exercises/-5', { name: 'New one, renamed' });
+  assert.deepEqual(answerWithOps('/api/exercises', [], [made, madeEdit]).map(e => e.name), ['New one, renamed']);
+  // Nothing queued for it: as held.
+  const held = { id: 8, name: 'Other' };
+  assert.equal(answerWithOps('/api/exercises/8', held, [edit]), held);
 });
 
 // ── A day with more than one workout, in the browser ────────────────

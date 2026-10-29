@@ -19,6 +19,7 @@
  */
 import db from '../../db.js';
 import { mergeExercises, ensureExerciseUuids } from '../workout-merge.js';
+import { stampTimes } from '../field-sync.js';
 
 // workoutId scopes a tombstone to one session vs another on the same
 // date (issue #76) — matches the column's own NOT NULL DEFAULT 0 in
@@ -98,9 +99,11 @@ export function mutateWorkoutDay(userId, date, mutator, { pick } = {}) {
     let targetId;
     if (existing) {
       targetId = existing.id;
+      // Its exercises and sets changed now (lib/field-sync.js): a delete
+      // made offline before this doesn't remove what was just logged.
       db.prepare(
-        `UPDATE workout_log SET exercises=? WHERE id=?`
-      ).run(exercisesJson, existing.id);
+        `UPDATE workout_log SET exercises=?, field_times=? WHERE id=?`
+      ).run(exercisesJson, JSON.stringify(stampTimes(existing.field_times, ['exercises'], Date.now())), existing.id);
     } else {
       const seq = (userId != null
         ? db.prepare('SELECT COALESCE(MAX(session_seq), -1) + 1 AS n FROM workout_log WHERE date = ? AND user_id = ?').get(date, userId)

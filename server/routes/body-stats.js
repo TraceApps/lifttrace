@@ -135,7 +135,9 @@ router.put('/:date', wrap((req, res) => {
   const incoming = stats && typeof stats === 'object' && !Array.isArray(stats) ? { ...stats } : stats;
   let times = null;
   if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
-    times = applyToBody(req, existing, incoming, { fields: Object.keys(incoming), current: f => serverStats[f] });
+    // Each measurement is a field: decided against the day's measurements.
+    const asRow = existing ? { ...serverStats, field_times: existing.field_times } : null;
+    times = applyToBody(req, asRow, incoming, { fields: Object.keys(incoming), current: f => serverStats[f] });
     for (const k of Object.keys(incoming)) if (incoming[k] === undefined) delete incoming[k];
   }
   const merged = mergeStatsObject(serverStats, incoming);

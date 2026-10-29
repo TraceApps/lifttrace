@@ -494,17 +494,42 @@ changes it later.
   time it was made (on the server's clock, from the last pull) and the
   fields it changed (`X-Edited-At`, `X-Changed-Fields`); the server keeps
   the newer edit of each field, or group of fields, from each row's
-  `field_times` (`server/lib/newer-wins.js`; a create is stamped with its
-  own edit time, and updated_at, which housekeeping moves, never counts); a
-  delete loses (409) to a later edit of the row. `POST /api/sync/push`
+  `field_times`, by the rule every Trace app shares
+  (`server/lib/field-sync.js`, the same file in `src/lib` and in every
+  Trace app, pinned by `scripts/field-sync.test.js`; LiftTrace's routes
+  reach it through `server/lib/newer-wins.js`, and the fields and groups
+  of each table are in `server/lib/sync-fields.js`). Times compare to the
+  second, a tie going to the edit arriving, except that two times kept to
+  the millisecond in the same second still go by the millisecond. A value
+  already there is no edit and isn't stamped. A create is stamped with its
+  own edit time, and updated_at, which housekeeping moves, never counts. A
+  delete loses (409) to a later edit of the row (a tie goes to the
+  delete), and a workout save queued before the workout was deleted
+  elsewhere is answered as gone (410) instead of bringing it back; a save
+  made after the delete, or online, still does. Changes queued together
+  for one row in the browser go up as one with each field's own time
+  (`X-Field-Edits`, JSON `{ field: time }`), so the earlier change doesn't
+  count as made as late as the later one. `field_times` never leaves the
+  server: every JSON answer, the sync pull, MCP results and webhooks go
+  without it (`server/lib/private-fields.js`), and a full backup keeps it
+  so a restore does too. Measurements logged by MCP and sets logged by MCP
+  are stamped like the app's own saves. `POST /api/sync/push`
   (no LiftTrace app has ever sent it; third-party clients may) meets rows the same
-  way: a row older than the server's, to the second, changes nothing; a
-  newer one is an edit made at its own `updated_at` (zone offsets read as
-  instants), changing the fields it lists in `changed_fields`, or every
-  field it sends, decided and stamped field by field with the same fields
-  and groups as the matching route (workouts, exercises, programs, program
-  days, body stats, settings); a pushed delete of a workout, exercise,
-  program or program day made before a later edit leaves the row. The web app's outbox sends the same headers,
+  way, with no gate on the whole row: a row is an edit made at its own
+  `updated_at` (zone offsets read as instants), changing the fields it
+  lists in `changed_fields`, or every field it sends, each at its own time
+  where `field_edits` says, decided and stamped field by field with the
+  same fields and groups as the matching route (workouts, exercises,
+  programs, program days, body stats, settings); a field it leaves out
+  stays as it is. A row with no
+  `field_times` yet counts every field from its `updated_at`, and one with
+  times but no `_base` counts the fields with none from its `created_at`
+  (or `updated_at`, for a table without one),
+  so a copy from before them changes nothing. A workout's or program
+  day's exercises and sets merge one by one only when the push was made
+  after they last changed here. A pushed delete of a workout, exercise,
+  program, program day or day's measurements made before a later edit
+  leaves the row. The web app's outbox sends the same headers,
   on the clock from `X-Server-Time`. Sessions come from the
   `Authorization` header before the cookie when it is one of this server's
   (`req.authVia`). Signed out, no sync runs.

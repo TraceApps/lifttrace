@@ -47,6 +47,7 @@ import oidcAdminRoutes   from './routes/oidc-admin.js';
 import apiTokensRoutes   from './routes/api-tokens.js';
 import setMediaRoutes    from './routes/set-media.js';
 import mcpRoutes         from './routes/mcp.js';
+import { privateFieldsOut } from './lib/private-fields.js';
 import publicApiRoutes   from './routes/public-api.js';
 import webhooksRoutes    from './routes/webhooks.js';
 import { logger }        from './logger.js';
@@ -147,7 +148,7 @@ router.use((req, res, next) => {
       // Plus what an edit says about itself (lib/newer-wins.js): Trace's
       // workout saves send X-Changed-Fields from the WebView, and without it
       // here the preflight failed, so each save waited in the queue instead.
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Changed-Fields, X-Edited-At');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Changed-Fields, X-Edited-At, X-Field-Edits');
       // The Android app reads this from an answer (another origin).
       res.setHeader('Access-Control-Expose-Headers', 'X-LT-Coaching');
     }
@@ -214,6 +215,8 @@ router.use('/uploads', express.static(uploadsPath, {
 
 // No-cache API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+// No answer carries when each field of a row changed (lib/private-fields.js).
+router.use('/api', privateFieldsOut);
 
 // Older docs gave the OIDC callback as /api/oidc/callback. An IdP set up from
 // them sends people here; forward to the real callback (which finds the

@@ -23,7 +23,7 @@ import {
   isOfflineError, isMirroredGet, mirrorKey, pathOf, writeOp, collapseOps, sentSeqs, OFFLINE_HEADER,
   answerWithOps, queuedWorkoutReply, newTempId, isTempId, createdId, remapIds, remapPath, orphanWorkoutSave, opsAsKnown,
   describeOp, shouldRetryStatus, staleAnswerKeys, queuedReply, newClientKey, takesClientKey,
-  isKeyedCreate, byKeyPath, deletePathWithId, editPathWithId,
+  isKeyedCreate, byKeyPath, deletePathWithId, editPathWithId, opHeaders,
 } from './offline-edits.js';
 // Loaded with everything else, never fetched on demand: a picture is kept
 // exactly when there is no connection to fetch a separate file with, and a
@@ -316,9 +316,15 @@ async function _changedFields(method, target, body) {
   const p = pathOf(target);
   if (p === '/api/settings') return typeof body.key === 'string' ? ['value'] : null;
   try {
+    // Against the copy as shown here: what the server sent, with what's
+    // queued here and not sent yet over it. Against the server's copy alone,
+    // a second change counted the first one's fields again, as made with it.
+    const queued = await _loadOps();
     if (/^\/api\/body-stats\/\d{4}-\d{2}-\d{2}$/.test(p)) {
-      const held = (await _recall(target))?.stats?.stats;
+      let held = (await _recall(target))?.stats?.stats;
       if (!held || !body.stats || typeof body.stats !== 'object') return null;
+      const date = p.split('/').pop();
+      for (const op of queued || []) if (op?.kind === 'body-stats' && op.key === `body:${date}` && op.body?.stats && typeof op.body.stats === 'object') held = { ...held, ...op.body.stats };
       return Object.keys(body.stats).filter(k => _norm(body.stats[k]) !== _norm(held[k]));
     }
     // An excused day (issue #121): against the list held here.
@@ -334,9 +340,10 @@ async function _changedFields(method, target, body) {
     let held = await _recall(target);
     if (/^\/api\/workout\//.test(p)) {
       if (body.id != null && _WORKOUT_DAY.test(p)) held = await _recallWorkout(p, body.id);
+      if (held && _WORKOUT_DAY.test(p)) held = answerWithOps(p, held, queued, held?.workout?.id);
       held = held?.workout;
       if (held && body.id != null && Number(held.id) !== Number(body.id)) held = null;
-    }
+    } else if (held) held = answerWithOps(p, held, queued);
     if (!held || typeof held !== 'object') return null;
     return rule[1].filter(f => body[f] !== undefined && _norm(body[f]) !== _norm(held[f]));
   } catch { return null; }
@@ -552,9 +559,7 @@ async function _flushOnce() {
     const body = op.body == null ? undefined : JSON.stringify(remapIds(orphan ?? op.body, map));
     let res;
     try {
-      const headers = body ? { 'Content-Type': 'application/json' } : {};
-      if (op.editedAt) headers['X-Edited-At'] = op.editedAt;
-      if (Array.isArray(op.changed)) headers['X-Changed-Fields'] = op.changed.join(',');
+      const headers = { ...(body ? { 'Content-Type': 'application/json' } : {}), ...opHeaders(op) };
       const sentAt = Date.now();
       res = await send(path, {
         method: op.method,
@@ -608,6 +613,7 @@ async function _flushOnce() {
       const headers = { 'Content-Type': 'application/json' };
       if (op.editsAt) headers['X-Edited-At'] = op.editsAt;
       if (Array.isArray(op.editsChanged)) headers['X-Changed-Fields'] = op.editsChanged.join(',');
+      if (op.editsFieldEdits && Object.keys(op.editsFieldEdits).length) headers['X-Field-Edits'] = JSON.stringify(op.editsFieldEdits);
       let edit;
       try {
         const { client_key, ...edits } = op.edits;

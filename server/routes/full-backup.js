@@ -287,14 +287,14 @@ function restoreFromZip(zip) {
     }
 
     // Restore custom exercises (user-created, not global seeds)
-    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type)`);
-    for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, ...e });
+    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type,field_times) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type,@field_times)`);
+    for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, field_times: null, ...e });
 
-    const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete)`);
-    for (const p of data.programs || []) insProgram.run(_withProgramDefaults(p));
+    const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete,field_times) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete,@field_times)`);
+    for (const p of data.programs || []) insProgram.run({ field_times: null, ..._withProgramDefaults(p) });
 
-    const insTemplate = db.prepare(`INSERT OR IGNORE INTO workout_templates (id,program_id,name,day_label,order_index,exercises,created_at) VALUES (@id,@program_id,@name,@day_label,@order_index,@exercises,@created_at)`);
-    for (const t of data.workout_templates || []) insTemplate.run(t);
+    const insTemplate = db.prepare(`INSERT OR IGNORE INTO workout_templates (id,program_id,name,day_label,order_index,exercises,created_at,field_times) VALUES (@id,@program_id,@name,@day_label,@order_index,@exercises,@created_at,@field_times)`);
+    for (const t of data.workout_templates || []) insTemplate.run({ field_times: null, ...t });
 
     const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at,week_cursor,week_cursor_session_base,week_cursor_pinned_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at,@week_cursor,@week_cursor_session_base,@week_cursor_pinned_at)`);
     for (const a of data.program_assignments || []) insAssign.run(_withAssignDefaults(a));
@@ -303,8 +303,8 @@ function restoreFromZip(zip) {
     const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at,status,responded_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at,@status,@responded_at)`);
     for (const cp of data.coach_prescriptions || []) insPrescription.run({ responded_at: null, ...cp, status: cp.status || 'accepted' });
 
-    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week)`);
-    for (const w of data.workout_log || []) insWorkout.run(_withField(w, 'program_week'));
+    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week,field_times) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week,@field_times)`);
+    for (const w of data.workout_log || []) insWorkout.run(_withField(_withField(w, 'program_week'), 'field_times'));
 
     // Coach feedback: trainer notes on member workouts, plus the member's
     // read-receipt (seen_by_member_at) and single reply (member_reply /
@@ -336,8 +336,8 @@ function restoreFromZip(zip) {
       insActivity.run(_withField(a, 'feedback_id'));
     }
 
-    const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats) VALUES (@id,@user_id,@date,@stats)`);
-    for (const b of data.body_stats_log || []) insBody.run(b);
+    const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats,field_times) VALUES (@id,@user_id,@date,@stats,@field_times)`);
+    for (const b of data.body_stats_log || []) insBody.run(_withField(b, 'field_times'));
 
     // Progress photos. The image files themselves already ride along in
     // the zip (createBackup walks all of uploads/ recursively), so only
@@ -382,8 +382,8 @@ function restoreFromZip(zip) {
       insExcused.run({ note: null, created_at: null, deleted_at: null, field_times: null, ...e });
     }
 
-    const insSettings = db.prepare(`INSERT OR IGNORE INTO user_settings (user_id,key,value) VALUES (@user_id,@key,@value)`);
-    for (const s of data.user_settings || []) insSettings.run(s);
+    const insSettings = db.prepare(`INSERT OR IGNORE INTO user_settings (user_id,key,value,field_times) VALUES (@user_id,@key,@value,@field_times)`);
+    for (const s of data.user_settings || []) insSettings.run(_withField(s, 'field_times'));
 
     const insConfig = db.prepare(`INSERT OR REPLACE INTO app_config (key,value) VALUES (@key,@value)`);
     for (const c of data.app_config || []) insConfig.run(c);

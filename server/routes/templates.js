@@ -6,6 +6,7 @@ import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
 import { programFor, templateFor, toId } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, stampMerged, createdTimes } from '../lib/newer-wins.js';
+import { syncOf } from '../lib/sync-fields.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -76,7 +77,7 @@ router.put('/:id', wrap((req, res) => {
   // The newer edit of the name and label stays (lib/newer-wins.js); the
   // exercises merge one by one, as before.
   const body = { ...req.body };
-  let times = applyToBody(req, existing, body, { fields: ['name', 'day_label'], current: f => existing[f] });
+  let times = applyToBody(req, existing, body, { ...syncOf('workout_templates'), current: f => existing[f] });
   if (Array.isArray(body.exercises) || body.deleted_uuids) times = stampMerged(req, times, ['exercises']);
   const { name, day_label, exercises } = body;
 

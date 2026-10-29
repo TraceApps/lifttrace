@@ -245,7 +245,7 @@ test('set_type is a real library column everywhere an exercise is stored', () =>
   const route = read('../server/routes/exercises.js');
   assert.match(route, /_cleanSetType\(set_type\)/, 'create must whitelist set_type');
   assert.match(route, /nextSetType/, 'update must honour omitted / null / explicit');
-  assert.match(read('../server/routes/full-backup.js'), /@load_type,@set_type\)/, 'backup restore must carry set_type');
+  assert.match(read('../server/routes/full-backup.js'), /@load_type,@set_type[,)]/, 'backup restore must carry set_type');
   assert.match(read('../src/lib/exerciseShare.js'), /'set_type'/);
 });
 

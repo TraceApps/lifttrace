@@ -50,7 +50,9 @@ router.put('/', wrap((req, res) => {
   // is still written (as it is), so its change time moves and the device
   // gets the value that stays with its next pull.
   const existing = db.prepare('SELECT * FROM user_settings WHERE user_id = ? AND key = ?').get(req.user.id, key);
-  const { keep, times } = decide(req, existing, { value }, { fields: ['value'] });
+  // Compared as stored (JSON text): an object sent is the same setting as
+  // the same object kept.
+  const { keep, times } = decide(req, existing, { value: value === undefined ? undefined : JSON.stringify(value) }, { fields: ['value'] });
   const stays = existing && keep.has('value') ? existing.value : JSON.stringify(value);
   db.prepare('INSERT OR REPLACE INTO user_settings (user_id, key, value, field_times) VALUES (?, ?, ?, ?)')
     .run(req.user.id, key, stays, times);

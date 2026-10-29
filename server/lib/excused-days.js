@@ -11,7 +11,7 @@
  * the account's other devices on their next pull.
  */
 import db from '../db.js';
-import { applyToBody, createdTimes, deleteLoses, editedAt, fieldTimes } from './newer-wins.js';
+import { applyToBody, createdTimes, deleteLoses, editAfterDelete, editedAt, fieldTimes } from './newer-wins.js';
 import { cleanExcuse, isCalendarDate } from '../../src/lib/trained-day.js';
 
 const FIELDS = ['reason', 'note'];
@@ -83,7 +83,8 @@ export function saveExcusedDay(userId, date, input, req = _noHeaders) {
     // New, or excused again after it was removed: everything in it is this
     // edit's. A removal made later than this edit (elsewhere, while this
     // one waited offline) stands.
-    if (existing?.deleted_at && fieldTimes(existing)._removed && Date.parse(fieldTimes(existing)._removed) > editedAt(req)) {
+    // A tie goes to the removal (lib/field-sync.js).
+    if (existing?.deleted_at && fieldTimes(existing)._removed && !editAfterDelete(editedAt(req), fieldTimes(existing)._removed)) {
       return { excused: null, created: false, removedLater: true };
     }
     const times = createdTimes(req) || JSON.stringify(Object.fromEntries(FIELDS.map(f => [f, new Date(editedAt(req)).toISOString()])));

@@ -15,6 +15,7 @@
  * date.
  */
 import { z } from 'zod';
+import { stampTimes } from '../../field-sync.js';
 import db from '../../../db.js';
 import { DATE_RE, toolResult, toolError } from '../_util.js';
 
@@ -37,7 +38,11 @@ export function registerDeleteWorkout(server, { userId }) {
       if (!existing) return toolResult({ ok: true, deleted: false, date });
       // Soft delete, like the app's own delete, so synced devices learn the
       // workout is gone instead of pushing it back (issue #87).
-      db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+      // With the delete's time, as DELETE /api/workout/:date keeps it
+      // (lib/newer-wins.js): a save queued before it can't bring it back.
+      const row = db.prepare('SELECT field_times FROM workout_log WHERE id = ?').get(existing.id);
+      db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now'), field_times = ? WHERE id = ?`)
+        .run(JSON.stringify(stampTimes(row?.field_times, ['deleted_at'], Date.now())), existing.id);
       return toolResult({ ok: true, deleted: true, date });
     }
   );

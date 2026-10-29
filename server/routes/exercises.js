@@ -8,6 +8,7 @@ import { canChangeExercise } from '../lib/exercise-owner.js';
 import { foldText } from '../lib/search-text.js';
 import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
+import { syncOf } from '../lib/sync-fields.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -214,8 +215,7 @@ router.put('/:id', wrap((req, res) => {
   const body = { ...req.body };
   const JSON_FIELDS = new Set(['primary_muscles', 'secondary_muscles', 'equipment']);
   const times = applyToBody(req, existing, body, {
-    fields: ['name', 'category', 'primary_muscles', 'secondary_muscles', 'equipment', 'instructions', 'tips', 'img_url', 'gif_url', 'video_url', 'load_type', 'set_type'],
-    groups: [['img_url', 'gif_url', 'video_url']],
+    ...syncOf('exercises'),
     current: f => (JSON_FIELDS.has(f) ? JSON.parse(existing[f] || '[]') : existing[f]),
   });
   const { name, category, primary_muscles, secondary_muscles, equipment, instructions, tips, video_url, load_type, set_type } = body;

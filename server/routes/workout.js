@@ -12,7 +12,8 @@ import { isHistoryUpload, recordsBeforeSave, sendNewRecords } from '../lib/log-w
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
 import { cleanWorkoutRefs, workoutProgramVisible } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
-import { applyToBody, deleteLoses, refuseDelete, stampMerged, createdTimes } from '../lib/newer-wins.js';
+import { applyToBody, deleteLoses, refuseDelete, stampMerged, createdTimes, editBringsBack, deletedTimes } from '../lib/newer-wins.js';
+import { syncOf } from '../lib/sync-fields.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -249,14 +250,20 @@ router.put('/:date', wrap((req, res) => {
   // back a workout just finished on the watch. A queued save says what it
   // changed in the header, or counts everything it sends when it can't
   // (src/lib/offline-edits.js), and its body's list is not used.
+  // A save queued before the workout was deleted elsewhere doesn't bring it
+  // back (lib/field-sync.js): it's answered as gone, as a create repeated
+  // after its row was deleted is, and the device drops it. One made after
+  // the delete, or now (online, or an app that doesn't say when), does.
+  if (existing?.deleted_at && !editBringsBack(req, existing)) return res.status(410).json({ error: 'Deleted after this change was made', gone: true });
   const body = { ...req.body };
   const listed = !req.get('x-edited-at') && Array.isArray(req.body.changed_fields) ? req.body.changed_fields : null;
   let fieldTimesNext = applyToBody(req, existing, body, {
-    fields: ['name', 'notes', 'duration_min', 'completed', 'program_week', 'program_id', 'template_id'],
-    groups: [['program_id', 'template_id', 'program_week']],
+    ...syncOf('workout_log'),
     current: f => existing[f],
     changed: listed,
   });
+  // Brought back: when, so a delete made before this can't win over it.
+  if (existing?.deleted_at) fieldTimesNext = stampMerged(req, fieldTimesNext, ['deleted_at']);
   if (Array.isArray(body.exercises) || body.deleted_uuids) fieldTimesNext = stampMerged(req, fieldTimesNext, ['exercises']);
   const { name, notes, duration_min, completed, program_week } = body;
   // Only a program, day and exercises this account may see (program-access.js).
@@ -460,7 +467,8 @@ function _deleteWorkout(req, res, existing, extra = {}) {
   // soft-delete shape sync-push already uses when a client sends
   // deleted_at, and the PUT handler above already knows how to clear
   // deleted_at again on an explicit save to resurrect one.
-  db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+  // With the delete's own time (an edit made before it can't bring it back).
+  db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now'), field_times = ? WHERE id = ?`).run(deletedTimes(req, existing), existing.id);
   res.json({ ok: true, deleted: true, ...extra });
 }
 

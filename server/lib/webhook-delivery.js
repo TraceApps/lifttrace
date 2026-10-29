@@ -17,7 +17,8 @@ const FETCH_TIMEOUT_MS = 10000;
  * Build the signed envelope for one delivery. Pure (no DB, no network).
  */
 export function signEnvelope(secret, event, data) {
-  const envelope = JSON.stringify({ event, timestamp: new Date().toISOString(), data });
+  // Never when each field of a row changed (lib/private-fields.js).
+  const envelope = JSON.stringify({ event, timestamp: new Date().toISOString(), data }, (k, v) => (k === 'field_times' ? undefined : v));
   const signature = createHmac('sha256', secret).update(envelope).digest('hex');
   return { envelope, signature };
 }

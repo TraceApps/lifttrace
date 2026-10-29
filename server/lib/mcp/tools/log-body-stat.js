@@ -14,6 +14,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { mergeStatsObject } from '../../workout-merge.js';
+import { stampTimes } from '../../field-sync.js';
 import { sendBodyStatLogged } from '../../log-webhooks.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 
@@ -63,10 +64,13 @@ export function logBodyStatCore(userId, args = {}) {
     const serverStats = existing ? JSON.parse(existing.stats || '{}') : {};
     const merged = mergeStatsObject(serverStats, stats);
     const mergedJson = JSON.stringify(merged);
+    // Each measurement logged is an edit made now (lib/field-sync.js), so
+    // an older one queued on a phone doesn't overwrite it.
+    const times = JSON.stringify(stampTimes(existing?.field_times, keys, Date.now()));
     if (existing) {
-      db.prepare('UPDATE body_stats_log SET stats = ? WHERE id = ?').run(mergedJson, existing.id);
+      db.prepare('UPDATE body_stats_log SET stats = ?, field_times = ? WHERE id = ?').run(mergedJson, times, existing.id);
     } else {
-      db.prepare('INSERT INTO body_stats_log (user_id, date, stats) VALUES (?, ?, ?)').run(userId, day, mergedJson);
+      db.prepare('INSERT INTO body_stats_log (user_id, date, stats, field_times) VALUES (?, ?, ?, ?)').run(userId, day, mergedJson, times);
     }
     return merged;
   });

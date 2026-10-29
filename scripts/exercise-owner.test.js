@@ -56,7 +56,7 @@ test('the edit and delete routes check ownership', () => {
 test('the sync push only writes rows the pushing user owns', () => {
   const src = read('../server/routes/sync.js');
   assert.match(src, /SELECT \* FROM exercises WHERE id = \?/);
-  assert.match(src, /if \(canChangeExercise\(existing, u\) && wins\(e\.updated_at, existing\.updated_at\)\)/);
+  assert.match(src, /if \(canChangeExercise\(existing, u\)\) \{/);
 });
 
 test('catalogs are listed and deleted per user, not by name across everyone', () => {

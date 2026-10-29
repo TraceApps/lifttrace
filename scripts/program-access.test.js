@@ -114,8 +114,8 @@ test('the sync pull and push go by the same rules', () => {
   assert.match(pull, /visibleTemplatesSql\(u\)/);
   assert.doesNotMatch(pull, /SELECT \* FROM workout_templates WHERE updated_at >= \? ORDER BY updated_at/, 'every account\'s days went to every device');
   const push = sync.slice(sync.indexOf("router.post('/push'"));
-  assert.match(push, /canChangeProgram\(existing, u\) && wins/);
-  assert.match(push, /canChangeDay\(existing\.program_id\) && wins/);
+  assert.match(push, /if \(canChangeProgram\(existing, u\)\)/);
+  assert.match(push, /if \(canChangeDay\(existing\.program_id\)\)/);
   assert.match(push, /SELECT \* FROM workout_log WHERE id = \? AND user_id/);
   assert.match(push, /UPDATE ai_chat_history SET deleted_at = datetime\('now'\), updated_at = datetime\('now'\) WHERE id = \? AND user_id/);
 });

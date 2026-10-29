@@ -10,6 +10,7 @@ import { rememberZone, userZone } from '../lib/user-zone.js';
 import { programFor } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
+import { syncOf } from '../lib/sync-fields.js';
 
 // 404 for a program this account can't see (no hint that it exists), 403
 // for one it can see but not change (program-access.js). Returns true when
@@ -227,8 +228,7 @@ router.put('/:id', wrap((req, res) => {
   const existingRow = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
   const body = { ...req.body };
   const times = applyToBody(req, existingRow, body, {
-    fields: ['name', 'description', 'goal', 'visibility', 'duration_weeks', 'advance_mode', 'on_complete'],
-    groups: [['duration_weeks', 'advance_mode', 'on_complete']],
+    ...syncOf('programs'),
     current: f => existingRow[f],
   });
   const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = body;

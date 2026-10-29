@@ -61,6 +61,12 @@ async function call(method, path, body, headers = {}, auth = token) {
 const push = (body) => call('POST', '/api/sync/push', body);
 const pullAll = () => call('GET', `/api/sync/pull?since=${encodeURIComponent('1970-01-01T00:00:00.000Z')}`);
 const workoutRow = async (id) => (await pullAll()).workout_log.find((w) => w.id === id);
+// When each field changed, as the server keeps it (never in an answer).
+const timesOf = (table, id) => {
+  const D = serverRequire('better-sqlite3');
+  const conn = new D(join(dir, 'lt.db'), { readonly: true });
+  try { return JSON.parse(conn.prepare(`SELECT field_times FROM ${table} WHERE id = ?`).get(id)?.field_times || '{}'); } finally { conn.close(); }
+};
 const parsed = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
 const fields = (w) => ({ name: w.name, notes: w.notes, template_id: w.template_id, program_id: w.program_id, program_week: w.program_week });
 // The device's copy of a pulled row, as it would push it back.
@@ -123,7 +129,7 @@ test('a copy made just before a workout was started can\'t clear its program', {
   await freshSecond();
   const started = await call('POST', `/api/v1/workouts/${d}/start`, {}, {}, apiToken);
   assert.equal(started.workout_id, id, 'started into the empty workout');
-  const stamp = JSON.parse((await workoutRow(id)).field_times).program_id;
+  const stamp = timesOf('workout_log', id).program_id;
   // The phone's notes edit, made a moment before the start, in that second.
   const editedAt = earlierSameSecond(stamp);
   assert.ok(Date.parse(editedAt) < Date.parse(stamp));
@@ -170,7 +176,7 @@ test('what a push writes is stamped: an older queued edit can\'t overwrite it', 
   const copy = await workoutRow(id);
   const pushedAt = new Date().toISOString();
   await push({ workout_log: [copyOf(copy, { notes: 'Pushed now', updated_at: pushedAt })] });
-  assert.equal(JSON.parse((await workoutRow(id)).field_times).notes, pushedAt, 'stamped with the row\'s own time');
+  assert.equal(timesOf('workout_log', id).notes, pushedAt, 'stamped with the row\'s own time');
   await call('PUT', `/api/workout/${d}`, { id, name: 'Noon', notes: 'Queued 30 s ago', exercises: [] },
     { 'X-Edited-At': new Date(Date.now() - 30e3).toISOString(), 'X-Changed-Fields': 'notes' });
   assert.equal((await workoutRow(id)).notes, 'Pushed now');
@@ -200,7 +206,7 @@ test('a pushed new workout is stamped as made at its own time', { skip }, async 
   const madeAt = new Date(Date.now() - 60e3).toISOString();
   const r = await push({ workout_log: [{ client_id: 5, date: d, name: 'Offline', notes: 'x', exercises: [], updated_at: madeAt }] });
   const id = r.workout_log[0].server_id;
-  assert.equal(JSON.parse((await workoutRow(id)).field_times)._base, madeAt);
+  assert.equal(timesOf('workout_log', id)._base, madeAt);
   // An edit queued before it was made can't overwrite it; one made after can.
   await call('PUT', `/api/workout/${d}`, { id, name: 'Before', notes: 'x', exercises: [] }, { 'X-Edited-At': new Date(Date.now() - 120e3).toISOString(), 'X-Changed-Fields': 'name' });
   assert.equal((await workoutRow(id)).name, 'Offline');
@@ -214,7 +220,7 @@ test('a pushed delete made before a later edit leaves the workout, and the devic
   const copy = await workoutRow(id);
   await freshSecond();
   await call('PUT', `/api/workout/${d}`, { id, name: 'Keep Me', notes: 'edited', exercises: [] });
-  const stamp = JSON.parse((await workoutRow(id)).field_times).notes;
+  const stamp = timesOf('workout_log', id).notes;
   await sleep(1100);
   const pulledAt = (await pullAll()).server_time;
   await push({ workout_log: [copyOf(copy, { deleted_at: earlierSameSecond(stamp), updated_at: earlierSameSecond(stamp) })] });
@@ -242,7 +248,7 @@ test('the other tables push writes: a copy from before a newer edit leaves that 
   await call('PUT', `/api/body-stats/${d}`, { stats: { weight: 81 } });
   await call('PUT', '/api/settings', { key: 'restDuration', value: 120 });
   const p1 = await pullAll();
-  const at = earlierSameSecond(JSON.parse(p1.exercises.find((e) => e.id === ex.id).field_times).tips);
+  const at = earlierSameSecond(timesOf('exercises', ex.id).tips);
   await push({
     exercises: [{ ...exRow, client_id: 1, server_id: ex.id, tips: null, instructions: 'Lean forward', updated_at: at }],
     programs: [{ ...progRow, client_id: 2, server_id: prog.id, description: null, goal: 'strength', updated_at: at }],

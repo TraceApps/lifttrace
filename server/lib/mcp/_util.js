@@ -6,6 +6,7 @@
  * instead of drifting across tool files. Ported from NutriTrace's
  * server/lib/mcp/_util.js — fully generic, no app-specific logic.
  */
+import { withoutPrivateFields } from '../private-fields.js';
 
 /**
  * Safely parse a JSON string; return `fallback` on any error.
@@ -84,6 +85,8 @@ export function errorCode(e) {
  * for backward compatibility.
  */
 export function toolResult(payload) {
+  // Never when each field of a row changed (lib/private-fields.js).
+  payload = withoutPrivateFields(payload);
   return {
     content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
     structuredContent: payload,

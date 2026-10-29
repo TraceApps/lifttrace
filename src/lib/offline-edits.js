@@ -216,6 +216,43 @@ export function deleteOfSent(create, del) {
   return { ...del, byKey: { key: create.body.client_key, method: create.method, path: create.path, body: create.body, editedAt: create.editedAt, changed: create.changed } };
 }
 
+// Not fields of the row: what a save carries about itself.
+const _NOT_FIELDS = new Set(['id', 'exercises', 'deleted_uuids', 'changed_uuids', 'changed_fields', 'client_key', 'new_session', 'stats']);
+
+/** When each field a queued change sent was changed: { field: time }, the
+ *  fields it says it changed (or, saying none, every field it sends) at its
+ *  own time, or as an earlier collapse kept them (`fieldEdits`). Null when
+ *  it doesn't say when it was made. */
+export function fieldEditsOfOp(op, changed = op?.changed, editedAt = op?.editedAt, body = op?.body) {
+  if (op?.fieldEdits) return { ...op.fieldEdits };
+  if (!editedAt) return null;
+  const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  // A day's measurements are each a field (routes/body-stats.js).
+  const sent = obj.stats && typeof obj.stats === 'object' && !Array.isArray(obj.stats) ? obj.stats : obj;
+  const fields = Array.isArray(changed) ? changed
+    : Object.keys(sent).filter(f => !_NOT_FIELDS.has(f) && !f.startsWith('_'));
+  return Object.fromEntries(fields.map(f => [f, editedAt]));
+}
+
+/** Two queued changes of one row as one: each field at the time of the
+ *  later change that changed it. Null when either can't say when. */
+function _joinFieldEdits(prev, op, pick = o => [o.changed, o.editedAt, o.body]) {
+  const a = fieldEditsOfOp(prev, ...pick(prev));
+  const b = fieldEditsOfOp(op, ...pick(op));
+  return a && b ? { ...a, ...b } : null;
+}
+
+/** The headers a queued change goes up with: when it was made, what it
+ *  changed, and, for changes queued together, when each field was changed
+ *  (server/lib/newer-wins.js). */
+export function opHeaders(op) {
+  const h = {};
+  if (op?.editedAt) h['X-Edited-At'] = op.editedAt;
+  if (Array.isArray(op?.changed)) h['X-Changed-Fields'] = op.changed.join(',');
+  if (op?.fieldEdits && Object.keys(op.fieldEdits).length) h['X-Field-Edits'] = JSON.stringify(op.fieldEdits);
+  return h;
+}
+
 /** Where a delete by a create's key goes: the kind's own
  *  `/by-key/:key` route, next to the one it deletes by id at. */
 export function byKeyPath(op) {
@@ -323,6 +360,12 @@ export function collapseOps(ops) {
           merged.editsAt = op.editedAt ?? prev.editsAt;
           const before = prev.edits ? prev.editsChanged : [];
           merged.editsChanged = Array.isArray(before) && Array.isArray(op.changed) ? [...new Set([...before, ...op.changed])] : null;
+          // Each field at the time of the change that changed it.
+          if (prev.edits) {
+            const a = prev.editsFieldEdits || fieldEditsOfOp({}, prev.editsChanged, prev.editsAt, prev.edits);
+            const b = fieldEditsOfOp({}, op.changed, op.editedAt, op.body);
+            merged.editsFieldEdits = a && b ? { ...a, ...b } : null;
+          }
         }
         byKey.set(op.key, merged);
         continue;
@@ -349,7 +392,13 @@ export function collapseOps(ops) {
     // version), the merged one counts all it sends: a narrower list would
     // drop the earlier change's other fields.
     if (prev) {
-      op = { ...op, changed: Array.isArray(prev.changed) && Array.isArray(op.changed) ? [...new Set([...prev.changed, ...op.changed])] : null };
+      // Each field keeps the time of the change that changed it, so the
+      // earlier change's fields don't count as made as late as the later
+      // one's (a change elsewhere in between stays). A change queued by an
+      // earlier version (no list) counts every field it sends at its time.
+      const fieldEdits = _joinFieldEdits(prev, op);
+      op = { ...op, changed: Array.isArray(prev.changed) && Array.isArray(op.changed) ? [...new Set([...prev.changed, ...op.changed])] : null, fieldEdits };
+      if (!fieldEdits) delete op.fieldEdits;
       // A day's first workout made here keeps the temporary id it was made
       // under, so the replay still learns the server's id for it.
       if (op.kind === 'workout' && prev.kind === 'workout' && op.tempId == null && prev.tempId != null) op.tempId = prev.tempId;
@@ -593,15 +642,29 @@ export function answerWithOps(url, mirrored, ops, firstId = undefined) {
       .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
   }
 
+  // An exercise changed here and not sent yet reads as changed, in the list
+  // and on its own: read back as it was, its editor opened again on the old
+  // copy, and the next save put back what the first one changed.
+  const edited = new Map();
+  for (const op of ops || []) {
+    if (op?.kind !== 'exercise-update' || !op.body) continue;
+    edited.set(Number(op.id), { ...(edited.get(Number(op.id)) || {}), ...op.body });
+  }
+  const shownEdited = (e) => (e && edited.has(Number(e.id)) ? { ...e, ...edited.get(Number(e.id)), id: e.id, _pending: true } : e);
+
   if (path === '/api/exercises') {
     const made = (ops || []).filter(op => op.kind === 'exercise-create');
     const gone = new Set((ops || []).filter(op => op.kind === 'exercise-delete').map(op => Number(op.id)));
-    if (!made.length && !gone.size) return mirrored;
+    if (!made.length && !gone.size && !edited.size) return mirrored;
     const list = Array.isArray(mirrored) ? mirrored : mirrored?.exercises ?? (mirrored === undefined ? [] : null);
     if (!Array.isArray(list)) return mirrored;
-    const rows = list.filter(e => !gone.has(Number(e.id)))
-      .concat(made.map(op => ({ ...op.body, id: op.tempId, _pending: true })));
+    const rows = list.filter(e => !gone.has(Number(e.id))).map(shownEdited)
+      .concat(made.map(op => ({ ...op.body, ...(edited.get(Number(op.tempId)) || {}), id: op.tempId, _pending: true })));
     return Array.isArray(mirrored) ? rows : { ...mirrored, exercises: rows };
+  }
+  const one = path.match(/^\/api\/exercises\/(-?\d+)$/);
+  if (one && edited.has(Number(one[1])) && mirrored && typeof mirrored === 'object' && !Array.isArray(mirrored)) {
+    return mirrored.exercise ? { ...mirrored, exercise: shownEdited(mirrored.exercise) } : shownEdited(mirrored);
   }
   return mirrored;
 }
