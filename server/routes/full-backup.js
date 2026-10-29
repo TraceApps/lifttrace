@@ -286,25 +286,38 @@ function restoreFromZip(zip) {
       insMessage.run({ body: null, image_url: null, recommendation_id: null, read_at: null, deleted_at: null, ...m });
     }
 
+    // Rows deleted softly come back deleted (deleted_at), here and in every
+    // table below that keeps one, so a restore never brings back what was
+    // deleted before the backup. updated_at is left to the trigger (now):
+    // every phone pulls the restored rows, the deleted ones as deleted, and
+    // drops them. A backup from before deleted_at has none: all alive.
+
     // Restore custom exercises (user-created, not global seeds)
-    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type,field_times) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type,@field_times)`);
-    for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, field_times: null, ...e });
+    const insExercise = db.prepare(`INSERT OR IGNORE INTO exercises (id,name,category,primary_muscles,secondary_muscles,equipment,instructions,tips,img_url,gif_url,video_url,external_id,source,is_global,created_by,created_at,load_type,set_type,field_times,deleted_at) VALUES (@id,@name,@category,@primary_muscles,@secondary_muscles,@equipment,@instructions,@tips,@img_url,@gif_url,@video_url,@external_id,@source,@is_global,@created_by,@created_at,@load_type,@set_type,@field_times,@deleted_at)`);
+    for (const e of data.exercises || []) insExercise.run({ load_type: null, set_type: null, field_times: null, deleted_at: null, ...e });
 
-    const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete,field_times) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete,@field_times)`);
-    for (const p of data.programs || []) insProgram.run({ field_times: null, ..._withProgramDefaults(p) });
+    const insProgram = db.prepare(`INSERT OR IGNORE INTO programs (id,name,description,goal,created_by,visibility,created_at,duration_weeks,advance_mode,on_complete,field_times,deleted_at) VALUES (@id,@name,@description,@goal,@created_by,@visibility,@created_at,@duration_weeks,@advance_mode,@on_complete,@field_times,@deleted_at)`);
+    for (const p of data.programs || []) insProgram.run({ field_times: null, deleted_at: null, ..._withProgramDefaults(p) });
 
-    const insTemplate = db.prepare(`INSERT OR IGNORE INTO workout_templates (id,program_id,name,day_label,order_index,exercises,created_at,field_times) VALUES (@id,@program_id,@name,@day_label,@order_index,@exercises,@created_at,@field_times)`);
-    for (const t of data.workout_templates || []) insTemplate.run({ field_times: null, ...t });
+    const insTemplate = db.prepare(`INSERT OR IGNORE INTO workout_templates (id,program_id,name,day_label,order_index,exercises,created_at,field_times,deleted_at) VALUES (@id,@program_id,@name,@day_label,@order_index,@exercises,@created_at,@field_times,@deleted_at)`);
+    for (const t of data.workout_templates || []) insTemplate.run({ field_times: null, deleted_at: null, ...t });
 
-    const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at,week_cursor,week_cursor_session_base,week_cursor_pinned_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at,@week_cursor,@week_cursor_session_base,@week_cursor_pinned_at)`);
-    for (const a of data.program_assignments || []) insAssign.run(_withAssignDefaults(a));
+    const insAssign = db.prepare(`INSERT OR IGNORE INTO program_assignments (id,program_id,assigned_to,assigned_by,start_date,active,assigned_at,week_cursor,week_cursor_session_base,week_cursor_pinned_at,deleted_at) VALUES (@id,@program_id,@assigned_to,@assigned_by,@start_date,@active,@assigned_at,@week_cursor,@week_cursor_session_base,@week_cursor_pinned_at,@deleted_at)`);
+    for (const a of data.program_assignments || []) insAssign.run(_withField(_withAssignDefaults(a), 'deleted_at'));
 
     // A backup from before the Accept step has no status: accepted, as at upgrade.
     const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at,status,responded_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at,@status,@responded_at)`);
     for (const cp of data.coach_prescriptions || []) insPrescription.run({ responded_at: null, ...cp, status: cp.status || 'accepted' });
 
-    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week,field_times) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week,@field_times)`);
-    for (const w of data.workout_log || []) insWorkout.run(_withField(_withField(w, 'program_week'), 'field_times'));
+    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week,field_times,deleted_at) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week,@field_times,@deleted_at)`);
+    for (const w of data.workout_log || []) insWorkout.run(_withField(_withField(_withField(w, 'program_week'), 'field_times'), 'deleted_at'));
+
+    // Exercises and sets deleted inside a workout or workout day
+    // (workout_tombstones): what keeps a device that still holds one from
+    // putting it back. Those of the backup come back; ones made since stay,
+    // unless the restore brought back what they deleted: then they'd take it
+    // away again on the next save, so they go (restoreTombstones).
+    restoreTombstones(data.workout_tombstones);
 
     // Coach feedback: trainer notes on member workouts, plus the member's
     // read-receipt (seen_by_member_at) and single reply (member_reply /
@@ -336,8 +349,8 @@ function restoreFromZip(zip) {
       insActivity.run(_withField(a, 'feedback_id'));
     }
 
-    const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats,field_times) VALUES (@id,@user_id,@date,@stats,@field_times)`);
-    for (const b of data.body_stats_log || []) insBody.run(_withField(b, 'field_times'));
+    const insBody = db.prepare(`INSERT OR IGNORE INTO body_stats_log (id,user_id,date,stats,field_times,deleted_at) VALUES (@id,@user_id,@date,@stats,@field_times,@deleted_at)`);
+    for (const b of data.body_stats_log || []) insBody.run(_withField(_withField(b, 'field_times'), 'deleted_at'));
 
     // Progress photos. The image files themselves already ride along in
     // the zip (createBackup walks all of uploads/ recursively), so only
@@ -389,8 +402,8 @@ function restoreFromZip(zip) {
     for (const c of data.app_config || []) insConfig.run(c);
 
     db.prepare('DELETE FROM ai_chat_history').run();
-    const insChat = db.prepare(`INSERT OR IGNORE INTO ai_chat_history (id,user_id,role,content,created_at) VALUES (@id,@user_id,@role,@content,@created_at)`);
-    for (const m of data.ai_chat_history || []) insChat.run(m);
+    const insChat = db.prepare(`INSERT OR IGNORE INTO ai_chat_history (id,user_id,role,content,created_at,deleted_at) VALUES (@id,@user_id,@role,@content,@created_at,@deleted_at)`);
+    for (const m of data.ai_chat_history || []) insChat.run(_withField(m, 'deleted_at'));
 
     // OIDC providers: client_secret stays encrypted in the dump and is
     // round-tripped as-is. Restoring on a host with a different JWT_SECRET
@@ -453,6 +466,59 @@ function restoreFromZip(zip) {
   try { adoptExistingPairings(); } catch { /* the next start-up does it */ }
 }
 
+// The exercises of a row (its `exercises` JSON), parsed; [] when there is none.
+function _entriesOf(row) {
+  try { const list = JSON.parse(row?.exercises || '[]'); return Array.isArray(list) ? list : []; }
+  catch { return []; }
+}
+
+/**
+ * Put back the backup's workout tombstones, then drop every tombstone that
+ * names an exercise or set the restored workouts and workout days hold: the
+ * merge (lib/workout-merge.js) drops a tombstoned entry from the row on its
+ * next save, so a deletion made after the backup would undo the restore.
+ * Scoped as the merge reads them: a workout's by its user, date and id (0,
+ * from before sessions had ids: every workout of that user and date); a
+ * workout day's by `date` 'template:<id>'. `rows`: absent in a backup from
+ * before they were kept.
+ */
+function restoreTombstones(rows) {
+  // Already here: the same one, or the same entry's with or without its
+  // workout's id (0: from before sessions had ids). Start-up gives a 0 one
+  // its workout's id (db.js), which two copies would make clash.
+  const has = db.prepare(`SELECT 1 FROM workout_tombstones WHERE user_id IS @user_id AND date = @date AND kind = @kind AND ex_uuid = @ex_uuid AND uuid = @uuid
+    AND (workout_id = @workout_id OR (kind IN ('exercise', 'set') AND (workout_id = 0 OR @workout_id = 0)))`);
+  const ins = db.prepare(`INSERT INTO workout_tombstones (user_id,date,workout_id,kind,ex_uuid,uuid,deleted_at) VALUES (@user_id,@date,@workout_id,@kind,@ex_uuid,@uuid,COALESCE(@deleted_at, datetime('now')))`);
+  for (const t of Array.isArray(rows) ? rows : []) {
+    if (!t || typeof t.date !== 'string' || typeof t.kind !== 'string' || typeof t.uuid !== 'string') continue;
+    const row = { user_id: t.user_id ?? null, date: t.date, workout_id: Number(t.workout_id) || 0, kind: t.kind, ex_uuid: t.ex_uuid || '', uuid: t.uuid, deleted_at: t.deleted_at || null };
+    if (!has.get(row)) ins.run(row);
+  }
+
+  const cache = new Map();
+  const entries = (key, load) => { if (!cache.has(key)) cache.set(key, load()); return cache.get(key); };
+  const workoutsOn = db.prepare(`SELECT id, exercises FROM workout_log WHERE user_id IS ? AND date = ?`);
+  const workoutOf = db.prepare(`SELECT id, exercises FROM workout_log WHERE id = ? AND user_id IS ? AND date = ?`);
+  const dayOf = db.prepare(`SELECT exercises FROM workout_templates WHERE id = ?`);
+  const holds = (list, t) => (t.kind === 'exercise' || t.kind === 'template_exercise')
+    ? list.some(e => e?.uuid === t.uuid)
+    : list.some(e => e?.uuid === t.ex_uuid && Array.isArray(e.sets) && e.sets.some(s => s?.uuid === t.uuid));
+  const drop = db.prepare(`DELETE FROM workout_tombstones WHERE rowid = ?`);
+  for (const t of db.prepare(`SELECT rowid AS rid, * FROM workout_tombstones`).all()) {
+    let lists = [];
+    if (t.kind === 'template_exercise' || t.kind === 'template_set') {
+      const id = /^template:(\d+)$/.exec(t.date)?.[1];
+      if (id) lists = [entries(`t${id}`, () => _entriesOf(dayOf.get(Number(id))))];
+    } else if (t.kind === 'exercise' || t.kind === 'set') {
+      const ids = t.workout_id
+        ? workoutOf.all(t.workout_id, t.user_id, t.date)
+        : workoutsOn.all(t.user_id, t.date);
+      lists = ids.map(r => entries(`w${r.id}`, () => _entriesOf(r)));
+    }
+    if (lists.some(list => holds(list, t))) drop.run(t.rid);
+  }
+}
+
 function dumpDatabase() {
   // OIDC tables may be missing on installs that haven't run the new schema
   // yet — guard so an admin can still take a backup mid-upgrade.
@@ -469,6 +535,7 @@ function dumpDatabase() {
     coach_clients:       safe('SELECT * FROM coach_clients'),
     coach_messages:      safe('SELECT * FROM coach_messages'),
     workout_log:         db.prepare('SELECT * FROM workout_log').all(),
+    workout_tombstones:  safe('SELECT * FROM workout_tombstones'),
     body_stats_log:      db.prepare('SELECT * FROM body_stats_log').all(),
     body_stat_media:     safe('SELECT * FROM body_stat_media'),
     set_media:           safe('SELECT * FROM set_media'),

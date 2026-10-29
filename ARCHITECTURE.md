@@ -512,7 +512,12 @@ changes it later.
   count as made as late as the later one. `field_times` never leaves the
   server: every JSON answer, the sync pull, MCP results and webhooks go
   without it (`server/lib/private-fields.js`), and a full backup keeps it
-  so a restore does too. Measurements logged by MCP and sets logged by MCP
+  so a restore does too. A restore also keeps each row's deleted_at and the
+  workout tombstones. Workouts, exercises, programs, workout days,
+  assignments, body stats and chat get updated_at now, so every device
+  pulls them again, deleted ones as deleted. A tombstone that names an
+  entry the restored rows hold is dropped, or the next save's merge would
+  take it away again. Measurements logged by MCP and sets logged by MCP
   are stamped like the app's own saves. `POST /api/sync/push`
   (no LiftTrace app has ever sent it; third-party clients may) meets rows the same
   way, with no gate on the whole row: a row is an edit made at its own
