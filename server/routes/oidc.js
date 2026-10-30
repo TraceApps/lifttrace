@@ -14,6 +14,7 @@ import {
 } from '../lib/oidc.js';
 import db from '../db.js';
 import { claimAnonymousData } from '../lib/claim-anonymous-data.js';
+import { consumeLinkGrant, newLinkBinding, linkBindingMatches } from '../lib/link-grant.js';
 import { oidcReturnHash } from '../lib/oidc-return.js';
 
 const router = Router();
@@ -26,6 +27,8 @@ const COOKIE_OPTS = {
   secure:   !_insecureCookies,
 };
 const LOGOUT_COOKIE = 'lt_oidc_logout';
+// The browser a link was started in (lib/link-grant.js): only it finishes the link.
+const LINK_COOKIE = 'lt_oidc_link';
 
 function _resolveRedirectUri(provider, req) {
   let configured = [];
@@ -50,6 +53,23 @@ router.get('/login/:providerId', wrap(async (req, res) => {
   const provider = getProvider(req.params.providerId);
   if (!provider || !provider.is_active) return res.status(404).send('Provider not found');
 
+  // Linking a provider (Profile > Linked Accounts) takes a grant bought with
+  // a fresh check (lib/link-grant.js): a session alone, or any other token,
+  // never links. A page on another site can't start it in this browser, and
+  // a browser signed in as someone else can't take another account's grant.
+  let linkTo = null;
+  if (req.query.link === '1') {
+    const site = req.get('sec-fetch-site');
+    const refuse = (why) => {
+      logger.warn(`[oidc] link refused: ${why}`);
+      return res.status(403).send('Linking a provider needs a fresh check. Start it again from Profile, Linked Accounts.');
+    };
+    if (site === 'cross-site' || site === 'same-site') return refuse(`started from another site (${site})`);
+    linkTo = consumeLinkGrant(req.query.link_grant);
+    if (!linkTo) return refuse('no grant, or an expired, used or changed one');
+    if (req.user?.id && req.user.id !== linkTo.id) return refuse('the grant is for another account');
+  }
+
   const redirectUri = _resolveRedirectUri(provider, req);
   if (!redirectUri) return res.status(500).send('Provider has no redirect_uris configured');
 
@@ -61,7 +81,12 @@ router.get('/login/:providerId', wrap(async (req, res) => {
   }
 
   const checks = generateAuthChecks();
-  const linkMode = req.query.link === '1' && !!req.user;
+  const linkMode = !!linkTo;
+  let binding = null;
+  if (linkMode) {
+    binding = newLinkBinding();
+    res.cookie(LINK_COOKIE, binding.value, { ...COOKIE_OPTS, maxAge: 15 * 60 * 1000 });
+  }
   const isMobile = req.query.mobile === '1';
   // Newer Android builds send app_challenge so the deep link at the end can
   // carry a single-use code instead of the session token (see /handoff).
@@ -75,7 +100,8 @@ router.get('/login/:providerId', wrap(async (req, res) => {
     state: checks.state,
     nonce: checks.nonce,
     mobile: isMobile,
-    linkUserId: linkMode ? req.user.id : null,
+    linkUserId: linkMode ? linkTo.id : null,
+    linkBinding: binding ? binding.hash : null,
     appChallenge,
   });
 
@@ -141,6 +167,16 @@ async function handleCallback(req, res) {
   }
 
   if (stored.linkUserId) {
+    // Only the browser that started the link finishes it: an address to the
+    // provider sent to someone else can't link their identity to this account.
+    const bound = linkBindingMatches(req.cookies?.[LINK_COOKIE], stored.linkBinding);
+    res.clearCookie(LINK_COOKIE);
+    if (!bound) {
+      logger.warn(`[oidc] link refused: finished in another browser than the one it started in (provider ${provider.id})`);
+      const msg = encodeURIComponent('Linking has to finish in the browser it started in. Start it again from Profile, Linked Accounts.');
+      if (stored.mobile) return res.redirect(`lifttrace://oidc-callback/?error=${msg}`);
+      return _redirectToLogin(res, stored.returnPath, msg);
+    }
     try {
       linkUser(stored.linkUserId, provider.id, claims.sub, !!claims.email_verified);
     } catch (e) {

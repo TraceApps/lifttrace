@@ -81,7 +81,7 @@ export function authenticate(req, res, next) {
   // which its own routes check) is left alone, and the cookie decides as
   // it always did.
   //
-  // req.authVia says which one decided ('bearer' | 'cookie' | null), for any
+  // req.authVia says which one decided ('bearer' | 'cookie' | 'image' | null), for any
   // check that a cookie-borne session needs and a header-borne one doesn't.
   // (This server has no CSRF middleware. The cookie is SameSite=Lax, so a
   // page on another site can't send it with a write, and CORS (lib/cors.js)
@@ -104,6 +104,9 @@ export function authenticate(req, res, next) {
   // Only used for GET — POST/PUT requests must use cookie or Bearer.
   if (!token && req.method === 'GET' && req.query?._lt_t) {
     token = String(req.query._lt_t);
+    // Said apart from the cookie and the header, for checks that take only
+    // those (a fresh check before linking a provider, nutritrace#222).
+    req.authVia = 'image';
   }
   if (!token) { req.user = null; return next(); }
   try {

@@ -11,6 +11,7 @@
  */
 import { Issuer, generators, custom } from 'openid-client';
 import { isEnabled as twoStepEnabled, isRequired as twoStepRequired } from './two-step.js';
+import { emailUnconfirmed } from './link-grant.js';
 
 // openid-client v5.7.x defaults outgoing HTTP requests to a 3500ms timeout,
 // which is too tight in practice — first-time Authentik / Keycloak / Authelia
@@ -118,11 +119,12 @@ export function invalidateDiscovery(providerId) {
 
 // ── PKCE / state persistence (reuses oauth_state) ─────────────────────────
 
-export function persistState({ providerId, redirectUri, returnPath, codeVerifier, state, nonce, mobile, linkUserId, appChallenge }) {
+export function persistState({ providerId, redirectUri, returnPath, codeVerifier, state, nonce, mobile, linkUserId, linkBinding, appChallenge }) {
   const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
   const data = { providerId, redirectUri, returnPath, codeVerifier, nonce };
   if (mobile)      data.mobile = true;
   if (linkUserId)  data.linkUserId = linkUserId;
+  if (linkBinding) data.linkBinding = linkBinding;
   if (appChallenge) data.appChallenge = appChallenge;
   db.prepare(
     `INSERT OR REPLACE INTO oauth_state (state, user_id, provider, data, expires_at)
@@ -243,6 +245,11 @@ export function resolveUser(provider, claims) {
     // path would make them set it up first.
     if (localByEmail && (twoStepEnabled(localByEmail.id) || (twoStepRequired() && localByEmail.password_hash))) {
       throw new Error(`Your ${provider.display_name || 'OIDC'} account matches a LiftTrace account that uses two-step sign-in. Sign in with your password and code once, then link this provider from Profile, Linked Accounts.`);
+    }
+    // An email changed with a session alone, not confirmed since, links
+    // nothing: a stolen session could set its own email (nutritrace#222).
+    if (localByEmail && emailUnconfirmed(localByEmail)) {
+      throw new Error(`Your ${provider.display_name || 'OIDC'} account matches a LiftTrace account whose email was changed and not confirmed yet. Sign in with your password and confirm the email in Profile, or link this provider from Profile, Linked Accounts.`);
     }
     if (localByEmail) {
       db.prepare(
