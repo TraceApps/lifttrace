@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { currentUser, userMgmtActive, loadAuthState, signInProblem, serverProblem, setupRequired } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, loadAuthState, signInProblem, serverProblem, setupRequired, sessionEnded } from '../stores/auth.js';
   import { problemKey } from '../lib/auth-plan.js';
   import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
   import CookieWarning from '../components/ui/CookieWarning.svelte';
@@ -365,6 +365,14 @@
       </div>
     {/if}
 
+    {#if $sessionEnded && !challenge}
+      <!-- This device was signed out (a password change, Sign Out Everywhere: server/lib/session-version.js). -->
+      <div class="session-ended" role="status">
+        <span class="material-symbols-rounded">logout</span>
+        <div>{$_('login.session_ended')}</div>
+      </div>
+    {/if}
+
     {#if challenge}
       <TwoStepChallenge {challenge} account={username.trim()} on:done={twoStepDone} on:restart={twoStepRestart} />
     {:else if !recoveryDone}
@@ -553,4 +561,11 @@
     width: 18px; height: 18px; object-fit: contain;
     font-size: 18px;
   }
+  .session-ended {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 12px 14px; background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-left: 3px solid var(--accent); border-radius: 4px;
+    font-size: 13px; line-height: 1.5; color: var(--text-2);
+  }
+  .session-ended .material-symbols-rounded { font-size: 20px; color: var(--accent); flex-shrink: 0; }
 </style>

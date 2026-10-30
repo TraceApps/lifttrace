@@ -95,7 +95,7 @@ test.before(async () => {
   }
   await ok('POST', '/api/auth/register', { username: 'sam', password: PW, full_name: 'Sam Lee' }, {}, null);
   token = (await ok('POST', '/api/auth/login', { username: 'sam', password: PW }, {}, null)).token;
-  apiToken = (await ok('POST', '/api/admin/api-tokens', { name: 'Home Assistant', scopes: ['mcp:read', 'mcp:write', 'mcp:destroy'] })).raw;
+  apiToken = (await ok('POST', '/api/admin/api-tokens', { name: 'Home Assistant', scopes: ['mcp:read', 'mcp:write', 'mcp:destroy'], password: PW })).raw;
 });
 test.after(async () => {
   try {

@@ -138,6 +138,7 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `UPDATE_CHECK` | (none) | Set `off` to stop the server asking GitHub about new releases for good. Unset, update checks stay off until setup or Settings, Updates turns them on. |
 | `RECOVERY_TOKEN` | (none) | Passphrase for Locked Out? on the login page: reset two-step sign-in for one account (16 characters or more), or disable user management (lockout recovery). |
 | `TWO_STEP_KEY` | a generated `two-step.key` next to the database | Key that locks two-step sign-in secrets. Leave it unset unless you keep secrets outside the data folder. See [DEPLOY.md](DEPLOY.md#two-step-sign-in). |
+| `OIDC_APP_LINK_TOKEN` | on | `off` refuses single sign-on from older Android builds that take their sign-in in the deep link. On by default. See [DEPLOY.md](DEPLOY.md#sessions). |
 | `SMTP_*` | (none) | SMTP for password reset emails and user invites |
 | `AI_*` | (none) | Server-side AI proxy; `AI_PROVIDER` accepts `claude` \| `openai` \| `gemini` \| `oai-compat` |
 | `OIDC_*` / `OIDC_PROVIDER_N_*` | (none) | OIDC SSO declared in env instead of the UI |

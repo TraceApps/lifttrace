@@ -212,7 +212,17 @@ function _switchSignal() {
  * unwinnable retry loop. Mirrors the same fix in NT sync.js
  * (commit d1e8217) and CT (commit c4d6334).
  */
-async function _handleSyncAuthError() {
+async function _handleSyncAuthError(e = null) {
+  // Refused for a token this phone has since replaced (it changed the
+  // password or chose Sign Out Everywhere while this was out): the new one
+  // stands, and nothing is cleared.
+  if (e?.sentWith && e.sentWith !== getAuthToken()) return;
+  // The server says this device was signed out (a password change, Sign
+  // Out Everywhere): the sign-in page says so (lib/fresh-session.js). The
+  // queued writes stay for the account's next sign-in.
+  if (e?.sessionEnded) {
+    try { (await import('../stores/auth.js')).sessionEnded.set(true); } catch { /* none */ }
+  }
   // Signed out: no sync until someone signs in again (the queue waits for
   // this account), and the server's cookie can't stand in for the session.
   try { (await import('./account-gen.js')).markSignedOut(true); } catch { /* none */ }
@@ -287,6 +297,10 @@ async function _serverFetch(method, path, body, token = _roundToken ?? getAuthTo
     const msg = res.data?.error || `HTTP ${res.status}`;
     const err = new Error(msg);
     err.status = res.status;
+    // Signed out on this device (a password change, Sign Out Everywhere:
+    // nutritrace#222): the sign-in page says so.
+    try { err.sessionEnded = !!(typeof res.data === 'string' ? JSON.parse(res.data) : res.data)?.session_ended; } catch { /* not JSON */ }
+    err.sentWith = token;
     throw err;
   }
   return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
@@ -410,7 +424,7 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
       result.ok = false;
       if (e.stale || !_alive()) { result.reason = 'account_changed'; return result; }
       console.warn('[sync] /api/sync/pull failed:', e.status, e.message);
-      if (e.status === 401) await _handleSyncAuthError();
+      if (e.status === 401) await _handleSyncAuthError(e);
       result.errors.push(['pull', e.message]);
       return result;
     }
@@ -2679,7 +2693,7 @@ async function _flushQueue(token = getAuthToken(), gen = accountGen()) {
           // KEEP the queued write so it replays once they're back in.
           // Stop the whole flush; the rest of the queue would just
           // 401 too and waste cycles.
-          await _handleSyncAuthError();
+          await _handleSyncAuthError(e);
           await dbRun(
             `UPDATE sync_queue SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
             [String(e.message || e).slice(0, 500), row.id]

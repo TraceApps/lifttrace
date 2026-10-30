@@ -116,7 +116,7 @@ test.before(async () => {
   const reg = await call(null, 'POST', '/api/auth/register', { username: 'lifter', password: PW });
   assert.equal(reg.status, 200, JSON.stringify(reg.data));
   session = reg.data.token;
-  const tok = await app('POST', '/api/admin/api-tokens', { name: 'test', scopes: ['mcp:read', 'mcp:write'] });
+  const tok = await app('POST', '/api/admin/api-tokens', { name: 'test', scopes: ['mcp:read', 'mcp:write'], password: PW });
   apiToken = tok.data.raw;
   assert.ok(apiToken, JSON.stringify(tok.data));
   const hook = await app('POST', '/api/webhooks', { url: `http://127.0.0.1:${hookPort}/hook`, events: ['body_stat.logged', 'pr.set', 'cardio.logged'] });

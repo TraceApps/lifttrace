@@ -135,7 +135,7 @@ test.before(async () => {
   const other = await app('POST', '/api/auth/register', { username: 'other', password: PW, full_name: 'Otto Other', role: 'admin' });
   tok.other = serverRequire('jsonwebtoken').sign({ id: other.user.id, username: 'other', role: 'admin' }, JWT_SECRET, { expiresIn: '1h' });
   for (const who of ['surf', 'other']) {
-    api[who] = (await app('POST', '/api/admin/api-tokens', { name: 'Home Assistant', scopes: ['mcp:read', 'mcp:write'] }, who)).raw;
+    api[who] = (await app('POST', '/api/admin/api-tokens', { name: 'Home Assistant', scopes: ['mcp:read', 'mcp:write'], password: PW }, who)).raw;
     assert.ok(api[who]);
   }
   secret = (await app('POST', '/api/webhooks', { url: `http://127.0.0.1:${hookPort}/hook`, events: ['pr.set', 'workout.completed', 'program.advanced'] })).secret;
@@ -357,7 +357,7 @@ test("only a day this account may see; none without an active program; another p
 });
 
 test('writes need the write scope and the server switch, like every other write', opts, async () => {
-  const readOnly = (await app('POST', '/api/admin/api-tokens', { name: 'ro', scopes: ['mcp:read'] })).raw;
+  const readOnly = (await app('POST', '/api/admin/api-tokens', { name: 'ro', scopes: ['mcp:read'], password: PW })).raw;
   const r = await call(readOnly, 'POST', `/api/v1/workouts/${DAY(16)}/start`, {});
   assert.equal(r.status, 403);
   assert.equal((await call(null, 'POST', `/api/v1/workouts/${DAY(16)}/start`, {})).status, 401);
@@ -369,7 +369,7 @@ test('MCP: start_program_workout is a write tool, and log_set takes workout_id',
   assert.ok(tool, 'listed');
   assert.ok(tool.inputSchema.properties.template_id && tool.inputSchema.properties.date);
   assert.ok(list.data.result.tools.find(x => x.name === 'log_set').inputSchema.properties.workout_id);
-  const readOnly = (await app('POST', '/api/admin/api-tokens', { name: 'ro2', scopes: ['mcp:read'] })).raw;
+  const readOnly = (await app('POST', '/api/admin/api-tokens', { name: 'ro2', scopes: ['mcp:read'], password: PW })).raw;
   const roList = await call(readOnly, 'POST', '/api/mcp', { jsonrpc: '2.0', id: ++rpc, method: 'tools/list', params: {} });
   assert.ok(!roList.data.result.tools.some(x => x.name === 'start_program_workout'), 'not without mcp:write');
 

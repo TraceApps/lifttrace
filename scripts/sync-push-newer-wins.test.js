@@ -108,7 +108,7 @@ test.before(async () => {
   }
   await call('POST', '/api/auth/register', { username: 'sam', password: PW, full_name: 'Sam Lee' }, {}, null);
   token = (await call('POST', '/api/auth/login', { username: 'sam', password: PW }, {}, null)).token;
-  apiToken = (await call('POST', '/api/admin/api-tokens', { name: 'Home Assistant', scopes: ['mcp:read', 'mcp:write'] })).raw;
+  apiToken = (await call('POST', '/api/admin/api-tokens', { name: 'Home Assistant', scopes: ['mcp:read', 'mcp:write'], password: PW })).raw;
   ex = await call('POST', '/api/exercises', { name: 'Ring Dips', set_type: 'reps' });
   prog = await call('POST', '/api/programs', { name: 'Push Plan', duration_weeks: 4 });
   day = await call('POST', '/api/templates', { program_id: prog.id, name: 'Day A', exercises: [{ exercise_id: ex.id, exercise_name: ex.name, target_sets: 3, target_reps: '8', target_weight: '40' }] });

@@ -182,7 +182,7 @@ test('/api/v1/programs/active carries paused_days', { skip }, async () => {
   db.prepare('UPDATE program_assignments SET start_date = ? WHERE program_id = ?').run(D.start, p.id);
   db.close();
   await excuseAll(S, 'admin');
-  const { raw: token } = await S.ok('admin', 'POST', '/api/admin/api-tokens', { name: 'pause', scopes: ['mcp:read'] });
+  const { raw: token } = await S.ok('admin', 'POST', '/api/admin/api-tokens', { name: 'pause', scopes: ['mcp:read'], password: PW });
   const r = await fetch(`${S.base}/api/v1/programs/active`, { headers: { Authorization: `Bearer ${token}` } });
   const body = await r.json();
   const out = body.data ?? body;

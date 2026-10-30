@@ -252,7 +252,7 @@ test('MCP and /api/v1 read excused days through the same core', { skip }, async 
   // Through the REST API, with a token (tokens are an admin's own).
   await S.ok('admin', 'PUT', `/api/excused-days/${shift(TODAY, -1)}`, { reason: 'illness' });
   await S.ok('admin', 'PUT', `/api/excused-days/${shift(TODAY, 3)}`, { reason: 'other' });
-  const { raw: token } = await S.ok('admin', 'POST', '/api/admin/api-tokens', { name: 'test', scopes: ['mcp:read'] });
+  const { raw: token } = await S.ok('admin', 'POST', '/api/admin/api-tokens', { name: 'test', scopes: ['mcp:read'], password: PW });
   const r = await fetch(`${S.base}/api/v1/excused-days?start=${shift(TODAY, -2)}`, { headers: { Authorization: `Bearer ${token}` } });
   assert.equal(r.status, 200);
   assert.equal((await r.json()).count, 2);

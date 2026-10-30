@@ -140,6 +140,18 @@ object Pairing {
     }
 
     fun save(ctx: Context, serverUrl: String, token: String, phoneRelease: String = "", httpOk: String = "") {
+        // Another account signed in on the phone (its sign-in here was
+        // refused, the phone signed in as someone else): what this watch
+        // kept and logged was the previous account's, so it goes, never up
+        // under this one (from TraceApps/nutritrace#222). The same account
+        // with a new token (a password change, Sign Out Everywhere) keeps it.
+        val p = prefs(ctx)
+        val before = accountOf(p.getString(KEY_TOKEN, null) ?: p.getString(KEY_REFUSED, null))
+        val now = accountOf(token)
+        if (before != null && now != null && before != now) {
+            Log.i(TAG, "paired with another account: what the previous one left here is cleared")
+            clear(ctx)
+        }
         val edit = prefs(ctx).edit()
             .putString(KEY_URL, serverUrl.trim().trimEnd('/'))
             .putString(KEY_TOKEN, token.trim())
@@ -151,6 +163,15 @@ object Pairing {
         if (phoneRelease.isNotBlank()) edit.putString(KEY_PHONE_RELEASE, phoneRelease.trim())
         else edit.remove(KEY_PHONE_RELEASE)
         edit.apply()
+    }
+
+    /** The account a session token is for (its user id), or null when it can't be read. */
+    private fun accountOf(token: String?): String? {
+        val part = token?.split('.')?.getOrNull(1) ?: return null
+        return runCatching {
+            val json = String(android.util.Base64.decode(part, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP), Charsets.UTF_8)
+            org.json.JSONObject(json).opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+        }.getOrNull()
     }
 
     /** The release the phone runs (v1.4.0-dev05), as it last said. */

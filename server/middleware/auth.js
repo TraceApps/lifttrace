@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import db from '../db.js';
+import { sessionVersion, checkSession } from '../lib/session-version.js';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'lifttrace-dev-secret-change-in-production';
 
@@ -35,13 +36,17 @@ export function userMgmtActive() {
   return db.prepare('SELECT 1 FROM users LIMIT 1').get() != null;
 }
 
-export function signToken(user) {
+/**
+ * A session for a user row. `sv` is the account's session number
+ * (lib/session-version.js). `authTime`: when the person last signed in, for
+ * a session given again without a sign-in (a password change, Sign Out
+ * Everywhere), so it never counts as a fresh sign-in (lib/link-grant.js).
+ */
+export function signToken(user, { authTime = null } = {}) {
   const hours = _resolveSessionHours();
-  return jwt.sign(
-    { id: user.id, username: user.username, role: user.role },
-    JWT_SECRET,
-    { expiresIn: `${hours}h` },
-  );
+  const claims = { id: user.id, username: user.username, role: user.role, sv: sessionVersion(user.id) };
+  if (Number.isFinite(authTime)) claims.auth_time = authTime;
+  return jwt.sign(claims, JWT_SECRET, { expiresIn: `${hours}h` });
 }
 
 export function sessionMaxAge() {
@@ -51,9 +56,16 @@ export function sessionMaxAge() {
 // A session is a token signToken() made. Anything else signed with our
 // secret that carries a `typ` (a two-step sign-in pending token is signed
 // with a key of its own, so this is a second lock) is no session
-// (nutritrace#222).
+// (nutritrace#222). Nor is one whose account signed every session out
+// since it was made (lib/session-version.js), whichever way it came (the
+// header, the cookie, or an image address's _lt_t): `_ended` notes that, so
+// the answer can say so.
+let _ended = false;
 function _session(payload) {
-  return payload && typeof payload === 'object' && payload.typ == null ? payload : null;
+  if (!(payload && typeof payload === 'object' && payload.typ == null)) return null;
+  const { session, ended } = checkSession(payload);
+  if (ended) _ended = true;
+  return session;
 }
 
 /** One of this server's sessions: the signature checks out with our secret
@@ -88,11 +100,15 @@ export function authenticate(req, res, next) {
   // lets only the app's own addresses set a header or read an answer. A page
   // on the same site, such as a subdomain, still sends the cookie with a
   // plain form post: CORS never stops a request that needs no preflight.)
+  // req.sessionEnded: the session was ours and good, but the account signed
+  // it out since (a password change, Sign Out Everywhere).
+  _ended = false;
   const auth = req.headers.authorization;
   const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (bearer && _ours(bearer)) {
     req.authVia = 'bearer';
     try { req.user = _session(jwt.verify(bearer, JWT_SECRET)); } catch { req.user = null; }
+    req.sessionEnded = _ended;
     return next();
   }
   let token = req.cookies?.lt_token;
@@ -108,18 +124,25 @@ export function authenticate(req, res, next) {
     // those (a fresh check before linking a provider, nutritrace#222).
     req.authVia = 'image';
   }
-  if (!token) { req.user = null; return next(); }
+  if (!token) { req.user = null; req.sessionEnded = false; return next(); }
   try {
     req.user = _session(jwt.verify(token, JWT_SECRET));
   } catch {
     req.user = null;
   }
+  req.sessionEnded = _ended;
   next();
 }
 
+/** What a request whose session was signed out is told, beside the 401. */
+export const SESSION_ENDED = {
+  error: 'You were signed out on this device. Sign in again.',
+  session_ended: true,
+};
+
 export function requireAuth(req, res, next) {
   if (!userMgmtActive()) return next();
-  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (!req.user) return res.status(401).json(req.sessionEnded ? SESSION_ENDED : { error: 'Not authenticated' });
   next();
 }
 
@@ -131,7 +154,7 @@ export function requireAdmin(req, res, next) {
 
 export function requireTrainerOrAdmin(req, res, next) {
   if (!userMgmtActive()) return next();
-  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (!req.user) return res.status(401).json(req.sessionEnded ? SESSION_ENDED : { error: 'Not authenticated' });
   if (req.user.role !== 'admin' && req.user.role !== 'trainer') {
     return res.status(403).json({ error: 'Trainer or admin access required' });
   }

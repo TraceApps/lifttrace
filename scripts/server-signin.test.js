@@ -132,6 +132,7 @@ test('an SSO sign-in from Settings: the account is asked of that server with the
   assert.match(url, /^https:\/\/lift\.example\.com\/api\/auth\/oidc\/login\/3\?mobile=1&return=%23%2F&app_challenge=[\w-]+$/);
   const { challengeSent } = await import('../src/lib/oidc-app-handoff.js');
   assert.equal(challengeSent(), true, 'asking for a code is remembered');
+  assert.equal(challengeSent(), false, 'taken by the link that answers it (nutritrace#222)');
   // A relative logo is the typed server's, not the one the app had before.
   assert.equal(signin.providerLogo(URL_, '/uploads/oidc/1.png'), 'https://lift.example.com/uploads/oidc/1.png');
   assert.equal(signin.providerLogo(URL_, 'https://cdn.example.com/a.png'), 'https://cdn.example.com/a.png');
@@ -157,7 +158,9 @@ test('a Settings sign-in takes only the code it asked for, never a token another
   assert.deepEqual(act({ code: 'c1', connecting, challengeSent: true, local: true }), { do: 'redeem', server: URL_ });
   assert.deepEqual(act({ error: 'denied', code: 'c1', connecting, challengeSent: true, local: true }), { do: 'error' });
   // Without WebCrypto no code was asked for: the token is the only answer.
-  assert.deepEqual(act({ token: 't', connecting, challengeSent: false, local: true }), { do: 'token' });
+  // A bare token nobody here asked for is another app's (nutritrace#222).
+  assert.deepEqual(act({ token: 't', connecting, challengeSent: false, local: true }), { do: 'refuse' });
+  assert.deepEqual(act({ token: 't', connecting: null, challengeSent: false }), { do: 'refuse' }, 'no sign-in under way');
   // First run and after Log Out (server mode): a server from before the code
   // hand-off answers with a token, so it's still taken there.
   assert.deepEqual(act({ token: 't', connecting: null, challengeSent: true }), { do: 'token' });

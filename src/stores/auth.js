@@ -19,6 +19,11 @@ export const signInProblem = writable(null);
 // ('unreachable' | 'web_page' | 'server_error'): the sign-in page says so,
 // with Retry (lib/auth-plan.js problemKey for the line).
 export const serverProblem = writable(null);
+/** True when the server said this device's session was signed out (a
+ *  password change, two-step sign-in changed, Sign Out Everywhere,
+ *  nutritrace#222): the sign-in page says so (lib/fresh-session.js). */
+export const sessionEnded = writable(false);
+currentUser.subscribe((u) => { if (u) sessionEnded.set(false); });
 
 // Synthetic local user for native standalone mode (no server configured).
 // full_name + nickname + dob + gender + avatar are overridden at load time
@@ -200,6 +205,13 @@ export async function loadAuthState() {
 
     const { active, user } = plan;
     const statusData = status, meData = me;
+    // Signed out on this device since (a password change, Sign Out
+    // Everywhere, nutritrace#222): the sign-in page says why. The queue and
+    // the phone's copy stay for the account's next sign-in.
+    if (!user && meData?.session_ended) {
+      const { endSessionHere } = await import('../lib/fresh-session.js');
+      await endSessionHere();
+    }
     try { localStorage.setItem('lt:userMgmt', active ? '1' : '0'); } catch { /* none */ }
     userMgmtActive.set(active);
     setupRequired.set(plan.setupRequired);

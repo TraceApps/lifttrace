@@ -189,6 +189,7 @@ services:
 | `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. Use `debug` for verbose request and sync output. |
 | `RECOVERY_TOKEN` | No | (none) | Lockout-recovery token for Locked Out? on the login page. It can reset two-step sign-in for one account (the token must be 16 characters or more for this) or disable user management. Without it, both are off. |
 | `TWO_STEP_KEY` | No | generated | Key that locks two-step sign-in secrets, kept apart from `JWT_SECRET`. Unset, LiftTrace makes `two-step.key` next to the database (the `/data/db` volume) the first time someone sets up two-step sign-in, and keeps it across restarts. Set it (or `TWO_STEP_KEY_FILE`, 32 characters or more) only to keep it outside the data folder. If it changes or is lost, codes from authenticator apps stop working until reset: recovery codes still sign in. See [Two-step sign-in](#two-step-sign-in). |
+| `OIDC_APP_LINK_TOKEN` | No | on | `off` refuses single sign-on from Android builds that take their sign-in in the deep link (from before the one-time code). See [Sessions](#sessions). |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
 | `INSECURE_COOKIES` | No | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `FRAME_ANCESTORS` | No | (unset) | Addresses allowed to show LiftTrace inside a frame, several separated by spaces or commas (`https://*.example.com` covers a whole domain). By default only LiftTrace itself may, so no other site can frame it to trick a click. If you show LiftTrace inside a dashboard (Homarr, Organizr, Home Assistant), it shows blank after this update until you set `FRAME_ANCESTORS` to the dashboard's address, for example `FRAME_ANCESTORS=https://home.example.com`. Origins only; a path is ignored. A proxy that already sets its own frame-ancestors for the dashboard needs `FRAME_ANCESTORS` too. |
@@ -239,6 +240,16 @@ Getting back in, always for one account and never with SQL:
    Run it with no username to list the accounts that have two-step sign-in on.
 
 Every reset is logged, and the person is emailed when the server sends email. Single sign-on never links itself by email (Auto-Link) to an account that uses two-step sign-in, or that must set it up; a provider linked to an account before is trusted to do its own two-step sign-in. Linking a provider from Profile asks for the password (and code) first, and finishes only in the browser it started in; an email changed in Profile waits for the same check before single sign-on links by it or a password reset goes to it. Admins can require two-step sign-in for everyone in Settings > Users: anyone who signs in with a password sets it up right after their password. Single sign-on accounts, API tokens and saved sign-ins (biometric unlock, the watch app) are unchanged.
+
+---
+
+## Sessions
+
+A sign-in lasts until it expires (Settings > Users > Session Duration, up to a year) or until the account signs its sessions out. Changing the password (in Profile, with an emailed reset link, or by an admin), turning two-step sign-in on or off, any reset of it, and **Sign Out Everywhere** in Settings > Profile sign out every browser, phone and watch signed in to the account. The device that made the change stays signed in. The others go to the sign-in page, which says they were signed out, and anything they saved offline waits there and goes up at the next sign-in. A paired watch signs in again with the phone: it keeps what it logged, and takes the phone's new sign-in the next time the phone is opened. Sessions from before this keep working until one of those happens.
+
+API tokens and MCP tokens are separate credentials: none of this signs them out, and each has its own Revoke in Settings > API Tokens. Creating a token asks for the password (and the two-step code when that's on); an account that signs in with single sign-on only must have signed in within the last 15 minutes. A token can expire after 30 days, 90 days or a year, or never; tokens made before this keep working.
+
+The Android app finishes single sign-on with a one-time code that only it can swap for its sign-in. Android builds from before that code get their sign-in in the deep link itself (`lifttrace://oidc-callback`), which another app on the phone could catch. They still sign in, and the server log says so each time; set `OIDC_APP_LINK_TOKEN=off` to refuse them (they're told to update LiftTrace). Off will become the default after the next main release.
 
 ---
 

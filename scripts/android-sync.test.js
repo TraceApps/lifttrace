@@ -624,7 +624,7 @@ test('the server reads the session from the header, never from another account\'
       assert.equal(behind.user?.id, srv.adminId, 'the cookie\'s account behind a proxy');
     }
     // API tokens still work on their own routes, with or without a cookie.
-    const made = await (await fetch(srv.base + '/api/admin/api-tokens', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 't', scopes: ['mcp:read'] }), signal: AbortSignal.timeout(CALL_MS) })).json();
+    const made = await (await fetch(srv.base + '/api/admin/api-tokens', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 't', scopes: ['mcp:read'], password: 'Str0ng-Pass-77!x' }), signal: AbortSignal.timeout(CALL_MS) })).json();
     for (const extra of [{}, { Cookie: cookie }]) {
       const v1 = await fetch(srv.base + '/api/v1/workouts/recent', { headers: { Authorization: `Bearer ${made.raw}`, ...extra }, signal: AbortSignal.timeout(CALL_MS) });
       assert.equal(v1.status, 200, 'an API token on its routes');

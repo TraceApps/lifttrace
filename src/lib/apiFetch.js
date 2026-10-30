@@ -33,7 +33,20 @@ export function installApiFetch() {
   // so a dead zone doesn't end the session (offline-api.js).
   if (!isNative) installOffline(_origFetch);
 
-  window.fetch = async function patchedFetch(input, init = {}) {
+  // Signed out on this device (a password change elsewhere, Sign Out
+  // Everywhere, nutritrace#222): to the sign-in page, saying why
+  // (lib/fresh-session.js). Whatever asked still gets its answer.
+  window.fetch = async function fetchNoticingSignOut(input, init = {}) {
+    const res = await patchedFetch(input, init);
+    if (res?.status === 401 && typeof res.clone === 'function') {
+      res.clone().json().then((d) => {
+        if (d?.session_ended) import('./fresh-session.js').then((m) => m.endSessionHere()).catch(() => {});
+      }).catch(() => {});
+    }
+    return res;
+  };
+
+  async function patchedFetch(input, init = {}) {
     const url = typeof input === 'string' ? input : input?.url || '';
 
     // Only intercept /api/... and /uploads/... — everything else (assets,
@@ -61,7 +74,7 @@ export function installApiFetch() {
 
     // ── Native + standalone: dispatch to local SQLite handler ───────────
     return _dispatchLocal(url, init);
-  };
+  }
 }
 
 // Paths that are safe to serve from the local SQLite cache first when in

@@ -16,13 +16,14 @@
   import { LtApi } from '../lib/api.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { localDateStr, DB } from '../lib/db.js';
-  import { resolveAssetUrl, isNative, getServerUrl, getAuthToken } from '../lib/platform.js';
+  import { resolveAssetUrl, isNative, getServerUrl, getAuthToken, apiUrl } from '../lib/platform.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import TwoStepSettings from '../components/two-step/TwoStepSettings.svelte';
   import LinkConfirm from '../components/two-step/LinkConfirm.svelte';
   import EmailConfirm from '../components/two-step/EmailConfirm.svelte';
   import { biometricLoginEnabled } from '../stores/settings.js';
   import * as biometric from '../lib/biometric.js';
+  import { adoptSession } from '../lib/fresh-session.js';
 
   // Probe biometric on mount. Render the row when biometric is fully
   // working OR when hardware exists but no fingerprint is enrolled (so the
@@ -135,6 +136,9 @@
   // OIDC: provider list + linked accounts for the current user
   let oidcProviders = [];
   let linkedProviders = [];
+  // Back from linking in the phone's browser, the account is read again
+  // with its links: the list shows the new one without reopening Profile.
+  $: if (Array.isArray($currentUser?.linked_providers)) linkedProviders = $currentUser.linked_providers;
   let unlinking = null;
   async function loadOidc() {
     try {
@@ -161,10 +165,20 @@
     linkProvider = oidcProviders.find((p) => p.id === providerId) || { id: providerId };
     linkConfirmOpen = true;
   }
-  function linkGranted(e) {
+  async function linkGranted(e) {
     const { provider, grant } = e.detail;
     const ret = encodeURIComponent('#/profile');
-    window.location.href = `/api/auth/oidc/login/${provider.id}?link=1&link_grant=${encodeURIComponent(grant)}&return=${ret}`;
+    const url = apiUrl(`/api/auth/oidc/login/${provider.id}?link=1&link_grant=${encodeURIComponent(grant)}&return=${ret}`);
+    if (isNative) {
+      // The Android app links in the phone's browser and comes back through
+      // its oidc-callback link (?linked=1), as its sign-in does. Before, the
+      // app's page itself went to the provider and the link ended on the
+      // web app in the browser (nutritrace#222).
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url: `${url}&mobile=1`, presentationStyle: 'popover' });
+      return;
+    }
+    window.location.href = url;
   }
   async function unlink(linkId) {
     if (!confirm('Unlink this provider? You won’t be able to sign in with it again until you re-link.')) return;
@@ -293,6 +307,32 @@
   $: pwMatch = confirmPassword && newPassword !== confirmPassword ? $_('reset_password.errors.mismatch') : null;
   $: pwScore = passwordStrength(newPassword);
 
+  // Sign Out Everywhere (nutritrace#222): every session this account has
+  // ends, and this device is given a new one (server/lib/session-version.js).
+  let signingOutEverywhere = false;
+  async function signOutEverywhere() {
+    if (signingOutEverywhere) return;
+    const ok = await confirmDialog({
+      title: $_('profile.sign_out_everywhere_title'),
+      message: $_('profile.sign_out_everywhere_message'),
+      confirmText: $_('profile.sign_out_everywhere'),
+      dangerous: true,
+    });
+    if (!ok) return;
+    signingOutEverywhere = true;
+    try {
+      const res = await fetch('/api/auth/sign-out-everywhere', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showError(data.error || $_('common.errors.failed')); return; }
+      await adoptSession(data.session);
+      showSuccess($_('profile.signed_out_everywhere'));
+    } catch {
+      showError($_('common.errors.cant_reach_server'));
+    } finally {
+      signingOutEverywhere = false;
+    }
+  }
+
   async function changePassword() {
     if (pwError || pwMatch) return;
     changingPw = true;
@@ -302,7 +342,10 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       });
-      if (!res.ok) throw new Error((await res.json()).error);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error);
+      // Every other device is signed out; this one keeps going on a new session.
+      await adoptSession(data.session);
       showSuccess($_('profile.password_changed'));
       currentPassword = ''; newPassword = ''; confirmPassword = '';
     } catch(e) {
@@ -551,6 +594,14 @@
          Single-user / native standalone has no session to log out of. -->
     {#if !_isLocal && $userMgmtActive}
     <div class="card">
+      <button class="security-row" on:click={signOutEverywhere} disabled={signingOutEverywhere}>
+        <span class="material-symbols-rounded security-icon">devices</span>
+        <span class="security-label">
+          {$_('profile.sign_out_everywhere')}
+          <span class="security-hint">{$_('profile.sign_out_everywhere_hint')}</span>
+        </span>
+        <span class="material-symbols-rounded security-chev">chevron_right</span>
+      </button>
       <button class="security-row" on:click={doLogout} disabled={loggingOut}>
         <span class="material-symbols-rounded security-icon">logout</span>
         <span class="security-label">{loggingOut ? 'Signing out…' : 'Log Out'}</span>
@@ -654,6 +705,7 @@
   .security-row[disabled] { opacity: 0.5; cursor: not-allowed; }
   .security-icon { color: var(--text-3); }
   .security-label { flex: 1; font-size: 14px; font-weight: 600; }
+  .security-hint { display: block; font-size: 12px; font-weight: 400; color: var(--text-3); margin-top: 2px; }
   .security-chev { color: var(--text-3); font-size: 18px; }
 
   .card {

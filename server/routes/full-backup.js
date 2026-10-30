@@ -14,6 +14,7 @@ import { isValidTimeZone, processTimeZone } from '../lib/zoned-time.js';
 import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '../lib/backup-schedule.js';
 // Makes the two-step sign-in tables a backup reads and restores (nutritrace#222).
 import { logAfterRestore as logTwoStepAfterRestore } from '../lib/two-step.js';
+import { keepSessionVersions } from '../lib/session-version.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -245,7 +246,8 @@ function requireAdmin(req, res, next) {
 
 function restoreFromZip(zip) {
   const data = JSON.parse(zip.readAsText('database.json'));
-  db.transaction(() => {
+  // Signed-out sessions stay signed out (lib/session-version.js).
+  keepSessionVersions(() => db.transaction(() => {
     db.prepare('DELETE FROM password_reset_tokens').run();
     db.prepare('DELETE FROM invite_tokens').run();
     db.prepare('DELETE FROM user_settings').run();
@@ -464,7 +466,7 @@ function restoreFromZip(zip) {
     // deletes the duplicate rows.
     try { dedupeExercisesOnce({ force: true }); }
     catch (e) { logger.warn?.(`[restore] exercise dedupe skipped: ${e?.message || e}`); }
-  })();
+  })(), data.users);
 
   // Restore images — guarded against zip-slip + zip-bomb
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
