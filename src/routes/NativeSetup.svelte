@@ -7,6 +7,7 @@
   import { destroyLocalDb } from '../lib/db-native.js';
   import { serverAddressCheck, confirmPlainHttp } from '../lib/plain-http.js';
   import { askPlainHttp } from '../stores/plainHttp.js';
+  import TwoStepChallenge from '../components/two-step/TwoStepChallenge.svelte';
 
   // 'choose'         — Use Locally / Connect to Server picker
   // 'server-url'     — enter URL (NEW step, unlocks OIDC-only discovery)
@@ -117,33 +118,49 @@
     connecting = true;
     try {
       const data = await passwordSignIn(validatedUrl, username.trim(), password);
-
-      // Flip native mode → server BEFORE checking for local data, so the
-      // upload pass (if the user picks it) routes through apiFetch correctly.
-      // Local SQLite stays intact; we just stop reading from it for new ops.
-      setServerUrl(validatedUrl);
-      setAuthToken(data.token);
-      setNativeMode('server');
-
-      // If user has been running standalone, count what's there. If anything
-      // exists, show the three-option migration dialog. Otherwise done.
-      try {
-        localCounts = await countLocalData();
-      } catch {
-        localCounts = null;
-      }
-      if (localCounts && localCounts.total > 0) {
-        showSuccess($_('native_setup.toast.connected'));
-        step = 'migrate-choice';
-      } else {
-        showSuccess($_('native_setup.toast.connected'));
-        window.location.reload();
-      }
+      await passwordSignedIn(data);
     } catch (e) {
+      // Two-step sign-in (nutritrace#222): the code, or its setup, comes next.
+      if (e?.twoStep) { challenge = e.twoStep; return; }
       showError(e?.webPage ? e.message : e.message || $_('native_setup.toast.cant_connect'));
     } finally {
       connecting = false;
     }
+  }
+
+  // The password (and the code, when asked) was right: connected.
+  async function passwordSignedIn(data) {
+    // The migration choice can come next: the code step is done with.
+    challenge = null;
+    // Flip native mode → server BEFORE checking for local data, so the
+    // upload pass (if the user picks it) routes through apiFetch correctly.
+    // Local SQLite stays intact; we just stop reading from it for new ops.
+    setServerUrl(validatedUrl);
+    setAuthToken(data.token);
+    setNativeMode('server');
+
+    // If user has been running standalone, count what's there. If anything
+    // exists, show the three-option migration dialog. Otherwise done.
+    try {
+      localCounts = await countLocalData();
+    } catch {
+      localCounts = null;
+    }
+    if (localCounts && localCounts.total > 0) {
+      showSuccess($_('native_setup.toast.connected'));
+      step = 'migrate-choice';
+    } else {
+      showSuccess($_('native_setup.toast.connected'));
+      window.location.reload();
+    }
+  }
+
+  // Two-step sign-in's second step, while it's open.
+  let challenge = null;
+  function twoStepRestart(e) {
+    challenge = null;
+    password = '';
+    if (e.detail?.message) showError(e.detail.message);
   }
 
   // Step 2 (OIDC branch): opens the Authentik/Keycloak/etc. sign-in flow in
@@ -310,6 +327,12 @@
             {connecting ? 'Checking…' : 'Next'}
           </button>
         </div>
+      </div>
+
+    {:else if step === 'server-auth' && challenge}
+      <div class="setup-form">
+        <TwoStepChallenge {challenge} serverUrl={validatedUrl} account={username.trim()}
+          on:done={(e) => passwordSignedIn(e.detail)} on:restart={twoStepRestart} />
       </div>
 
     {:else if step === 'server-auth'}

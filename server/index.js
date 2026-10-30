@@ -17,6 +17,7 @@ import { fileURLToPath } from 'url';
 
 import proxyRoutes       from './routes/proxy.js';
 import authRoutes        from './routes/auth.js';
+import twoStepRoutes from './routes/two-step.js';
 import exercisesRoutes   from './routes/exercises.js';
 import programsRoutes    from './routes/programs.js';
 import templatesRoutes   from './routes/templates.js';
@@ -230,6 +231,8 @@ router.get('/api/oidc/callback', (req, res) => {
 // API routes
 router.use('/api/auth/oidc',    oidcRoutes);
 router.use('/api/admin/oidc',   oidcAdminRoutes);
+// Two-step sign-in (nutritrace#222): before authRoutes, under /api/auth like sign-in.
+router.use('/api/auth/two-step', twoStepRoutes);
 router.use('/api/auth',         authRoutes);
 router.use('/api/proxy',        proxyRoutes);
 router.use('/api/exercises',    exercisesRoutes);

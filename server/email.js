@@ -183,6 +183,25 @@ export async function sendInvite(email, inviteUrl, inviterName) {
   });
 }
 
+// ── Two-step sign-in changed (nutritrace#222) ──────────────────────────────
+// Turned on or off, reset, new recovery codes, a recovery code used: said so
+// the person notices a change they didn't make. Never a code or a secret.
+export async function sendTwoStepNotice(email, { title, message, appUrl }) {
+  if (!email) return;
+  let origin = '';
+  try { origin = appUrl ? new URL(appUrl).origin : ''; } catch { origin = ''; }
+  const body = `<p style="margin:0 0 10px;font-size:22px;font-weight:700;color:#FFFFFF;">${_escapeHtml(title)}</p>
+    <p style="margin:0 0 16px;font-size:15px;color:#8A93A8;line-height:1.7;">${_escapeHtml(message)}</p>
+    <p style="margin:0 0 28px;font-size:15px;color:#8A93A8;line-height:1.7;">If this wasn't you, change your password and tell your LiftTrace admin.</p>
+    ${appUrl ? ctaButton(appUrl, 'Open LiftTrace') : ''}`;
+  await sendMail({
+    to: email,
+    subject: `LiftTrace: ${title}`,
+    html: emailWrapper(origin, body, null),
+    text: `${message}\n\nIf this wasn't you, change your password and tell your LiftTrace admin.${appUrl ? `\n\n${appUrl}` : ''}`,
+  });
+}
+
 function _statRow(icon, label, value) {
   return `<tr>
     <td style="padding:10px 16px;font-size:14px;color:#8A93A8;border-bottom:1px solid #1E2330;">

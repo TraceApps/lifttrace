@@ -13,6 +13,8 @@
   import { coachingFetch, refreshCoaching } from '../../stores/coaching.js';
   import { coachingErrorText } from '../../lib/coaching-view.js';
   import Toggle from './Toggle.svelte';
+  import Dialog from '../ui/Dialog.svelte';
+  import { twoStepCall, callError } from '../../lib/two-step.js';
 
 
   export let expanded = false;
@@ -49,6 +51,54 @@
   // Password Policy (admin-only) — 'standard' | 'strong'
   let passwordPolicy = 'standard';
   let passwordPolicySaved = false;
+
+  // Require Two-Step Sign-In for Everyone (admin-only, nutritrace#222).
+  let twoStepRequired = false;
+
+  // Reset Two-Step Sign-In for someone (nutritrace#222): the admin's own
+  // password, and own code when they have it on.
+  let _tsTarget = null;
+  let _tsOpen = false;
+  let _tsPassword = '';
+  let _tsCode = '';
+  let _tsBusy = false;
+  let _tsError = '';
+  function openTwoStepReset(u) {
+    _tsTarget = u; _tsPassword = ''; _tsCode = ''; _tsError = ''; _tsOpen = true;
+  }
+  async function confirmTwoStepReset() {
+    if (_tsBusy || !_tsTarget || !_tsPassword) return;
+    _tsBusy = true;
+    _tsError = '';
+    try {
+      const r = await twoStepCall(`/users/${_tsTarget.id}/reset`, { body: { password: _tsPassword, code: _tsCode.trim() || undefined } });
+      if (r.status !== 200) { _tsError = callError(r, $_('two_step.errors.generic')).message; return; }
+      showSuccess($_('two_step.admin.reset_done', { values: { name: _tsTarget.full_name || _tsTarget.username } }));
+      _tsOpen = false;
+      await loadUsers();
+    } catch {
+      _tsError = $_('settings.users.err_could_not_reach_server');
+    } finally {
+      _tsBusy = false;
+    }
+  }
+
+  async function saveTwoStepRequired(value) {
+    const prev = twoStepRequired;
+    twoStepRequired = value;
+    try {
+      const res = await fetch('/api/app-config', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'two_step_required', value: value ? 'true' : '' }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || String(res.status));
+      showSuccess(value ? $_('two_step.admin.required_on') : $_('two_step.admin.required_off'));
+    } catch (e) {
+      twoStepRequired = prev;
+      showError($_('two_step.admin.required_failed', { values: { msg: e?.message || '' } }));
+    }
+  }
   // Password visibility toggles for enable-UM + add-user forms
   let enableShowPass = false;
   let addShowPass = false;
@@ -93,6 +143,7 @@
       const cfg = await fetch('/api/app-config', { credentials: 'include' }).then(r => r.json());
       sessionHours = cfg.session_hours || '8760';
       passwordPolicy = cfg.password_policy || 'standard';
+      twoStepRequired = cfg.two_step_required === 'true' || cfg.two_step_required === '1';
     } catch {}
     await loadPendingInvites();
     // OIDC providers + password-login toggle live in SettingsAuth.svelte (own
@@ -428,6 +479,11 @@
                     </div>
                   {/each}
                 </div>
+                {#if u.id !== $currentUser.id && u.two_step_enabled}
+                  <button class="btn-icon-danger" on:click={() => openTwoStepReset(u)} title={$_('two_step.admin.reset')} aria-label={$_('two_step.admin.reset')} style="color:var(--text-3)">
+                    <span class="material-symbols-rounded" style="font-size:20px">phonelink_erase</span>
+                  </button>
+                {/if}
                 {#if u.id !== $currentUser.id}
                   <button class="btn-icon-danger" on:click={() => resetUserPassword(u)} title={$_('settings.users.reset_password')} style="color:var(--text-3)">
                     <span class="material-symbols-rounded" style="font-size:20px">lock_reset</span>
@@ -587,6 +643,15 @@
 
           <div class="setting-divider"></div>
           <div class="setting-row">
+            <div>
+              <span class="setting-label">{$_('two_step.admin.require')}</span>
+              <div class="setting-desc">{$_('two_step.admin.require_desc')}</div>
+            </div>
+            <Toggle checked={twoStepRequired} on:change={e => saveTwoStepRequired(e.detail)} />
+          </div>
+
+          <div class="setting-divider"></div>
+          <div class="setting-row">
             <span class="setting-label">{$_('settings.users.session_duration')}</span>
             <div style="display:flex;gap:8px;align-items:center">
               <select class="form-select-sm" bind:value={sessionHours}>
@@ -688,6 +753,29 @@
     </div>
   {/if}
 {/if}
+
+<!-- Reset Two-Step Sign-In for someone (nutritrace#222) -->
+<Dialog
+  bind:open={_tsOpen}
+  title={_tsTarget ? $_('two_step.admin.reset_title', { values: { name: _tsTarget.full_name || _tsTarget.username } }) : ''}
+  message={$_('two_step.admin.reset_message')}
+  confirmText={_tsBusy ? $_('two_step.admin.resetting') : $_('two_step.admin.reset_confirm')}
+  cancelText={$_('common.cancel')}
+  dangerous={true}
+  manualClose={true}
+  confirmDisabled={!_tsPassword || _tsBusy || ($currentUser?.two_step_enabled && !_tsCode.trim())}
+  on:cancel={() => { _tsOpen = false; }}
+  on:confirm={confirmTwoStepReset}>
+  <div class="ts-reset-form">
+    <label class="form-label" for="ts-admin-pw">{$_('two_step.admin.your_password')}</label>
+    <input id="ts-admin-pw" class="input" type="password" autocomplete="current-password" bind:value={_tsPassword} />
+    {#if $currentUser?.two_step_enabled}
+      <label class="form-label" for="ts-admin-code">{$_('two_step.admin.your_code')}</label>
+      <input id="ts-admin-code" class="input" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" bind:value={_tsCode} />
+    {/if}
+    {#if _tsError}<p class="ts-reset-error" role="alert">{_tsError}</p>{/if}
+  </div>
+</Dialog>
 
 <style>
   /* My Profile shortcut (top of the User Management section) */
@@ -894,4 +982,6 @@
     font-size: 12px; color: var(--text-3); margin-top: 2px; font-weight: 400; line-height: 1.5;
   }
 
+  .ts-reset-form { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; }
+  .ts-reset-error { margin: 0; color: var(--danger); font-size: 13px; }
 </style>

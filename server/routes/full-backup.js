@@ -12,6 +12,8 @@ import { seedAiFromEnv } from '../ai.js';
 import { adoptExistingPairings } from '../lib/coaching.js';
 import { isValidTimeZone, processTimeZone } from '../lib/zoned-time.js';
 import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '../lib/backup-schedule.js';
+// Makes the two-step sign-in tables a backup reads and restores (nutritrace#222).
+import { logAfterRestore as logTwoStepAfterRestore } from '../lib/two-step.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -405,6 +407,31 @@ function restoreFromZip(zip) {
     const insChat = db.prepare(`INSERT OR IGNORE INTO ai_chat_history (id,user_id,role,content,created_at,deleted_at) VALUES (@id,@user_id,@role,@content,@created_at,@deleted_at)`);
     for (const m of data.ai_chat_history || []) insChat.run(_withField(m, 'deleted_at'));
 
+    // Two-step sign-in (nutritrace#222): secrets as stored (locked with this
+    // server's two-step key, so on another server they can't be opened and
+    // the person signs in with a recovery code or has it reset) and the
+    // hashes of recovery codes. A backup from before it has none: two-step
+    // sign-in is off for everyone after restoring it. The users above
+    // cascaded the old rows away; rows for an account the archive lacks are
+    // skipped.
+    db.prepare('DELETE FROM user_two_step').run();
+    db.prepare('DELETE FROM user_two_step_recovery').run();
+    const restoredUsers = new Set(db.prepare('SELECT id FROM users').all().map(r => r.id));
+    const insTwoStep = db.prepare(`
+      INSERT OR IGNORE INTO user_two_step (user_id, secret_enc, enabled, last_step, created_at, enabled_at)
+      VALUES (@user_id, @secret_enc, @enabled, @last_step, COALESCE(@created_at, datetime('now')), @enabled_at)
+    `);
+    for (const t of (data.user_two_step || []).filter(x => restoredUsers.has(x.user_id))) insTwoStep.run({
+      enabled: 0, last_step: 0, created_at: null, enabled_at: null, ...t,
+    });
+    const insRecovery = db.prepare(`
+      INSERT OR IGNORE INTO user_two_step_recovery (id, user_id, code_hash, used_at, created_at)
+      VALUES (@id, @user_id, @code_hash, @used_at, COALESCE(@created_at, datetime('now')))
+    `);
+    for (const r of (data.user_two_step_recovery || []).filter(x => restoredUsers.has(x.user_id))) insRecovery.run({
+      id: null, used_at: null, created_at: null, ...r,
+    });
+
     // OIDC providers: client_secret stays encrypted in the dump and is
     // round-tripped as-is. Restoring on a host with a different JWT_SECRET
     // (and no TOKEN_ENC_KEY override) will fail to decrypt — admin will
@@ -464,6 +491,7 @@ function restoreFromZip(zip) {
   // A backup from before coaching asked for consent: its trainers stay, as
   // accepted pairings with nothing to answer.
   try { adoptExistingPairings(); } catch { /* the next start-up does it */ }
+  logTwoStepAfterRestore();
 }
 
 // The exercises of a row (its `exercises` JSON), parsed; [] when there is none.
@@ -548,6 +576,11 @@ function dumpDatabase() {
     invite_tokens:       db.prepare('SELECT * FROM invite_tokens').all(),
     oidc_providers:      safe('SELECT * FROM oidc_providers'),
     user_oidc_links:     safe('SELECT * FROM user_oidc_links'),
+    // Two-step sign-in (nutritrace#222): secrets stay locked with this
+    // server's two-step key, which is never in the archive; recovery codes
+    // are hashes.
+    user_two_step:   db.prepare('SELECT * FROM user_two_step').all(),
+    user_two_step_recovery: db.prepare('SELECT * FROM user_two_step_recovery').all(),
   };
 }
 

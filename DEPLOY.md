@@ -187,7 +187,8 @@ services:
 | `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key (AES-GCM, HKDF) for OIDC client secrets. By default we derive a key from `JWT_SECRET`, which means rotating `JWT_SECRET` invalidates every stored secret too. Set `TOKEN_ENC_KEY` explicitly if you want to rotate session tokens without forcing admins to re-enter OIDC client secrets. Use a long random string (e.g. `openssl rand -base64 48`). |
 | `PORT` | No | `3002` | Internal Express port (map to host in docker-compose) |
 | `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. Use `debug` for verbose request and sync output. |
-| `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
+| `RECOVERY_TOKEN` | No | (none) | Lockout-recovery token for Locked Out? on the login page. It can reset two-step sign-in for one account (the token must be 16 characters or more for this) or disable user management. Without it, both are off. |
+| `TWO_STEP_KEY` | No | generated | Key that locks two-step sign-in secrets, kept apart from `JWT_SECRET`. Unset, LiftTrace makes `two-step.key` next to the database (the `/data/db` volume) the first time someone sets up two-step sign-in, and keeps it across restarts. Set it (or `TWO_STEP_KEY_FILE`, 32 characters or more) only to keep it outside the data folder. If it changes or is lost, codes from authenticator apps stop working until reset: recovery codes still sign in. See [Two-step sign-in](#two-step-sign-in). |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
 | `INSECURE_COOKIES` | No | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `FRAME_ANCESTORS` | No | (unset) | Addresses allowed to show LiftTrace inside a frame, several separated by spaces or commas (`https://*.example.com` covers a whole domain). By default only LiftTrace itself may, so no other site can frame it to trick a click. If you show LiftTrace inside a dashboard (Homarr, Organizr, Home Assistant), it shows blank after this update until you set `FRAME_ANCESTORS` to the dashboard's address, for example `FRAME_ANCESTORS=https://home.example.com`. Origins only; a path is ignored. A proxy that already sets its own frame-ancestors for the dashboard needs `FRAME_ANCESTORS` too. |
@@ -218,6 +219,26 @@ services:
 | `ALLOW_PRIVATE_WEBHOOK_URLS` | No | `0` | Set to `1` to allow a webhook target on a private/loopback address (a same-Docker-network Home Assistant instance, for example). Off by default: a webhook target normally must resolve to a public address. |
 
 > **Note:** SMTP, AI, and OIDC settings can also be configured in their respective **Settings** sections (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
+
+---
+
+## Two-step sign-in
+
+People who sign in with a password can turn on two-step sign-in in Settings > Profile: after the password, LiftTrace asks for a 6-digit code from an authenticator app. Their secrets are locked with `two-step.key` in the database folder (or `TWO_STEP_KEY`), never stored in the clear; recovery codes are kept only as hashes. Back up the key file with the database: a backup restored on a server with another key keeps everyone's recovery codes working, but codes from authenticator apps can't be checked until two-step sign-in is reset.
+
+Getting back in, always for one account and never with SQL:
+
+1. **A recovery code**, on the sign-in page (Use a Recovery Code).
+2. **An admin**: Settings > Users, the person's Reset Two-Step Sign-In button. The admin gives their own password (and their own code when they use two-step sign-in), and can't reset their own this way.
+3. **The owner**: Locked Out? on the sign-in page, with `RECOVERY_TOKEN` (16 characters or more) and the username. Or on the server:
+
+   ```bash
+   docker exec -it lifttrace npm run reset-2fa -- <username>
+   ```
+
+   Run it with no username to list the accounts that have two-step sign-in on.
+
+Every reset is logged, and the person is emailed when the server sends email. Single sign-on never links itself by email (Auto-Link) to an account that uses two-step sign-in, or that must set it up; a provider linked to an account before is trusted to do its own two-step sign-in. Admins can require two-step sign-in for everyone in Settings > Users: anyone who signs in with a password sets it up right after their password. Single sign-on accounts, API tokens and saved sign-ins (biometric unlock, the watch app) are unchanged.
 
 ---
 
@@ -374,6 +395,7 @@ The container supports Docker/Swarm-style `*_FILE` environment variables. For an
 
 - `JWT_SECRET_FILE=/run/secrets/lifttrace_jwt_secret`
 - `RECOVERY_TOKEN_FILE=/run/secrets/lifttrace_recovery_token`
+- `TWO_STEP_KEY_FILE=/run/secrets/lifttrace_two_step_key`
 - `SMTP_PASS_FILE=/run/secrets/lifttrace_smtp_pass`
 - `AI_API_KEY_FILE=/run/secrets/lifttrace_ai_api_key`
 

@@ -12,6 +12,8 @@
   import { _ } from 'svelte-i18n';
   import { setAuthToken, resolveAssetUrl, iconUrl, isNative, apiUrl, getServerUrl } from '../lib/platform.js';
   import { responseJson, discoverSignIn } from '../lib/server-signin.js';
+  import { twoStepChallenge } from '../lib/two-step.js';
+  import TwoStepChallenge from '../components/two-step/TwoStepChallenge.svelte';
   import { isShortcutHash } from '../lib/app-shortcut.js';
 
   let username = '';
@@ -22,6 +24,14 @@
   let recovering     = false;
   let recoveryDone   = false;
   let recoveryToken  = '';
+  // Locked Out? can also reset two-step sign-in for one account (nutritrace#222).
+  let recoveryUsername = '';
+  let resettingTwoStep = false;
+
+  // Two-step sign-in (nutritrace#222): after a right password, the server may
+  // ask for a code ('verify') or for setup ('setup'). Null while it doesn't.
+  let challenge = null;
+  let challengeShortcut = false;
 
   // OIDC providers — fetched on mount; SSO buttons render below the password
   // form when there are any. Hidden in native standalone mode (no server).
@@ -201,56 +211,111 @@
         body: JSON.stringify({ username: username.trim(), password }),
       });
       const data = await responseJson(res);
+      const ch = twoStepChallenge(data);
+      if (ch) { challenge = ch; challengeShortcut = shortcutWaiting; return; }
       if (!res.ok) { showError(data.error || $_('login.errors.failed')); return; }
-      // Native Capacitor builds need the JWT in localStorage so apiFetch can
-      // attach Authorization: Bearer on every subsequent request — the
-      // WebView doesn't reliably persist cookies across launches. Browser
-      // PWA builds ignore this; they ride on the cookie the server set.
-      if (data.token) setAuthToken(data.token);
-      // If biometric login is enabled, stash the JWT so the next launch
-      // can unlock with fingerprint/face instead of typing the password.
-      if (isNative && data.token) {
-        try {
-          const { biometricLoginEnabled } = await import('../stores/settings.js');
-          const { saveTokenForBiometric } = await import('../lib/biometric.js');
-          const { get } = await import('svelte/store');
-          if (get(biometricLoginEnabled)) await saveTokenForBiometric(data.token);
-        } catch {}
-      }
-      localStorage.setItem('wl:userId', String(data.user.id));
-      if (isNative) {
-        currentUser.set(data.user);
-        await loadServerSettings();
-      } else {
-        // Web: read the user back from the server rather than setting it
-        // from this reply, so the app only appears once the session cookie
-        // has actually stuck. If it didn't, say why instead of looping.
-        // get(), not $currentUser: this page can be torn down meanwhile.
-        await loadAuthState();
-        if (!get(currentUser)) {
-          signInProblem.set(droppedCookieReason(authStatus));
-          return;
-        }
-        signInProblem.set(null);
-      }
-      // Native server mode: kick a full sync now so workouts / programs /
-      // body stats land in the local cache before the user reaches the
-      // home screen. Without this, the first 30 seconds after login show
-      // empty Diary / Stats / Programs pages while the background timer
-      // catches up.
-      if (isNative && getServerUrl()) {
-        try {
-          const { fullSync, startBackgroundSync } = await import('../lib/sync.js');
-          startBackgroundSync();
-          await fullSync();
-        } catch (e) { console.warn('[login] post-login sync failed:', e?.message || e); }
-      }
-      if (!shortcutWaiting) push('/');
+      await signedIn(data, shortcutWaiting);
     } catch(e) {
       // A sign-in proxy's web page in place of the server: said as such (TraceApps/notetrace#36).
       showError(e?.webPage ? e.message : $_('common.errors.cant_reach_server'));
     } finally {
       loading = false;
+    }
+  }
+
+  // The second step finished: signed in as with a password alone.
+  async function twoStepDone(e) {
+    const data = e.detail || {};
+    loading = true;
+    try {
+      await signedIn(data, challengeShortcut);
+      if (data.recovery_codes_left != null) {
+        showSuccess($_('two_step.signin.recovery_used', { values: { count: data.recovery_codes_left } }));
+      }
+    } catch {
+      showError($_('common.errors.cant_reach_server'));
+    } finally {
+      loading = false;
+    }
+  }
+  function twoStepRestart(e) {
+    challenge = null;
+    password = '';
+    if (e.detail?.message) showError(e.detail.message);
+  }
+
+  // Signed in: the session (cookie on the web, token in the app), then the app.
+  async function signedIn(data, shortcutWaiting) {
+    // Native Capacitor builds need the JWT in localStorage so apiFetch can
+    // attach Authorization: Bearer on every subsequent request: the
+    // WebView doesn't reliably persist cookies across launches. Browser
+    // PWA builds ignore this; they ride on the cookie the server set.
+    if (data.token) setAuthToken(data.token);
+    // If biometric login is enabled, stash the JWT so the next launch
+    // can unlock with fingerprint/face instead of typing the password.
+    if (isNative && data.token) {
+      try {
+        const { biometricLoginEnabled } = await import('../stores/settings.js');
+        const { saveTokenForBiometric } = await import('../lib/biometric.js');
+        const { get } = await import('svelte/store');
+        if (get(biometricLoginEnabled)) await saveTokenForBiometric(data.token);
+      } catch {}
+    }
+    localStorage.setItem('wl:userId', String(data.user.id));
+    if (isNative) {
+      currentUser.set(data.user);
+      await loadServerSettings();
+    } else {
+      // Web: read the user back from the server rather than setting it
+      // from this reply, so the app only appears once the session cookie
+      // has actually stuck. If it didn't, say why instead of looping.
+      // get(), not $currentUser: this page can be torn down meanwhile.
+      await loadAuthState();
+      if (!get(currentUser)) {
+        signInProblem.set(droppedCookieReason(authStatus));
+        challenge = null;
+        return;
+      }
+      signInProblem.set(null);
+    }
+    challenge = null;
+    // Native server mode: kick a full sync now so workouts / programs /
+    // body stats land in the local cache before the user reaches the
+    // home screen. Without this, the first 30 seconds after login show
+    // empty Diary / Stats / Programs pages while the background timer
+    // catches up.
+    if (isNative && getServerUrl()) {
+      try {
+        const { fullSync, startBackgroundSync } = await import('../lib/sync.js');
+        startBackgroundSync();
+        await fullSync();
+      } catch (e) { console.warn('[login] post-login sync failed:', e?.message || e); }
+    }
+    if (!shortcutWaiting) push('/');
+  }
+
+  // Locked Out?, the owner's way back in for one account: RECOVERY_TOKEN
+  // turns two-step sign-in off for that account and changes nothing else.
+  async function resetTwoStep() {
+    if (!recoveryToken.trim() || !recoveryUsername.trim()) return;
+    resettingTwoStep = true;
+    try {
+      const res = await fetch(apiUrl('/api/auth/two-step/recover'), {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: recoveryToken.trim(), username: recoveryUsername.trim() }),
+      });
+      const data = await responseJson(res);
+      if (!res.ok) { showError(data.error || $_('two_step.locked_out.failed')); return; }
+      showSuccess($_('two_step.locked_out.done', { values: { name: recoveryUsername.trim() } }));
+      recoveryToken = '';
+      showRecovery = false;
+      username = recoveryUsername.trim();
+      recoveryUsername = '';
+    } catch (e) {
+      showError(e?.webPage ? e.message : $_('common.errors.cant_reach_server'));
+    } finally {
+      resettingTwoStep = false;
     }
   }
 
@@ -300,7 +365,9 @@
       </div>
     {/if}
 
-    {#if !recoveryDone}
+    {#if challenge}
+      <TwoStepChallenge {challenge} account={username.trim()} on:done={twoStepDone} on:restart={twoStepRestart} />
+    {:else if !recoveryDone}
       {#if passwordLoginEnabled}
       <div class="form-group">
         <label class="form-label">{$_('login.username')}</label>
@@ -365,11 +432,27 @@
 
       {#if showRecovery}
         <div class="recovery-box" transition:slide={{ duration: 180 }}>
-          <span class="material-symbols-rounded" style="font-size:20px;color:var(--warning,#f59e0b)">warning</span>
-          <p>{@html $_('login.recovery.explainer')}</p>
-          <p style="margin-top:8px">{$_('login.recovery.token_prompt')}</p>
+          <p style="margin:0">{@html $_('login.recovery.token_prompt')}</p>
           <input class="input" type="password" bind:value={recoveryToken}
             placeholder={$_('login.recovery.token_placeholder')} />
+
+          <!-- The gentler way first: two-step sign-in off for one account. -->
+          <div class="recovery-part">
+            <strong class="recovery-heading">{$_('two_step.locked_out.title')}</strong>
+            <p style="margin:0">{$_('two_step.locked_out.explain')}</p>
+            <input class="input" type="text" autocomplete="off" autocapitalize="off" bind:value={recoveryUsername} placeholder={$_('two_step.locked_out.username_placeholder')} />
+            <button class="btn btn-secondary" style="width:100%" on:click={resetTwoStep} disabled={resettingTwoStep || !recoveryToken.trim() || !recoveryUsername.trim()}>
+              {resettingTwoStep ? $_('two_step.locked_out.resetting') : $_('two_step.locked_out.action')}
+            </button>
+          </div>
+
+          <div class="recovery-part">
+            <strong class="recovery-heading recovery-heading-danger">
+              <span class="material-symbols-rounded" style="font-size:18px;color:var(--warning,#f59e0b)">warning</span>
+              {$_('two_step.locked_out.disable_title')}
+            </strong>
+            <p style="margin:0">{@html $_('login.recovery.explainer')}</p>
+          </div>
           <button class="btn btn-secondary" style="width:100%;border-color:var(--danger);color:var(--danger)"
             on:click={recover} disabled={recovering || !recoveryToken.trim()}>
             {recovering ? $_('login.recovery.disabling') : $_('login.recovery.action')}
@@ -439,6 +522,8 @@
     text-underline-offset: 3px;
   }
   .recovery-toggle:hover { color: var(--text-2); }
+  .recovery-part { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .recovery-heading { display: flex; align-items: center; gap: 6px; color: var(--text-1); font-size: 13px; }
   .recovery-box {
     display: flex;
     flex-direction: column;

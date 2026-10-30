@@ -56,6 +56,7 @@
   import { serverAddressCheck, confirmPlainHttp } from '../lib/plain-http.js';
   import { classifyServerAddress } from '../lib/local-address.js';
   import { askPlainHttp } from '../stores/plainHttp.js';
+  import TwoStepChallenge from '../components/two-step/TwoStepChallenge.svelte';
 
   // ── Server Connection (native only) ─────────────────────────────────────
   let serverUrlInput = getServerUrl() || '';
@@ -194,6 +195,29 @@
     signinOptions.left(serverUrlInput);
   }
 
+  // Two-step sign-in's second step (nutritrace#222): { kind, pendingToken, url } while open.
+  let twoStepChallengeOpen = null;
+  async function twoStepDone(e) {
+    const { url } = twoStepChallengeOpen;
+    const loginData = e.detail || {};
+    twoStepChallengeOpen = null;
+    serverConnecting = true;
+    try {
+      connectHint.password();
+      forgetSsoConnect();
+      await _afterSignIn(url, { token: loginData.token, user: loginData.user });
+    } catch (err) {
+      showError(_connectError(err, url));
+    } finally {
+      serverConnecting = false;
+    }
+  }
+  function twoStepRestart(e) {
+    twoStepChallengeOpen = null;
+    serverPassword = '';
+    if (e.detail?.message) showError(e.detail.message);
+  }
+
   // Server Connection is on the phone only, so the server is asked natively
   // (CapacitorHttp: no CORS).
   async function connectServer() {
@@ -210,6 +234,8 @@
       forgetSsoConnect(); // an SSO sign-in left open in the browser is over
       await _afterSignIn(url, loginData);
     } catch (e) {
+      // Two-step sign-in (nutritrace#222): the code, or its setup, comes next.
+      if (e?.twoStep) { twoStepChallengeOpen = { ...e.twoStep, url }; return; }
       showError(_connectError(e, url));
     } finally {
       serverConnecting = false;
@@ -532,7 +558,7 @@
   $: settingsQuery = foldText(settingsSearch).trim();
 
   const SECTION_KEYWORDS = {
-    profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email'],
+    profile:        ['profile','my profile','account','user','name','nickname','birthday','dob','date of birth','gender','sex','male','female','height','cm','centimetres','feet','foot','inches','weight','lbs','kg','body','about you','sign out','logout','log out','password','change password','email','two-step sign-in','two-step','two step','2fa','mfa','two-factor','two factor','totp','authenticator','authenticator app','one-time code','recovery code','recovery codes'],
     appearance:     ['appearance','theme','dark','light','accent','colour','color','custom','navigation','sidebar','persistent','start page','banner','animation','animations','motion','reduce','force mobile','mobile layout','mobile view','phone layout','narrow layout','desktop'],
     workout:        ['workout','weekly','goal','goals','celebration','celebrations','screen','keep awake','keep-awake','wake lock','rest','timer','rest timer','countdown','duration','alert','vibrate','tone','sound','do not disturb','dnd','alarm','alarm volume','silent mode','calorie','calories','kcal','burn','burned','estimate','cardio','cardio minutes','weekly cardio','track cardio','enable cardio','bike','run','row','treadmill','video','videos','clip','clips','set video','film','filming','footage','form check','technique','storage','disk','space','delete clips'],
     units:          ['language','languages','units','measurement','measurement system','format','date','time','12h','24h','locale','region','regional','weight unit','height unit','lbs','kg','cm','ft','imperial','metric'],
@@ -545,7 +571,7 @@
     workoutImport:  ['import','workout','strong','hevy','fitnotes','jefit','garmin','fit','fit file','garmin connect','watch','strength training','migration','csv'],
     notifications:  ['notifications','reminders','workout reminder','rest day','streak','push','gotify','ntfy','apprise','celebration','pr','weekly summary','alert','permission','channel','sound','vibrate','vibration','battery','low battery','android','coaching','coach','client','request','coaching request','recommendation','new recommendation','prescription','answer','client answer','accepted','declined','left','message','messages','new message','conversation','chat','email me too','coaching email'],
     email:          ['email','smtp','mail','host','port','tls','password reset','invite','test','test email','send test','recipient','change password','stored password'],
-    users:          ['users','user management','accounts','login','admin','trainer','member','client','clients','coach','coaching','request','coaching request','pairing','pairings','end coaching','register','invite','session','my profile','account','biometric','fingerprint','face'],
+    users:          ['users','user management','accounts','login','admin','trainer','member','client','clients','coach','coaching','request','coaching request','pairing','pairings','end coaching','register','invite','session','my profile','account','biometric','fingerprint','face','two-step sign-in','require two-step','require for everyone','reset two-step','2fa','mfa','two-factor','authenticator'],
     authentication: ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group','provider','client id','client secret','discovery','discovery url','redirect uri','callback','env lock'],
     apiTokens:      ['api','api tokens','token','tokens','personal access token','pat','mcp','model context protocol','bearer','integration','integrations','external','third-party','third party','claude desktop','agent','scope','scopes','revoke'],
     webhooks:       ['webhook','webhooks','outgoing webhook','automation','automations','home assistant','n8n','integration','integrations','event','events','signature','hmac','secret','payload','pr','personal record','workout completed','program advanced','test webhook'],
@@ -1710,6 +1736,15 @@
     </div><!-- /.settings-two-pane -->
   </div>
 </div>
+
+{#if twoStepChallengeOpen}
+  <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }} use:closeOnBack={() => { twoStepChallengeOpen = null; }}>
+    <div class="merge-dialog">
+      <TwoStepChallenge challenge={twoStepChallengeOpen} serverUrl={twoStepChallengeOpen.url} account={serverUsername.trim()}
+        on:done={twoStepDone} on:restart={twoStepRestart} />
+    </div>
+  </div>
+{/if}
 
 <!-- Merge dialog (shown when connecting to server with existing local data) -->
 {#if mergeStep === 'ask-settings'}

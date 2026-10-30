@@ -17,6 +17,7 @@ import {
   COACHING_VERSION, coachingState, requestFromInvite, requestClient, endPairing, endAsClient,
   endCoachingIfNotCoach, canCoach, roleOf, personName,
 } from '../lib/coaching.js';
+import { challengeFor, issuePending, isEnabled as twoStepEnabled, checkRecoveryToken } from '../lib/two-step.js';
 
 const router = Router();
 
@@ -63,7 +64,7 @@ function _bucketHit(map, key, limit) {
   return entry.count > limit;
 }
 
-function rateLimitLogin(req, res, next) {
+export function rateLimitLogin(req, res, next) {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   if (_bucketHit(_ipAttempts, ip, IP_LIMIT)) {
     return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
@@ -116,7 +117,38 @@ function warnIfPlainHttp(req) {
   console.warn(`[WARN] Sign-in from a plain-HTTP page (${page}). The sign-in cookie only works over HTTPS, so the browser drops it and the user lands back on the login page. Serve LiftTrace over HTTPS, or set INSECURE_COOKIES=1 on a trusted LAN. See https://traceapps.github.io/docs/getting-started/lan-http/`);
 }
 
-function safeUser(u) { const { password_hash, ...rest } = u; return rest; }
+function safeUser(u) {
+  const { password_hash, ...rest } = u;
+  // Whether two-step sign-in is on (nutritrace#222): Settings, Users offers its reset.
+  let two_step_enabled = false;
+  try { two_step_enabled = twoStepEnabled(u.id); } catch {}
+  return { ...rest, two_step_enabled };
+}
+
+/**
+ * Signs someone in. Signed once, returned both as a cookie (browser PWA
+ * path) AND in the response body (native Capacitor path stores the bearer
+ * in localStorage and sends it as Authorization: Bearer on every request).
+ */
+export function finishSignIn(req, res, user, extra = {}) {
+  const token = signToken(user);
+  warnIfPlainHttp(req);
+  res.cookie('lt_token', token, { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
+  res.json({ ...extra, user: safeUser(user), token });
+}
+
+// Two-step sign-in (nutritrace#222): the password was right, but a code is
+// due ('verify') or must be set up first ('setup'). No session, no token: a
+// pending token that opens only /api/auth/two-step. The answer is a 401
+// with a plain error, so an app or a cached web page from before two-step
+// sign-in says so instead of signing in without the code.
+export const TWO_STEP_OLD_CLIENT = {
+  verify: 'This account uses two-step sign-in. Update LiftTrace (or reload this page) to enter your code.',
+  setup: 'Your admin requires two-step sign-in. Update LiftTrace (or reload this page) to set it up.',
+};
+function sendTwoStepChallenge(res, user, kind, extra = {}) {
+  res.status(401).json({ error: TWO_STEP_OLD_CLIENT[kind], two_step: kind, pending_token: issuePending(user, kind), ...extra });
+}
 
 // This server's random id (see /status), made once and kept in app_config.
 // Made again if a restore emptied app_config.
@@ -187,14 +219,9 @@ router.post('/login', rateLimitLogin, wrap((req, res) => {
   // Reject OIDC-only users (no password_hash) the same way as a wrong password.
   if (!user || !user.password_hash || !bcrypt.compareSync(password, user.password_hash))
     return res.status(401).json({ error: 'Invalid username or password' });
-  const cookieOpts = { ...COOKIE_OPTS, maxAge: sessionMaxAge() };
-  // Sign once, return both as a cookie (browser PWA path) AND in the response
-  // body (native Capacitor path stores the bearer in localStorage and sends
-  // it as Authorization: Bearer on every request).
-  const token = signToken(user);
-  warnIfPlainHttp(req);
-  res.cookie('lt_token', token, cookieOpts);
-  res.json({ user: safeUser(user), token });
+  const kind = challengeFor(user);
+  if (kind) return sendTwoStepChallenge(res, user, kind);
+  finishSignIn(req, res, user);
 }));
 
 router.post('/logout', (req, res) => { res.clearCookie('lt_token'); res.json({ ok: true }); });
@@ -411,18 +438,12 @@ router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
 
 router.post('/recover', rateLimitLogin, wrap((req, res) => {
   if (req.user) return res.status(400).json({ error: 'Already signed in' });
-  const expected = process.env.RECOVERY_TOKEN;
-  if (!expected) return res.status(503).json({ error: 'RECOVERY_TOKEN env var not set — cannot recover' });
-  const { token } = req.body || {};
-  // Constant-time compare to defeat byte-by-byte timing attacks.
-  // Equal-length buffers are required by timingSafeEqual.
-  let ok = false;
-  try {
-    const a = Buffer.from(String(token || ''), 'utf8');
-    const b = Buffer.from(expected, 'utf8');
-    ok = a.length === b.length && crypto.timingSafeEqual(a, b);
-  } catch {}
-  if (!ok) return res.status(403).json({ error: 'Invalid recovery token' });
+  // Constant time, with wrong tokens from every address counted together,
+  // shared with Locked Out?'s two-step reset (lib/two-step.js).
+  const check = checkRecoveryToken(req.body?.token, { ip: req.ip });
+  if (check === 'limited') return res.status(429).json({ error: 'Too many wrong recovery tokens. Try again later, or use npm run reset-2fa on the server.' });
+  if (check === 'unset') return res.status(503).json({ error: 'Recovery not available. Set RECOVERY_TOKEN environment variable.' });
+  if (check !== 'ok') return res.status(403).json({ error: 'Invalid recovery token.' });
   releaseDataBeforeDisable();
   // Coaching goes with the accounts (it cascades); so do its photos.
   deleteAllPhotos();
@@ -474,6 +495,17 @@ router.post('/reset-password', wrap((req, res) => {
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, BCRYPT_COST), row.user_id);
   db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
+  // An emailed link proves the inbox, not the second step: with two-step
+  // sign-in on (or required), the new password signs in on the sign-in
+  // page, which asks for the code. A 401 so a page from before this says
+  // the message instead of signing in.
+  const due = challengeFor(user);
+  if (due) {
+    const error = due === 'setup'
+      ? 'Your password was changed. Sign in with it to set up two-step sign-in, which your admin requires.'
+      : 'Your password was changed. Sign in with it and your two-step sign-in code.';
+    return res.status(401).json({ error, password_changed: true });
+  }
   const token2 = signToken(user);
   res.cookie('lt_token', token2, COOKIE_OPTS);
   res.json({ user: safeUser(user), token: token2 });
@@ -543,6 +575,9 @@ router.post('/accept-invite', wrap((req, res) => {
   // trainer. Now only a coach chosen on the invite asks, and their request
   // waits here; nothing is shared until it's accepted.
   if (invite.role === 'member' && invite.coach_id) requestFromInvite(invite.coach_id, user.id);
+  // The admin requires two-step sign-in: it's set up before the first session.
+  const kind = challengeFor(user);
+  if (kind) return sendTwoStepChallenge(res, user, kind, { account_created: true });
   const issued = signToken(user);
   res.cookie('lt_token', issued, COOKIE_OPTS);
   res.json({ user: safeUser(user), token: issued });

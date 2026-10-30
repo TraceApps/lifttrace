@@ -14,6 +14,8 @@ const ALLOWED_KEYS = new Set([
   'session_hours',
   'radio_url',
   'password_policy',
+  // Require Two-Step Sign-In for Everyone (nutritrace#222): 'true' or off.
+  'two_step_required',
 ]);
 
 router.get('/env-locks', requireAuth, wrap(async (req, res) => {

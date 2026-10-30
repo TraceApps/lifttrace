@@ -48,6 +48,14 @@ export function sessionMaxAge() {
   return _resolveSessionHours() * 60 * 60 * 1000;
 }
 
+// A session is a token signToken() made. Anything else signed with our
+// secret that carries a `typ` (a two-step sign-in pending token is signed
+// with a key of its own, so this is a second lock) is no session
+// (nutritrace#222).
+function _session(payload) {
+  return payload && typeof payload === 'object' && payload.typ == null ? payload : null;
+}
+
 /** One of this server's sessions: the signature checks out with our secret
  *  (expired or not yet valid still counts as ours). */
 function _ours(token) {
@@ -84,7 +92,7 @@ export function authenticate(req, res, next) {
   const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (bearer && _ours(bearer)) {
     req.authVia = 'bearer';
-    try { req.user = jwt.verify(bearer, JWT_SECRET); } catch { req.user = null; }
+    try { req.user = _session(jwt.verify(bearer, JWT_SECRET)); } catch { req.user = null; }
     return next();
   }
   let token = req.cookies?.lt_token;
@@ -99,7 +107,7 @@ export function authenticate(req, res, next) {
   }
   if (!token) { req.user = null; return next(); }
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    req.user = _session(jwt.verify(token, JWT_SECRET));
   } catch {
     req.user = null;
   }

@@ -6,6 +6,8 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+# Two-step sign-in key, next to the database (nutritrace#222)
+two-step.key
 uploads/
 *.zip
 

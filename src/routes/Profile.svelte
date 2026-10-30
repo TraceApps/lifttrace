@@ -18,6 +18,7 @@
   import { localDateStr, DB } from '../lib/db.js';
   import { resolveAssetUrl, isNative, getServerUrl, getAuthToken } from '../lib/platform.js';
   import Toggle from '../components/settings/Toggle.svelte';
+  import TwoStepSettings from '../components/two-step/TwoStepSettings.svelte';
   import { biometricLoginEnabled } from '../stores/settings.js';
   import * as biometric from '../lib/biometric.js';
 
@@ -500,6 +501,11 @@
     </div>
     {/if}
 
+    <!-- Two-step sign-in (nutritrace#222): accounts on a server only. -->
+    {#if !_isLocal}
+      <TwoStepSettings />
+    {/if}
+
     <!-- Biometric sign-in (Android server-mode only). Hidden on devices
          with no biometric hardware. Visible when working OR when hardware
          is present but no fingerprint/face is enrolled — the description
@@ -554,6 +560,9 @@
 </div>
 
 <style>
+  /* The shared Two-Step Sign-In card (nutritrace#222) spaces its rows with gap,
+     which LiftTrace's .card (a block) doesn't give it. */
+  :global(.ts-card.settings-card) { display: flex; flex-direction: column; }
   .page { min-height: 100dvh; background: var(--bg); padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + var(--mini-player-h, 0px) + 16px); }
 
   /* OIDC linked accounts */
