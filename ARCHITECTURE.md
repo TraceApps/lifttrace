@@ -517,7 +517,12 @@ changes it later.
   assignments, body stats and chat get updated_at now, so every device
   pulls them again, deleted ones as deleted. A tombstone that names an
   entry the restored rows hold is dropped, or the next save's merge would
-  take it away again. Measurements logged by MCP and sets logged by MCP
+  take it away again. Coach messages, progress photos and set videos get
+  updated_at now too; their rows a device may hold that the backup doesn't
+  are kept as deleted (a message without its text or photo), only for the
+  same accounts and pairings, so devices drop them (`keepGone` in
+  `server/routes/full-backup.js`). The tables with a `sync_deletions`
+  record get one from the restore's own delete. Measurements logged by MCP and sets logged by MCP
   are stamped like the app's own saves. `POST /api/sync/push`
   (no LiftTrace app has ever sent it; third-party clients may) meets rows the same
   way, with no gate on the whole row: a row is an edit made at its own

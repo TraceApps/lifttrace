@@ -76,9 +76,12 @@ test('full backup exports the rows AND restores every column, including the sync
   assert.match(backupJs, /DELETE FROM body_stat_media/);
   const ins = backupJs.match(/INSERT OR IGNORE INTO body_stat_media \(([^)]*)\)/);
   assert.ok(ins, 'expected a restore insert for body_stat_media');
-  for (const col of ['id', 'user_id', 'date', 'kind', 'url', 'created_at', 'updated_at', 'deleted_at']) {
+  for (const col of ['id', 'user_id', 'date', 'kind', 'url', 'created_at', 'deleted_at']) {
     assert.match(ins[1], new RegExp(`\\b${col}\\b`), `restore must carry ${col} through`);
   }
+  // updated_at is left to the trigger (now), so every device pulls the
+  // restored photos again (scripts/backup-restore-gaps.test.js).
+  assert.doesNotMatch(ins[1], /\bupdated_at\b/);
 });
 
 test('sync pulls and pushes the table, keyed by server_id rather than date', () => {

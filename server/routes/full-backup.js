@@ -248,6 +248,9 @@ function restoreFromZip(zip) {
   const data = JSON.parse(zip.readAsText('database.json'));
   // Signed-out sessions stay signed out (lib/session-version.js).
   keepSessionVersions(() => db.transaction(() => {
+    // What devices may hold of the tables that say a row is gone only with
+    // its deleted_at, read before the wipe (keepGone, below).
+    const before = rowsBefore();
     db.prepare('DELETE FROM password_reset_tokens').run();
     db.prepare('DELETE FROM invite_tokens').run();
     db.prepare('DELETE FROM user_settings').run();
@@ -284,10 +287,12 @@ function restoreFromZip(zip) {
         updated_at: c.updated_at || c.requested_at || new Date().toISOString().replace('T', ' ').slice(0, 19) });
     }
     // Their conversations (the photos come back with the uploads folder).
+    // updated_at is now, so every phone and browser gets the conversation
+    // again as restored (a message deleted since the backup comes back).
     db.prepare('DELETE FROM coach_messages').run();
-    const insMessage = db.prepare(`INSERT OR IGNORE INTO coach_messages (id,uuid,pairing_id,sender_id,body,image_url,recommendation_id,read_at,created_at,updated_at,deleted_at) VALUES (@id,@uuid,@pairing_id,@sender_id,@body,@image_url,@recommendation_id,@read_at,@created_at,@updated_at,@deleted_at)`);
+    const insMessage = db.prepare(`INSERT OR IGNORE INTO coach_messages (id,uuid,pairing_id,sender_id,body,image_url,recommendation_id,read_at,created_at,updated_at,deleted_at) VALUES (@id,@uuid,@pairing_id,@sender_id,@body,@image_url,@recommendation_id,@read_at,COALESCE(@created_at, datetime('now')),datetime('now'),@deleted_at)`);
     for (const m of data.coach_messages || []) {
-      insMessage.run({ body: null, image_url: null, recommendation_id: null, read_at: null, deleted_at: null, ...m });
+      insMessage.run({ body: null, image_url: null, recommendation_id: null, read_at: null, created_at: null, deleted_at: null, ...m });
     }
 
     // Rows deleted softly come back deleted (deleted_at), here and in every
@@ -313,8 +318,10 @@ function restoreFromZip(zip) {
     const insPrescription = db.prepare(`INSERT OR IGNORE INTO coach_prescriptions (id,trainer_id,member_id,date,template_id,name,exercises,notes,created_at,status,responded_at) VALUES (@id,@trainer_id,@member_id,@date,@template_id,@name,@exercises,@notes,@created_at,@status,@responded_at)`);
     for (const cp of data.coach_prescriptions || []) insPrescription.run({ responded_at: null, ...cp, status: cp.status || 'accepted' });
 
-    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week,field_times,deleted_at) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week,@field_times,@deleted_at)`);
-    for (const w of data.workout_log || []) insWorkout.run(_withField(_withField(_withField(w, 'program_week'), 'field_times'), 'deleted_at'));
+    // session_seq: the order of a day's workouts (issue #76); 0, as at
+    // upgrade, in a backup from before it.
+    const insWorkout = db.prepare(`INSERT OR IGNORE INTO workout_log (id,user_id,date,template_id,program_id,name,exercises,notes,duration_min,completed,created_at,program_week,field_times,deleted_at,session_seq) VALUES (@id,@user_id,@date,@template_id,@program_id,@name,@exercises,@notes,@duration_min,@completed,@created_at,@program_week,@field_times,@deleted_at,@session_seq)`);
+    for (const w of data.workout_log || []) insWorkout.run({ ..._withField(_withField(_withField(w, 'program_week'), 'field_times'), 'deleted_at'), session_seq: w.session_seq ?? 0 });
 
     // Exercises and sets deleted inside a workout or workout day
     // (workout_tombstones): what keeps a device that still holds one from
@@ -331,11 +338,13 @@ function restoreFromZip(zip) {
     // predate these columns, so default them to NULL via _withField.
     // The earlier DELETE FROM users cascades and already emptied this table;
     // the DELETE here is defensive in case that cascade path ever changes.
+    // A note on a set video keeps the video (media_id), the moment in it
+    // (media_time_sec) and the exercise it is on (exercise_uuid, issue #57).
     db.prepare('DELETE FROM coach_feedback').run();
-    const insFeedback = db.prepare(`INSERT OR IGNORE INTO coach_feedback (id,trainer_id,member_id,workout_id,exercise_idx,note,created_at,updated_at,seen_by_member_at,member_reply,member_replied_at) VALUES (@id,@trainer_id,@member_id,@workout_id,@exercise_idx,@note,@created_at,@updated_at,@seen_by_member_at,@member_reply,@member_replied_at)`);
+    const insFeedback = db.prepare(`INSERT OR IGNORE INTO coach_feedback (id,trainer_id,member_id,workout_id,exercise_idx,note,created_at,updated_at,seen_by_member_at,member_reply,member_replied_at,media_id,media_time_sec,exercise_uuid) VALUES (@id,@trainer_id,@member_id,@workout_id,@exercise_idx,@note,@created_at,@updated_at,@seen_by_member_at,@member_reply,@member_replied_at,@media_id,@media_time_sec,@exercise_uuid)`);
     for (const f of data.coach_feedback || []) {
-      const row = _withField(_withField(_withField(_withField(_withField(f,
-        'updated_at'), 'seen_by_member_at'), 'member_reply'), 'member_replied_at'), 'exercise_idx');
+      const row = { media_id: null, media_time_sec: null, exercise_uuid: null, ..._withField(_withField(_withField(_withField(_withField(f,
+        'updated_at'), 'seen_by_member_at'), 'member_reply'), 'member_replied_at'), 'exercise_idx') };
       insFeedback.run(row);
     }
 
@@ -360,22 +369,22 @@ function restoreFromZip(zip) {
     // the zip (createBackup walks all of uploads/ recursively), so only
     // the rows pointing at them need restoring, without these the files
     // would land on disk with nothing referencing them. Every column is
-    // carried through, including the sync columns, so a soft-deleted
-    // photo stays deleted after a restore.
-    const insPhoto = db.prepare(`INSERT OR IGNORE INTO body_stat_media (id,user_id,date,kind,url,created_at,updated_at,deleted_at) VALUES (@id,@user_id,@date,@kind,@url,@created_at,@updated_at,@deleted_at)`);
+    // carried through but updated_at, so a soft-deleted photo stays deleted
+    // after a restore, and every device pulls them again (the trigger: now).
+    const insPhoto = db.prepare(`INSERT OR IGNORE INTO body_stat_media (id,user_id,date,kind,url,created_at,deleted_at) VALUES (@id,@user_id,@date,@kind,@url,@created_at,@deleted_at)`);
     for (const p of data.body_stat_media || []) {
-      insPhoto.run({ kind: 'photo', created_at: null, updated_at: null, deleted_at: null, ...p });
+      insPhoto.run({ kind: 'photo', created_at: null, deleted_at: null, ...p });
     }
 
     // Set videos (issue #57), same shape of restore: the files themselves
     // ride along in the archive because it zips all of UPLOADS_DIR, so only
     // the rows need writing back. Without this a restore would leave the
     // clips on disk with nothing pointing at them.
-    const insClip = db.prepare(`INSERT OR IGNORE INTO set_media (id,user_id,workout_id,date,exercise_uuid,set_uuid,url,mime,duration_sec,size_bytes,created_at,updated_at,deleted_at) VALUES (@id,@user_id,@workout_id,@date,@exercise_uuid,@set_uuid,@url,@mime,@duration_sec,@size_bytes,@created_at,@updated_at,@deleted_at)`);
+    const insClip = db.prepare(`INSERT OR IGNORE INTO set_media (id,user_id,workout_id,date,exercise_uuid,set_uuid,url,mime,duration_sec,size_bytes,created_at,deleted_at) VALUES (@id,@user_id,@workout_id,@date,@exercise_uuid,@set_uuid,@url,@mime,@duration_sec,@size_bytes,@created_at,@deleted_at)`);
     for (const m of data.set_media || []) {
       insClip.run({
         workout_id: null, exercise_uuid: null, set_uuid: null, mime: null,
-        duration_sec: null, size_bytes: null, created_at: null, updated_at: null, deleted_at: null, ...m,
+        duration_sec: null, size_bytes: null, created_at: null, deleted_at: null, ...m,
       });
     }
 
@@ -433,6 +442,30 @@ function restoreFromZip(zip) {
     for (const r of (data.user_two_step_recovery || []).filter(x => restoredUsers.has(x.user_id))) insRecovery.run({
       id: null, used_at: null, created_at: null, ...r,
     });
+
+    // What other apps and scripts use to reach this server, set up by hand:
+    // API tokens (hashed) and webhooks (the secret locked with this server's
+    // key, so on another server a delivery fails until the webhook is made
+    // again, and Settings says so), and invites not yet used. The users
+    // above cascaded the old ones away; a backup from before they were kept
+    // has none.
+    const insToken = db.prepare(`INSERT OR IGNORE INTO api_tokens (id,user_id,name,token_hash,scopes,expires_at,last_used_at,created_at) VALUES (@id,@user_id,@name,@token_hash,@scopes,@expires_at,@last_used_at,COALESCE(@created_at, datetime('now')))`);
+    for (const t of (data.api_tokens || []).filter(x => restoredUsers.has(x.user_id))) insToken.run({
+      expires_at: null, last_used_at: null, created_at: null, ...t,
+    });
+    const insHook = db.prepare(`INSERT OR IGNORE INTO webhooks (id,user_id,url,secret_encrypted,events,enabled,last_delivery_at,last_delivery_status,last_delivery_error,created_at) VALUES (@id,@user_id,@url,@secret_encrypted,@events,@enabled,@last_delivery_at,@last_delivery_status,@last_delivery_error,COALESCE(@created_at, datetime('now')))`);
+    for (const w of (data.webhooks || []).filter(x => restoredUsers.has(x.user_id))) insHook.run({
+      enabled: 1, last_delivery_at: null, last_delivery_status: null, last_delivery_error: null, created_at: null, ...w,
+    });
+    const insInvite = db.prepare(`INSERT OR IGNORE INTO invite_tokens (token,email,role,created_by,expires_at,used,coach_id) VALUES (@token,@email,@role,@created_by,@expires_at,@used,@coach_id)`);
+    const userOrNull = id => (id != null && restoredUsers.has(id) ? id : null);
+    for (const i of (data.invite_tokens || []).filter(x => x?.token && x.expires_at)) insInvite.run({
+      email: null, role: 'member', used: 0, ...i, created_by: userOrNull(i.created_by), coach_id: userOrNull(i.coach_id),
+    });
+
+    // Coach messages, progress photos and set videos a device may hold
+    // that the backup doesn't: kept as deleted, so devices drop them.
+    keepGone(before);
 
     // OIDC providers: client_secret stays encrypted in the dump and is
     // round-tripped as-is. Restoring on a host with a different JWT_SECRET
@@ -494,6 +527,57 @@ function restoreFromZip(zip) {
   // accepted pairings with nothing to answer.
   try { adoptExistingPairings(); } catch { /* the next start-up does it */ }
   logTwoStepAfterRestore();
+}
+
+// Tables whose rows a device pulls whole and that say a row is gone only by
+// its deleted_at (no sync_deletions record), with who has to be the same
+// before and after the restore for a row to be theirs (an account: its id,
+// username and when it was made).
+function rowsBefore() {
+  const all = (sql) => { try { return db.prepare(sql).all(); } catch { return []; } };
+  return {
+    users: new Map(all('SELECT id, username, created_at FROM users').map(u => [u.id, `${u.username}\n${u.created_at}`])),
+    pairings: new Map(all('SELECT id, coach_id, client_id FROM coach_clients').map(p => [p.id, p])),
+    coach_messages: all('SELECT * FROM coach_messages'),
+    body_stat_media: all('SELECT * FROM body_stat_media'),
+    set_media: all('SELECT * FROM set_media'),
+  };
+}
+
+/**
+ * A row a device may hold that the restore took away is put back deleted,
+ * the way these tables say a row is gone, so every device that pulls it
+ * drops its copy (a coach message sent after the backup, a photo added
+ * since). Only for the same people: an account (or a pairing) that is
+ * someone else in the backup, or isn't in it, gets nothing of the other's.
+ * A message keeps no text or photo, as when it is deleted; a message whose
+ * id the backup uses goes under a new one (devices know a message by its
+ * uuid).
+ */
+function keepGone(before) {
+  const usersNow = new Map(db.prepare('SELECT id, username, created_at FROM users').all().map(u => [u.id, `${u.username}\n${u.created_at}`]));
+  const same = id => id == null || (usersNow.has(id) && usersNow.get(id) === before.users.get(id));
+  const pairsNow = new Map(db.prepare('SELECT id, coach_id, client_id FROM coach_clients').all().map(p => [p.id, p]));
+  const samePairing = id => {
+    const a = before.pairings.get(id), b = pairsNow.get(id);
+    return !!(a && b && a.coach_id === b.coach_id && a.client_id === b.client_id && same(a.coach_id) && same(a.client_id));
+  };
+  const hasUuid = db.prepare('SELECT 1 FROM coach_messages WHERE uuid = ?');
+  const insMessage = db.prepare(`INSERT OR IGNORE INTO coach_messages (id,uuid,pairing_id,sender_id,body,image_url,recommendation_id,read_at,created_at,updated_at,deleted_at)
+    VALUES (CASE WHEN EXISTS (SELECT 1 FROM coach_messages WHERE id = @id) THEN NULL ELSE @id END,@uuid,@pairing_id,@sender_id,NULL,NULL,NULL,@read_at,@created_at,datetime('now'),COALESCE(@deleted_at, datetime('now')))`);
+  for (const m of before.coach_messages) {
+    if (!hasUuid.get(m.uuid) && samePairing(m.pairing_id) && same(m.sender_id)) insMessage.run(m);
+  }
+  for (const t of ['body_stat_media', 'set_media']) {
+    const has = db.prepare(`SELECT 1 FROM ${t} WHERE id = ?`);
+    const cols = db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name).filter(c => c !== 'updated_at' && c !== 'deleted_at');
+    // updated_at left to the trigger (now), so devices pull it.
+    const ins = db.prepare(`INSERT OR IGNORE INTO ${t} (${cols.join(',')},deleted_at) VALUES (${cols.map(c => '@' + c).join(',')},COALESCE(@deleted_at, datetime('now')))`);
+    for (const r of before[t]) {
+      if (has.get(r.id) || !same(r.user_id)) continue;
+      ins.run({ ...Object.fromEntries(cols.map(c => [c, null])), ...r });
+    }
+  }
 }
 
 // The exercises of a row (its `exercises` JSON), parsed; [] when there is none.
@@ -576,6 +660,9 @@ function dumpDatabase() {
     ai_chat_history:     db.prepare('SELECT * FROM ai_chat_history').all(),
     password_reset_tokens: db.prepare('SELECT * FROM password_reset_tokens').all(),
     invite_tokens:       db.prepare('SELECT * FROM invite_tokens').all(),
+    // Integrations set up by hand: API tokens (hashed) and webhooks.
+    api_tokens:          safe('SELECT * FROM api_tokens'),
+    webhooks:            safe('SELECT * FROM webhooks'),
     oidc_providers:      safe('SELECT * FROM oidc_providers'),
     user_oidc_links:     safe('SELECT * FROM user_oidc_links'),
     // Two-step sign-in (nutritrace#222): secrets stay locked with this
