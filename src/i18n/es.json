@@ -1716,8 +1716,6 @@
       "name_ph": "p. ej. Claude Desktop",
       "scopes": "Ámbitos *",
       "mcp_disabled": "MCP no está activado en este servidor. Puedes crear el token igualmente, pero no hará nada hasta que se defina MCP_ENABLED=1.",
-      "expires_label": "Caducidad (días, opcional)",
-      "expires_ph": "Déjalo vacío para que no caduque",
       "cancel": "Cancelar",
       "create": "Crear token",
       "creating": "Creando…"
