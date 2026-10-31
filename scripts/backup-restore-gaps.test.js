@@ -314,3 +314,20 @@ test('every table is backed up and every column restored', { skip }, async () =>
     }
   }
 });
+
+test('a backup with accounts restored on a server without them keeps nothing of that server', { skip }, async () => {
+  const S1 = server();
+  try {
+    await S1.boot();
+    // Without accounts: a progress photo and a set video of the one user.
+    S1.sql((d) => {
+      d.prepare(`INSERT INTO body_stat_media (id, user_id, date, url) VALUES (9001, NULL, '2026-04-20', 'progress/solo.jpg')`).run();
+      d.prepare(`INSERT INTO set_media (id, user_id, date, url) VALUES (9001, NULL, '2026-04-20', 'set-media/solo.mp4')`).run();
+    });
+    await S1.uploadRestore(join(S.dir, 'backups', await S.backup()));
+    // Not put back as deleted rows with no account, which a start-up would
+    // hand to one of the restored accounts.
+    assert.equal(S1.sql((d) => d.prepare(`SELECT COUNT(*) AS n FROM body_stat_media WHERE url = 'progress/solo.jpg'`).get().n), 0);
+    assert.equal(S1.sql((d) => d.prepare(`SELECT COUNT(*) AS n FROM set_media WHERE url = 'set-media/solo.mp4'`).get().n), 0);
+  } finally { await S1.close(); }
+});

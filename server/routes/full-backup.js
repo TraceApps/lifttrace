@@ -556,7 +556,11 @@ function rowsBefore() {
  */
 function keepGone(before) {
   const usersNow = new Map(db.prepare('SELECT id, username, created_at FROM users').all().map(u => [u.id, `${u.username}\n${u.created_at}`]));
-  const same = id => id == null || (usersNow.has(id) && usersNow.get(id) === before.users.get(id));
+  // A row with no account is the one user's of a server without accounts:
+  // the same only when there were none before and are none now (restored
+  // onto a server with accounts, it would be handed to one of them).
+  const solo = before.users.size === 0 && usersNow.size === 0;
+  const same = id => (id == null ? solo : usersNow.has(id) && usersNow.get(id) === before.users.get(id));
   const pairsNow = new Map(db.prepare('SELECT id, coach_id, client_id FROM coach_clients').all().map(p => [p.id, p]));
   const samePairing = id => {
     const a = before.pairings.get(id), b = pairsNow.get(id);
