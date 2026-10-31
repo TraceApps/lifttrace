@@ -506,7 +506,21 @@ changes it later.
   delete loses (409) to a later edit of the row (a tie goes to the
   delete), and a workout save queued before the workout was deleted
   elsewhere is answered as gone (410) instead of bringing it back; a save
-  made after the delete, or online, still does. Changes queued together
+  made after the delete, or online, still does. A body-stats day deleted
+  elsewhere (only a third-party push or a restored backup does that; the
+  row stays, UNIQUE(user_id, date)) is met the same way by `PUT
+  /api/body-stats/:date`, the body-stats rows of `POST /api/sync/push` and
+  `logBodyStatCore` (MCP, REST v1, which always count as made now): an
+  older edit is gone (410) or, pushed, leaves the day deleted; a newer one
+  brings it back (deleted_at cleared, stamped in `field_times`) with only
+  the measurements changed after the delete, the rest counting from the
+  delete (`server/lib/body-stats-day.js`); an edit that leaves no
+  measurement (none sent, or every one made before the delete) brings back
+  nothing. A pushed delete keeps its own
+  time in `field_times.deleted_at`, so an edit made after it and before it
+  arrived still counts as later. A deleted day is not read by
+  `GET /api/body-stats/:date`, `/range`, `get_body_stat(s)` or REST v1; the
+  pull still sends it (deleted) so devices drop it. Changes queued together
   for one row in the browser go up as one with each field's own time
   (`X-Field-Edits`, JSON `{ field: time }`), so the earlier change doesn't
   count as made as late as the later one. `field_times` never leaves the

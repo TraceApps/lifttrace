@@ -26,7 +26,7 @@ export function getBodyStatsCore(userId, { start, end } = {}) {
   const rangeError = validateDateRange(rangeStart, rangeEnd);
   if (rangeError) throw new Error(rangeError);
 
-  const conditions = ['user_id = ?'];
+  const conditions = ['user_id = ?', 'deleted_at IS NULL'];
   const params = [userId];
   if (rangeStart != null) {
     conditions.push('date >= ?');

@@ -14,6 +14,8 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { mergeStatsObject } from '../../workout-merge.js';
+import { revivedDay } from '../../body-stats-day.js';
+import { BODY_STAT_KEYS } from '../../workout-merge.js';
 import { stampTimes } from '../../field-sync.js';
 import { sendBodyStatLogged } from '../../log-webhooks.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
@@ -61,20 +63,30 @@ export function logBodyStatCore(userId, args = {}) {
 
   const tx = db.transaction(() => {
     const existing = db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(day, userId);
-    const serverStats = existing ? JSON.parse(existing.stats || '{}') : {};
+    // A day deleted elsewhere: this is an edit made now, so it brings the
+    // day back, with only what was measured after the delete
+    // (lib/body-stats-day.js).
+    const revive = !!existing?.deleted_at;
+    const back = revive ? revivedDay(existing) : null;
+    const serverStats = back ? back.stats : existing ? JSON.parse(existing.stats || '{}') : {};
     const merged = mergeStatsObject(serverStats, stats);
     const mergedJson = JSON.stringify(merged);
+    // Nothing measured (no key the day holds) brings back nothing.
+    if (revive && !Object.keys(merged).length) return null;
     // Each measurement logged is an edit made now (lib/field-sync.js), so
-    // an older one queued on a phone doesn't overwrite it.
-    const times = JSON.stringify(stampTimes(existing?.field_times, keys, Date.now()));
+    // an older one queued on a phone doesn't overwrite it. (Only a
+    // measurement is stamped: a key like deleted_at isn't one.)
+    const stamped = keys.filter(k => BODY_STAT_KEYS.has(k));
+    const times = JSON.stringify(stampTimes(back ? back.times : existing?.field_times, revive ? [...stamped, 'deleted_at'] : stamped, Date.now()));
     if (existing) {
-      db.prepare('UPDATE body_stats_log SET stats = ?, field_times = ? WHERE id = ?').run(mergedJson, times, existing.id);
+      db.prepare('UPDATE body_stats_log SET stats = ?, field_times = ?, deleted_at = NULL WHERE id = ?').run(mergedJson, times, existing.id);
     } else {
       db.prepare('INSERT INTO body_stats_log (user_id, date, stats, field_times) VALUES (?, ?, ?, ?)').run(userId, day, mergedJson, times);
     }
     return merged;
   });
   const merged = tx();
+  if (!merged) return { ok: true, date: day, logged: stats, stats: {} };
   sendBodyStatLogged(userId, day, merged);
 
   return { ok: true, date: day, logged: stats, stats: merged };

@@ -41,7 +41,8 @@ import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
-import { applyToBody, createdTimes, decide, deleteLoses, editedAt, stampMerged } from '../lib/newer-wins.js';
+import { applyToBody, createdTimes, decide, deleteLoses, deletedTimes, editBringsBack, editedAt, stampMerged } from '../lib/newer-wins.js';
+import { revivedDay, isStatsObject, onlyMeasurements } from '../lib/body-stats-day.js';
 import { readTimes } from '../lib/field-sync.js';
 import { SYNC_FIELDS, syncOf } from '../lib/sync-fields.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
@@ -763,23 +764,44 @@ router.post('/push', wrap((req, res) => {
         {
           if (b.deleted_at) {
             // Kept when a measurement in it changed after the delete was made.
+            // The delete's own time is kept, so an edit made after it (and
+            // before it arrived) can bring the day back.
             if (!existing.deleted_at && !deleteLoses(pushedEdit(b), existing, pushTimes(existing))) {
-              db.prepare(`UPDATE body_stats_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+              db.prepare(`UPDATE body_stats_log SET deleted_at = datetime('now'), updated_at = datetime('now'), field_times = ? WHERE id = ?`)
+                .run(deletedTimes(pushedEdit(b), existing), existing.id);
             }
+          } else if (existing.deleted_at && (!editBringsBack(pushedEdit(b), existing) || !isStatsObject(b.stats))) {
+            // Deleted elsewhere after this copy was made (or a copy with no
+            // measurements: no edit to bring it back): the day stays deleted
+            // (PUT /api/body-stats/:date answers it as gone). Touched, so the
+            // device gets the deleted day with its next pull.
+            db.prepare(`UPDATE body_stats_log SET updated_at = datetime('now') WHERE id = ?`).run(existing.id);
           } else {
-            // The newer edit of each measurement stays (PUT /api/body-stats/:date).
-            const serverStats = JSON.parse(existing.stats || '{}');
-            const incoming = b.stats && typeof b.stats === 'object' && !Array.isArray(b.stats) ? { ...b.stats } : b.stats;
+            // The newer edit of each measurement stays (PUT /api/body-stats/:date);
+            // a day deleted elsewhere comes back with only what was measured
+            // after the delete (lib/body-stats-day.js).
+            const revive = !!existing.deleted_at;
+            const back = revive ? revivedDay(existing) : null;
+            const day = back ? { stats: JSON.stringify(back.stats), field_times: JSON.stringify(back.times), updated_at: existing.updated_at } : existing;
+            const serverStats = JSON.parse(day.stats || '{}');
+            const incoming = onlyMeasurements(b.stats);
             let times = null;
             if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
               // Each measurement is a field: decided against the day's measurements.
-              times = applyToBody(pushedEdit(b), { ...serverStats, field_times: existing.field_times }, incoming, { fields: Object.keys(incoming), times: pushTimes(existing), current: f => serverStats[f] });
+              times = applyToBody(pushedEdit(b), { ...serverStats, field_times: day.field_times }, incoming, { fields: Object.keys(incoming), times: pushTimes(day), current: f => serverStats[f] });
               for (const k of Object.keys(incoming)) if (incoming[k] === undefined) delete incoming[k];
             }
             const merged = mergeStatsObject(serverStats, incoming);
-            db.prepare(
-              `UPDATE body_stats_log SET stats=?, field_times=COALESCE(?, field_times), updated_at=datetime('now') WHERE id=?`
-            ).run(JSON.stringify(merged), times, existing.id);
+            if (revive && !Object.keys(merged).length) {
+              // Nothing it measured stays: the day stays deleted, and the device gets it.
+              db.prepare(`UPDATE body_stats_log SET updated_at = datetime('now') WHERE id = ?`).run(existing.id);
+            } else {
+              // Brought back: when, so a delete made before this can't win over it.
+              if (revive) times = stampMerged(pushedEdit(b), times, ['deleted_at']);
+              db.prepare(
+                `UPDATE body_stats_log SET stats=?, field_times=COALESCE(?, field_times), deleted_at=NULL, updated_at=datetime('now') WHERE id=?`
+              ).run(JSON.stringify(merged), times, existing.id);
+            }
           }
         }
         result.body_stats_log.push({ client_id: b.client_id, server_id: existing.id });

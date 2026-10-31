@@ -940,6 +940,48 @@ const scenarios = {
     };
   },
 
+  // A day's body stats edited on the phone offline while a third-party client
+  // deleted the day on the server (POST /api/sync/push with deleted_at): an
+  // edit made before the delete is answered as gone (410) and the phone drops
+  // the day; one made after it brings the day back, with only what it measured.
+  async bodyStatsDeletedElsewhere() {
+    me();
+    const stats = async (d) => { const r = (await q(`SELECT stats FROM body_stats_log WHERE date = ? AND deleted_at IS NULL`, [d]))[0]; return r ? JSON.parse(r.stats) : null; };
+    const deleteOnServer = async (d) => {
+      const at = new Date().toISOString();
+      await web('phone', 'POST', '/api/sync/push', { body_stats_log: [{ client_id: 1, date: d, deleted_at: at, updated_at: at }] });
+    };
+    const serverRow = async (d) => {
+      const pull = await web('phone', 'GET', '/api/sync/pull?since=1970-01-01T00:00:00.000Z');
+      const row = pull.body_stats_log.find(b => b.date === d);
+      return row ? { deleted: !!row.deleted_at, stats: typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats } : null;
+    };
+    const older = '2026-10-01', newer = '2026-10-02';
+    for (const d of [older, newer]) await web('phone', 'PUT', `/api/body-stats/${d}`, { stats: { weight: 80, waist: 90 } });
+    await syncNow();
+    const held = { older: await stats(older), newer: await stats(newer) };
+    // The phone edits the first day offline; the day is deleted after that.
+    await later(1100);
+    offline(true);
+    await api.saveBodyStats(older, { stats: { weight: 79 } });
+    offline(false);
+    await later(1100);
+    await deleteOnServer(older);
+    // The second day is deleted first, the phone edits it after, offline.
+    await deleteOnServer(newer);
+    await later(1100);
+    offline(true);
+    await api.saveBodyStats(newer, { stats: { weight: 78 } });
+    offline(false);
+    await syncNow(); await syncNow();
+    return {
+      held,
+      older: { phone: await stats(older), server: await serverRow(older), get: (await web('phone', 'GET', `/api/body-stats/${older}`)).stats },
+      newer: { phone: await stats(newer), server: await serverRow(newer), get: (await web('phone', 'GET', `/api/body-stats/${newer}`)).stats?.stats ?? null },
+      refused,
+    };
+  },
+
   // Rows only this phone has, moved out of the way of the server's rows with
   // the same ids, then written to: created on the server first, never lost.
   async movedRows() {

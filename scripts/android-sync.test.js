@@ -355,6 +355,19 @@ test('body stats only this phone has are kept and merged, never written over', {
   assert.deepEqual(out.phone0901, { weight: 80 });
 });
 
+test('a day\'s body stats edited on the phone while a third-party client deleted the day: gone if older, back if newer', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('bodyStatsDeletedElsewhere');
+  assert.deepEqual(out.held.older, { weight: 80, waist: 90 });
+  assert.deepEqual(out.older.server, { deleted: true, stats: { weight: 80, waist: 90 } }, 'the edit made before the delete wrote nothing into it');
+  assert.equal(out.older.phone, null, 'and the phone dropped the day');
+  assert.equal(out.older.get, null);
+  assert.deepEqual(out.newer.server, { deleted: false, stats: { weight: 78 } }, 'the edit made after it brought the day back, with only what it measured');
+  assert.deepEqual(out.newer.phone, { weight: 78 });
+  assert.equal(out.newer.get.weight, 78);
+  assert.equal(out.newer.get.waist, undefined);
+  assert.deepEqual(out.refused, [], 'neither was reported to the person as refused');
+});
+
 test('rows only this phone has, written to, are created on the server first and never lost', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('movedRows');
   assert.deepEqual(out.movedIds, [true, true], 'moved out of the way of the server\'s rows');

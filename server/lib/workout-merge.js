@@ -254,7 +254,7 @@ export function mergeExercises(
 // removes the way this gets constructed client-side; this allowlist
 // means it can't land in the stored data even if a similar bug shows
 // up in some future client entry point.
-const BODY_STAT_KEYS = new Set([
+export const BODY_STAT_KEYS = new Set([
   'weight', 'bodyFat', 'neck', 'chest', 'waist', 'hips', 'biceps', 'thighs', 'calves',
 ]);
 

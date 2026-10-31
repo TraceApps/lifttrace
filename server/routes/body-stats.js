@@ -8,21 +8,23 @@ import { unlinkMediaFile, resolvePhotoFileForUser } from '../lib/body-stat-media
 import { listProgressPhotosCore } from '../lib/mcp/tools/list-progress-photos.js';
 import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
-import { applyToBody } from '../lib/newer-wins.js';
+import { applyToBody, editBringsBack, stampMerged } from '../lib/newer-wins.js';
+import { revivedDay, isStatsObject, onlyMeasurements } from '../lib/body-stats-day.js';
 
 const router = Router();
 router.use(requireAuth);
 
 // GET /api/body-stats/range?start=YYYY-MM-DD&end=YYYY-MM-DD — batch fetch
-// Returns every body_stats_log row in the window, already JSON-parsed.
+// Returns every body_stats_log row in the window, already JSON-parsed (a day
+// deleted elsewhere is not one: the pull still sends it, so devices drop it).
 // Used by Statistics to avoid N sequential requests per date.
 router.get('/range', wrap((req, res) => {
   const { start, end } = req.query;
   const userId = uid(req);
   if (!start || !end) return res.status(400).json({ error: 'start and end (YYYY-MM-DD) required' });
   const rows = userId != null
-    ? db.prepare('SELECT * FROM body_stats_log WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date ASC').all(userId, start, end)
-    : db.prepare('SELECT * FROM body_stats_log WHERE user_id IS NULL AND date BETWEEN ? AND ? ORDER BY date ASC').all(start, end);
+    ? db.prepare('SELECT * FROM body_stats_log WHERE user_id = ? AND date BETWEEN ? AND ? AND deleted_at IS NULL ORDER BY date ASC').all(userId, start, end)
+    : db.prepare('SELECT * FROM body_stats_log WHERE user_id IS NULL AND date BETWEEN ? AND ? AND deleted_at IS NULL ORDER BY date ASC').all(start, end);
   for (const r of rows) r.stats = JSON.parse(r.stats || '{}');
   res.json(rows);
 }));
@@ -105,9 +107,10 @@ router.delete('/photos/:id', wrap((req, res) => {
 router.get('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
+  // A day deleted elsewhere (deleted_at) isn't there to read.
   const row = userId != null
-    ? db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(date, userId)
-    : db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id IS NULL').get(date);
+    ? db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(date, userId)
+    : db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(date);
   if (row) row.stats = JSON.parse(row.stats || '{}');
   res.json({ stats: row || null });
 }));
@@ -130,21 +133,39 @@ router.put('/:date', wrap((req, res) => {
   const existing = userId != null
     ? db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(date, userId)
     : db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id IS NULL').get(date);
-  const serverStats = existing ? JSON.parse(existing.stats || '{}') : {};
+  // A day deleted elsewhere (a third-party client's push, a restored
+  // backup): an edit made before the delete is answered as gone, as a
+  // workout save is (the device drops it); one made after it, or now, brings
+  // the day back with only what was measured after the delete
+  // (lib/body-stats-day.js). One with no measurements isn't an edit.
+  let day = existing;
+  const revive = !!existing?.deleted_at;
+  if (revive) {
+    if (!editBringsBack(req, existing)) return res.status(410).json({ error: 'Deleted after this change was made', gone: true });
+    if (!isStatsObject(stats)) return res.json({ stats: null });
+    const back = revivedDay(existing);
+    day = { stats: JSON.stringify(back.stats), field_times: JSON.stringify(back.times) };
+  }
+  const serverStats = day ? JSON.parse(day.stats || '{}') : {};
   // The newer edit of each measurement stays (lib/newer-wins.js).
-  const incoming = stats && typeof stats === 'object' && !Array.isArray(stats) ? { ...stats } : stats;
+  const incoming = onlyMeasurements(stats);
   let times = null;
   if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
     // Each measurement is a field: decided against the day's measurements.
-    const asRow = existing ? { ...serverStats, field_times: existing.field_times } : null;
+    const asRow = day ? { ...serverStats, field_times: day.field_times } : null;
     times = applyToBody(req, asRow, incoming, { fields: Object.keys(incoming), current: f => serverStats[f] });
     for (const k of Object.keys(incoming)) if (incoming[k] === undefined) delete incoming[k];
   }
   const merged = mergeStatsObject(serverStats, incoming);
   const mergedJson = JSON.stringify(merged);
+  // An edit that leaves no measurement (every one lost to the delete, or it
+  // cleared what isn't there) brings back nothing: the day stays deleted.
+  if (revive && !Object.keys(merged).length) return res.json({ stats: null });
+  // Brought back: when, so a delete made before this can't win over it.
+  if (revive) times = stampMerged(req, times, ['deleted_at']);
 
   if (existing) {
-    db.prepare('UPDATE body_stats_log SET stats = ?, field_times = COALESCE(?, field_times) WHERE id = ?').run(mergedJson, times, existing.id);
+    db.prepare('UPDATE body_stats_log SET stats = ?, field_times = COALESCE(?, field_times), deleted_at = NULL WHERE id = ?').run(mergedJson, times, existing.id);
   } else {
     db.prepare('INSERT INTO body_stats_log (user_id, date, stats, field_times) VALUES (?, ?, ?, ?)').run(userId, date, mergedJson, times);
   }
