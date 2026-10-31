@@ -834,8 +834,6 @@
       "name_ph": "例如 Claude Desktop",
       "scopes": "作用域 *",
       "mcp_disabled": "此服务器未启用 MCP。仍可创建令牌，但在设置 MCP_ENABLED=1 之前它不会起任何作用。",
-      "expires_label": "过期时间（天数，可选）",
-      "expires_ph": "留空表示永不过期",
       "cancel": "取消",
       "create": "创建令牌",
       "creating": "正在创建…"
