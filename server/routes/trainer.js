@@ -82,10 +82,12 @@ router.get('/members/:id', wrap((req, res) => {
   ).get(memberId) || null;
   // Where the client is in it: the plan week, and the days their excused
   // days have paused a calendar program (#121). "Today" is the client's: in
-  // the zone their app said last (lib/user-zone.js), else the server's. The
-  // coach's own zone (?tz=, sent by apps before this) says nothing of it.
+  // the zone their app said last (lib/user-zone.js), else the coach's own
+  // (?tz=, for this request only, never kept as the client's), else the
+  // server's.
+  const coachZone = req.query?.tz;
   if (activeProgram) {
-    const where = getActiveProgramCore(memberId);
+    const where = getActiveProgramCore(memberId, { fallbackZone: coachZone });
     if (where.active && where.program_id === activeProgram.id) {
       Object.assign(activeProgram, {
         duration_weeks: where.duration_weeks,
@@ -144,9 +146,10 @@ router.get('/members/:id', wrap((req, res) => {
   });
 
   // The client's current streak, by the trained-day rule the client's own
-  // app counts (src/lib/trained-day.js), so coach and client see one number,
-  // from the client's today.
-  const clientToday = userToday(memberId);
+  // app counts (src/lib/trained-day.js), from the client's today: the zone
+  // their app said, else the coach's own for this request (an app from before
+  // zones were kept says none), else the server's.
+  const clientToday = userToday(memberId, { fallbackZone: coachZone });
   const streak = currentStreak(trainedDateSet(memberId), clientToday);
 
   // Member's chosen weight unit so the coach UI labels volume + set weights

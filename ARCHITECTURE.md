@@ -103,11 +103,16 @@ the coach's view of a client, MCP `get_active_program`, `/api/v1` and the
 switch with program reads (`src/lib/plan-week-query.js`), and the Android
 app with every sync pull; the server keeps the account's last valid zone
 in its `timezone` setting (`server/lib/user-zone.js`, written only when it
-changes), so a caller that isn't the athlete (the coach's view of a
+changes, and a different zone only once the one kept is 12 hours old, so two
+devices in two zones don't swap it all day), so a caller that isn't the
+athlete (the coach's view of a
 client, with its streak, MCP, `/api/v1`, the webhook, a prescription
 counted as missed, `/api/stats/streaks`, and the scheduler, which always
-read that setting) uses the athlete's "today", and the server's when none
-is known. Programs advanced by sessions never pause. The Programs card's
+read that setting) uses the athlete's "today". With none kept the order is
+`zoneFor`: the zone kept, else the zone on the coach's own request (`?tz=`
+on `/api/trainer/members/:id`, passed as `fallbackZone`, used for that
+request and never stored), else the server's; paths with no request (the
+scheduler, the missed-prescription scan, the webhook) never see a coach's. Programs advanced by sessions never pause. The Programs card's
 "Week N" for a one-week program counts the same calendar days
 (`calendarDaysSince`) from the start date, else when it was assigned (or
 started, without accounts), on the server and the phone.

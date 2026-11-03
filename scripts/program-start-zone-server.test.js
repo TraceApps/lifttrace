@@ -14,7 +14,8 @@
  * - The account's zone, as its app said it last (`?tz=` on a program read
  *   or a pull), is kept, and the coach's view of the client (week, pause,
  *   streak), MCP, the client's missed prescriptions and their streaks count
- *   their days in it. A zone that isn't one is never kept.
+ *   their days in it. A zone that isn't one is never kept, and a different
+ *   one is taken only 12 hours after the last (scripts/user-zone-fallback-server.test.js).
  * - The Programs card's "Week N" for a one-week program counts calendar
  *   days at the athlete's midnight, not 24-hour blocks.
  */
@@ -346,7 +347,9 @@ test("the coach's view of a client counts the client's days, in the zone the cli
     await S.ok('client', 'PUT', `/api/workout/${zToday}`, { exercises: lift });
     assert.equal((await view('UTC')).streak, 3);
     assert.equal((await S.ok('client', 'GET', '/api/stats/streaks')).currentStreak, 3);
-    // The phone's pull says it too; written only when it changes.
+    // The phone's pull says it too; written only when it changes, and a
+    // different zone only once the one kept is 12 hours old (user-zone.js).
+    S.sql((d) => d.prepare("UPDATE user_settings SET updated_at = datetime('now', '-13 hours') WHERE user_id = ? AND key = 'timezone'").run(S.ids.client));
     await S.ok('client', 'GET', '/api/sync/pull?since=2999-01-01T00:00:00.000Z&tz=Europe/Paris');
     assert.equal(S.sql((d) => d.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'timezone'").get(S.ids.client).value), JSON.stringify('Europe/Paris'));
     S.sql((d) => d.prepare("UPDATE user_settings SET updated_at = '2000-01-01 00:00:00' WHERE user_id = ? AND key = 'timezone'").run(S.ids.client));

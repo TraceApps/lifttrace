@@ -139,7 +139,9 @@ test("your own calendar program: excused days push it back, and undoing them giv
   await S.ok('solo', 'POST', `/api/programs/${p.id}/week-cursor`, { week: null });
   assert.deepEqual(await now(), { week: 2, pausedDays: 2 }, 'back to automatic: every day since the start counts again');
   // "Today" is the athlete's: from a zone where it's already tomorrow, the
-  // day ahead has come.
+  // day ahead has come. (The zone kept was written moments ago, by the UTC
+  // reads above: a different one is taken after 12 hours, user-zone.js.)
+  { const d = S.db(); try { d.prepare("UPDATE user_settings SET updated_at = datetime('now', '-13 hours') WHERE user_id = ? AND key = 'timezone'").run(S.ids.solo); } finally { d.close(); } }
   const ahead = await S.ok('solo', 'GET', `/api/programs/${p.id}?tz=Pacific/Kiritimati`);
   const kiriToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Kiritimati' }).format(new Date());
   assert.equal(ahead.paused_days, kiriToday > TODAY ? 3 : 2, "tomorrow's excuse counts where tomorrow has begun");

@@ -19,9 +19,10 @@ import { toolResult } from '../_util.js';
  * paused_days: the days excused days (issue #121) have pushed a
  * calendar-mode program back, already taken off current_week; 0 for a
  * program advanced by sessions. "Today" is in `timeZone`, else the zone the
- * athlete's app said last (lib/user-zone.js), else the server's.
+ * athlete's app said last (lib/user-zone.js), else `fallbackZone` (a coach
+ * viewing the athlete: their own zone, for this call only), else the server's.
  */
-export function getActiveProgramCore(userId, { timeZone } = {}) {
+export function getActiveProgramCore(userId, { timeZone, fallbackZone } = {}) {
   const assignment = db.prepare(
     `SELECT pa.*, p.* FROM program_assignments pa
        JOIN programs p ON p.id = pa.program_id
@@ -45,6 +46,7 @@ export function getActiveProgramCore(userId, { timeZone } = {}) {
     sessionsInProgram,
     sessionsPerWeek: templateCount,
     timeZone,
+    fallbackZone,
   });
 
   return {

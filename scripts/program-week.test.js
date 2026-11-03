@@ -90,9 +90,9 @@ test('every place that reports a week passes the excused days in', () => {
   assert.match(read('../server/lib/mcp/tools/get-active-program.js'), /planWeekFor\(userId, assignment, assignment/);
   assert.match(read('../server/lib/mcp/tools/get-active-program.js'), /paused_days: pausedDays/);
   // The coach's view counts the client's days, in the client's zone
-  // (planWeekFor falls back to it), not the coach's.
-  assert.match(read('../server/routes/trainer.js'), /getActiveProgramCore\(memberId\);/);
-  assert.match(read('../server/lib/program-pause.js'), /timeZone = timeZone \?\? userZone\(userId\);/);
+  // (planWeekFor falls back to it), else the coach's own for that request.
+  assert.match(read('../server/routes/trainer.js'), /getActiveProgramCore\(memberId, \{ fallbackZone: coachZone \}\);/);
+  assert.match(read('../server/lib/program-pause.js'), /timeZone = timeZone \?\? zoneFor\(userId, fallbackZone\);/);
   const native = read('../src/lib/api-native.js');
   assert.doesNotMatch(native, /currentPlanWeek\(/);
   assert.match(native, /planWeekState\(program, assignment, \{[\s\S]*?excusedDays,[\s\S]*?trainedDays,/);
