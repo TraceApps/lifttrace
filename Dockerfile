@@ -1,5 +1,5 @@
 # ── Stage 1: Build Svelte frontend ──────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM node:20-alpine AS build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
@@ -7,7 +7,10 @@ COPY . .
 RUN npm run build
 
 # ── Stage 2: Express server + static frontend ────────────────────────────────
-FROM node:20-alpine
+# node:24 follows the newest Node 24 LTS release, so every image build picks up
+# its security fixes without a Dockerfile change (24.22.1 or later carries the
+# CVE-2026-111497 fix, nutritrace#302).
+FROM node:24-alpine
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY server/package*.json ./

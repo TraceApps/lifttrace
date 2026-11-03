@@ -2,7 +2,7 @@
  * Reminders set just after midnight fire.
  *
  * The scheduler read the clock with Intl and `hour12: false`. On Node 20
- * (the server image) that writes the hour after midnight as "24", so from
+ * (the server image then) that writes the hour after midnight as "24", so from
  * 00:00 to 00:59 the time read as 24:xx and a workout reminder at 00:00 never
  * fired. The hour is now read with `hourCycle: 'h23'`, and the window runs
  * across midnight in the late direction, so a 23:55 reminder still fires at
