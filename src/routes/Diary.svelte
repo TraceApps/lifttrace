@@ -2931,6 +2931,7 @@
               targetSets={group.targetSets}
               unit={$weightUnit}
               date={$currentDate}
+              workoutDone={!!$todayLog?.completed}
               autoCollapse={$autoCollapseCompleted}
               feedback={$todayLog?.feedback || []}
               {prFlagsByIdx}
@@ -2959,6 +2960,7 @@
               idx={group.startIdx}
               unit={$weightUnit}
               date={$currentDate}
+              workoutDone={!!$todayLog?.completed}
               canMoveUp={showReorderButtons && gIdx > 0}
               canMoveDown={showReorderButtons && gIdx < supersetGroups.length - 1}
               autoCollapse={$autoCollapseCompleted}

@@ -206,6 +206,43 @@ export function exerciseVolume(exercise, opts = {}) {
 }
 
 /**
+ * The Diary's volume chip: today's volume of an exercise against last time's,
+ * set for set (issue #121 follow-up). Mid-workout, after 2 of 3 sets, the old
+ * chip set today's two sets against all of last time's and read -28% while
+ * the lifter was ahead. Now today's N completed working sets are set against
+ * the first N working sets of the last session (warm-ups and timed sets
+ * excluded on both sides, as in exerciseVolume); with fewer than N last time,
+ * against all of them, never padded with zeros.
+ *
+ * When the exercise is done (every working set ticked, or `done`: the
+ * workout is finished) it is the whole of last time's, which is the number
+ * the chip always showed for a full session.
+ *
+ * `exercise` is today's, with its resolved `load_type`; `lastSets` the last
+ * session's completed sets, in order (lastCompletedSession's `completed`).
+ * Returns { pct, sets, partial } (`sets`: how many of last time's were used;
+ * `partial`: that is fewer than it did), or null when either side has no
+ * volume to compare.
+ */
+export function volumeDelta(exercise, lastSets, { done = false } = {}) {
+  if (!exercise || !lastSets?.length) return null;
+  const today = (exercise.sets || []).filter(s => s.completed && !s.warmup && !isTimedSet(exercise, s));
+  const current = exerciseVolume({ ...exercise, sets: today });
+  if (!(current > 0)) return null;
+  const working = lastSets.filter(s => !s.warmup && !isTimedSet({}, s));
+  const everyTicked = (exercise.sets || []).every(s => s.warmup || s.completed);
+  const whole = done || everyTicked;
+  const used = whole ? working : working.slice(0, today.length);
+  const before = exerciseVolume({ load_type: exercise.load_type, sets: used.map(s => ({ ...s, completed: true })) });
+  if (!(before > 0)) return null;
+  return {
+    pct: Math.round((current - before) / before * 100),
+    sets: used.length,
+    partial: used.length < working.length,
+  };
+}
+
+/**
  * Calculate total volume across a workout's exercises, honoring per-
  * exercise load_type. Backwards-compatible with the previous signature
  * (an array of exercises + optional unit string).

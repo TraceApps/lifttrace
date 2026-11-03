@@ -13,6 +13,8 @@
   export let unit = 'lbs';
   export let autoCollapse = false;
   export let date = '';
+  // The workout is finished: the volume chip compares whole sessions.
+  export let workoutDone = false;
   // Workout-level coach feedback array (all rows for the workout). The
   // card filters down to per-exercise notes keyed by exercise_idx so each
   // superset member shows its own notes directly below its ExerciseCard.
@@ -101,6 +103,7 @@
     idx={startIdx}
     {unit}
     {date}
+    {workoutDone}
     {autoCollapse}
     on:update={e => dispatch('update', { idx: startIdx, exercise: e.detail })}
     on:remove={() => dispatch('remove', { idx: startIdx })}
@@ -139,6 +142,7 @@
                 idx={startIdx + i}
                 {unit}
                 {date}
+                {workoutDone}
                 {autoCollapse}
                 canMoveUp={i > 0}
                 canMoveDown={i < exercises.length - 1}

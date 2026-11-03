@@ -4,7 +4,7 @@
   import SetRow from './SetRow.svelte';
   import { LtApi } from '../../lib/api.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, exerciseVolume, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
+  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
   import { exerciseLoadTypes, exerciseSetTypes } from '../../stores/settings.js';
   import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
   import LoadTypeMenu from '../ui/LoadTypeMenu.svelte';
@@ -128,12 +128,12 @@
     }
   }
 
-  // Volume of this exercise's completed sets (current + last session for delta)
-  // Uses the load-type-aware helper so per-side / alternating sets get the
-  // correct multiplier (×2, or sum of L+R when split).
-  $: currentVolume = exerciseVolume({ ...exercise, load_type: loadType });
-  $: lastVolume = lastSession ? exerciseVolume({ load_type: loadType, sets: lastSession.sets.map(s => ({ ...s, completed: true })) }) : 0;
-  $: volumeDeltaPct = lastVolume > 0 && currentVolume > 0 ? Math.round((currentVolume - lastVolume) / lastVolume * 100) : null;
+  // Volume of this exercise's completed sets against last session's, set for
+  // set while the exercise is part done (volumeDelta in lib/workout.js), with
+  // the load-type-aware multiplier (×2, or sum of L+R when split).
+  export let workoutDone = false;
+  $: volumeCmp = lastSession ? volumeDelta({ ...exercise, load_type: loadType }, lastSession.sets, { done: workoutDone }) : null;
+  $: volumeDeltaPct = volumeCmp ? volumeCmp.pct : null;
 
   // Progression nudge: if last session hit target reps across the board at a given weight,
   // suggest +5 (or +2.5 for kg) on today's target weight.
@@ -400,7 +400,7 @@
         </span>
         {#if volumeDeltaPct !== null && volumeDeltaPct !== 0}
           <span class="vol-delta" class:up={volumeDeltaPct > 0} class:down={volumeDeltaPct < 0}
-                title="Volume vs last session">
+                title={volumeCmp?.partial ? 'Volume vs the same sets last session' : 'Volume vs last session'}>
             {volumeDeltaPct > 0 ? '+' : ''}{volumeDeltaPct}%
           </span>
         {/if}
