@@ -13,6 +13,7 @@
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
   import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, requestPermission } from '../lib/notifications.js';
+  import { prFlags, celebrationFor, earlierWorkouts } from '../lib/pr-sets.js';
   import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName, lastCompletedSession } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import { startRest as startRestTimer, stopRest, noteRestLastTime } from '../stores/restTimer.js';
@@ -27,7 +28,7 @@
   import { currentUser } from '../stores/auth.js';
   import { resolveAssetUrl } from '../lib/platform.js';
   import { dateFormat } from '../stores/settings.js';
-  import { fmtWeight, fmtDuration, countCompletedSets, calc1RM, exerciseVolume, setVolume } from '../lib/workout.js';
+  import { fmtWeight, fmtDuration, countCompletedSets, exerciseVolume, setVolume } from '../lib/workout.js';
   import ExerciseCard from '../components/diary/ExerciseCard.svelte';
   import HoldTimer from '../components/diary/HoldTimer.svelte';
   import SetVideoSheet from '../components/diary/SetVideoSheet.svelte';
@@ -161,70 +162,42 @@
   $: yearRange      = Array.from({ length: 22 }, (_, i) => (new Date().getFullYear() - 10) + i);
   const DAY_LABELS  = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
-  // PR detection: cache the previous best (top weight + top estimated 1RM)
-  // per exercise once when the workout loads. prFlagsByIdx is reactive on
-  // exercises + cache, so flagging fresh PR sets is instant while logging.
-  let prevBestsByExId = {};
-  async function loadPrevBests() {
-    if (!exercises.length) { prevBestsByExId = {}; return; }
-    const newBests = {};
-    const uniqueIds = [...new Set(exercises.map(e => e.exercise_id).filter(Boolean))];
-    await Promise.all(uniqueIds.map(async id => {
-      try {
-        const history = await LtApi.getWorkoutHistory(id);
-        const prior = (history || []).filter(h => h.date !== $currentDate);
-        let topW = 0, topE = 0, topDur = 0, topDurW = 0;
-        for (const h of prior) {
-          for (const s of (h.sets || [])) {
-            if (!s.completed || s.warmup) continue;
-            // Timed sets (issue #89) keep their own bests, so a long plank
-            // never reads as a heavy lift and vice versa.
-            if (isTimedSet({ set_type: h.set_type }, s)) {
-              const d = Number(s.duration_sec) || 0;
-              if (d > topDur) topDur = d;
-              if (d > 0 && (s.weight || 0) > topDurW) topDurW = s.weight || 0;
-              continue;
-            }
-            const w = s.weight || 0, r = s.reps || 0;
-            if (w > topW) topW = w;
-            const e = w * (1 + r / 30);
-            if (e > topE) topE = e;
-          }
-        }
-        newBests[id] = { topWeight: topW, topE1rm: topE, topDuration: topDur, topDurationWeight: topDurW };
-      } catch {}
+  // PR badges (src/lib/pr-sets.js is the one rule): each exercise's history
+  // is fetched once and kept as it came; the badges are worked out from it,
+  // today's sets in order and the day's earlier workouts every time any of
+  // them changes, so they are the same on opening the day again, on a
+  // changed or unticked earlier set, and on another date.
+  let historyByExId = {};
+  const historyAsked = new Set();
+  async function fetchHistories(ids) {
+    const got = {};
+    await Promise.all(ids.map(async id => {
+      try { got[id] = (await LtApi.getWorkoutHistory(id)) || []; } catch {}
     }));
-    prevBestsByExId = newBests;
+    historyByExId = { ...historyByExId, ...got };
+  }
+  // On opening and after a sync: every exercise on screen, again.
+  async function loadPrevBests() {
+    const ids = [...new Set(exercises.map(e => e.exercise_id).filter(Boolean))];
+    ids.forEach(id => historyAsked.add(id));
+    await fetchHistories(ids);
+  }
+  // An exercise added later, or on another date, is fetched when it shows up.
+  $: {
+    const missing = [...new Set(exercises.map(e => e.exercise_id).filter(Boolean))]
+      .filter(id => !historyAsked.has(id));
+    if (missing.length) {
+      missing.forEach(id => historyAsked.add(id));
+      fetchHistories(missing);
+    }
   }
 
+  // The exercise lists of this day's workouts before the one on screen.
+  $: earlierToday = earlierWorkouts($todaySessions, $currentSessionId, $currentDate);
+
   // For each exercise position in the current workout, which set indices
-  // are PRs (top weight OR top estimated 1RM beats the prior best).
-  $: prFlagsByIdx = (() => {
-    const out = {};
-    (exercises || []).forEach((ex, exIdx) => {
-      const best = prevBestsByExId[ex.exercise_id];
-      if (!best) return;
-      const indices = new Set();
-      (ex.sets || []).forEach((s, sIdx) => {
-        if (!s.completed || s.warmup) return;
-        if (isTimedSet(ex, s)) {
-          // A hold PR is the longest hold, or the heaviest load held.
-          const d = Number(s.duration_sec) || 0;
-          if (!d) return;
-          const hw = s.weight || 0;
-          if (d > (best.topDuration || 0) || (hw > 0 && hw > (best.topDurationWeight || 0))) indices.add(sIdx);
-          return;
-        }
-        const w = s.weight || 0;
-        const r = s.reps || 0;
-        if (!w || !r) return;
-        const e1rm = w * (1 + r / 30);
-        if (w > best.topWeight || e1rm > best.topE1rm) indices.add(sIdx);
-      });
-      if (indices.size) out[exIdx] = indices;
-    });
-    return out;
-  })();
+  // are PRs: they beat the history and every earlier set of it today.
+  $: prFlagsByIdx = prFlags({ exercises, history: historyByExId, date: $currentDate, earlier: earlierToday });
   $: prCountToday = Object.values(prFlagsByIdx).reduce((sum, s) => sum + s.size, 0);
 
   // The rows the trained-day rule reads (src/lib/trained-day.js), the same
@@ -1726,70 +1699,29 @@
         // save built after that from the exercise as it was before put back
         // whatever arrived meanwhile (the watch ticking another set of it).
         prCheck = async () => {
-          // Compared to PRIOR workouts only (not today), skipping
-          // celebrations when planning ahead (future date)
-          const justCompletedSet = ex.sets.find((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
-          const justCompletedTimed = !!justCompletedSet && isTimedSet(ex, justCompletedSet);
-          if (!isFuture && justCompletedTimed && !justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0 && ex.exercise_id) {
-            // Timed set (issue #89): celebrate the longest hold, or a heavier
-            // load held, against prior timed sessions only.
-            try {
-              const history = await LtApi.getWorkoutHistory(ex.exercise_id);
-              let priorDur = 0, priorDurW = 0, priorCount = 0;
-              for (const h of history) {
-                if (h.date === $currentDate) continue;
-                for (const s of h.sets || []) {
-                  if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
-                  const d = Number(s.duration_sec) || 0;
-                  if (d <= 0) continue;
-                  priorCount++;
-                  if (d > priorDur) priorDur = d;
-                  if ((s.weight || 0) > priorDurW) priorDurW = s.weight || 0;
-                }
-              }
-              const d = Number(justCompletedSet.duration_sec);
-              const w = justCompletedSet.weight || 0;
-              if (priorCount > 0 && (d > priorDur || (w > 0 && w > priorDurW))) {
-                celebrateHoldPR(ex.exercise_name, d, w, $weightUnit);
-              }
-            } catch {}
-          } else if (!isFuture && justCompletedSet && !justCompletedTimed && justCompletedSet.weight > 0 && ex.exercise_id) {
-            try {
-              const history = await LtApi.getWorkoutHistory(ex.exercise_id);
-              // Collect prior completed sets, EXCLUDING today, otherwise your
-              // first set becomes the baseline and later sets never beat it.
-              let priorMax = 0;
-              let priorE1rm = 0;
-              let priorSetCount = 0;
-              for (const h of history) {
-                if (h.date === $currentDate) continue;
-                for (const s of h.sets || []) {
-                  if (s.completed && s.weight > 0 && !isTimedSet({ set_type: h.set_type }, s)) {
-                    priorSetCount++;
-                    if (s.weight > priorMax) priorMax = s.weight;
-                    const e1 = calc1RM(s.weight, s.reps);
-                    if (e1 > priorE1rm) priorE1rm = e1;
-                  }
-                }
-              }
-              // Only celebrate if there's a baseline (≥1 prior workout) AND
-              // the new lift beats it
-              if (priorSetCount > 0) {
-                const newE1rm = calc1RM(justCompletedSet.weight, justCompletedSet.reps);
-                const isWeightPR = justCompletedSet.weight > priorMax;
-                const isE1rmPR = newE1rm > priorE1rm;
-                if (isWeightPR || isE1rmPR) {
-                  celebratePR(
-                    ex.exercise_name,
-                    justCompletedSet.weight,
-                    $weightUnit,
-                    justCompletedSet.reps,
-                    isWeightPR ? 'weight' : 'e1rm',
-                  );
-                }
-              }
-            } catch {}
-          }
+          // The same rule as the badge (src/lib/pr-sets.js): a record against
+          // the history and the sets before it today. Skipped when planning
+          // ahead (future date).
+          const setIdx = ex.sets.findIndex((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
+          const justCompletedSet = setIdx >= 0 ? ex.sets[setIdx] : null;
+          if (isFuture || !justCompletedSet || !ex.exercise_id) return;
+          const timed = isTimedSet(ex, justCompletedSet);
+          if (timed ? !(!justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0)
+                    : !(justCompletedSet.weight > 0)) return;
+          try {
+            const history = await LtApi.getWorkoutHistory(ex.exercise_id);
+            const inWorkout = [...exercises];
+            inWorkout[idx] = ex;
+            const win = celebrationFor({
+              exercises: inWorkout, exIdx: idx, setIdx, history, date: $currentDate,
+              earlier: earlierToday,
+            });
+            if (win === 'hold') {
+              celebrateHoldPR(ex.exercise_name, Number(justCompletedSet.duration_sec), justCompletedSet.weight || 0, $weightUnit);
+            } else if (win) {
+              celebratePR(ex.exercise_name, justCompletedSet.weight, $weightUnit, justCompletedSet.reps, win);
+            }
+          } catch {}
         };
       }
     }

@@ -85,9 +85,10 @@ test('the card, auto-fill, PR badges, celebrations and the watch use the same da
   const inSuperset = tags(read('../src/components/diary/SupersetCard.svelte'), 'ExerciseCard');
   assert.equal(inSuperset.length, 2);
   for (const tag of inSuperset) assert.match(tag, /\{date\}/);
-  // PR badges and the PR celebrations leave the day out.
-  assert.match(diary, /const prior = \(history \|\| \[\]\)\.filter\(h => h\.date !== \$currentDate\);/);
-  assert.equal((diary.match(/if \(h\.date === \$currentDate\) continue;/g) || []).length, 2);
+  // PR badges and the PR celebrations leave the day out (src/lib/pr-sets.js).
+  assert.match(read('../src/lib/pr-sets.js'), /if \(!h \|\| h\.date === date\) continue;/);
+  assert.match(diary, /prFlags\(\{ exercises, history: historyByExId, date: \$currentDate,/);
+  assert.match(diary, /history, date: \$currentDate,/);
   // The watch's "Last time": days before today only.
   assert.match(read('../android/wear/src/main/java/com/lifttrace/app/wear/Session.kt'), /if \(date\.isBlank\(\) \|\| date >= today\) continue/);
 });

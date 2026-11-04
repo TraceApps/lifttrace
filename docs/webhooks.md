@@ -36,7 +36,7 @@ signatures on the receiving end and cannot be retrieved again later.
 | `workout.completed` | A workout session is marked completed. |
 | `body_stat.logged` | Any body-stat value (weight, body fat, a measurement) is logged or updated, whether from the app, the `log_body_stat` MCP tool, or `PUT /api/v1/body-stats/:date`. Sent on every save, including a save that changes nothing. |
 | `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
-| `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise, whether from the app, the `log_set` MCP tool, or `POST /api/v1/workouts/:date/sets`. Uses the same record definition the Statistics page and `/api/v1/records` already use. One per exercise whose record moved; a save that moves no record (sent again, or lighter) sends none. |
+| `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold on a timed exercise) is set on an exercise, whether from the app, the `log_set` MCP tool, or `POST /api/v1/workouts/:date/sets`. Uses the same record definition the Statistics page and `/api/v1/records` already use. One per exercise whose record moved; a save that moves no record (sent again, equal to the set that set it, or lighter) sends none, so a repeat of a record set is never a second `pr.set`. |
 | `program.advanced` | An active program moves to its next week. |
 | `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. |
 

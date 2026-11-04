@@ -285,6 +285,21 @@ all of them when it had fewer; once every set of the exercise is ticked, or the
 workout is finished (`workoutDone`), the whole of both. It is client-only: the
 server's volume totals never compare sessions.
 
+Which sets wear the PR badge, count in the summary's "N new PRs" and get the
+PR notification is one rule, `src/lib/pr-sets.js`: a set is a PR when it beats
+the exercise's history on other days and every earlier completed working set of
+it today (earlier cards, then earlier sets by position, so tick order doesn't
+matter, plus the day's earlier workouts from `todaySessions`). A set that only
+matches an earlier one isn't. The records are weight, estimated 1RM (the same
+rounded one `accumulateRecord` uses) and, for a timed set, longest hold and
+heaviest load held. The Diary keeps each exercise's history as the server sent
+it and works the badges out from it, so they follow edits, unticks and a
+reopened day. The server never decides per set: `pr.set` compares the records
+before and after a save (`recordsBeforeSave`, `sendNewRecords`), which agrees
+with the rule for weight, estimated 1RM and longest hold (the heaviest load
+held is a badge only), so there is no server copy. `scripts/pr-sets.test.js` holds the
+rule to `accumulateRecord`.
+
 ### The watch is a client, not a satellite
 
 `android/wear` is a standalone Wear OS app that talks to the server itself

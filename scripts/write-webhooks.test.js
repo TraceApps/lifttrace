@@ -192,6 +192,47 @@ test('pr.set: REST and MCP send one for a new record, as the app does, and nothi
   assert.equal(warmup.events.length, 0);
 });
 
+test('pr.set: a repeat of the set that set the record sends nothing, on every path', opts, async () => {
+  const lift = (await app('POST', '/api/exercises', { name: 'Deadlift' })).data.id;
+  const repDay = '2026-10-21';
+  const set = (weight, extra = {}) => ({ uuid: `d-${weight}-${Math.random()}`, reps: 5, weight, completed: true, ...extra });
+  const entry = (sets) => ({ uuid: 'ex-dl', exercise_id: lift, exercise_name: 'Deadlift', sets });
+
+  const first = await sent('pr.set', () => rest('POST', `/workouts/${repDay}/sets`, { exercise_id: lift, reps: 5, weight: 100 }));
+  assert.equal(first.events.length, 1);
+  assert.equal(first.events[0].new_max_weight, 100);
+
+  // The same set again, over REST, over MCP, and as a workout saved with it three times.
+  const viaRest = await sent('pr.set', () => rest('POST', `/workouts/${repDay}/sets`, { exercise_id: lift, reps: 5, weight: 100 }));
+  assert.equal(viaRest.out.status, 200);
+  assert.equal(viaRest.events.length, 0, 'REST repeat');
+  const viaMcp = await sent('pr.set', () => mcp('log_set', { exercise_id: lift, reps: 5, weight: 100, date: repDay }));
+  assert.ok(!viaMcp.out.isError, JSON.stringify(viaMcp.out));
+  assert.equal(viaMcp.events.length, 0, 'MCP repeat');
+  const viaApp = await sent('pr.set', () => app('PUT', `/api/workout/${repDay}`, { exercises: [entry([set(100), set(100), set(100)])], client_key: 'dl-repeat-key' }));
+  assert.equal(viaApp.out.status, 200, JSON.stringify(viaApp.out.data));
+  assert.equal(viaApp.events.length, 0, 'app save with three of them');
+
+  // A heavier one still sends, once.
+  const heavier = await sent('pr.set', () => mcp('log_set', { exercise_id: lift, reps: 5, weight: 105, date: repDay }));
+  assert.equal(heavier.events.length, 1);
+  assert.equal(heavier.events[0].previous_max_weight, 100);
+
+  // A second workout the same day: matching the first one's best is no record, beating it is.
+  const second = (weight, key) => ({ exercises: [{ ...entry([set(weight), set(weight)]), uuid: `ex-dl-${key}` }], new_session: true, client_key: key });
+  const matched = await sent('pr.set', () => app('PUT', `/api/workout/${repDay}`, second(105, 'dl-second-a')));
+  assert.equal(matched.out.status, 200, JSON.stringify(matched.out.data));
+  assert.equal(matched.events.length, 0, 'second workout matching the first');
+  const beaten = await sent('pr.set', () => app('PUT', `/api/workout/${repDay}`, second(110, 'dl-second-b')));
+  assert.equal(beaten.events.length, 1, 'second workout beating it: one event for two such sets');
+  assert.equal(beaten.events[0].new_max_weight, 110);
+
+  // Two identical new sets in one save are one record, one event.
+  const row = (await app('POST', '/api/exercises', { name: 'Barbell Row' })).data.id;
+  const both = await sent('pr.set', () => app('PUT', '/api/workout/2026-10-22', { exercises: [{ uuid: 'ex-row', exercise_id: row, exercise_name: 'Barbell Row', sets: [set(80), set(80)] }], client_key: 'row-both-key' }));
+  assert.equal(both.events.length, 1);
+});
+
 test('pr.set: a longer hold over MCP is a record too', opts, async () => {
   const plank = (await app('POST', '/api/exercises', { name: 'Plank', set_type: 'time' })).data.id;
   const first = await sent('pr.set', () => mcp('log_set', { exercise_id: plank, duration_sec: 60, date: DAY }));
