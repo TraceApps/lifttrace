@@ -41,7 +41,7 @@ import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
-import { applyToBody, createdTimes, decide, deleteLoses, deletedTimes, editBringsBack, editedAt, stampMerged } from '../lib/newer-wins.js';
+import { applyToBody, createdTimes, decide, deleteLoses, deletedTimes, editBringsBack, editedAt, stampMerged, toMs } from '../lib/newer-wins.js';
 import { revivedDay, isStatsObject, onlyMeasurements } from '../lib/body-stats-day.js';
 import { dayEditMeets, bringProgramBack, touchDeleted, countedTimes, timesAtDelete } from '../lib/deleted-rows.js';
 import { readTimes } from '../lib/field-sync.js';
@@ -117,13 +117,24 @@ function localizeOr(value, fallback, opts) {
 // (a workout started from Home Assistant, an edit on another device) can't
 // put back what it had, and what a push writes is stamped, so an older edit
 // queued on a phone can't overwrite it.
+//
+// A row with no readable updated_at says nothing of when it was made: a
+// third-party client re-sending a row it has had for a while. It is marked
+// `timeless`, and such a copy never brings a deleted row back
+// (lib/newer-wins.js editBringsBack). A row that isn't deleted takes it as
+// ever, and a row that doesn't exist yet is made from it.
 function pushedEdit(row) {
   const ms = instantMs(row?.updated_at);
-  const at = Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
+  // A number too large to be a date is no time either (toISOString throws),
+  // nor is a year the rest of the server can't read back (before 0000 or
+  // after 9999: lib/field-sync.js instantMs would call it "now").
+  const iso = Number.isFinite(ms) && Math.abs(ms) <= 8.64e15 ? new Date(ms).toISOString() : undefined;
+  const at = Number.isFinite(toMs(iso)) ? iso : undefined;
   const changed = Array.isArray(row?.changed_fields) ? row.changed_fields.map(String).join(',') : undefined;
   const fe = row?.field_edits;
   const edits = fe && typeof fe === 'object' && !Array.isArray(fe) ? JSON.stringify(fe) : undefined;
   return {
+    timeless: at === undefined,
     get: (h) => {
       const k = String(h).toLowerCase();
       return k === 'x-edited-at' ? at : k === 'x-changed-fields' ? changed : k === 'x-field-edits' ? edits : undefined;
@@ -796,7 +807,7 @@ router.post('/push', wrap((req, res) => {
             if (existing.deleted_at) { /* nothing to do */ }
             else if (deleteLoses(edit, existing, pushTimes(existing))) db.prepare(`UPDATE workout_log SET updated_at = datetime('now') WHERE id = ?`).run(existing.id);
             else db.prepare(`UPDATE workout_log SET deleted_at = datetime('now'), updated_at = datetime('now'), field_times = ? WHERE id = ?`)
-              .run(JSON.stringify({ ...readTimes(existing.field_times), deleted_at: new Date(Math.min(instantMs(w.updated_at) || Date.now(), Date.now())).toISOString() }), existing.id);
+              .run(JSON.stringify({ ...readTimes(existing.field_times), deleted_at: new Date(editedAt(edit)).toISOString() }), existing.id);
           } else {
             // Note (issue #85): serverExs is intentionally NOT
             // pre-backfilled -- see workout-merge.js's mergeEntries()

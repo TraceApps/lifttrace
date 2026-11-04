@@ -9,9 +9,11 @@
  * deleted day as if it were there.
  *
  * Now (lib/body-stats-day.js): an edit made before the delete is answered as
- * gone (410, gone: true) and writes nothing; one made after it, or now, brings
- * the day back with only what was measured after the delete; and a deleted day
- * is not shown by the readers (the pull still sends it, so devices drop it).
+ * gone (410, gone: true) and writes nothing; one made after it, or now (a REST
+ * save with no X-Edited-At), brings the day back with only what was measured
+ * after the delete; a push with no readable updated_at leaves the day deleted;
+ * and a deleted day is not shown by the readers (the pull still sends it, so
+ * devices drop it).
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -275,12 +277,68 @@ test('push: a copy with no measurements does not bring a deleted day back', { sk
   assert.deepEqual(row.stats, { weight: 80, waist: 90 });
 });
 
-test('push: a copy made now (no time) brings the day back', { skip }, async () => {
-  const { d } = await deletedDay();
+// A pushed copy that says nothing readable of when it was made is a third-party
+// client re-sending a row it has had for a while: it counts as older than the
+// delete. (A REST save with no X-Edited-At is a person saving now: see the PUT
+// test above.)
+const NO_TIME = [{}, { updated_at: null }, { updated_at: '' }, { updated_at: 'sometime last week' }, { updated_at: {} }, { updated_at: 1e20 }, { updated_at: -1e20 }, { updated_at: '-000001-01-01T00:00:00Z' }, { updated_at: '+010000-01-01T00:00:00Z' }];
+
+test('push: a copy with no readable time leaves the day deleted, and the device gets the delete', { skip }, async () => {
+  const { d, after } = await deletedDay();
+  const was = await pulled(d);
+  await nextSecond();
+  for (const [i, extra] of NO_TIME.entries()) {
+    const r = await push([{ client_id: 7, date: d, stats: { waist: 85, hips: 99 }, ...extra }]);
+    assert.ok(r.body_stats_log[0].server_id, `answered, so the device stops sending it (variant ${i})`);
+    const row = await pulled(d);
+    assert.ok(row.deleted_at, `still deleted (variant ${i})`);
+    assert.deepEqual(row.stats, { weight: 80, waist: 90 }, 'nothing written into it');
+    if (i === 0) assert.ok(row.updated_at > was.updated_at, 'touched, so the device gets the deleted day with its next pull');
+  }
+  // The touch doesn't make a later edit older than the day's content.
+  await push([{ client_id: 8, date: d, stats: { waist: 84 }, updated_at: after, changed_fields: ['waist'] }]);
+  const back = await pulled(d);
+  assert.equal(back.deleted_at, null, 'an edit made after the delete still brings it back');
+  assert.deepEqual(back.stats, { waist: 84 });
+});
+
+test('push: a copy with no readable time still applies to a day that is not deleted, and makes one that is not there', { skip }, async () => {
+  const d = DAY();
+  const e = DAY();
+  await ok('PUT', `/api/body-stats/${d}`, { stats: { weight: 80, waist: 90 } });
+  for (const [i, extra] of NO_TIME.entries()) {
+    await push([{ client_id: 7, date: d, stats: { waist: 80 + i }, ...extra }]);
+    assert.deepEqual((await pulled(d)).stats, { weight: 80, waist: 80 + i }, `variant ${i}`);
+    assert.equal((await pulled(d)).deleted_at, null);
+  }
+  const made = await push([{ client_id: 8, date: e, stats: { weight: 70 }, ...NO_TIME[3] }]);
+  assert.ok(made.body_stats_log[0].server_id);
+  assert.deepEqual((await pulled(e)).stats, { weight: 70 });
+  assert.equal((await pulled(e)).deleted_at, null);
+});
+
+test('push: a copy with no readable time leaves a day restored deleted with no times deleted; a later edit applies', { skip }, async () => {
+  const d = DAY();
+  const db = rawDb();
+  try {
+    db.prepare(`INSERT INTO body_stats_log (user_id, date, stats, field_times, deleted_at) VALUES (?, ?, ?, NULL, '2026-01-01 10:00:00')`).run(userId, d, '{"weight":80,"waist":90}');
+  } finally { db.close(); }
   await push([{ client_id: 7, date: d, stats: { waist: 85 } }]);
-  const row = await pulled(d);
-  assert.equal(row.deleted_at, null);
-  assert.deepEqual(row.stats, { waist: 85 });
+  assert.ok((await pulled(d)).deleted_at);
+  assert.deepEqual((await pulled(d)).stats, { weight: 80, waist: 90 });
+  await push([{ client_id: 8, date: d, stats: { waist: 84 }, updated_at: '2026-01-02T10:00:00.000Z', changed_fields: ['waist'] }]);
+  assert.equal((await pulled(d)).deleted_at, null);
+  assert.deepEqual((await pulled(d)).stats, { waist: 84 });
+});
+
+test('push: a copy with a readable time is decided as before (a number, an offset)', { skip }, async () => {
+  const a = await deletedDay();
+  await push([{ client_id: 7, date: a.d, stats: { waist: 85 }, updated_at: Date.parse(a.after) }]);
+  assert.equal((await pulled(a.d)).deleted_at, null, 'a time as milliseconds');
+  const b = await deletedDay();
+  const offset = new Date(Date.parse(b.after) + 2 * 3600e3).toISOString().replace('Z', '+02:00').replace(/\.\d+/, '');
+  await push([{ client_id: 7, date: b.d, stats: { waist: 85 }, updated_at: offset }]);
+  assert.equal((await pulled(b.d)).deleted_at, null, 'a time with a zone offset');
 });
 
 // ── logged by MCP, REST v1 ───────────────────────────────────────────────

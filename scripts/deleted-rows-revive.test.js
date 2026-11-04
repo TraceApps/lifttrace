@@ -8,8 +8,12 @@
  *   - an edit made before the delete (or in its own second): the row stays
  *     deleted, nothing is written into it, REST answers 410 `gone: true` and
  *     a push touches the row so the device gets the delete;
- *   - an edit made after it, or now (no time): the row is back, with the
- *     delete's time replaced by the revive's in field_times.deleted_at;
+ *   - an edit made after it: the row is back, with the delete's time
+ *     replaced by the revive's in field_times.deleted_at;
+ *   - a push with no readable updated_at (a third-party client re-sending a
+ *     stale row) leaves a deleted row deleted, touched like an older edit; on
+ *     a row that is not deleted, or no row yet, it applies as ever. REST is
+ *     the other way: a save with no X-Edited-At was made now, and revives;
  *   - a delete pushed keeps its own time in field_times.deleted_at, and a
  *     second one doesn't move it.
  * A program and its days: a day is edited against its own delete and its
@@ -165,13 +169,6 @@ test('workout push: an edit made after the delete brings the workout back', { sk
   assert.equal((await call('GET', `/api/workout/${row.date}`)).data.workout.name, 'Revived');
 });
 
-test('workout push: a copy made now (no time) brings the workout back', { skip }, async () => {
-  const { id, row } = await deletedWorkout();
-  await push({ workout_log: [{ client_id: 7, server_id: id, date: row.date, name: 'Now' }] });
-  const now = await workoutRow(id);
-  assert.equal(now.deleted_at, null);
-  assert.equal(now.name, 'Now');
-});
 
 test('workout push: a delete made before the workout came back loses to it; a later one wins', { skip }, async () => {
   const { id, row, deleteAt, after } = await deletedWorkout();
@@ -258,13 +255,6 @@ test('exercise push: an edit made after the delete brings the exercise back', { 
   assert.ok(list.includes(id), 'back in the library');
 });
 
-test('exercise push: a copy made now (no time) brings the exercise back', { skip }, async () => {
-  const { id } = await deletedExercise();
-  await push({ exercises: [{ client_id: 7, server_id: id, name: 'Now Row' }] });
-  const now = await exRow(id);
-  assert.equal(now.deleted_at, null);
-  assert.equal(now.name, 'Now Row');
-});
 
 test('exercise push: a delete made before the exercise came back loses to it; a later one wins', { skip }, async () => {
   const { id, deleteAt, after } = await deletedExercise();
@@ -357,13 +347,6 @@ test('program push: an edit made after the delete brings the program back', { sk
   assert.ok(Date.parse(times('programs', id).deleted_at) >= Date.parse(after));
 });
 
-test('program push: a copy made now (no time) brings the program back', { skip }, async () => {
-  const { id } = await deletedProgram();
-  await push({ programs: [{ client_id: 7, server_id: id, name: 'Now Plan' }] });
-  const now = await progRow(id);
-  assert.equal(now.deleted_at, null);
-  assert.equal(now.name, 'Now Plan');
-});
 
 test('program push: a delete made before the program came back loses to it; a later one wins', { skip }, async () => {
   const { id, deleteAt, after } = await deletedProgram();
@@ -477,12 +460,6 @@ test('day push: an edit made after the delete brings the day back', { skip }, as
   assert.equal(now.name, 'Day Again');
   assert.equal(now.day_label, 'A');
   assert.ok(Date.parse(times('workout_templates', id).deleted_at) >= Date.parse(after));
-});
-
-test('day push: a copy made now (no time) brings the day back', { skip }, async () => {
-  const { id } = await deletedDay();
-  await push({ workout_templates: [{ client_id: 7, server_id: id, name: 'Now Day' }] });
-  assert.equal((await dayRow(id)).deleted_at, null);
 });
 
 test('day push: a delete made before the day came back loses to it; a later one wins', { skip }, async () => {
@@ -688,6 +665,225 @@ test('progress photos, set videos and Trace messages: a push writes no content i
   assert.deepEqual([p.date, p.url, p.deleted_at], ['2026-02-02', '/uploads/body-stats/x.jpg', '2026-02-03 10:00:00']);
   const c = raw('SELECT content, deleted_at FROM ai_chat_history WHERE id = ?', chat);
   assert.deepEqual([c.content, c.deleted_at], ['hi', '2026-02-03 10:00:00']);
+});
+
+// ── a pushed copy with no readable time ──────────────────────────────────
+//
+// A third-party client re-sending a row it has had for a while says nothing of
+// when it was made. It can't be told from a stale copy, so it never brings a
+// deleted row back: it counts as older than the delete. A row that is alive
+// takes it as ever, and a row that doesn't exist yet is made from it. (A REST
+// save with no X-Edited-At is a person saving now, and still brings it back.)
+
+// What a pushed copy can carry in place of a time it has.
+const NO_TIME = [{}, { updated_at: null }, { updated_at: '' }, { updated_at: 'sometime last week' }, { updated_at: {} }, { updated_at: 1e20 }, { updated_at: -1e20 }, { updated_at: '-000001-01-01T00:00:00Z' }, { updated_at: '+010000-01-01T00:00:00Z' }];
+const noTimeTest = (name, fn) => test(name, { skip }, fn);
+
+noTimeTest('a pushed copy with no readable time leaves a deleted workout, exercise, program or day deleted, and the device gets the delete', async () => {
+  const w = await deletedWorkout();
+  const e = await deletedExercise();
+  const p = await deletedProgram();
+  const d = await deletedDay();
+  const was = {
+    workout_log: await workoutRow(w.id), exercises: await exRow(e.id), programs: await progRow(p.id), workout_templates: await dayRow(d.id),
+  };
+  await nextSecond();
+  for (const [i, extra] of NO_TIME.entries()) {
+    const r = await push({
+      workout_log: [{ client_id: 1, server_id: w.id, date: w.row.date, name: 'Timeless', notes: 'x', exercises: [lift(9)], ...extra }],
+      exercises: [{ client_id: 2, server_id: e.id, name: 'Timeless', instructions: 'x', ...extra }],
+      programs: [{ client_id: 3, server_id: p.id, name: 'Timeless', description: 'x', ...extra }],
+      workout_templates: [{ client_id: 4, server_id: d.id, name: 'Timeless', day_label: 'Z', ...extra }],
+    });
+    // Answered, so the device stops sending it.
+    assert.equal(r.workout_log[0].server_id, w.id, `variant ${i}`);
+    assert.equal(r.exercises[0].server_id, e.id);
+    assert.equal(r.programs[0].server_id, p.id);
+    assert.equal(r.workout_templates[0].server_id, d.id);
+    const now = {
+      workout_log: await workoutRow(w.id), exercises: await exRow(e.id), programs: await progRow(p.id), workout_templates: await dayRow(d.id),
+    };
+    for (const [t, row] of Object.entries(now)) {
+      assert.ok(row.deleted_at, `${t} still deleted (variant ${i})`);
+      assert.notEqual(row.name, 'Timeless', `${t}: nothing written into it`);
+      if (i === 0) assert.ok(row.updated_at > was[t].updated_at, `${t}: touched, so the device gets the delete with its next pull`);
+    }
+    assert.equal(now.workout_log.notes, 'felt good');
+    assert.equal(exercisesOf(now.workout_log)[0].sets[0].reps, 5);
+    assert.equal(now.exercises.instructions, 'pull');
+    assert.equal(now.programs.description, 'six weeks');
+    assert.equal(now.workout_templates.day_label, 'A');
+  }
+  // The touch moved updated_at but not what an edit made after the delete is
+  // judged against: such an edit still brings each back.
+  await push({
+    workout_log: [{ client_id: 1, server_id: w.id, date: w.row.date, name: 'Later', updated_at: w.after, changed_fields: ['name'] }],
+    exercises: [{ client_id: 2, server_id: e.id, name: 'Later', updated_at: e.after, changed_fields: ['name'] }],
+    programs: [{ client_id: 3, server_id: p.id, name: 'Later', updated_at: p.after, changed_fields: ['name'] }],
+    workout_templates: [{ client_id: 4, server_id: d.id, name: 'Later', updated_at: d.after, changed_fields: ['name'] }],
+  });
+  for (const [t, row] of Object.entries({
+    workout_log: await workoutRow(w.id), exercises: await exRow(e.id), programs: await progRow(p.id), workout_templates: await dayRow(d.id),
+  })) {
+    assert.equal(row.deleted_at, null, `${t}: an edit made after the delete still brings it back`);
+    assert.equal(row.name, 'Later');
+  }
+});
+
+noTimeTest('a pushed copy with no readable time leaves a row restored deleted, with no times, deleted; a later edit still applies', async () => {
+  const db = rawDb();
+  let prog, ex, day, work;
+  try {
+    prog = db.prepare(`INSERT INTO programs (name, description, created_by, deleted_at, field_times) VALUES ('Restored Plan C', 'old', ?, '2026-01-01 10:00:00', NULL)`).run(userId).lastInsertRowid;
+    ex = db.prepare(`INSERT INTO exercises (name, instructions, source, is_global, created_by, deleted_at, field_times) VALUES ('Restored Row C', 'old', 'custom', 0, ?, '2026-01-01 10:00:00', NULL)`).run(userId).lastInsertRowid;
+    day = db.prepare(`INSERT INTO workout_templates (program_id, name, day_label, deleted_at, field_times) VALUES (?, 'Restored Day C', 'old', '2026-01-01 10:00:00', NULL)`).run(prog).lastInsertRowid;
+    work = db.prepare(`INSERT INTO workout_log (user_id, date, name, notes, exercises, deleted_at, field_times) VALUES (?, '2025-12-22', 'Restored Workout C', 'old', '[]', '2026-01-01 10:00:00', NULL)`).run(userId).lastInsertRowid;
+  } finally { db.close(); }
+  await push({
+    programs: [{ client_id: 1, server_id: prog, name: 'Timeless' }],
+    exercises: [{ client_id: 1, server_id: ex, name: 'Timeless' }],
+    workout_templates: [{ client_id: 1, server_id: day, name: 'Timeless' }],
+    workout_log: [{ client_id: 1, server_id: work, date: '2025-12-22', name: 'Timeless' }],
+  });
+  for (const [t, id] of [['programs', prog], ['exercises', ex], ['workout_templates', day], ['workout_log', work]]) {
+    const row = await pulledRow(t, id);
+    assert.ok(row.deleted_at, `${t} stays deleted`);
+    assert.notEqual(row.name, 'Timeless');
+  }
+  const edit = '2026-01-02T10:00:00.000Z';
+  await push({
+    programs: [{ client_id: 1, server_id: prog, name: 'Edited', updated_at: edit, changed_fields: ['name'] }],
+    exercises: [{ client_id: 1, server_id: ex, name: 'Edited', updated_at: edit, changed_fields: ['name'] }],
+    workout_templates: [{ client_id: 1, server_id: day, name: 'Edited', updated_at: edit, changed_fields: ['name'] }],
+    workout_log: [{ client_id: 1, server_id: work, date: '2025-12-22', name: 'Edited', updated_at: edit, changed_fields: ['name'] }],
+  });
+  for (const [t, id] of [['programs', prog], ['exercises', ex], ['workout_templates', day], ['workout_log', work]]) {
+    const row = await pulledRow(t, id);
+    assert.equal(row.deleted_at, null, `${t} is back`);
+    assert.equal(row.name, 'Edited');
+  }
+});
+
+noTimeTest('a pushed copy with no readable time still applies to a row that is not deleted', async () => {
+  const w = await makeWorkout();
+  const e = await makeExercise();
+  const p = await makeProgram();
+  const d = await makeDay(p.id);
+  for (const [i, extra] of NO_TIME.entries()) {
+    await push({
+      workout_log: [{ client_id: 1, server_id: w.id, date: w.date, name: `Live ${i}`, ...extra }],
+      exercises: [{ client_id: 2, server_id: e.id, name: `Live ${i}`, ...extra }],
+      programs: [{ client_id: 3, server_id: p.id, name: `Live ${i}`, ...extra }],
+      workout_templates: [{ client_id: 4, server_id: d.id, name: `Live ${i}`, ...extra }],
+    });
+    for (const [t, id] of [['workout_log', w.id], ['exercises', e.id], ['programs', p.id], ['workout_templates', d.id]]) {
+      const row = await pulledRow(t, id);
+      assert.equal(row.deleted_at, null);
+      assert.equal(row.name, `Live ${i}`, `${t}: the copy is written (variant ${i})`);
+    }
+  }
+});
+
+noTimeTest('a pushed copy with no readable time makes a row that does not exist yet', async () => {
+  const prog = await makeProgram();
+  for (const [i, extra] of NO_TIME.entries()) {
+    const r = await push({
+      workout_log: [{ client_id: 1, date: DAY(), name: `New Workout ${i}`, exercises: [lift(5)], ...extra }],
+      exercises: [{ client_id: 2, name: `New Row ${i}`, ...extra }],
+      programs: [{ client_id: 3, name: `New Plan ${i}`, ...extra }],
+      workout_templates: [{ client_id: 4, program_id: prog.id, name: `New Day ${i}`, ...extra }],
+    });
+    for (const t of ['workout_log', 'exercises', 'programs', 'workout_templates']) assert.ok(r[t][0].server_id, `${t} made (variant ${i})`);
+    assert.equal((await workoutRow(r.workout_log[0].server_id)).name, `New Workout ${i}`);
+    assert.equal((await exRow(r.exercises[0].server_id)).name, `New Row ${i}`);
+    assert.equal((await progRow(r.programs[0].server_id)).name, `New Plan ${i}`);
+    assert.equal((await dayRow(r.workout_templates[0].server_id)).name, `New Day ${i}`);
+  }
+});
+
+noTimeTest('a pushed delete with no readable time still deletes a row that is alive', async () => {
+  for (const [i, extra] of NO_TIME.entries()) {
+    const w = await makeWorkout();
+    const e = await makeExercise();
+    const p = await makeProgram();
+    const d = await makeDay((await makeProgram()).id);
+    const at = iso(Date.now());
+    await push({
+      workout_log: [{ client_id: 1, server_id: w.id, date: w.date, deleted_at: at, ...extra }],
+      exercises: [{ client_id: 2, server_id: e.id, deleted_at: at, ...extra }],
+      programs: [{ client_id: 3, server_id: p.id, deleted_at: at, ...extra }],
+      workout_templates: [{ client_id: 4, server_id: d.id, deleted_at: at, ...extra }],
+    });
+    for (const [t, id] of [['workout_log', w.id], ['exercises', e.id], ['programs', p.id], ['workout_templates', d.id]]) assert.ok((await pulledRow(t, id)).deleted_at, `${t} deleted (variant ${i})`);
+    const stamp = times('workout_log', w.id).deleted_at;
+    assert.ok(Number.isFinite(Date.parse(stamp)) && Date.parse(stamp) <= Date.now() + 1000, 'the delete is stamped with a time');
+  }
+});
+
+noTimeTest('a pushed copy with no readable time, for a day: a new day in a deleted program is not made, and a live day does not bring its program back', async () => {
+  const { p, a, b } = await deletedProgramWithDays();
+  const was = await progRow(p.id);
+  await nextSecond();
+  const r = await push({ workout_templates: [{ client_id: 5, program_id: p.id, name: 'Timeless New' }] });
+  assert.equal(r.workout_templates.length, 0, 'no day made under a deleted program');
+  assert.ok(!(await ok('GET', `/api/sync/pull?since=${encodeURIComponent('1970-01-01T00:00:00.000Z')}`)).workout_templates.some((t) => t.name === 'Timeless New'));
+  const prog = await progRow(p.id);
+  assert.ok(prog.deleted_at, 'the program stays deleted');
+  assert.ok(prog.updated_at > was.updated_at, 'touched, so the device gets the deleted program');
+  // A live day takes the copy, as a live day always does; the program stays deleted.
+  await push({ workout_templates: [{ client_id: 6, server_id: a.id, name: 'Timeless Live' }] });
+  assert.equal((await dayRow(a.id)).name, 'Timeless Live');
+  assert.equal((await dayRow(a.id)).deleted_at, null);
+  assert.ok((await progRow(p.id)).deleted_at, 'only an edit made after the delete brings the program back');
+  assert.equal((await dayRow(b.id)).name, 'Day B');
+  // A readable time after the delete does bring it back, with the day.
+  await push({ workout_templates: [{ client_id: 7, server_id: a.id, name: 'Dated Live', updated_at: iso(Date.now()), changed_fields: ['name'] }] });
+  assert.equal((await progRow(p.id)).deleted_at, null);
+});
+
+noTimeTest('a deleted day under a deleted program also stays deleted for a pushed copy with no readable time', async () => {
+  const p = await makeProgram();
+  const d = await makeDay(p.id, 'Day N');
+  await nextSecond();
+  const dayAt = iso(Date.now());
+  await push({ workout_templates: [{ client_id: 1, server_id: d.id, deleted_at: dayAt, updated_at: dayAt }] });
+  await nextSecond();
+  const progAt = iso(Date.now());
+  await push({ programs: [{ client_id: 1, server_id: p.id, deleted_at: progAt, updated_at: progAt }] });
+  await push({ workout_templates: [{ client_id: 7, server_id: d.id, name: 'Timeless' }] });
+  assert.ok((await dayRow(d.id)).deleted_at);
+  assert.ok((await progRow(p.id)).deleted_at);
+  assert.equal((await dayRow(d.id)).name, 'Day N');
+});
+
+noTimeTest('a pushed copy with a readable time is decided as before: numbers, offsets and the future still count', async () => {
+  const a = await deletedProgram();
+  await push({ programs: [{ client_id: 1, server_id: a.id, name: 'By Number', updated_at: Date.parse(a.after), changed_fields: ['name'] }] });
+  assert.equal((await progRow(a.id)).deleted_at, null, 'a time as milliseconds');
+  const b = await deletedExercise();
+  const offset = new Date(Date.parse(b.after) + 2 * 3600e3).toISOString().replace('Z', '+02:00').replace(/\.\d+/, '');
+  await push({ exercises: [{ client_id: 1, server_id: b.id, name: 'By Offset', updated_at: offset, changed_fields: ['name'] }] });
+  assert.equal((await exRow(b.id)).deleted_at, null, 'a time with a zone offset');
+  const c = await deletedWorkout();
+  await push({ workout_log: [{ client_id: 1, server_id: c.id, date: c.row.date, name: 'Early', updated_at: c.before }] });
+  assert.ok((await workoutRow(c.id)).deleted_at, 'a time before the delete');
+});
+
+noTimeTest('REST: a save with no X-Edited-At is made now, and still brings a deleted workout, program and day back', async () => {
+  const w = await deletedWorkout();
+  const r = await call('PUT', `/api/workout/${w.row.date}`, { id: w.id, name: 'Web Save' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal((await workoutRow(w.id)).deleted_at, null);
+  const p = await deletedProgram();
+  assert.equal((await call('PUT', `/api/programs/${p.id}`, { name: 'Web Save' })).status, 200);
+  assert.equal((await progRow(p.id)).deleted_at, null);
+  const d = await deletedDay();
+  assert.equal((await call('PUT', `/api/templates/${d.id}`, { name: 'Web Save' })).status, 200);
+  assert.equal((await dayRow(d.id)).deleted_at, null);
+  const q = await deletedProgramWithDays();
+  const made = await call('POST', '/api/templates', { program_id: q.p.id, name: 'Web Day' });
+  assert.equal(made.status, 200, JSON.stringify(made.data));
+  assert.equal((await progRow(q.p.id)).deleted_at, null, 'a day made now brings its program back');
 });
 
 // ── a server without user accounts (rows with no user_id) ────────────────

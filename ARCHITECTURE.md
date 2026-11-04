@@ -523,7 +523,8 @@ changes it later.
   row stays, UNIQUE(user_id, date)) is met the same way by `PUT
   /api/body-stats/:date`, the body-stats rows of `POST /api/sync/push` and
   `logBodyStatCore` (MCP, REST v1, which always count as made now): an
-  older edit is gone (410) or, pushed, leaves the day deleted; a newer one
+  older edit is gone (410) or, pushed, leaves the day deleted, and so does a
+  pushed row with no readable `updated_at` (see below); a newer one
   brings it back (deleted_at cleared, stamped in `field_times`) with only
   the measurements changed after the delete, the rest counting from the
   delete (`server/lib/body-stats-day.js`); an edit that leaves no
@@ -538,11 +539,24 @@ changes it later.
   older edit (or one in the delete's own second) is answered as gone (410)
   by `PUT /api/programs/:id`, `PUT /api/templates/:id` and `POST
   /api/templates`, or, pushed, leaves the row deleted and touches it so the
-  device gets the delete; a newer one, or one made now, clears deleted_at
+  device gets the delete; a newer one, or one made now (a REST save with no
+  `X-Edited-At`), clears deleted_at
   and stamps `field_times.deleted_at`, and the fields the edit didn't change
   stay as they were (decided against the row as it was deleted, so a backup
   restore's later updated_at doesn't make the edit older than the content).
-  A pushed delete of any of them keeps its own time in
+  A pushed row with no readable `updated_at` (missing, null, empty or not a
+  time) is the exception to "made now": it is a third-party client
+  re-sending a row it has had for a while, which can't be told from a stale
+  copy, so `pushedEdit` (`server/routes/sync.js`) marks it `timeless` and
+  `editBringsBack` counts it as older than the delete. That holds for all
+  five paths that can revive (body-stats days, workouts by `server_id`,
+  exercises, programs and workout days, a new day in a deleted program
+  included) and nothing else changes: the row is touched like any older
+  edit, so the device gets the delete, a row that isn't deleted takes the
+  copy as ever, a copy for a row that doesn't exist yet creates it, and a
+  later edit with a readable time still brings the row back. REST routes
+  never read a push's marker and keep counting a save with no
+  `X-Edited-At` as made now. A pushed delete of any of them keeps its own time in
   `field_times.deleted_at` (as does clearing an imported catalog), and a
   second one doesn't move it. A deleted workout day comes back only for an
   edit later than its own delete and its program's, and its program with it,

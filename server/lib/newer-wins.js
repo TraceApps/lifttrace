@@ -164,9 +164,13 @@ export function deleteLoses(req, existing, times = fieldTimes(existing)) {
 
 /** Whether an edit brings back a row deleted here: only one made after the
  *  delete (its time in field_times, else the row's deleted_at). An edit
- *  made now (no X-Edited-At) always is. */
+ *  made now (no X-Edited-At) always is, except a pushed copy that has no
+ *  readable time of its own (`req.timeless`, routes/sync.js pushedEdit):
+ *  a third-party client re-sending a row it has had for a while can't be
+ *  told from a stale copy, so it counts as older than the delete. */
 export function editBringsBack(req, existing) {
   if (!existing?.deleted_at) return true;
+  if (req?.timeless === true) return false;
   // Made now: after the delete, whenever in this second it was.
   if (!_header(req, 'x-edited-at')) return true;
   return editAfterDelete(editedAt(req), fieldTimes(existing).deleted_at, existing.deleted_at);
