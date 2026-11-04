@@ -16,6 +16,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../../lib/api.js';
+  import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
   import { weightUnit } from '../../stores/settings.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
@@ -58,8 +59,14 @@
     return d.toLocaleDateString('sv-SE');
   }
 
+  // The weights come from the phone's copy, which a sync changes (the photos
+  // are the server's own). A page read of them gives way to a newer read by a
+  // sync that succeeded; one that failed leaves the page's.
+  const newestRefresh = newestRead();
+  let refreshes = 0;
   async function load() {
     loading = true;
+    const refreshesThen = refreshes;
     try {
       const start = startStr();
       const end = todayStr();
@@ -68,7 +75,7 @@
         LtApi.getBodyStatsRange(start, end).catch(() => []),
       ]);
       photos = photoRes?.photos || [];
-      statsByDate = new Map((statsRes || []).map(r => [r.date, r.stats || {}]));
+      if (refreshes === refreshesThen) statsByDate = new Map((statsRes || []).map(r => [r.date, r.stats || {}]));
     } catch (e) {
       showError(e.message || $_('progress.toast.load_failed'));
     } finally {
@@ -77,6 +84,18 @@
   }
 
   onMount(load);
+
+  // A sync that brought body stats (a weight logged on the web) shows on the
+  // photos at once: only the weights are read again, quietly; a read that
+  // fails keeps the ones shown.
+  async function refreshStats() {
+    const isNewest = newestRefresh();
+    try {
+      const rows = await LtApi.getBodyStatsRange(startStr(), todayStr());
+      if (isNewest()) { statsByDate = new Map((rows || []).map(r => [r.date, r.stats || {}])); refreshes++; }
+    } catch { /* what is shown stays */ }
+  }
+  onMount(() => onSyncChanges(() => { refreshStats(); }, ['bodyStats']));
 
   // Weight can be logged from the diary, the desktop widget, or the prompt
   // below, so follow the signal the app already broadcasts rather than

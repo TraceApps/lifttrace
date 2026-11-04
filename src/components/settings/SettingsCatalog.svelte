@@ -1,5 +1,7 @@
 <script>
   import { slide } from 'svelte/transition';
+  import { onMount } from 'svelte';
+  import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import { LtApi } from '../../lib/api.js';
@@ -214,10 +216,13 @@
   let editorOpen = false;
   let editorTarget = null;
 
+  const newestCustom = newestRead(); // only the newest read sets the list
   async function loadCustomExercises() {
+    const isNewest = newestCustom();
     try {
       // Library endpoint returns seeded + own; filter to source='custom'.
       const all = await LtApi.getExercises();
+      if (!isNewest()) return;
       customExercises = all.filter(e => e.source === 'custom' && !e.is_global);
       customExercises.sort((a, b) => a.name.localeCompare(b.name));
     } catch {}
@@ -254,6 +259,10 @@
   }
 
   $: if (expanded) { loadImportedCatalogs(); loadCustomExercises(); }
+  // My Exercises, while it is open: a sync that brought exercises (one made
+  // or deleted on the web) shows here at once. The list is only read again,
+  // so an editor open on one is not touched.
+  onMount(() => onSyncChanges(() => { if (expanded) loadCustomExercises(); }, ['exercises']));
 
   async function toggleCatalog(cat) {
     const newEnabled = !cat.enabled;

@@ -673,12 +673,13 @@ export const completedSetsToday = derived(todayLog, ($log) => {
 });
 
 /** Load the user's active program */
-export async function loadActiveProgram() {
+// quiet: read again after a sync; a read that fails keeps the program shown.
+export async function loadActiveProgram({ quiet = false } = {}) {
   try {
     const programs = await LtApi.getPrograms();
     const active = programs.find(p => p.is_active);
     activeProgram.set(active || null);
   } catch {
-    activeProgram.set(null);
+    if (!quiet) activeProgram.set(null);
   }
 }

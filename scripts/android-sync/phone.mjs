@@ -546,6 +546,52 @@ const scenarios = {
     return { quiet, kicked, changed: events.at(-1)?.changed, assignments: (await q(`SELECT COUNT(*) AS n FROM program_assignments`, []))[0].n };
   },
 
+  // Every pull says which kinds of rows it changed on the phone
+  // (lib/sync-refresh.js), so an open page reads again only what it shows: a
+  // change on the web is its own kind, a delete is a change, and a pull that
+  // brought nothing has none.
+  async syncKinds() {
+    me();
+    const today = new Date().toISOString().slice(0, 10);
+    const plan = await web('phone', 'POST', '/api/programs', { name: 'Kinds Plan' });
+    await web('phone', 'POST', '/api/templates', { program_id: plan.id, name: 'Kinds Day' });
+    const ex = await web('phone', 'POST', '/api/exercises', { name: 'Kinds Ex' });
+    await web('phone', 'PUT', `/api/workout/${today}`, { name: 'Kinds Day', exercises: [{ exercise_name: 'Kinds Ex', sets: [{ weight: 50, reps: 5, completed: true }] }] });
+    await syncNow(); await later(1200); await syncNow(); await later(1200);
+    const events = [];
+    globalThis.dispatchEvent = e => { if (e?.type === 'lt:sync-complete') events.push(e.detail); return true; };
+    // What the pages are told by the sync that brings a change from the web.
+    const told = async () => {
+      events.length = 0;
+      await syncNow();
+      const last = events.at(-1);
+      const kinds = last ? [...last.kinds].sort() : null;
+      await later(1200);
+      return kinds;
+    };
+    const out = {};
+    out.idle = await told();
+    await web('phone', 'PUT', `/api/exercises/${ex.id}`, { name: 'Kinds Ex renamed' });
+    out.exercise = await told();
+    await web('phone', 'PUT', `/api/programs/${plan.id}`, { name: 'Kinds Plan renamed' });
+    out.program = await told();
+    const day = await web('phone', 'POST', '/api/templates', { program_id: plan.id, name: 'Second Day' });
+    out.day = await told();
+    await web('phone', 'DELETE', `/api/templates/${day.id}`);
+    out.dayDeleted = await told();
+    await web('phone', 'PUT', `/api/workout/${today}`, { name: 'Kinds Day', exercises: [{ exercise_name: 'Kinds Ex', sets: [{ weight: 55, reps: 5, completed: true }] }] });
+    out.workout = await told();
+    await web('phone', 'PUT', `/api/body-stats/${today}`, { stats: { weight: 80 } });
+    out.bodyStats = await told();
+    await web('phone', 'DELETE', `/api/programs/${plan.id}`);
+    out.programDeleted = await told();
+    out.idleAgain = await told();
+    out.idleAgain2 = await told();
+    out.idleAgain3 = await told();
+    globalThis.dispatchEvent = () => true;
+    return out;
+  },
+
   async editThenWeb() {
     const p = await web('phone', 'POST', '/api/programs', { name: 'Web Plan' });
     const ex = await web('phone', 'POST', '/api/exercises', { name: 'Web Ex' });

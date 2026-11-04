@@ -4,6 +4,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { syncTouched } from '../lib/sync-refresh.js';
   import { isNative, getServerUrl, resolveAssetUrl } from '../lib/platform.js';
   import { CATEGORIES } from '../lib/workout.js';
   import { normalizeEquipment, sortByBucket } from '../lib/equipment.js';
@@ -163,9 +164,17 @@
     loadUsage();
     loading = false;
     if (isNative && getServerUrl()) {
-      _onSyncComplete = async () => {
+      _onSyncComplete = async (e) => {
         try { exercises = await LtApi.getExercises(); } catch {}
         loadUsage();
+        // The detail pane beside the list (wide screens): the exercise open in
+        // it and its history are read again when the sync changed them.
+        if (_detailSelected && syncTouched(e?.detail, ['exercises', 'workouts'])) {
+          const open = _detailSelected;
+          const fresh = exercises.find(x => x.id === open.id);
+          if (fresh) _detailSelected = fresh;
+          try { const past = await LtApi.getWorkoutHistory(open.id); if (_detailSelected?.id === open.id) _detailHistory = past; } catch { /* what is shown stays */ }
+        }
       };
       window.addEventListener('lt:sync-complete', _onSyncComplete);
     }

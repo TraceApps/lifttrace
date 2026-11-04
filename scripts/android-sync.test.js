@@ -232,6 +232,21 @@ test('a server without accounts following a program: its pull is not a change ev
   assert.deepEqual(out, { quiet: false, kicked: 0, changed: true, assignments: 1 });
 });
 
+test('every pull says which kinds of rows it changed, so an open page reads only what it shows', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('syncKinds');
+  assert.deepEqual(out.idle, [], 'nothing changed, nothing to read again');
+  assert.deepEqual(out.exercise, ['exercises']);
+  assert.ok(out.program.includes('programs'), 'a program renamed on the web: ' + out.program);
+  assert.ok(out.day.includes('templates'), 'a day added on the web: ' + out.day);
+  assert.ok(out.dayDeleted.includes('templates'), 'a delete is a change: ' + out.dayDeleted);
+  assert.ok(out.workout.includes('workouts'), 'a set changed on the web: ' + out.workout);
+  assert.ok(out.bodyStats.includes('bodyStats'), 'a weight logged on the web: ' + out.bodyStats);
+  assert.ok(out.programDeleted.includes('programs'), 'a program deleted on the web: ' + out.programDeleted);
+  // (The pull after a delete may still clear what hung off the deleted program.)
+  assert.deepEqual(out.idleAgain2, [], 'and nothing again');
+  assert.deepEqual(out.idleAgain3, []);
+});
+
 test('rows deleted on the server leave the phone, as do days it should never have had', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('deletes');
   assert.ok(out.before.programs.includes('Gone Plan') && out.before.programs.includes('Other Private') && out.before.chat === 1);

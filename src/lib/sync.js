@@ -26,6 +26,7 @@ import { LtApiNative } from './api-native.js';
 import { isTempId, createdId, describeOp, writeOp, newTempId } from './offline-edits.js';
 import { localDataIsThisAccount } from './local-account.js';
 import { accountGen, nextAccountGen, copyMoving } from './account-gen.js';
+import { pullKinds } from './sync-refresh.js';
 
 /**
  * Live sync state, mirrored into the Settings UI for the "Last synced X ago"
@@ -472,6 +473,8 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
     // brought anything; a page can skip its reload when it didn't (every
     // reload's reads used to start the next sync, every few seconds).
     result.changed = Object.values(result.tables).some(n => Number(n) > 0);
+    // And which kinds of rows (lib/sync-refresh.js): a page that shows one reads it again.
+    result.kinds = pullKinds(result.tables);
     _lastSyncDoneAt = Date.now();
     try { window.dispatchEvent(new CustomEvent('lt:sync-complete', { detail: result })); } catch {}
     return result;

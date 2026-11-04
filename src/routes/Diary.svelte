@@ -24,6 +24,7 @@
   import { localDateStr } from '../lib/db.js';
   import { trainedDates, excusedOnly, hasWorkingSet } from '../lib/trained-day.js';
   import { LtApi } from '../lib/api.js';
+  import { syncTouched } from '../lib/sync-refresh.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { currentUser } from '../stores/auth.js';
   import { resolveAssetUrl } from '../lib/platform.js';
@@ -1058,6 +1059,11 @@
       loadSuggestedPrescriptions();
       return;
     }
+    // Body stats the sync brought (a weight logged on the web): the summary in
+    // the side rail listens for this signal, which is what a save here sends.
+    if (syncTouched(e?.detail, ['bodyStats'])) window.dispatchEvent(new CustomEvent('lt:body-stats-saved'));
+    // The program you follow, or its days, changed on the web (or a coach assigned one).
+    if (syncTouched(e?.detail, ['programs', 'templates', 'assignments'])) loadActiveProgram({ quiet: true });
     const t = e?.detail?.tables;
     const workoutRelevant = t && ((t.workouts || 0) > 0 || (t.workoutTombstones || 0) > 0);
     if ($currentDate && workoutRelevant) {

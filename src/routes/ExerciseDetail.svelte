@@ -4,6 +4,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { onSyncChanges, newestRead } from '../lib/sync-refresh.js';
   import { weightUnit } from '../stores/settings.js';
   import { isTimedSet, fmtSetDuration } from '../lib/workout.js';
   import { showError, showSuccess } from '../stores/toast.js';
@@ -29,7 +30,7 @@
 
   async function onEditorSaved() {
     // Refresh the exercise after a save so changes are visible immediately.
-    try { exercise = await LtApi.getExercise(params.id); } catch {}
+    await load({ quiet: true });
   }
 
   async function removeExercise() {
@@ -63,21 +64,40 @@
   }
   $: if (exercise) loadSimilar();
 
-  async function load() {
-    loading = true; loadError = '';
+  // quiet: read again after a sync, without the loading state; a quiet read
+  // that fails keeps what is shown. Only the newest read sets it.
+  const newest = newestRead();
+  async function load({ quiet = false } = {}) {
+    const isNewest = newest();
+    quiet = quiet && !loading; // the first read is still out: this one speaks if it fails
+    if (!quiet) { loading = true; loadError = ''; }
     try {
-      exercise = await LtApi.getExercise(params.id);
+      const got = await LtApi.getExercise(params.id);
       // History is best-effort \u2014 if it fails, the exercise still renders.
-      try { history = await LtApi.getWorkoutHistory(params.id); }
-      catch { history = []; }
+      let past = null;
+      try { past = await LtApi.getWorkoutHistory(params.id); }
+      catch { past = quiet ? null : []; }
+      if (isNewest() && (got || !quiet)) {
+        exercise = got;
+        if (past) history = past;
+      }
     } catch(e) {
-      loadError = e.message || 'Could not load exercise';
-      showError(loadError);
+      if (isNewest() && !quiet) {
+        loadError = e.message || 'Could not load exercise';
+        showError(loadError);
+      }
     }
-    loading = false;
+    if (isNewest()) loading = false;
   }
 
-  onMount(load);
+  onMount(() => { load(); });
+  // A sync that changed this exercise, or the workouts its history is made
+  // of, shows here at once. Not under the editor: opening it fills it from
+  // the exercise, so a new copy would wipe what you've typed; the page reads
+  // again once it closes. An exercise deleted elsewhere stays as it is shown.
+  let syncWaiting = false;
+  onMount(() => onSyncChanges(() => { if (showEditor) syncWaiting = true; else load({ quiet: true }); }, ['exercises', 'workouts']));
+  $: if (!showEditor && syncWaiting) { syncWaiting = false; load({ quiet: true }); }
 
   // Timed exercise (issue #89): judged by what the most recent session was,
   // so an exercise switched to Time shows its hold record and hold chart.

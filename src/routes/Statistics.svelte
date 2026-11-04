@@ -3,6 +3,7 @@
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { syncTouched } from '../lib/sync-refresh.js';
   import { weightUnit, pageBanners, bannerStyle, bodyStatsVisible } from '../stores/settings.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import WeeklyVolumeChart from '../components/statistics/WeeklyVolumeChart.svelte';
@@ -212,6 +213,8 @@
     // the pull to say so.
     let _quietAt = 0;
     _onSyncComplete = (e) => {
+      // The exercise picker's names (one renamed or added on the web).
+      if (syncTouched(e?.detail, ['exercises'])) LtApi.getExercises().then(list => { exercises = list; }).catch(() => {});
       if (e?.detail?.changed === false) {
         if (Date.now() - _quietAt < 5 * 60 * 1000) return;
         _quietAt = Date.now();

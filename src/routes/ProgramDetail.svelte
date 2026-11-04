@@ -5,6 +5,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { onSyncChanges, newestRead } from '../lib/sync-refresh.js';
   import { duplicateProgram as duplicate } from '../lib/program-actions.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
@@ -94,12 +95,25 @@
     }
   });
 
-  async function load() {
-    loading = true;
-    try { program = await LtApi.getProgram(params.id); }
-    catch(e) { showError(e.message); }
-    loading = false;
+  // quiet: read again after a sync, without the loading state; a quiet read
+  // that fails keeps what is shown. Only the newest read sets it.
+  const newest = newestRead();
+  async function load({ quiet = false } = {}) {
+    const isNewest = newest();
+    quiet = quiet && !loading; // the first read is still out: this one speaks if it fails
+    if (!quiet) loading = true;
+    try { const got = await LtApi.getProgram(params.id); if (isNewest() && (got || !quiet)) program = got; }
+    catch(e) { if (isNewest() && !quiet) showError(e.message); }
+    if (isNewest()) loading = false;
   }
+  // A sync that changed this program, its days or who it is assigned to shows
+  // here at once, except under a name being typed, a day being dragged, or a
+  // save in progress: those wait. A program deleted elsewhere stays shown.
+  let syncWaiting = false;
+  $: syncBusy = editingName || savingName || savingSettings || creating || draggedTplIdx >= 0 || reordering;
+  // (Its week and paused days are worked out from the workouts and excused days.)
+  onMount(() => onSyncChanges(() => { if (syncBusy) syncWaiting = true; else load({ quiet: true }); }, ['programs', 'templates', 'assignments', 'workouts', 'excusedDays']));
+  $: if (!syncBusy && syncWaiting) { syncWaiting = false; load({ quiet: true }); }
 
   function openTemplate(templateId) {
     sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
@@ -179,6 +193,7 @@
 
   // ── Drag-to-reorder templates (desktop HTML5 drag) ─────────────
   let draggedTplIdx = -1;
+  let reordering = false;
   let dragOverTplIdx = -1;
 
   function onTplDragStart(e, i) {
@@ -203,12 +218,13 @@
     tpls.splice(i, 0, moved);
     // Optimistic local update so the UI feels responsive
     program.templates = tpls;
+    reordering = true;
     try {
       await LtApi.reorderTemplates(params.id, tpls.map(t => t.id));
     } catch(e) {
       showError(e.message);
       await load();
-    }
+    } finally { reordering = false; }
   }
 
   /** Build a non-colliding "(Copy)" name for a duplicate.
