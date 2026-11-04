@@ -3,6 +3,7 @@
   import { _ } from 'svelte-i18n';
   import SetRow from './SetRow.svelte';
   import { LtApi } from '../../lib/api.js';
+  import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
   import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
   import { exerciseLoadTypes, exerciseSetTypes } from '../../stores/settings.js';
@@ -50,18 +51,31 @@
     _lastSessionFetched = `${exercise.exercise_id}|${date}`;
     loadLastSession(exercise.exercise_id, date);
   }
-  async function loadLastSession(exerciseId, day) {
+  // quiet: read again after a sync, keeping the row shown until the answer
+  // is in; a quiet read that fails keeps it. Only the newest read sets it.
+  const newestLast = newestRead();
+  let _lastLoading = false;
+  async function loadLastSession(exerciseId, day, { quiet = false } = {}) {
     const key = `${exerciseId}|${day}`;
-    lastSession = null;
+    const isNewest = newestLast();
+    quiet = quiet && !_lastLoading; // the first read is still out: this one stands in for it
+    if (!quiet) { lastSession = null; _lastLoading = true; }
     try {
       // Same pick as auto-fill (lastCompletedSession, issue #103), so the row
       // and the pre-filled sets always come from the same session. Days
       // before this one only: today's own sets are not "last time".
       const recent = lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId), { before: day });
-      if (!recent || key !== _lastSessionFetched) return;
-      lastSession = { date: recent.date, sets: recent.completed, set_type: recent.set_type };
+      if (key !== _lastSessionFetched || !isNewest()) return;
+      lastSession = recent ? { date: recent.date, sets: recent.completed, set_type: recent.set_type } : null;
     } catch {}
+    finally { if (isNewest()) _lastLoading = false; }
   }
+  // A sync that brought workouts (an earlier session logged or deleted on the
+  // web) shows in this row at once. Only the row is read again: the sets
+  // you're typing are the Diary's, and stay as they are.
+  onMount(() => onSyncChanges(() => {
+    if (exercise.exercise_id) loadLastSession(exercise.exercise_id, date, { quiet: true });
+  }, ['workouts']));
 
   // Optional library-level default (issue #24). Diary enriches each
   // workout exercise with `_library_load_type` from the exercises table

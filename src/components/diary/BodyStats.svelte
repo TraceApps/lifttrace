@@ -8,6 +8,7 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import { currentDate } from '../../stores/workout.js';
   import { uploadAndAttachPhoto } from '../../lib/progress-photo-upload.js';
+  import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
 
   export let open = false;
 
@@ -73,7 +74,18 @@
 
   $: if (open) loadStats();
 
-  async function loadStats() {
+  // The fields typed in since the sheet opened: a read never replaces them.
+  const touched = new Set();
+  // quiet: read again after a sync, while the sheet is open; a quiet read
+  // that fails keeps what is shown. Only the newest read sets it.
+  const newest = newestRead();
+  let openReadOut = false;
+  async function loadStats({ quiet = false } = {}) {
+    const isNewest = newest();
+    if (!quiet) touched.clear();
+    quiet = quiet && !openReadOut; // the opening read is still out: this one stands in for it
+    if (!quiet) openReadOut = true;
+    let read = null;
     try {
       const res = await fetch(`/api/body-stats/${$currentDate}`, { credentials: 'include' });
       if (res.ok) {
@@ -82,12 +94,19 @@
         // (issue #80): the actual measurements sit one level deeper, at
         // data.stats.stats, not data.stats itself.
         const raw = typeof data.stats === 'string' ? JSON.parse(data.stats) : data.stats;
-        stats = raw?.stats ?? raw ?? {};
-      } else {
-        stats = {};
+        read = raw?.stats ?? raw ?? {};
       }
-    } catch { stats = {}; }
+    } catch { /* read stays null */ }
+    if (!isNewest()) return;
+    openReadOut = false;
+    if (!open || (read === null && quiet)) return;
+    const next = { ...(read || {}) };
+    for (const id of touched) next[id] = stats[id];
+    stats = next;
   }
+  // A sync that brought body stats (logged on the web while this is open)
+  // fills the fields you haven't typed in.
+  onMount(() => onSyncChanges(() => { if (open) loadStats({ quiet: true }); }, ['bodyStats']));
 
   async function save() {
     saving = true;
@@ -131,7 +150,7 @@
             <div>
               <label class="form-label">{stat.label} <span class="unit">({getUnit(stat.id)})</span></label>
               <input class="input" type="number" step="0.1" min="0"
-                bind:value={stats[stat.id]} placeholder="—" />
+                bind:value={stats[stat.id]} on:input={() => touched.add(stat.id)} placeholder="—" />
             </div>
           {/each}
         </div>

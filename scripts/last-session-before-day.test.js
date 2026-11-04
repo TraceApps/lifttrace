@@ -69,7 +69,7 @@ test('the card, auto-fill, PR badges, celebrations and the watch use the same da
   // Looked up again for a new day, and a late answer for an old one is dropped.
   assert.match(card, /\$: if \(exercise\.exercise_id && `\$\{exercise\.exercise_id\}\|\$\{date\}` !== _lastSessionFetched\)/);
   assert.match(card, /loadLastSession\(exercise\.exercise_id, date\);/);
-  assert.match(card, /if \(!recent \|\| key !== _lastSessionFetched\) return;/);
+  assert.match(card, /if \(key !== _lastSessionFetched \|\| !isNewest\(\)\) return;/);
   const diary = read('../src/routes/Diary.svelte');
   const fill = diary.slice(diary.indexOf('async function getLastSets'), diary.indexOf('let pickerTargetSupersetId'));
   assert.match(fill, /\{ before: \$currentDate \}/);

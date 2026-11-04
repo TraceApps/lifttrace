@@ -61,11 +61,14 @@
   }
   onMount(load);
   $: if ($currentDate) load();
-  // Also reload when the modal saves (mobile flow) so the widget
-  // stays in sync without a page nav.
-  if (typeof window !== 'undefined') {
+  // Also reload when the modal saves (mobile flow), or a sync brings body
+  // stats (the Diary sends the same signal), so the widget stays in sync
+  // without a page nav. Taken away with the widget: each Diary visit used
+  // to leave one behind, and every save then read once per visit.
+  onMount(() => {
     window.addEventListener('lt:body-stats-saved', load);
-  }
+    return () => window.removeEventListener('lt:body-stats-saved', load);
+  });
 
   $: currentWeight = stats.weight != null && stats.weight !== '' ? stats.weight : null;
 

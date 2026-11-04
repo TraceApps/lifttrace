@@ -125,6 +125,8 @@ const PAGES = {
   'src/routes/ProgramDetail.svelte': ['programs', 'templates', 'assignments', 'workouts', 'excusedDays'],
   'src/components/progress-photos/ProgressPhotosTimeline.svelte': ['bodyStats'],
   'src/components/settings/SettingsCatalog.svelte': ['exercises'],
+  'src/components/diary/ExerciseCard.svelte': ['workouts'],
+  'src/components/diary/BodyStats.svelte': ['bodyStats'],
 };
 for (const [page, kinds] of Object.entries(PAGES)) {
   test(`${page} listens for ${kinds.join(', ')}`, () => {
@@ -152,4 +154,29 @@ test('the pages with a listener of their own read what the sync brought for thei
 test('sync.js says the kinds with the event', () => {
   const src = readFileSync(join(root, 'src/lib/sync.js'), 'utf8');
   assert.match(src, /result\.kinds = pullKinds\(result\.tables\);[\s\S]{0,200}new CustomEvent\('lt:sync-complete', \{ detail: result \}\)/);
+});
+
+test("the Diary's Last row reads again quietly: the row stays until the answer is in", () => {
+  const src = readFileSync(join(root, 'src/components/diary/ExerciseCard.svelte'), 'utf8');
+  assert.match(src, /quiet = quiet && !_lastLoading;[^\n]*\n\s+if \(!quiet\) \{ lastSession = null; _lastLoading = true; \}/, 'a quiet read does not blank the row first, unless it stands in for the first read');
+  assert.match(src, /loadLastSession\(exercise\.exercise_id, date, \{ quiet: true \}\)/);
+  assert.match(src, /key !== _lastSessionFetched \|\| !isNewest\(\)/, 'a read for another day, or an older read, sets nothing');
+});
+
+test('the Body Stats sheet reads again while open, and keeps the fields you typed in', () => {
+  const src = readFileSync(join(root, 'src/components/diary/BodyStats.svelte'), 'utf8');
+  assert.match(src, /onSyncChanges\(\(\) => \{ if \(open\) loadStats\(\{ quiet: true \}\); \}/);
+  assert.match(src, /on:input=\{\(\) => touched\.add\(stat\.id\)\}/, 'a field typed in is noted');
+  assert.match(src, /for \(const id of touched\) next\[id\] = stats\[id\];/, 'and a read leaves it as typed');
+  assert.match(src, /if \(!isNewest\(\)\) return;\s+openReadOut = false;\s+if \(!open \|\| \(read === null && quiet\)\) return;/, 'a failed quiet read, an older read or a closed sheet changes nothing');
+  assert.match(src, /quiet = quiet && !openReadOut;/, 'a read while the opening one is out stands in for it');
+});
+
+test("the side rail's Body Stats summary stops listening when the Diary closes", () => {
+  const src = readFileSync(join(root, 'src/components/diary/BodyStatsWidget.svelte'), 'utf8');
+  const adds = [...src.matchAll(/window\.addEventListener\('([^']+)', (\w+)\)/g)];
+  assert.ok(adds.length >= 1, 'listens for a save');
+  for (const [, type, fn] of adds) {
+    assert.match(src, new RegExp(`return \\(\\) => window\\.removeEventListener\\('${type}', ${fn}\\)`), `${type} is taken away by its onMount`);
+  }
 });
