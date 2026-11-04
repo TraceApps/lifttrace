@@ -130,9 +130,13 @@ router.post('/catalogs/delete', wrap((req, res) => {
   // Your own catalog only. This matched by name across every user, so two
   // people who each imported "MyGym" lost both when either deleted theirs,
   // and everyone's disabled flag for that name went with it.
+  // With the delete's own time (field_times.deleted_at), as every other delete
+  // of a row keeps it, so a push made before it can't bring an exercise back
+  // (lib/deleted-rows.js).
   const result = db.prepare(
     `UPDATE exercises
-       SET deleted_at = datetime('now'), updated_at = datetime('now')
+       SET deleted_at = datetime('now'), updated_at = datetime('now'),
+           field_times = json_set(CASE WHEN json_valid(field_times) THEN field_times ELSE '{}' END, '$.deleted_at', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
      WHERE source = ? AND deleted_at IS NULL AND is_global = 0 AND created_by IS ?`
   ).run(source, userId);
   // Clean up disabled flag

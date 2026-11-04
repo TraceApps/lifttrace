@@ -532,7 +532,28 @@ changes it later.
   time in `field_times.deleted_at`, so an edit made after it and before it
   arrived still counts as later. A deleted day is not read by
   `GET /api/body-stats/:date`, `/range`, `get_body_stat(s)` or REST v1; the
-  pull still sends it (deleted) so devices drop it. Changes queued together
+  pull still sends it (deleted) so devices drop it. Workouts, exercises,
+  programs and workout days deleted that way meet an edit by the same rule,
+  for the whole row (`server/lib/deleted-rows.js`, `editBringsBack`): an
+  older edit (or one in the delete's own second) is answered as gone (410)
+  by `PUT /api/programs/:id`, `PUT /api/templates/:id` and `POST
+  /api/templates`, or, pushed, leaves the row deleted and touches it so the
+  device gets the delete; a newer one, or one made now, clears deleted_at
+  and stamps `field_times.deleted_at`, and the fields the edit didn't change
+  stay as they were (decided against the row as it was deleted, so a backup
+  restore's later updated_at doesn't make the edit older than the content).
+  A pushed delete of any of them keeps its own time in
+  `field_times.deleted_at` (as does clearing an imported catalog), and a
+  second one doesn't move it. A deleted workout day comes back only for an
+  edit later than its own delete and its program's, and its program with it,
+  so an edit never brings a day back under a deleted program; a day that is
+  alive keeps taking edits (a pushed delete of a program leaves its days as
+  they are), and one made after its program's delete brings the program
+  back. A program brought back by an edit of its own leaves its days as they
+  are (a day deleted by itself stays deleted). A deleted exercise is still
+  read by id for the workouts that name it (#49) and `PUT
+  /api/exercises/:id` still answers 404; an edit through a push can bring
+  it back. Changes queued together
   for one row in the browser go up as one with each field's own time
   (`X-Field-Edits`, JSON `{ field: time }`), so the earlier change doesn't
   count as made as late as the later one. `field_times` never leaves the

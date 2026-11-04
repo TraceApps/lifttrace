@@ -43,6 +43,7 @@ import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
 import { applyToBody, createdTimes, decide, deleteLoses, deletedTimes, editBringsBack, editedAt, stampMerged } from '../lib/newer-wins.js';
 import { revivedDay, isStatsObject, onlyMeasurements } from '../lib/body-stats-day.js';
+import { dayEditMeets, bringProgramBack, touchDeleted, countedTimes, timesAtDelete } from '../lib/deleted-rows.js';
 import { readTimes } from '../lib/field-sync.js';
 import { SYNC_FIELDS, syncOf } from '../lib/sync-fields.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
@@ -149,6 +150,20 @@ function pushTimes(existing) {
   if (!Object.keys(t).length) { if (at(existing?.updated_at)) t._base = at(existing.updated_at); }
   else if (!t._base && at(existing?.created_at ?? existing?.updated_at)) t._base = at(existing.created_at ?? existing.updated_at);
   return t;
+}
+
+// What a pushed edit of a row is decided against: pushTimes, or for an edit
+// that brings back a deleted row, the row as it was deleted
+// (lib/deleted-rows.js timesAtDelete).
+function editTimes(existing) {
+  return existing?.deleted_at ? timesAtDelete(existing) : pushTimes(existing);
+}
+
+// A row an older edit leaves deleted is touched, so the device gets it as
+// deleted. Its times are kept as they count now: a row with none counts its
+// fields from updated_at, which the touch would move.
+function touchLeftDeleted(table, existing) {
+  db.prepare(`UPDATE ${table} SET updated_at = datetime('now'), field_times = ? WHERE id = ?`).run(JSON.stringify(countedTimes(existing)), existing.id);
 }
 
 // A pushed time as an instant: an ISO time with its zone (Z or an offset),
@@ -462,6 +477,9 @@ router.post('/push', wrap((req, res) => {
   const takesExercises = (row, existing) => {
     const stamp = instantMs(readTimes(existing?.field_times).exercises);
     if (Number.isFinite(stamp)) return !(stamp > editedAt(pushedEdit(row)));
+    // A deleted row an edit has brought back (made after the delete, found
+    // so before this): the exercises it was deleted with are older.
+    if (existing?.deleted_at) return true;
     return wins(row.updated_at, existing?.updated_at);
   };
 
@@ -482,23 +500,37 @@ router.post('/push', wrap((req, res) => {
           if (e.deleted_at) {
             // Kept when something in it changed after the delete was made
             // (DELETE /api/exercises/:id does the same); touched, so the
-            // device gets it back with its next pull.
-            if (deleteLoses(edit, existing, pushTimes(existing))) db.prepare(`UPDATE exercises SET updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
-            else db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
+            // device gets it back with its next pull. Already deleted: done,
+            // and the first delete keeps its time.
+            if (existing.deleted_at) { /* nothing to do */ }
+            else if (deleteLoses(edit, existing, pushTimes(existing))) db.prepare(`UPDATE exercises SET updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
+            // With the delete's own time, so an edit made before it can't bring it back.
+            else db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now'), field_times = ? WHERE id = ?`)
+              .run(deletedTimes(edit, existing, pushTimes(existing)), e.server_id);
+          } else if (existing.deleted_at && !editBringsBack(edit, existing)) {
+            // Deleted elsewhere (cleared from the library, or a third-party
+            // delete) after this copy was made: it stays deleted, as the
+            // other tables do (PUT /api/workout/:date answers it as gone).
+            // Touched, so the device gets the deleted exercise. The exercise
+            // itself is still read by id for the workouts that name it (#49).
+            touchLeftDeleted('exercises', existing);
           } else {
-            // The newer edit of each field stays (PUT /api/exercises/:id).
+            // The newer edit of each field stays (PUT /api/exercises/:id); one
+            // made after the delete brings the exercise back.
             const JSON_FIELDS = new Set(['primary_muscles', 'secondary_muscles', 'equipment']);
             const v = { ...e };
             // Not the kind of load or sets: a push doesn't write them.
             const times = applyToBody(edit, existing, v, {
               ...syncOf('exercises'),
               fields: SYNC_FIELDS.exercises.filter(f => f !== 'load_type' && f !== 'set_type'),
-              times: pushTimes(existing),
+              times: editTimes(existing),
               current: f => (JSON_FIELDS.has(f) ? JSON.parse(existing[f] || '[]') : existing[f]),
             });
             keepUnsent(v, SYNC_FIELDS.exercises, f => (JSON_FIELDS.has(f) ? JSON.parse(existing[f] || '[]') : existing[f]));
+            // Brought back: when, so a delete made before this can't win over it.
+            const written = existing.deleted_at ? stampMerged(edit, times, ['deleted_at']) : times;
             db.prepare(
-              `UPDATE exercises SET name=?, category=?, primary_muscles=?, secondary_muscles=?, equipment=?, instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, field_times=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE exercises SET name=?, category=?, primary_muscles=?, secondary_muscles=?, equipment=?, instructions=?, tips=?, img_url=?, gif_url=?, video_url=?, field_times=?, deleted_at=NULL, updated_at=datetime('now') WHERE id=?`
             ).run(
               v.name, v.category || null,
               JSON.stringify(v.primary_muscles || []),
@@ -506,7 +538,7 @@ router.post('/push', wrap((req, res) => {
               JSON.stringify(v.equipment || []),
               v.instructions || null, v.tips || null,
               localizeOr(v.img_url, existing.img_url) || null, localizeOr(v.gif_url, existing.gif_url) || null, v.video_url || null,
-              times,
+              written,
               e.server_id
             );
           }
@@ -541,18 +573,31 @@ router.post('/push', wrap((req, res) => {
           const edit = pushedEdit(p);
           if (p.deleted_at) {
             // Kept when it or one of its days changed after the delete was
-            // made (DELETE /api/programs/:id does the same).
+            // made (DELETE /api/programs/:id does the same). Already deleted:
+            // done, and the first delete keeps its time.
             const days = db.prepare('SELECT * FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL').all(p.server_id);
-            if ([existing, ...days].some(r => deleteLoses(edit, r, pushTimes(r)))) db.prepare(`UPDATE programs SET updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
-            else db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
+            if (existing.deleted_at) { /* nothing to do */ }
+            else if ([existing, ...days].some(r => deleteLoses(edit, r, pushTimes(r)))) db.prepare(`UPDATE programs SET updated_at = datetime('now') WHERE id = ?`).run(p.server_id);
+            // With the delete's own time, so an edit made before it can't bring it back.
+            else db.prepare(`UPDATE programs SET deleted_at = datetime('now'), updated_at = datetime('now'), field_times = ? WHERE id = ?`)
+              .run(deletedTimes(edit, existing, pushTimes(existing)), p.server_id);
+          } else if (existing.deleted_at && !editBringsBack(edit, existing)) {
+            // Deleted elsewhere after this copy was made: the program stays
+            // deleted (PUT /api/programs/:id answers it as gone). Touched, so
+            // the device gets the deleted program with its next pull.
+            touchLeftDeleted('programs', existing);
           } else {
             // The newer edit of each field stays; the length and how a plan
-            // moves on go together (PUT /api/programs/:id).
+            // moves on go together (PUT /api/programs/:id). One made after the
+            // delete brings the program back, and only the program: its days
+            // keep their own state (lib/deleted-rows.js).
             const v = { ...p };
-            const times = applyToBody(edit, existing, v, { ...syncOf('programs'), times: pushTimes(existing), current: f => existing[f] });
+            let times = applyToBody(edit, existing, v, { ...syncOf('programs'), times: editTimes(existing), current: f => existing[f] });
             keepUnsent(v, SYNC_FIELDS.programs, f => existing[f]);
+            // Brought back: when, so a delete made before this can't win over it.
+            if (existing.deleted_at) times = stampMerged(edit, times, ['deleted_at']);
             db.prepare(
-              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, duration_weeks=?, advance_mode=?, on_complete=?, field_times=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE programs SET name=?, description=?, goal=?, visibility=?, duration_weeks=?, advance_mode=?, on_complete=?, field_times=?, deleted_at=NULL, updated_at=datetime('now') WHERE id=?`
             ).run(v.name, v.description || null, v.goal || 'general', v.visibility || 'private', v.duration_weeks ?? 1, v.advance_mode || 'sessions', v.on_complete || 'hold', times, p.server_id);
           }
         }
@@ -581,11 +626,26 @@ router.post('/push', wrap((req, res) => {
       if (t.server_id && existing) {
         if (canChangeDay(existing.program_id)) {
           const edit = pushedEdit(t);
+          // A deleted day is met against its own delete and its program's
+          // (lib/deleted-rows.js): an edit made before either leaves both
+          // deleted (PUT /api/templates/:id answers it as gone), touched so
+          // the device gets them as deleted; one made after both brings the
+          // day back, and its program with it, so no day is brought back
+          // under a deleted program. A day that is alive takes every edit,
+          // and one made after its program's delete brings the program back.
+          const program = db.prepare('SELECT * FROM programs WHERE id = ?').get(existing.program_id);
+          const meets = t.deleted_at ? null : dayEditMeets(edit, existing, program);
           if (t.deleted_at) {
             // Kept when it changed after the delete was made (DELETE
-            // /api/templates/:id does the same).
-            if (!existing.deleted_at && deleteLoses(edit, existing, pushTimes(existing))) db.prepare(`UPDATE workout_templates SET updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
-            else db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
+            // /api/templates/:id does the same). Already deleted: done, and
+            // the first delete keeps its time.
+            if (existing.deleted_at) { /* nothing to do */ }
+            else if (deleteLoses(edit, existing, pushTimes(existing))) db.prepare(`UPDATE workout_templates SET updated_at = datetime('now') WHERE id = ?`).run(t.server_id);
+            // With the delete's own time, so an edit made before it can't bring it back.
+            else db.prepare(`UPDATE workout_templates SET deleted_at = datetime('now'), updated_at = datetime('now'), field_times = ? WHERE id = ?`)
+              .run(deletedTimes(edit, existing, pushTimes(existing)), t.server_id);
+          } else if (!meets.ok) {
+            touchDeleted(existing, program);
           } else {
             // Per-uuid merge instead of wholesale replace. Note (issue
             // #85): serverExs is intentionally NOT pre-backfilled -- see
@@ -608,11 +668,14 @@ router.post('/push', wrap((req, res) => {
             // The newer edit of the name and label stays (PUT
             // /api/templates/:id); the exercises merge one by one, above.
             const v = { ...t };
-            let times = applyToBody(edit, existing, v, { ...syncOf('workout_templates'), times: pushTimes(existing), current: f => existing[f] });
+            let times = applyToBody(edit, existing, v, { ...syncOf('workout_templates'), times: editTimes(existing), current: f => existing[f] });
             keepUnsent(v, SYNC_FIELDS.workout_templates, f => existing[f]);
             if (takeEx && (Array.isArray(t.exercises) || t.deleted_uuids)) times = stampMerged(edit, times, ['exercises']);
+            // Brought back: when, so a delete made before this can't win over it.
+            if (meets.day) times = stampMerged(edit, times, ['deleted_at']);
+            if (meets.program) bringProgramBack(edit, program);
             db.prepare(
-              `UPDATE workout_templates SET name=?, day_label=?, order_index=?, exercises=?, field_times=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE workout_templates SET name=?, day_label=?, order_index=?, exercises=?, field_times=?, deleted_at=NULL, updated_at=datetime('now') WHERE id=?`
             ).run(v.name, v.day_label || null, t.order_index ?? 0, JSON.stringify(merged), times, t.server_id);
             const tsKey = `template:${t.server_id}`;
             const insertTs = db.prepare(
@@ -627,13 +690,23 @@ router.post('/push', wrap((req, res) => {
         }
         result.workout_templates.push({ client_id: t.client_id, server_id: t.server_id });
       } else if (!t.deleted_at && t.program_id && canChangeDay(t.program_id)) {
-        // Fresh insert: uuids ensured up-front so subsequent merges have identity.
-        const exs = ensureExerciseUuids(t.exercises || []);
-        const r = db.prepare(
-          `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, field_times, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
-        ).run(toId(t.program_id), t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs), createdTimes(pushedEdit(t)));
-        result.workout_templates.push({ client_id: t.client_id, server_id: r.lastInsertRowid });
+        // A new day in a program deleted elsewhere: made before the delete it
+        // is dropped (the program stays deleted, touched for the device);
+        // made after it, the program comes back with it, so the day is not
+        // left under a deleted program (lib/deleted-rows.js).
+        const program = db.prepare('SELECT * FROM programs WHERE id = ?').get(toId(t.program_id));
+        const meets = dayEditMeets(pushedEdit(t), null, program);
+        if (!meets.ok) touchDeleted(null, program);
+        else {
+          if (meets.program) bringProgramBack(pushedEdit(t), program);
+          // Fresh insert: uuids ensured up-front so subsequent merges have identity.
+          const exs = ensureExerciseUuids(t.exercises || []);
+          const r = db.prepare(
+            `INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, field_times, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+          ).run(toId(t.program_id), t.name, t.day_label || null, t.order_index ?? 0, JSON.stringify(exs), createdTimes(pushedEdit(t)));
+          result.workout_templates.push({ client_id: t.client_id, server_id: r.lastInsertRowid });
+        }
       }
     }
 
@@ -682,12 +755,24 @@ router.post('/push', wrap((req, res) => {
       // /api/workout/:date decides it (lib/newer-wins.js); decided on what
       // the row sent, before the refs below are checked, as there.
       const edit = pushedEdit(w);
+      // A workout deleted elsewhere (a third-party client's push, a restored
+      // backup): a copy made before the delete (or in its own second) leaves
+      // it deleted, as PUT /api/workout/:date answers it as gone. Touched, so
+      // the device gets the deleted workout with its next pull.
+      if (existing?.deleted_at && !w.deleted_at && !editBringsBack(edit, existing)) {
+        touchLeftDeleted('workout_log', existing);
+        result.workout_log.push({ client_id: w.client_id, server_id: existing.id });
+        continue;
+      }
       const takeEx = !!existing && takesExercises(w, existing);
       let times = null;
       if (existing && !w.deleted_at) {
-        times = applyToBody(edit, existing, w, { ...syncOf('workout_log'), times: pushTimes(existing), current: f => existing[f] });
+        times = applyToBody(edit, existing, w, { ...syncOf('workout_log'), times: editTimes(existing), current: f => existing[f] });
         keepUnsent(w, SYNC_FIELDS.workout_log, f => existing[f]);
         if (takeEx && (Array.isArray(w.exercises) || w.deleted_uuids)) times = stampMerged(edit, times, ['exercises']);
+        // Brought back by a copy made after the delete: when, so a delete
+        // made before this can't win over it (PUT /api/workout/:date).
+        if (existing.deleted_at) times = stampMerged(edit, times, ['deleted_at']);
       }
 
       // Only a program, day and exercises this account may see.
@@ -727,7 +812,7 @@ router.post('/push', wrap((req, res) => {
               delSetsByEx, priorSetTsByEx
             ) : { merged: serverExs, newTombstoneExerciseUuids: [], newTombstoneSetUuidsByExercise: {} };
             db.prepare(
-              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, program_week=?, field_times=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE workout_log SET name=?, exercises=?, notes=?, duration_min=?, completed=?, template_id=?, program_id=?, program_week=?, field_times=?, deleted_at=NULL, updated_at=datetime('now') WHERE id=?`
             ).run(w.name || null, JSON.stringify(merged), w.notes || null, w.duration_min ?? null, w.completed ? 1 : 0, w.template_id || null, w.program_id || null, w.program_week ?? null, times, existing.id);
             for (const uuid of newTombstoneExerciseUuids) insertTs.run(u, w.date, existing.id, 'exercise', '', uuid);
             for (const [exUuid, uuids] of Object.entries(newTombstoneSetUuidsByExercise)) {

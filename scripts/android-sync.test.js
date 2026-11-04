@@ -368,6 +368,18 @@ test('a day\'s body stats edited on the phone while a third-party client deleted
   assert.deepEqual(out.refused, [], 'neither was reported to the person as refused');
 });
 
+test('programs and days edited on the phone while a third-party client deleted them: gone if older, back if newer, a day with its program', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('rowsDeletedElsewhere');
+  assert.equal(out.held, 3, 'the phone held the programs');
+  assert.deepEqual(out.older.server, [{ deleted: true, name: 'Older Plan' }, { deleted: true, name: 'Older Day' }], 'the edits made before the delete wrote nothing into them');
+  assert.deepEqual(out.older.phone, [null, null], 'and the phone dropped them');
+  assert.deepEqual(out.newer.server, [{ deleted: false, name: 'Newer Plan edited' }, { deleted: false, name: 'Newer Day edited' }], 'the edits made after it brought them back');
+  assert.deepEqual(out.newer.phone, ['Newer Plan edited', 'Newer Day edited']);
+  assert.deepEqual(out.viaDay.server, [{ deleted: false, name: 'ViaDay Plan' }, { deleted: false, name: 'ViaDay Day edited' }], 'a day edited after its program was deleted brings the program back');
+  assert.deepEqual(out.viaDay.phone, ['ViaDay Plan', 'ViaDay Day edited']);
+  assert.deepEqual(out.refused, [], 'none was reported to the person as refused');
+});
+
 test('rows only this phone has, written to, are created on the server first and never lost', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('movedRows');
   assert.deepEqual(out.movedIds, [true, true], 'moved out of the way of the server\'s rows');

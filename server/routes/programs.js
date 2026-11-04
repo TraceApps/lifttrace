@@ -9,8 +9,9 @@ import { activateSolo, deactivateSolo, readSoloAssignment, soloActiveId } from '
 import { rememberZone, userZone } from '../lib/user-zone.js';
 import { programFor } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
-import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
+import { applyToBody, deleteLoses, refuseDelete, createdTimes, editBringsBack, stampMerged } from '../lib/newer-wins.js';
 import { syncOf } from '../lib/sync-fields.js';
+import { timesAtDelete } from '../lib/deleted-rows.js';
 
 // 404 for a program this account can't see (no hint that it exists), 403
 // for one it can see but not change (program-access.js). Returns true when
@@ -226,17 +227,26 @@ router.put('/:id', wrap((req, res) => {
   // The newer edit of each field stays (lib/newer-wins.js); the length and
   // how a plan moves on go together.
   const existingRow = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  // A program deleted elsewhere (a third-party client's push, a restored
+  // backup): an edit made before the delete is answered as gone, as a workout
+  // save is (the device drops it); one made after it, or now, brings the
+  // program back (its days keep their own state, lib/deleted-rows.js).
+  if (existingRow.deleted_at && !editBringsBack(req, existingRow)) return res.status(410).json({ error: 'Deleted after this change was made', gone: true });
   const body = { ...req.body };
-  const times = applyToBody(req, existingRow, body, {
+  let times = applyToBody(req, existingRow, body, {
     ...syncOf('programs'),
+    // A program brought back is decided as it was deleted (lib/deleted-rows.js).
+    times: existingRow.deleted_at ? timesAtDelete(existingRow) : undefined,
     current: f => existingRow[f],
   });
+  // Brought back: when, so a delete made before this can't win over it.
+  if (existingRow.deleted_at) times = stampMerged(req, times, ['deleted_at']);
   const { name, description, goal, visibility, duration_weeks, advance_mode, on_complete } = body;
   db.prepare(
     `UPDATE programs SET name=COALESCE(?,name), description=COALESCE(?,description),
             goal=COALESCE(?,goal), visibility=COALESCE(?,visibility),
             duration_weeks=COALESCE(?,duration_weeks), advance_mode=COALESCE(?,advance_mode),
-            on_complete=COALESCE(?,on_complete), field_times=? WHERE id=?`
+            on_complete=COALESCE(?,on_complete), field_times=?, deleted_at=NULL WHERE id=?`
   ).run(
     name || null, description, goal || null, visibility || null,
     duration_weeks != null ? clampDuration(duration_weeks) : null,

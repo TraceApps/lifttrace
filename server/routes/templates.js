@@ -6,6 +6,7 @@ import { mergeExercises, ensureExerciseUuids } from '../lib/workout-merge.js';
 import { programFor, templateFor, toId } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, stampMerged, createdTimes } from '../lib/newer-wins.js';
+import { bringProgramBack, dayEditMeets, timesAtDelete } from '../lib/deleted-rows.js';
 import { syncOf } from '../lib/sync-fields.js';
 
 const router = Router();
@@ -40,11 +41,20 @@ router.post('/', wrap((req, res) => {
   const before = createdBefore(req, uid(req), 'workout_templates');
   if (before?.gone) return answerGone(res);
   if (before) { before.exercises = JSON.parse(before.exercises || '[]'); return res.json(before); }
+  // A program deleted elsewhere (a third-party client's push, a restored
+  // backup): a day made before the delete is answered as gone; one made after
+  // it, or now, brings the program back with it, so the day is not left under
+  // a deleted program (lib/deleted-rows.js).
+  const meets = dayEditMeets(req, null, access.program);
+  if (!meets.ok) return answerGone(res);
   const maxIdx = db.prepare('SELECT MAX(order_index) as m FROM workout_templates WHERE program_id = ?').get(program_id);
   const orderIndex = (maxIdx?.m ?? -1) + 1;
-  const result = db.prepare(
-    'INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, field_times) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(program_id, name, day_label || null, orderIndex, JSON.stringify(exercises || []), createdTimes(req));
+  const result = db.transaction(() => {
+    if (meets.program) bringProgramBack(req, access.program);
+    return db.prepare(
+      'INSERT INTO workout_templates (program_id, name, day_label, order_index, exercises, field_times) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(program_id, name, day_label || null, orderIndex, JSON.stringify(exercises || []), createdTimes(req));
+  })();
   rememberCreated(req, uid(req), 'workout_templates', result.lastInsertRowid);
   const t = db.prepare('SELECT * FROM workout_templates WHERE id = ?').get(result.lastInsertRowid);
   t.exercises = JSON.parse(t.exercises || '[]');
@@ -74,11 +84,23 @@ router.put('/:id', wrap((req, res) => {
   const access = programFor(existing.program_id, uid(req));
   if (!access.canSee) return res.status(404).json({ error: `Template ${id} not found` });
   if (!access.canChange) return res.status(403).json({ error: 'Forbidden' });
+  // A day deleted elsewhere, or its program (a third-party client's push, a
+  // restored backup): an edit of a deleted day made before its delete, or its
+  // program's, is answered as gone, as a workout save is (the device drops
+  // it); one made after both, or now, brings the day back, and its program
+  // with it, so the day is not left under a deleted program. A day that is
+  // alive takes every edit, and one made after its program's delete brings
+  // the program back (lib/deleted-rows.js).
+  const meets = dayEditMeets(req, existing, access.program);
+  if (!meets.ok) return res.status(410).json({ error: 'Deleted after this change was made', gone: true });
   // The newer edit of the name and label stays (lib/newer-wins.js); the
   // exercises merge one by one, as before.
   const body = { ...req.body };
-  let times = applyToBody(req, existing, body, { ...syncOf('workout_templates'), current: f => existing[f] });
+  // A day brought back is decided as it was deleted (lib/deleted-rows.js).
+  let times = applyToBody(req, existing, body, { ...syncOf('workout_templates'), times: meets.day ? timesAtDelete(existing) : undefined, current: f => existing[f] });
   if (Array.isArray(body.exercises) || body.deleted_uuids) times = stampMerged(req, times, ['exercises']);
+  // Brought back: when, so a delete made before this can't win over it.
+  if (meets.day) times = stampMerged(req, times, ['deleted_at']);
   const { name, day_label, exercises } = body;
 
   const tsKey = `template:${id}`;
@@ -117,7 +139,8 @@ router.put('/:id', wrap((req, res) => {
      VALUES (NULL, ?, ?, ?, ?, datetime('now'))`
   );
   db.transaction(() => {
-    db.prepare('UPDATE workout_templates SET name=COALESCE(?,name), day_label=COALESCE(?,day_label), exercises=COALESCE(?,exercises), field_times=? WHERE id=?')
+    if (meets.program) bringProgramBack(req, access.program);
+    db.prepare('UPDATE workout_templates SET name=COALESCE(?,name), day_label=COALESCE(?,day_label), exercises=COALESCE(?,exercises), field_times=?, deleted_at=NULL WHERE id=?')
       .run(name || null, day_label, mergedExercisesJson, times, id);
     for (const uuid of newExTombstones) insertTombstone.run(tsKey, 'template_exercise', '', uuid);
     for (const [exUuid, uuids] of Object.entries(newSetTombstonesByEx)) {

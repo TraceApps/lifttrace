@@ -982,6 +982,69 @@ const scenarios = {
     };
   },
 
+  // A program and a workout day edited on the phone offline
+  // while a third-party client deleted them on the server (POST
+  // /api/sync/push with deleted_at): an edit made before the delete is
+  // answered as gone (410) and the phone drops the row; one made after it
+  // brings the row back, and an edited day brings its program with it.
+  async rowsDeletedElsewhere() {
+    me();
+    const deleteOnServer = async (table, id) => {
+      const at = new Date().toISOString();
+      await web('phone', 'POST', '/api/sync/push', { [table]: [{ client_id: 1, server_id: id, deleted_at: at, updated_at: at }] });
+    };
+    const serverRow = async (table, id) => {
+      const pull = await web('phone', 'GET', '/api/sync/pull?since=1970-01-01T00:00:00.000Z');
+      const row = pull[table].find(r => r.id === id);
+      return row ? { deleted: !!row.deleted_at, name: row.name } : null;
+    };
+    const mk = async (name) => {
+      const program = await web('phone', 'POST', '/api/programs', { name: `${name} Plan` });
+      const day = await web('phone', 'POST', '/api/templates', { program_id: program.id, name: `${name} Day` });
+      return { program, day };
+    };
+    const older = await mk('Older'), newer = await mk('Newer'), viaDay = await mk('ViaDay');
+    await syncNow();
+    const held = await q(`SELECT COUNT(*) AS n FROM programs WHERE name LIKE '%Plan'`, []);
+    // Edited on the phone offline first; the rows are deleted after that.
+    await later(1100);
+    offline(true);
+    await api.updateProgram(older.program.id, { name: 'Older Plan edited' });
+    await api.updateTemplate(older.day.id, { name: 'Older Day edited' });
+    offline(false);
+    await later(1100);
+    await deleteOnServer('programs', older.program.id);
+    await deleteOnServer('workout_templates', older.day.id);
+    // Deleted first, edited on the phone after, offline.
+    await deleteOnServer('programs', newer.program.id);
+    await deleteOnServer('workout_templates', newer.day.id);
+    await deleteOnServer('programs', viaDay.program.id);
+    await later(1100);
+    offline(true);
+    await api.updateProgram(newer.program.id, { name: 'Newer Plan edited' });
+    await api.updateTemplate(newer.day.id, { name: 'Newer Day edited' });
+    await api.updateTemplate(viaDay.day.id, { name: 'ViaDay Day edited' });
+    offline(false);
+    await syncNow(); await syncNow();
+    const phone = async (table, id) => (await q(`SELECT name FROM ${table} WHERE id = ? AND deleted_at IS NULL`, [id]))[0]?.name ?? null;
+    return {
+      held: held[0].n,
+      older: {
+        phone: [await phone('programs', older.program.id), await phone('workout_templates', older.day.id)],
+        server: [await serverRow('programs', older.program.id), await serverRow('workout_templates', older.day.id)],
+      },
+      newer: {
+        phone: [await phone('programs', newer.program.id), await phone('workout_templates', newer.day.id)],
+        server: [await serverRow('programs', newer.program.id), await serverRow('workout_templates', newer.day.id)],
+      },
+      viaDay: {
+        phone: [await phone('programs', viaDay.program.id), await phone('workout_templates', viaDay.day.id)],
+        server: [await serverRow('programs', viaDay.program.id), await serverRow('workout_templates', viaDay.day.id)],
+      },
+      refused,
+    };
+  },
+
   // Rows only this phone has, moved out of the way of the server's rows with
   // the same ids, then written to: created on the server first, never lost.
   async movedRows() {

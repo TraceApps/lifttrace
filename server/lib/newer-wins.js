@@ -182,9 +182,10 @@ export function editAfterDelete(at, stamp, deletedAt = null) {
 }
 
 /** field_times with the delete's time, so a later edit made before it can't
- *  bring the row back. */
-export function deletedTimes(req, existing) {
-  return JSON.stringify({ ...fieldTimes(existing), deleted_at: isoTime(editedAt(req)) });
+ *  bring the row back. `times`: what to start from, when not the row's own
+ *  (routes/sync.js pushTimes, which counts a row with none from its last write). */
+export function deletedTimes(req, existing, times = fieldTimes(existing)) {
+  return JSON.stringify({ ...readTimes(times), deleted_at: isoTime(editedAt(req)) });
 }
 
 /** A new row's field_times: made at the create's edit time (a create queued

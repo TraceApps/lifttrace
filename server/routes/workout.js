@@ -14,6 +14,7 @@ import { cleanWorkoutRefs, workoutProgramVisible } from '../lib/program-access.j
 import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, stampMerged, createdTimes, editBringsBack, deletedTimes } from '../lib/newer-wins.js';
 import { syncOf } from '../lib/sync-fields.js';
+import { timesAtDelete } from '../lib/deleted-rows.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -259,6 +260,8 @@ router.put('/:date', wrap((req, res) => {
   const listed = !req.get('x-edited-at') && Array.isArray(req.body.changed_fields) ? req.body.changed_fields : null;
   let fieldTimesNext = applyToBody(req, existing, body, {
     ...syncOf('workout_log'),
+    // A workout brought back is decided as it was deleted (lib/deleted-rows.js).
+    times: existing?.deleted_at ? timesAtDelete(existing) : undefined,
     current: f => existing[f],
     changed: listed,
   });
