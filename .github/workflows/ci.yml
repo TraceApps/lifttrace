@@ -17,11 +17,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Node 20 to match node:20-alpine in the Dockerfile.
+      # Node 24 to match node:24-alpine in the Dockerfile.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install (root)
