@@ -20,7 +20,8 @@ The important reads:
 - `src/lib/api.js` (via `src/lib/apiFetch.js` interceptor), routes API calls between HTTP and native SQLite per platform
 - `src/lib/db-native.js`, on-device SQLite for Android local mode
 - `src/lib/sync.js`, push/pull orchestrator for Android server mode
-- `src/lib/sync-refresh.js`, what a pull changed (`lt:sync-complete` carries `kinds`) and `onSyncChanges(fn, kinds)`, which an open page uses to read its rows again
+- `src/lib/sync-refresh.js`, what a pull changed (`lt:sync-complete` carries `kinds`) and `onSyncChanges(fn, kinds)`, which an open page uses to read its rows again; `onComeBack(fn)` for a page read from the server, read again when the app or window is back in front
+- `src/lib/editor-merge.js`, a sync's newer copy of a workout open in the editor: fields changed there stay, the rest take the newer copy's
 - `src/stores/workout.js`, `currentDate`, `todayLog`, `saveWorkout`, active program
 - `src/stores/player.js`, music player state (Radio + library)
 - `server/db.js`, schema, migrations, sole SQLite entry point

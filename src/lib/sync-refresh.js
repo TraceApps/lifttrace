@@ -66,6 +66,29 @@ export function onSyncChanges(fn, kinds) {
 }
 
 /**
+ * Calls `fn()` when the app comes back to the front: the page shown again
+ * (back from the background, or another tab) or the window focused again.
+ * For a page that reads from the server and that no sync brings (coaching,
+ * progress photos). Only after it was away, so coming back once reads once.
+ * Returns the function that stops listening, for a non-async onMount.
+ */
+export function onComeBack(fn) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
+  let away = false;
+  const leave = () => { away = true; };
+  const back = () => { if (away && document.visibilityState !== 'hidden') { away = false; fn(); } };
+  const onVisibility = () => { if (document.visibilityState === 'hidden') leave(); else back(); };
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('blur', leave);
+  window.addEventListener('focus', back);
+  return () => {
+    document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('blur', leave);
+    window.removeEventListener('focus', back);
+  };
+}
+
+/**
  * Two reads at once (a page opening while a sync ends, or two syncs): only
  * the newest one's answer stands. A page makes `const newest = newestRead();`
  * once, then `const isNewest = newest();` before each read and

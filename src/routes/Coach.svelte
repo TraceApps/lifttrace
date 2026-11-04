@@ -15,6 +15,7 @@
   import CoachTabs from '../components/layout/CoachTabs.svelte';
   import CoachingNeedsServer from '../components/coaching/CoachingNeedsServer.svelte';
   import Conversation from '../components/coaching/Conversation.svelte';
+  import { onComeBack } from '../lib/sync-refresh.js';
 
   const needsServer = coachingNeedsServer();
   let loaded = false;
@@ -34,6 +35,9 @@
     if (!needsServer) await refreshCoaching();
     loaded = true;
   });
+  // A request sent, or coaching ended, while you were away shows when you
+  // come back to the app or the window. The conversation reads its own.
+  onMount(() => onComeBack(() => { if (!needsServer && !busy) refreshCoaching(); }));
 
   // Nothing to show here any more (left, declined, or ended by the coach):
   // back to Programs rather than an empty page.

@@ -16,7 +16,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../../lib/api.js';
-  import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
+  import { onSyncChanges, onComeBack, newestRead } from '../../lib/sync-refresh.js';
   import { weightUnit } from '../../stores/settings.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
@@ -64,9 +64,11 @@
   // sync that succeeded; one that failed leaves the page's.
   const newestRefresh = newestRead();
   let refreshes = 0;
+  const newestPhotos = newestRead();
   async function load() {
     loading = true;
     const refreshesThen = refreshes;
+    const isNewest = newestPhotos();
     try {
       const start = startStr();
       const end = todayStr();
@@ -74,7 +76,7 @@
         LtApi.getProgressPhotos(start, end),
         LtApi.getBodyStatsRange(start, end).catch(() => []),
       ]);
-      photos = photoRes?.photos || [];
+      if (isNewest()) photos = photoRes?.photos || [];
       if (refreshes === refreshesThen) statsByDate = new Map((statsRes || []).map(r => [r.date, r.stats || {}]));
     } catch (e) {
       showError(e.message || $_('progress.toast.load_failed'));
@@ -96,6 +98,22 @@
     } catch { /* what is shown stays */ }
   }
   onMount(() => onSyncChanges(() => { refreshStats(); }, ['bodyStats']));
+
+  // The photos are the server's, and no sync brings them: a photo added or
+  // deleted on the web shows when you come back to the app or the window,
+  // read quietly; a read that fails keeps the ones shown. Not while photos
+  // are picked to compare or one is uploading: that waits until done.
+  async function refreshPhotos() {
+    const isNewest = newestPhotos();
+    try {
+      const res = await LtApi.getProgressPhotos(startStr(), todayStr());
+      if (isNewest()) photos = res?.photos || [];
+    } catch { /* what is shown stays */ }
+  }
+  let comeBackWaiting = false;
+  $: photosBusy = loading || uploading || compareMode;
+  onMount(() => onComeBack(() => { if (photosBusy) comeBackWaiting = true; else refreshPhotos(); }));
+  $: if (!photosBusy && comeBackWaiting) { comeBackWaiting = false; refreshPhotos(); }
 
   // Weight can be logged from the diary, the desktop widget, or the prompt
   // below, so follow the signal the app already broadcasts rather than
@@ -208,6 +226,7 @@
     if (!ok) return;
     try {
       await LtApi.deleteProgressPhoto(photo.id);
+      newestPhotos(); // a read still out from before the delete would bring it back
       photos = photos.filter(p => p.id !== photo.id);
       showSuccess($_('progress.toast.deleted'));
     } catch (e) {

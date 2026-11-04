@@ -1452,6 +1452,7 @@
     }
   },
   "workout_editor": {
+    "gone": "This workout was deleted elsewhere, so your changes here can't be saved.",
     "toast": {
       "removed_from_ss":   "Removed from superset",
       "added_to_ss":       "Added to superset",

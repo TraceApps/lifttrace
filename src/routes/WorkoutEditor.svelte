@@ -4,6 +4,8 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
+  import { onSyncChanges, newestRead } from '../lib/sync-refresh.js';
+  import { mergeTemplate } from '../lib/editor-merge.js';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
   import { diffTombstones } from '../lib/workout-uuid.js';
   import { showSuccess, showError } from '../stores/toast.js';
@@ -98,15 +100,51 @@
   let programMaker = null;
   $: othersProgram = !!($userMgmtActive && $currentUser && programMaker != null && programMaker !== $currentUser.id);
 
+  // The copy the editor opened with, or last took in from a sync: what you
+  // changed is what differs from it (lib/editor-merge.js).
+  let _base = null;
+  const _copy = v => JSON.parse(JSON.stringify(v ?? null));
+  const newest = newestRead();
+
   onMount(async () => {
+    const isNewest = newest();
     try {
-      template = await LtApi.getTemplate(params.templateId);
-      _originalExercises = template?.exercises || [];
+      const got = await LtApi.getTemplate(params.templateId);
+      if (isNewest()) { template = got; _originalExercises = template?.exercises || []; _base = _copy(template); }
     }
     catch(e) { showError(e.message); }
     loading = false;
     try { programMaker = (await LtApi.getProgram(params.programId))?.created_by ?? null; } catch {}
   });
+
+  // A sync that changed this workout (on the web, or by its coach) shows here
+  // at once: each field you haven't changed in the editor takes the new
+  // value, and the ones you have keep yours. One deleted elsewhere says so,
+  // and can't be saved. While a sheet or menu is open, a save is out, or you
+  // are in one of the exercises' fields (a list taken in would move it under
+  // you), the read waits until you're done.
+  let gone = false;
+  let syncWaiting = false;
+  let inField = false;
+  const isField = el => !!el?.matches?.('input, textarea, select');
+  function onFocusOut(e) { inField = isField(e.relatedTarget) && e.currentTarget.contains(e.relatedTarget); }
+  $: syncBusy = loading || saving || inField || showPicker || asOpen || ssPickerOpen || ssAsOpen || ssMergePickerOpen || infoSheetOpen || loadMenuIdx != null;
+  async function refreshFromSync() {
+    if (!template || gone) return;
+    const isNewest = newest();
+    let fresh;
+    try { fresh = await LtApi.getTemplate(params.templateId); }
+    catch { return; } // what is shown stays
+    if (!isNewest() || !template) return;
+    if (syncBusy) { syncWaiting = true; return; } // something opened while it was read
+    if (!fresh) { gone = true; return; }
+    const { template: merged, listFrom } = mergeTemplate(_base, template, fresh);
+    template = merged;
+    if (listFrom === 'fresh') _originalExercises = fresh.exercises || [];
+    _base = _copy(fresh);
+  }
+  onMount(() => onSyncChanges(() => { if (syncBusy) syncWaiting = true; else refreshFromSync(); }, ['templates', 'programs']));
+  $: if (!syncBusy && syncWaiting) { syncWaiting = false; refreshFromSync(); }
 
   // ── Helpers ────────────────────────────────────────────────────────
   function newSsId() {
@@ -745,6 +783,7 @@
   }
 
   async function save() {
+    if (gone) return;
     saving = true;
     try {
       const deleted_uuids = diffTombstones(_originalExercises, template.exercises);
@@ -765,7 +804,7 @@
     {#if template}
       <input class="title-input" type="text" bind:value={template.name} placeholder={$_('workout_editor.name_ph')} readonly={othersProgram} />
       {#if !othersProgram}
-      <button class="btn btn-primary save-btn" on:click={save} disabled={saving}>
+      <button class="btn btn-primary save-btn" on:click={save} disabled={saving || gone}>
         {saving ? 'Saving...' : 'Save'}
       </button>
       {/if}
@@ -777,7 +816,13 @@
   {#if loading}
     <Spinner block label="Loading template…" />
   {:else if template}
-    <div class="content">
+    <div class="content" on:focusin={e => inField = isField(e.target)} on:focusout={onFocusOut}>
+      {#if gone}
+        <div class="gone-banner" role="status">
+          <span class="material-symbols-rounded" style="font-size:16px">delete</span>
+          {$_('workout_editor.gone')}
+        </div>
+      {/if}
       {#if durationWeeks > 1}
         <!-- Week tab strip — switches which plan week's targets are edited.
              The copy arrow sits between the active week and the next, and is
@@ -1158,6 +1203,14 @@
 </Sheet>
 
 <style>
+  .gone-banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; margin-bottom: 8px;
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
+    border-radius: var(--radius-md);
+    font-size: 13px; color: var(--warning);
+  }
   .page { min-height: 100dvh; background: var(--bg); padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + var(--mini-player-h, 0px) + 16px); }
 
   /* page-header styled globally in base.css */

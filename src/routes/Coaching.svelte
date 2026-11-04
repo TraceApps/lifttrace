@@ -20,6 +20,7 @@
   import CoachingNeedsServer from '../components/coaching/CoachingNeedsServer.svelte';
   import Conversation from '../components/coaching/Conversation.svelte';
   import { excuseIcon } from '../lib/excused-view.js';
+  import { onComeBack, newestRead } from '../lib/sync-refresh.js';
 
   // Android with no server: say so, never an empty list.
   const needsServer = coachingNeedsServer();
@@ -76,11 +77,13 @@
   let editPxNotes = '';
   let editPxSaving = false;
 
-  async function loadMembers() {
-    loadingList = true;
+  // quiet: read again on coming back to the app, without the loading state;
+  // a quiet read that fails keeps what is shown.
+  async function loadMembers({ quiet = false } = {}) {
+    if (!quiet) loadingList = true;
     try { members = await LtApi.getMyMembers(); }
-    catch(e) { showError(e.message); members = []; }
-    loadingList = false;
+    catch(e) { if (!quiet) { showError(e.message); members = []; } }
+    if (!quiet) loadingList = false;
   }
 
   // Asked for only when this coach has requests waiting or answered this
@@ -130,9 +133,9 @@
     await refreshCoaching();
   }
 
-  async function loadActivity() {
+  async function loadActivity({ quiet = false } = {}) {
     try { activity = await LtApi.getCoachActivity(50); }
-    catch { activity = []; }
+    catch { if (!quiet) activity = []; }
   }
 
   async function markActivitySeen(id) {
@@ -445,15 +448,20 @@
     } catch(e) { showError(e.message); }
   }
 
-  async function loadOverview(id) {
-    loadingOverview = true;
-    overview = null;
-    prescriptions = [];
+  // quiet: as loadMembers. Only the newest read sets the page, and only for
+  // the client still shown.
+  const newestOverview = newestRead();
+  async function loadOverview(id, { quiet = false } = {}) {
+    const isNewest = newestOverview();
+    quiet = quiet && !loadingOverview; // the first read is still out: this one stands in for it
+    if (!quiet) { loadingOverview = true; overview = null; prescriptions = []; }
     try {
-      overview = await LtApi.getMemberOverview(id);
-      prescriptions = await LtApi.getMemberPrescriptions(id);
-    } catch(e) { showError(e.message); }
-    loadingOverview = false;
+      const got = await LtApi.getMemberOverview(id);
+      if (isNewest() && id === memberId) overview = got;
+      const px = await LtApi.getMemberPrescriptions(id);
+      if (isNewest() && id === memberId) prescriptions = px;
+    } catch(e) { if (isNewest() && !quiet) showError(e.message); }
+    if (isNewest()) loadingOverview = false;
   }
 
   async function openPrescribe() {
@@ -487,6 +495,7 @@
       });
       showSuccess($_('coaching.toast.workout_prescribed'));
       showPrescribe = false;
+      newestOverview(); // a read still out from before this change would put the old list back
       prescriptions = await LtApi.getMemberPrescriptions(memberId);
     } catch(e) { showError(e.message); }
     pxSaving = false;
@@ -540,6 +549,7 @@
       });
       showSuccess($_('coaching.toast.prescription_updated'));
       showEditPrescription = false;
+      newestOverview(); // a read still out from before this change would put the old list back
       prescriptions = await LtApi.getMemberPrescriptions(memberId);
     } catch(e) { showError(e.message); }
     editPxSaving = false;
@@ -549,6 +559,7 @@
     if (!await confirmDialog({ title: $_('coaching.confirm.remove_prescription_title'), message: $_('coaching.confirm.remove_prescription_msg'), confirmText: $_('coaching.confirm.remove_confirm'), dangerous: true })) return;
     try {
       await LtApi.deletePrescription(id);
+      newestOverview(); // a read still out from before this change would put the old list back
       prescriptions = prescriptions.filter(p => p.id !== id);
       showSuccess($_('coaching.toast.prescription_removed'));
     } catch(e) { showError(e.message); }
@@ -563,6 +574,16 @@
     await Promise.all([loadMembers(), loadActivity()]);
     _listReady = true;
   });
+  // What a client or the server changed while you were away (a workout
+  // logged, a request answered) shows when you come back to the app or the
+  // window, read quietly. An open workout and the notes you're typing on it
+  // are not read again, nor is a form you're filling in.
+  onMount(() => onComeBack(() => {
+    if (needsServer) return;
+    if ($inCoaching) refreshCoaching();
+    if (memberId) loadOverview(memberId, { quiet: true });
+    else if (_listReady) { loadMembers({ quiet: true }); loadActivity({ quiet: true }); }
+  }));
 
   $: if (memberId && !needsServer) loadOverview(memberId).then(() => {
     // Activity-feed deep-link: an activity row stashed { memberId, date }

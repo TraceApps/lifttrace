@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { pullKinds, syncTouched, onSyncChanges, newestRead } from '../src/lib/sync-refresh.js';
+import { pullKinds, syncTouched, onSyncChanges, onComeBack, newestRead } from '../src/lib/sync-refresh.js';
 
 test('pullKinds: the kinds a pull brought rows for', () => {
   assert.deepEqual(pullKinds({}), []);
@@ -127,6 +127,7 @@ const PAGES = {
   'src/components/settings/SettingsCatalog.svelte': ['exercises'],
   'src/components/diary/ExerciseCard.svelte': ['workouts'],
   'src/components/diary/BodyStats.svelte': ['bodyStats'],
+  'src/routes/WorkoutEditor.svelte': ['templates', 'programs'],
 };
 for (const [page, kinds] of Object.entries(PAGES)) {
   test(`${page} listens for ${kinds.join(', ')}`, () => {
@@ -179,4 +180,54 @@ test("the side rail's Body Stats summary stops listening when the Diary closes",
   for (const [, type, fn] of adds) {
     assert.match(src, new RegExp(`return \\(\\) => window\\.removeEventListener\\('${type}', ${fn}\\)`), `${type} is taken away by its onMount`);
   }
+});
+
+test('onComeBack: once per coming back, from the background or another window, and stops when told', () => {
+  const on = new Map();
+  const target = () => ({
+    addEventListener: (t, f) => { on.set(t, [...(on.get(t) || []), f]); },
+    removeEventListener: (t, f) => { on.set(t, (on.get(t) || []).filter(x => x !== f)); },
+  });
+  globalThis.window = target();
+  globalThis.document = { ...target(), visibilityState: 'visible' };
+  try {
+    const fire = t => (on.get(t) || []).slice().forEach(f => f());
+    let n = 0;
+    const off = onComeBack(() => n++);
+    fire('focus');
+    assert.equal(n, 0, 'focus without having left reads nothing');
+    document.visibilityState = 'hidden'; fire('visibilitychange'); fire('blur');
+    document.visibilityState = 'visible'; fire('visibilitychange'); fire('focus');
+    assert.equal(n, 1, 'shown and focused again: one read');
+    fire('blur'); fire('focus');
+    assert.equal(n, 2, 'another window and back');
+    off();
+    assert.equal([...on.values()].flat().length, 0, 'nothing left behind');
+  } finally { delete globalThis.window; delete globalThis.document; }
+});
+
+test('the server-read pages read again when you come back, and keep what you type', () => {
+  for (const page of ['src/routes/Coaching.svelte', 'src/routes/Coach.svelte', 'src/components/progress-photos/ProgressPhotosTimeline.svelte']) {
+    const src = readFileSync(join(root, page), 'utf8');
+    assert.match(src, /onMount\(\(\) => onComeBack\(/, `${page}: from a plain onMount, so it stops listening`);
+    assert.doesNotMatch(src, /setInterval\(/, `${page}: no timer`);
+  }
+  const co = readFileSync(join(root, 'src/routes/Coaching.svelte'), 'utf8');
+  const back = co.slice(co.indexOf('onMount(() => onComeBack('), co.indexOf('}));', co.indexOf('onMount(() => onComeBack(')));
+  assert.match(back, /loadOverview\(memberId, \{ quiet: true \}\)/);
+  assert.match(back, /loadMembers\(\{ quiet: true \}\)/);
+  assert.doesNotMatch(back, /openWorkoutDetail|workoutNote|exerciseNotes/, 'an open workout and its notes are not read again');
+  const pt = readFileSync(join(root, 'src/components/progress-photos/ProgressPhotosTimeline.svelte'), 'utf8');
+  assert.match(pt, /photosBusy = loading \|\| uploading \|\| compareMode/, 'photos picked to compare wait');
+});
+
+test('the workout editor takes in a sync field by field, and says when the workout is gone', () => {
+  const src = readFileSync(join(root, 'src/routes/WorkoutEditor.svelte'), 'utf8');
+  assert.match(src, /mergeTemplate\(_base, template, fresh\)/);
+  assert.match(src, /if \(!fresh\) \{ gone = true; return; \}/);
+  assert.match(src, /async function save\(\) \{\s+if \(gone\) return;/, 'a deleted workout is not saved into');
+  assert.match(src, /\$_\('workout_editor\.gone'\)/);
+  assert.match(src, /\$: if \(!syncBusy && syncWaiting\)/, 'a read under an open sheet waits');
+  assert.match(src, /\$: syncBusy = loading \|\| saving \|\| inField \|\|/, 'and one while you are in a field');
+  assert.match(src, /if \(syncBusy\) \{ syncWaiting = true; return; \}/, 'and one that finds a sheet opened while it was read');
 });
