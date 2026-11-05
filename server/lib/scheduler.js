@@ -8,6 +8,7 @@ import { buildWeeklySummary, summaryLine } from './weekly-summary.js';
 import { isBackupDue } from './backup-schedule.js';
 import { trainedDateSet, cardioCounts } from './trained-days.js';
 import { getExcusedDay, listExcusedDays } from './excused-days.js';
+import { zoneFor } from './user-zone.js';
 
 /**
  * Server-side scheduler — runs every 15 minutes.
@@ -39,7 +40,7 @@ function _localHour(timezone) {
     // hourCycle h23, not hour12: false: with that, Node 20's ICU writes the
     // hour after midnight as "24", and nothing set for 00:00 to 00:59 fired.
     const str = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone || 'UTC',
+      timeZone: timezone,
       hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
     }).format(new Date());
     const [h, m] = str.split(':').map(Number);
@@ -80,7 +81,7 @@ function _shiftDay(iso, n) {
 
 function _todayStr(timezone) {
   try {
-    return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone || 'UTC' }).format(new Date());
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone }).format(new Date());
   } catch {
     return new Date().toISOString().slice(0, 10);
   }
@@ -135,7 +136,9 @@ async function _checkBackupSchedule() {
 }
 
 async function _processUser(userId) {
-  const tz = _getUserSetting(userId, 'timezone', null);
+  // The zone the account's app said last, else the server's own
+  // (lib/user-zone.js), never UTC for want of one. Undefined is the server's.
+  const tz = zoneFor(userId);
   const localTime = _localHour(tz);
   const today = _todayStr(tz);
 
@@ -271,7 +274,7 @@ async function _processUser(userId) {
 
 function _localWeekday(timezone) {
   try {
-    const name = new Intl.DateTimeFormat('en-US', { timeZone: timezone || 'UTC', weekday: 'short' }).format(new Date());
+    const name = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(new Date());
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(name);
   } catch {
     return new Date().getDay();

@@ -109,10 +109,12 @@ changes, and a different zone only once the one kept is 12 hours old, so two
 devices in two zones don't swap it all day), so a caller that isn't the
 athlete (the coach's view of a
 client, with its streak, MCP, `/api/v1`, the webhook, a prescription
-counted as missed, `/api/stats/streaks`, and the scheduler, which always
-read that setting) uses the athlete's "today". With none kept the order is
+counted as missed, `/api/stats/streaks`, the coach's client list (its
+`week_count`, workouts in the last seven days), a client's waiting and
+upcoming prescriptions, and the scheduler's reminders and weekly summary)
+uses the athlete's "today". With none kept the order is
 `zoneFor`: the zone kept, else the zone on the coach's own request (`?tz=`
-on `/api/trainer/members/:id`, passed as `fallbackZone`, used for that
+on `/api/trainer/members` and `/api/trainer/members/:id`, passed as `fallbackZone`, used for that
 request and never stored), else the server's; paths with no request (the
 scheduler, the missed-prescription scan, the webhook) never see a coach's. Programs advanced by sessions never pause. The Programs card's
 "Week N" for a one-week program counts the same calendar days

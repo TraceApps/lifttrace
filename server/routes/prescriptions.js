@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { coachesClient, notifyPrescriptionAnswer } from '../lib/coaching.js';
+import { userToday } from '../lib/user-zone.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -43,12 +44,12 @@ router.get('/my/upcoming/list', wrap((req, res) => {
      LEFT JOIN programs p ON p.id = wt.program_id
      LEFT JOIN users u ON u.id = cp.trainer_id
      WHERE cp.member_id = ? AND cp.status != 'declined'
-       -- From yesterday (UTC): the server can't know the client's day, and
-       -- today's prescription must not drop out in a time zone behind UTC.
-       -- The same window the waiting count (the dot) uses.
-       AND (cp.date IS NULL OR cp.date >= date('now', '-1 day'))
+       -- From the client's today (lib/user-zone.js: the zone their app said
+       -- last, else the server's). The same window the waiting count (the
+       -- dot) uses.
+       AND (cp.date IS NULL OR cp.date >= ?)
      ORDER BY cp.date IS NULL, cp.date ASC`
-  ).all(userId);
+  ).all(userId, userToday(userId));
   res.json(rows.map(parse));
 }));
 

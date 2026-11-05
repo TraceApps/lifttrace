@@ -18,6 +18,7 @@ import db from '../db.js';
 import { userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { pushNotifyDefaultOn } from './push-notify.js';
+import { userToday } from './user-zone.js';
 
 /** What /api/auth/status reports, so an app can hide coaching on an older
  *  server: 1 consent, 2 the conversation. */
@@ -143,12 +144,12 @@ export function coachingState(userId) {
   const asClientUnread = row ? unread(row.id) : 0;
   const requests = rows.filter(r => r.status === 'pending');
   // Prescriptions from the coach waiting for an answer (dated ones until
-  // the day after their date, as the server can't know the client's day).
+  // their date has passed, in the client's zone: lib/user-zone.js).
   const prescriptions = row ? db.prepare(`
     SELECT COUNT(*) AS c FROM coach_prescriptions
      WHERE member_id = ? AND trainer_id = ? AND status = 'pending'
-       AND (date IS NULL OR date >= date('now', '-1 day'))
-  `).get(userId, row.coach_id).c : 0;
+       AND (date IS NULL OR date >= ?)
+  `).get(userId, row.coach_id, userToday(userId)).c : 0;
   return {
     role,
     can_coach: canCoach(role),

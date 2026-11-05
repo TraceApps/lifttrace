@@ -13,7 +13,7 @@ import { trainedDateSet } from '../lib/trained-days.js';
 import { currentStreak, shiftDate } from '../../src/lib/trained-day.js';
 import { getExcusedDay, listExcusedDays } from '../lib/excused-days.js';
 import { getActiveProgramCore } from '../lib/mcp/tools/get-active-program.js';
-import { userToday } from '../lib/user-zone.js';
+import { shiftDay, userToday } from '../lib/user-zone.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -54,9 +54,11 @@ router.get('/members', wrap((req, res) => {
     const last = db.prepare(
       `SELECT date FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL ORDER BY date DESC LIMIT 1`
     ).get(u.id);
+    // The last seven days and today, in the client's zone: the one their app
+    // said, else the coach's (?tz=, this request only), else the server's.
     const weekCount = db.prepare(
-      `SELECT COUNT(*) as c FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL AND date >= date('now', '-7 days')`
-    ).get(u.id)?.c || 0;
+      `SELECT COUNT(*) as c FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL AND date >= ?`
+    ).get(u.id, shiftDay(userToday(u.id, { fallbackZone: req.query?.tz }), -7))?.c || 0;
     // Messages from this client the coach hasn't read (the conversation).
     const unread = db.prepare(
       `SELECT COUNT(*) AS c FROM coach_messages WHERE pairing_id = ? AND sender_id != ? AND read_at IS NULL AND deleted_at IS NULL`

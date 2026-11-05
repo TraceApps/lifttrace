@@ -10,7 +10,9 @@
  * Read where the server works out an account's "today" without the account
  * asking: the coach's view of a client, a client's missed prescriptions,
  * MCP get_active_program, /api/v1 and the program.advanced webhook (through
- * program-pause.js), and the streaks. With none kept, the order is:
+ * program-pause.js), the streaks, the coach's client list (workouts this
+ * week), a client's waiting prescriptions, and the scheduler's reminders and
+ * weekly summary. With none kept, the order is:
  *   1. the zone the account's own app said last (kept, above);
  *   2. the zone the coach's browser or app is saying right now (`?tz=` on
  *      the coach's request), when a coach is viewing a client: used for that
@@ -80,4 +82,11 @@ export function rememberZone(userId, zone, now = Date.now()) {
 /** Today (YYYY-MM-DD) for `userId`: see zoneFor; the server's when neither is known. */
 export function userToday(userId, { fallbackZone, now = Date.now() } = {}) {
   return dayOf(now, zoneFor(userId, fallbackZone));
+}
+
+/** A YYYY-MM-DD moved by `n` calendar days. */
+export function shiftDay(ymd, n) {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
