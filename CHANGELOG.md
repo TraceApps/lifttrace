@@ -74,6 +74,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **A program deleted by another app, or held deleted in a restored backup, no longer shows.** A program or program workout deleted through the sync API (a third-party client) still showed on Programs, on its own page, in a coach's view of a client, in the workout reminder and through MCP and the public API, and could still be started, set to a week, reordered or assigned. It is now hidden everywhere, and those actions answer that it's gone. Editing it after the delete still brings it back, as before.
 - **Reminders, a coach's client list and waiting prescriptions follow your clock.** With no time zone known for an account, reminders and the weekly summary went by UTC instead of the server's time zone. A coach's client list counted this week's workouts by UTC's days, and prescriptions waiting for an answer counted from yesterday in UTC. All of them now use the time zone your app last told the server, else the server's own, as the rest of the server does.
 - **On the Android app, the Diary's side rail shows the body stats you just saved.** Right after saving the Body Stats sheet, the side rail showed the values from before (an old waist, say) until the next sync. A save that reaches your server now updates the phone's own copy at once.
+- **Skip, Keep Server Only on the Android app's connect screen can be translated,** like the choices above it.
 
 ### Security
 

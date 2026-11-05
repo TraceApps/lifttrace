@@ -453,7 +453,7 @@
         </button>
 
         <button class="btn btn-ghost migrate-skip" on:click={migrateSkip} disabled={migrateBusy}>
-          Skip — keep server only
+          {$_('native_setup.skip_keep_server')}
         </button>
       </div>
 

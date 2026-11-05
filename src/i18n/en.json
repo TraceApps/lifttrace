@@ -1370,6 +1370,7 @@
     "upload_to_server":        "Upload to Server",
     "replace_with_server":     "Replace with Server",
     "merge_both":              "Merge Both",
+    "skip_keep_server":        "Skip, Keep Server Only",
     "migration_complete":      "Migration complete",
     "continue":                "Continue"
   },
