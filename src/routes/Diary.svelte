@@ -1794,15 +1794,17 @@
     // Kill any rest still counting down.
     stopRest(false);
     // Not when the server says it was finished already: the watch finished
-    // it while this Diary showed an older copy, and the server has said so.
-    if (saveMadeTheFinish(saved) !== false) celebrateWorkoutComplete(workoutName);
+    // it while this Diary showed an older copy, and the server has said it
+    // and sent the calories (server/lib/watch-finish.js).
+    const finishedHere = saveMadeTheFinish(saved) !== false;
+    if (finishedHere) celebrateWorkoutComplete(workoutName);
     // Push the completed workout's estimated calories to NutriTrace if the
     // user has federation set up + calorie estimation on. Fire-and-forget
     // — failures show a soft toast but don't block the summary. The
     // external_id is the natural per-user-per-date key (LT has UNIQUE
     // (user_id, date) on workout_log, so one workout per day), which lets
     // NT idempotently update when the user amends a workout afterwards.
-    if ($ntFederationEnabled && $caloriesBurnedEnabled) {
+    if (finishedHere && $ntFederationEnabled && $caloriesBurnedEnabled) {
       _pushWorkoutToNutriTrace({ finalDuration }).catch(() => {});
     }
     if (auto) {

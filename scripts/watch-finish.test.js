@@ -19,7 +19,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
@@ -305,4 +305,13 @@ test('a detail the phone did change still counts, and a queued save counts all i
   const later = new Date(Date.now() + 1000).toISOString();
   const replay = (await call('PUT', `/api/workout/${date}`, { ...workout, name: 'Renamed offline', changed_fields: [] }, { 'X-Edited-At': later })).workout;
   assert.equal(replay.name, 'Renamed offline');
+});
+
+test("the Diary's Finish says Workout Complete and sends calories only for a finish its save made", () => {
+  const diary = readFileSync(new URL('../src/routes/Diary.svelte', import.meta.url), 'utf8');
+  assert.match(diary, /const saved = await saveWorkout\(\$currentDate, \{\s*\.\.\.\(\$todayLog \|\| \{\}\),\s*duration_min: finalDuration,\s*completed: 1,\s*\}\);/);
+  assert.match(diary, /const finishedHere = saveMadeTheFinish\(saved\) !== false;\s*if \(finishedHere\) celebrateWorkoutComplete\(workoutName\);/);
+  assert.match(diary, /if \(finishedHere && \$ntFederationEnabled && \$caloriesBurnedEnabled\) \{\s*_pushWorkoutToNutriTrace/);
+  const server = readFileSync(new URL('../server/routes/workout.js', import.meta.url), 'utf8');
+  assert.match(server, /finished: !!\(workout\?\.completed && !wasCompleted\)/);
 });
