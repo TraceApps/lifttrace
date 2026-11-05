@@ -594,6 +594,9 @@ changes it later.
   (nor a day of a deleted program), the coach's view of a client, MCP and
   REST v1 (`list_programs`, `get_active_program`, `start_program_workout`),
   the workout reminder, or, without accounts, the pull's program followed;
+  a coach's prescription of such a day is hidden too (the client's day,
+  upcoming list and waiting count, the coach's list, and the missed scan:
+  `LIVE_PRESCRIPTION_SQL` in `server/lib/program-access.js`);
   activate, the week cursor and assign answer a deleted program as not
   found (404), and the pull still sends it (deleted). Reorder is an edit of
   its days and meets the delete as `PUT /api/programs/:id` does (gone if

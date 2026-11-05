@@ -18,6 +18,7 @@ import { logger } from '../logger.js';
 import { pushNotify } from './push-notify.js';
 import { getExcusedDay } from './excused-days.js';
 import { userToday } from './user-zone.js';
+import { LIVE_PRESCRIPTION_SQL } from './program-access.js';
 
 const REASON_LABEL = { injury: 'Injury', illness: 'Illness', appointment: 'Appointment', other: 'Other' };
 
@@ -125,6 +126,8 @@ export function checkMissedPrescriptions() {
      WHERE cp.date IS NOT NULL
        AND cp.date <= ?
        AND cp.status != 'declined'
+       -- Not one of a day deleted elsewhere: it was never there to do.
+       AND ${LIVE_PRESCRIPTION_SQL}
        AND NOT EXISTS (
          SELECT 1 FROM coach_activity ca
           WHERE ca.prescription_id = cp.id

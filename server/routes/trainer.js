@@ -3,7 +3,7 @@ import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid } from '../middleware/auth.js';
-import { templateFor, toId } from '../lib/program-access.js';
+import { LIVE_PRESCRIPTION_SQL, templateFor, toId } from '../lib/program-access.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { setVolume } from '../lib/volume.js';
 import { sendCoachFeedback, isEmailConfigured } from '../email.js';
@@ -349,7 +349,7 @@ router.get('/members/:id/prescriptions', wrap((req, res) => {
      LEFT JOIN workout_templates wt ON wt.id = cp.template_id
      LEFT JOIN programs p ON p.id = wt.program_id
      LEFT JOIN excused_days ed ON ed.user_id = cp.member_id AND ed.date = cp.date AND ed.deleted_at IS NULL
-     WHERE cp.member_id = ?
+     WHERE cp.member_id = ? AND ${LIVE_PRESCRIPTION_SQL}
      ORDER BY COALESCE(cp.date, cp.created_at) DESC`
   ).all(memberId);
   res.json(rows.map(parsePrescription));

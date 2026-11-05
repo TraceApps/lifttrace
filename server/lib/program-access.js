@@ -63,6 +63,16 @@ export function programFor(id, userId) {
   return { program, canSee: canSeeProgram(program, userId), canChange: canChangeProgram(program, userId) };
 }
 
+/**
+ * SQL (alias cp) for "a prescription that is there to read": one with no
+ * day of its own, or whose day and program are not deleted elsewhere (a
+ * third-party client's push, a restored backup), as the day's own readers
+ * hide them (GET /api/templates/:id).
+ */
+export const LIVE_PRESCRIPTION_SQL = `(cp.template_id IS NULL OR EXISTS (
+         SELECT 1 FROM workout_templates lt JOIN programs lp ON lp.id = lt.program_id
+          WHERE lt.id = cp.template_id AND lt.deleted_at IS NULL AND lp.deleted_at IS NULL))`;
+
 /** SQL (aliases t and p) for "workout days this account may see". */
 export function visibleTemplatesSql(userId) {
   const v = visibleProgramsSql(userId);

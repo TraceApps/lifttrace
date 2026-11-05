@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { coachesClient, notifyPrescriptionAnswer } from '../lib/coaching.js';
 import { userToday } from '../lib/user-zone.js';
+import { LIVE_PRESCRIPTION_SQL } from '../lib/program-access.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -27,6 +28,7 @@ router.get('/my/:date', wrap((req, res) => {
      LEFT JOIN programs p ON p.id = wt.program_id
      LEFT JOIN users u ON u.id = cp.trainer_id
      WHERE cp.member_id = ? AND cp.date = ? AND cp.status != 'declined'
+       AND ${LIVE_PRESCRIPTION_SQL}
      ORDER BY cp.created_at DESC, cp.id DESC LIMIT 1`
   ).get(userId, req.params.date);
   res.json(parse(row));
@@ -48,6 +50,7 @@ router.get('/my/upcoming/list', wrap((req, res) => {
        -- last, else the one this request says, else the server's). The same
        -- window the waiting count (the dot) uses.
        AND (cp.date IS NULL OR cp.date >= ?)
+       AND ${LIVE_PRESCRIPTION_SQL}
      ORDER BY cp.date IS NULL, cp.date ASC`
   ).all(userId, userToday(userId, { fallbackZone: req.query?.tz }));
   res.json(rows.map(parse));

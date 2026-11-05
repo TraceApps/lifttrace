@@ -19,6 +19,7 @@ import { userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { pushNotifyDefaultOn } from './push-notify.js';
 import { userToday } from './user-zone.js';
+import { LIVE_PRESCRIPTION_SQL } from './program-access.js';
 
 /** What /api/auth/status reports, so an app can hide coaching on an older
  *  server: 1 consent, 2 the conversation. */
@@ -146,9 +147,10 @@ export function coachingState(userId) {
   // Prescriptions from the coach waiting for an answer (dated ones until
   // their date has passed, in the client's zone: lib/user-zone.js).
   const prescriptions = row ? db.prepare(`
-    SELECT COUNT(*) AS c FROM coach_prescriptions
+    SELECT COUNT(*) AS c FROM coach_prescriptions cp
      WHERE member_id = ? AND trainer_id = ? AND status = 'pending'
        AND (date IS NULL OR date >= ?)
+       AND ${LIVE_PRESCRIPTION_SQL}
   `).get(userId, row.coach_id, userToday(userId)).c : 0;
   return {
     role,
