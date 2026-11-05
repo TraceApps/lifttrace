@@ -1662,7 +1662,10 @@ async function _applySettings(rows, result, guard = _NO_GUARD) {
   for (const s of rows) {
     _assertAlive();
     if (!s.key) continue;
-    if (queued.has(s.key) || isRecentlyChanged(s.key)) { guard.skip(s.updated_at); continue; }
+    // Asked for again from its own time: a deleted one has only deleted_at,
+    // and none read as 1970, which dropped the cursor to a full pull that
+    // (for a phone holding none of its own rows) says no deletes.
+    if (queued.has(s.key) || isRecentlyChanged(s.key)) { guard.skip(s.updated_at || s.deleted_at); continue; }
     // Deleted on the server: back to its default here too.
     if (s.deleted_at) {
       await dbRun(`DELETE FROM user_settings WHERE key = ?`, [s.key]);

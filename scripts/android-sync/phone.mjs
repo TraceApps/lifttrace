@@ -553,6 +553,40 @@ const scenarios = {
     const server = await web('phone', 'GET', '/api/settings');
     return { before, after: shown(), server: { restDuration: server.restDuration ?? null, restAutoStart: server.restAutoStart ?? null, weightUnit: server.weightUnit ?? null } };
   },
+  // A setting deleted on the server (DELETE /api/settings) while the phone,
+  // offline, had changed it: the phone pulls while that change is still
+  // waiting to go up (the server answering 503 for it), so the pull leaves
+  // the key alone. Once it goes up (and loses to the reset), the reset still
+  // reaches the phone, which holds no workouts, programs or exercises of its
+  // own (so a full pull of it says no deletions).
+  async settingsResetWhileQueued() {
+    me();
+    const events = new EventTarget();
+    globalThis.addEventListener = events.addEventListener.bind(events);
+    globalThis.removeEventListener = events.removeEventListener.bind(events);
+    globalThis.dispatchEvent = events.dispatchEvent.bind(events);
+    const { get } = await import('svelte/store');
+    const st = await import('../../src/stores/settings.js');
+    await web('phone', 'PUT', '/api/settings', { key: 'restDuration', value: 120 });
+    await syncNow();
+    const before = get(st.restDuration);
+    offline(true);
+    st.restDuration.set(150);
+    await st.flushSettingSaves();
+    await later(1500);
+    await web('phone', 'DELETE', '/api/settings');
+    await later(10500);
+    offline(false);
+    // The change can't go up yet: the pulls run with it still queued.
+    globalThis.__httpHook = async (method, o) => (method === 'PUT' && /\/api\/settings(\?|$)/.test(o.url) ? { status: 503, data: { error: 'busy' } } : null);
+    await syncNow(); await syncNow();
+    const whileQueued = { shown: get(st.restDuration) };
+    globalThis.__httpHook = null;
+    for (let i = 0; i < 4; i++) await syncNow();
+    const server = await web('phone', 'GET', '/api/settings');
+    const queued = (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    return { before, whileQueued, after: get(st.restDuration), server: server.restDuration ?? null, queued };
+  },
   async offlineIds() {
     // What stores/auth.js keeps for the signed-in account (not account 1).
     me();

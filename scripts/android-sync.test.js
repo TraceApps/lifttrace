@@ -387,6 +387,15 @@ test('settings deleted on the server (DELETE /api/settings) reach the phone; a c
   assert.deepEqual(out.after, { restDuration: 90, restAutoStart: false, weightUnit: 'lbs' }, 'the phone shows the same: defaults, and the change made after the reset');
 });
 
+test('a setting deleted on the server reaches the phone even when it pulled while its own change of it waited', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('settingsResetWhileQueued');
+  assert.equal(out.before, 120);
+  assert.equal(out.whileQueued.shown, 150, 'kept while its change waits');
+  assert.equal(out.server, null, 'the change made before the reset stays reset on the server');
+  assert.equal(out.queued, 0);
+  assert.equal(out.after, 90, 'and the phone goes back to the default (dev: it kept 150 for good)');
+});
+
 test('body stats saved online show on the phone at once, before the next sync', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('bodyStatsSavedOnline');
   assert.deepEqual(out.before, { weight: 80, waist: 90 });
