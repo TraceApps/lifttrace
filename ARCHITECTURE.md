@@ -509,7 +509,11 @@ changes it later.
   write names them. The server also sends rows deleted outright
   (`sync_deletions`), the full list of programs and program workouts the
   account may keep, and, without user accounts, the program being
-  followed; the pull is gzipped. The local copy, its queue included,
+  followed; the pull is gzipped. A save that reaches the server online
+  updates the copy too (a workout, an excused day, a day's body stats:
+  `src/lib/apiFetch.js` `_mirrorWorkoutWrite`), unless a queued change of
+  the same row is waiting, so the pages that read the copy first show it
+  at once. The local copy, its queue included,
   belongs to one account on one server (`src/lib/local-account.js`,
   tagged with the server's `instance_id` from `/api/auth/status`, its
   address and the user id; a copy from before tags is tagged at startup

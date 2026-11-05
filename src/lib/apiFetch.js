@@ -355,10 +355,16 @@ let _localWrites = Promise.resolve();
 // only follows it while that account still holds it.
 async function _mirrorWorkoutWrite(url, method, res, gen) {
   try {
-    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate, forgetDeletedRow, mirrorExcusedWrite } = await import('./sync.js');
+    const { workoutDateOf, mirrorSavedWorkout, forgetDeletedWorkout, reconcileWorkoutDate, forgetDeletedRow, mirrorExcusedWrite, mirrorBodyStatsWrite } = await import('./sync.js');
     // An excused day (issue #121): the copy follows, for reading offline.
     if (/^\/api\/excused-days\//.test(_stripBase(url))) {
       await mirrorExcusedWrite(_stripBase(url), method, method === 'DELETE' ? null : await res.clone().json(), gen);
+      return;
+    }
+    // A day's body stats: the copy follows, so what was just saved shows
+    // where it is read first (the Diary's side rail, right after the sheet).
+    if (method === 'PUT' && /^\/api\/body-stats\/\d{4}-\d{2}-\d{2}(\?|$)/.test(_stripBase(url))) {
+      await mirrorBodyStatsWrite(_stripBase(url), await res.clone().json(), gen);
       return;
     }
     // A program, program workout or exercise deleted online goes from this

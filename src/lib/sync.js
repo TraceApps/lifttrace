@@ -1609,6 +1609,23 @@ export async function mirrorExcusedWrite(path, method, data, gen = accountGen())
 }
 
 /**
+ * After an online save of a day's body stats: the device's copy takes the
+ * day as the server answered it, so the Diary's side rail, the Body Stats
+ * sheet and Progress, which read the copy first, show it at once rather
+ * than after the next pull. A change of that day still waiting in the
+ * queue is newer than this answer and stays (as a pull leaves it).
+ */
+export async function mirrorBodyStatsWrite(path, data, gen = accountGen()) {
+  const m = String(path || '').split('?')[0].match(/^\/api\/body-stats\/(\d{4}-\d{2}-\d{2})$/);
+  if (!m || !isNative || !getServerUrl() || gen !== accountGen() || copyMoving()) return;
+  const row = data?.stats;
+  // None: an edit that left the day deleted (routes/body-stats.js).
+  if (!row || row.date !== m[1] || row.id == null) return;
+  const guard = await _queuedTargets();
+  await _applyBodyStats([row], { tables: {} }, { ...guard, skip() {} });
+}
+
+/**
  * Setting keys with a write still queued for the server (made offline).
  * Those local values are newer than anything the server can send back.
  */

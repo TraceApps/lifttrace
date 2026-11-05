@@ -370,6 +370,14 @@ test('body stats only this phone has are kept and merged, never written over', {
   assert.deepEqual(out.phone0901, { weight: 80 });
 });
 
+test('body stats saved online show on the phone at once, before the next sync', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('bodyStatsSavedOnline');
+  assert.deepEqual(out.before, { weight: 80, waist: 90 });
+  assert.equal(out.saved, true);
+  assert.deepEqual(out.after, { weight: 80, waist: 85 }, 'the side rail reads the waist just saved (dev: the old 90 until the next sync)');
+  assert.equal(out.queued, 0, 'it went to the server, nothing waits');
+});
+
 test('a day\'s body stats edited on the phone while a third-party client deleted the day: gone if older, back if newer', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('bodyStatsDeletedElsewhere');
   assert.deepEqual(out.held.older, { weight: 80, waist: 90 });

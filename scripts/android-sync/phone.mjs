@@ -986,6 +986,27 @@ const scenarios = {
     };
   },
 
+  // Saved online from the Body Stats sheet (a PUT that reaches the server),
+  // then read at once the way the Diary's side rail reads it (local first):
+  // the day as saved, not as the last pull left it.
+  async bodyStatsSavedOnline() {
+    me();
+    const day = '2026-10-05';
+    await web('phone', 'PUT', `/api/body-stats/${day}`, { stats: { weight: 80, waist: 90 } });
+    await syncNow();
+    const read = async () => {
+      const r = await fetch(`/api/body-stats/${day}`, { credentials: 'include' });
+      const d = await r.json();
+      return d?.stats?.stats ?? null;
+    };
+    const before = await read();
+    const r = await fetch(`/api/body-stats/${day}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stats: { weight: 80, waist: 85 } }) });
+    const saved = r.ok;
+    const after = await read();
+    const queued = (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
+    return { before, saved, after, queued };
+  },
+
   // A day's body stats edited on the phone offline while a third-party client
   // deleted the day on the server (POST /api/sync/push with deleted_at): an
   // edit made before the delete is answered as gone (410) and the phone drops
