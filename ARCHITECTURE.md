@@ -131,7 +131,8 @@ program advanced by sessions counts are unchanged (all of them). One
 followed from before starts were kept gets one at startup, or on its next
 read (a backup from then restored, say): the date of its first completed
 workout since the last one from any other program (no activation time was
-stored anywhere), else the migration's time. The phone's pull carries it as
+stored anywhere), never one after the server's today (its own zone, not
+UTC's), else the migration's time. The phone's pull carries it as
 `solo_active.started_at`, kept in the phone's `start_date` (starting the
 program again on the phone clears it). The first account made goes on
 following it (`claimSoloProgram`, keys read before the rows move):

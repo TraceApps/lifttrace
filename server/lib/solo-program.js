@@ -16,6 +16,7 @@
  * (every one in the program, as before).
  */
 import db from '../db.js';
+import { userToday } from './user-zone.js';
 
 const ACTIVE = 'active_program';
 const CURSOR = 'active_program_cursor';
@@ -52,7 +53,9 @@ function _backfillStart(programId) {
   const first = db.prepare(
     `SELECT MIN(date) AS d FROM workout_log WHERE ${done} AND ${mine} AND date > ?`
   ).get(programId, lastOther)?.d;
-  const today = db.prepare("SELECT date('now') AS d").get().d;
+  // The server's today: without an account there is no zone kept, so the
+  // server's (lib/user-zone.js zoneFor), as the workouts' dates are, not UTC's.
+  const today = userToday(null);
   const start = /^\d{4}-\d{2}-\d{2}$/.test(first || '') && first <= today
     ? first
     : db.prepare("SELECT datetime('now') AS t").get().t;
