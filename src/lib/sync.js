@@ -352,6 +352,9 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
     // can always recover this way; only genuinely standalone (no server)
     // installs can't, which is exactly why db-native.js also backs up the
     // raw file before attempting that rebuild.
+    // Whether this copy has pulled before, read before anything below starts
+    // it over: a full pull of such a copy says held=1 (see the pull below).
+    const pulledBefore = !!((await getSyncMeta('last_server_time')) || (await getSyncMeta('last_pull_at')));
     if ((await getSyncMeta('schema_migration_v76_failed')) === '1') {
       await setSyncMeta('last_server_time', '');
       await setSyncMeta('last_pull_at', '');
@@ -388,7 +391,6 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
       await setSyncMeta('full_pull', '1');
       await setSyncMeta('full_pull_when_drained', '');
     }
-    const pulledBefore = !!((await getSyncMeta('last_server_time')) || (await getSyncMeta('last_pull_at')));
     const fullPull = (await getSyncMeta('full_pull')) === '1' || (await getSyncMeta('pull_scheme')) !== _PULL_SCHEME;
     let since = fullPull ? '1970-01-01T00:00:00.000Z' :
       (await getSyncMeta('last_server_time')) ||

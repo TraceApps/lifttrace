@@ -641,6 +641,25 @@ const scenarios = {
     globalThis.__httpHook = null;
     return { floor };
   },
+  // A copy whose #76 schema rebuild failed is pulled again from the start
+  // (sync.js): it holds settings, so that pull must say what was deleted.
+  async v76RepullDeletes() {
+    me();
+    const events = new EventTarget();
+    globalThis.addEventListener = events.addEventListener.bind(events);
+    globalThis.removeEventListener = events.removeEventListener.bind(events);
+    globalThis.dispatchEvent = events.dispatchEvent.bind(events);
+    const { get } = await import('svelte/store');
+    const st = await import('../../src/stores/settings.js');
+    const db = await import('../../src/lib/db-native.js');
+    await web('phone', 'PUT', '/api/settings', { key: 'restDuration', value: 120 });
+    await syncNow();
+    const before = get(st.restDuration);
+    await web('phone', 'DELETE', '/api/settings');
+    await db.setSyncMeta('schema_migration_v76_failed', '1');
+    await syncNow();
+    return { before, after: get(st.restDuration) };
+  },
   async offlineIds() {
     // What stores/auth.js keeps for the signed-in account (not account 1).
     me();

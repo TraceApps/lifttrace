@@ -408,6 +408,12 @@ test('a row deleted on the server while the phone\'s change of it waits is asked
   assert.ok(!String(out.floor).startsWith('1970'));
 });
 
+test('a copy pulled again after a failed schema rebuild is told what was deleted', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('v76RepullDeletes');
+  assert.equal(out.before, 120);
+  assert.equal(out.after, 90, 'the setting deleted on the server goes (before: kept 120)');
+});
+
 test('body stats saved online show on the phone at once, before the next sync', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('bodyStatsSavedOnline');
   assert.deepEqual(out.before, { weight: 80, waist: 90 });
