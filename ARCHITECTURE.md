@@ -504,8 +504,10 @@ changes it later.
   dozen statements (`id_remap`), and no sync runs while Disconnect does
   it. So an id above zero always means the server's row. A pull writes over it, or deletes
   it when the server did, except while a queued write is about to change
-  it (it asks for those again next time, for up to an hour; after that,
-  once the queue has gone up, it pulls everything). Rows below zero are
+  it (it asks for those again next time, from the row's own time, its
+  deleted_at for a removed one, for up to an hour; after that, once the
+  queue has gone up, it pulls everything, saying `held=1` whenever the copy
+  has pulled before, so the server includes what was deleted). Rows below zero are
   never touched by a pull (body stats on a day the server also has are
   merged), and are created on the server, under a key, the first time a
   write names them. The server also sends rows deleted outright

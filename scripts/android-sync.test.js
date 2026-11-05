@@ -396,6 +396,18 @@ test('a setting deleted on the server reaches the phone even when it pulled whil
   assert.equal(out.after, 90, 'and the phone goes back to the default (dev: it kept 150 for good)');
 });
 
+test('a setting deleted on the server more than an hour before the phone came back still reaches it', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('settingsResetLongAgo');
+  assert.equal(out.server, null);
+  assert.equal(out.after, 90, 'the full pull after an old floor says what was deleted (dev: kept 150)');
+});
+
+test('a row deleted on the server while the phone\'s change of it waits is asked for again from the delete, not from 1970', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('bodyDeleteWhileQueued');
+  assert.match(String(out.floor), /^20\d\d-/, `the floor is the delete's time (dev: 1970): ${out.floor}`);
+  assert.ok(!String(out.floor).startsWith('1970'));
+});
+
 test('body stats saved online show on the phone at once, before the next sync', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('bodyStatsSavedOnline');
   assert.deepEqual(out.before, { weight: 80, waist: 90 });

@@ -587,6 +587,60 @@ const scenarios = {
     const queued = (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
     return { before, whileQueued, after: get(st.restDuration), server: server.restDuration ?? null, queued };
   },
+  // settingsResetWhileQueued, with the phone back more than an hour after
+  // the reset: the floor it keeps for the skipped reset is over an hour old
+  // (moved back here, as the clocks can't be), so it's let go for a full
+  // pull once the change has gone up. That full pull, of a phone holding no
+  // workouts, programs or exercises, must still say what was deleted.
+  async settingsResetLongAgo() {
+    me();
+    const events = new EventTarget();
+    globalThis.addEventListener = events.addEventListener.bind(events);
+    globalThis.removeEventListener = events.removeEventListener.bind(events);
+    globalThis.dispatchEvent = events.dispatchEvent.bind(events);
+    const { get } = await import('svelte/store');
+    const st = await import('../../src/stores/settings.js');
+    const db = await import('../../src/lib/db-native.js');
+    await web('phone', 'PUT', '/api/settings', { key: 'restDuration', value: 120 });
+    await syncNow();
+    offline(true);
+    st.restDuration.set(150);
+    await st.flushSettingSaves();
+    await later(1500);
+    await web('phone', 'DELETE', '/api/settings');
+    await later(10500);
+    offline(false);
+    globalThis.__httpHook = async (method, o) => (method === 'PUT' && /\/api\/settings(\?|$)/.test(o.url) ? { status: 503, data: { error: 'busy' } } : null);
+    await syncNow();
+    const floor = await db.getSyncMeta('since_floor');
+    await db.setSyncMeta('since_floor', new Date(Date.parse(String(floor).replace(' ', 'T') + 'Z') - 2 * 3600 * 1000).toISOString());
+    globalThis.__httpHook = null;
+    for (let i = 0; i < 4; i++) await syncNow();
+    return { after: get(st.restDuration), server: (await web('phone', 'GET', '/api/settings')).restDuration ?? null };
+  },
+
+  // A body stats day removed on the server while the phone's change of it
+  // waits to go up: the pull leaves the day, and asks for it again from the
+  // delete's own time, not from 1970 (which meant a full pull).
+  async bodyDeleteWhileQueued() {
+    me();
+    const db = await import('../../src/lib/db-native.js');
+    const day = '2026-10-07';
+    await web('phone', 'PUT', `/api/body-stats/${day}`, { stats: { weight: 80 } });
+    await syncNow();
+    offline(true);
+    await fetch(`/api/body-stats/${day}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stats: { weight: 79 } }) });
+    offline(false);
+    await later(1500);
+    // Removed outright (Clear All Data on the web), so the pull says it as
+    // { id, deleted_at }, with no updated_at.
+    await web('phone', 'DELETE', '/api/settings/clear-data');
+    globalThis.__httpHook = async (method, o) => (method === 'PUT' && o.url.includes('/api/body-stats/') ? { status: 503, data: { error: 'busy' } } : null);
+    await syncNow();
+    const floor = await db.getSyncMeta('since_floor');
+    globalThis.__httpHook = null;
+    return { floor };
+  },
   async offlineIds() {
     // What stores/auth.js keeps for the signed-in account (not account 1).
     me();

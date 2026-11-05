@@ -388,6 +388,7 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
       await setSyncMeta('full_pull', '1');
       await setSyncMeta('full_pull_when_drained', '');
     }
+    const pulledBefore = !!((await getSyncMeta('last_server_time')) || (await getSyncMeta('last_pull_at')));
     const fullPull = (await getSyncMeta('full_pull')) === '1' || (await getSyncMeta('pull_scheme')) !== _PULL_SCHEME;
     let since = fullPull ? '1970-01-01T00:00:00.000Z' :
       (await getSyncMeta('last_server_time')) ||
@@ -406,10 +407,15 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
       // A full pull of a copy that holds rows (pulled again on purpose): the
       // server then also says what was deleted, which it leaves out of a
       // first pull.
+      // A copy that has pulled before holds what that pull brought (a
+      // setting, a body stats day, an excused day), so it counts as holding
+      // rows even with no workout, program or exercise of its own: a full
+      // pull asked for again (an old floor, a refused write) must say what
+      // was deleted. A server from before held ignores it.
       let held = '';
       if (since.startsWith('1970')) {
         const n = (await dbQuery(`SELECT (SELECT COUNT(*) FROM programs WHERE id > 0) + (SELECT COUNT(*) FROM workout_log WHERE id > 0) + (SELECT COUNT(*) FROM exercises WHERE id > 0 AND COALESCE(is_global, 0) = 0) AS n`, []))[0]?.n || 0;
-        if (n) held = '&held=1';
+        if (n || pulledBefore) held = '&held=1';
       }
       // Coaching conversations come along only for someone in coaching (an
       // older server ignores the ask); everyone else's pull is as before.
@@ -441,7 +447,10 @@ async function _pullSnapshot(silent = false, token = getAuthToken(), gen = accou
     // (removed ones too), so one this copy holds that isn't listed is gone.
     guard.full = since.startsWith('1970');
     let skippedFrom = null;
-    guard.skip = (ts) => { const t = _sqlTime(ts || '1970-01-01 00:00:00'); if (skippedFrom == null || t < skippedFrom) skippedFrom = t; };
+    // A row left for a queued write is asked for again from its own time: a
+    // removed one ({ id, deleted_at }, or a reset setting) has only its
+    // deleted_at, and no time at all read as 1970, a full pull.
+    guard.skip = (row) => { const t = _sqlTime(row?.updated_at || row?.deleted_at || '1970-01-01 00:00:00'); if (skippedFrom == null || t < skippedFrom) skippedFrom = t; };
     try {
       await _applyPull(pull, result, guard);
       _assertAlive();
@@ -1214,7 +1223,7 @@ async function _applyExercises(rows, result, guard = _NO_GUARD) {
     // A row deleted on the server goes here too, unless a change made here
     // is still on its way to it (that write comes first; the next pull
     // settles it). Same in every table below.
-    if (guard.exercises.has(e.id)) { guard.skip(e.updated_at); continue; }
+    if (guard.exercises.has(e.id)) { guard.skip(e); continue; }
     if (e.deleted_at) {
       await dbRun(`DELETE FROM exercises WHERE id = ? AND COALESCE(sync_state, 'clean') != 'pending'`, [e.id]);
       continue;
@@ -1296,7 +1305,7 @@ async function _applyPrograms(rows, result, guard = _NO_GUARD) {
   if (!rows?.length) { result.tables.programs = 0; return; }
   for (const p of rows) {
     _assertAlive();
-    if (guard.programs.has(p.id) || guard.reorder.has(p.id)) { guard.skip(p.updated_at); continue; }
+    if (guard.programs.has(p.id) || guard.reorder.has(p.id)) { guard.skip(p); continue; }
     if (p.deleted_at) { await dbRun(`DELETE FROM programs WHERE id = ? AND COALESCE(sync_state, 'clean') != 'pending'`, [p.id]); continue; }
     await dbRun(
       `INSERT OR REPLACE INTO programs (id, name, description, goal, created_by, visibility, duration_weeks, advance_mode, on_complete, created_at, updated_at, sync_state)
@@ -1317,7 +1326,7 @@ async function _applyTemplates(rows, result, guard = _NO_GUARD) {
   if (!rows?.length) { result.tables.templates = 0; return; }
   for (const t of rows) {
     _assertAlive();
-    if (guard.workout_templates.has(t.id) || guard.reorder.has(t.program_id)) { guard.skip(t.updated_at); continue; }
+    if (guard.workout_templates.has(t.id) || guard.reorder.has(t.program_id)) { guard.skip(t); continue; }
     if (t.deleted_at) { await dbRun(`DELETE FROM workout_templates WHERE id = ? AND COALESCE(sync_state, 'clean') != 'pending'`, [t.id]); continue; }
     await dbRun(
       `INSERT OR REPLACE INTO workout_templates (id, program_id, name, day_label, order_index, exercises, created_at, updated_at, sync_state)
@@ -1338,7 +1347,7 @@ async function _applyAssignments(rows, result, guard = _NO_GUARD) {
   // server's rows are older than what this device shows. They come back
   // in the next pull, which the queued write itself causes.
   if (guard.assignments) {
-    for (const a of rows || []) guard.skip(a.updated_at);
+    for (const a of rows || []) guard.skip(a);
     result.tables.assignments = 0;
     return;
   }
@@ -1413,7 +1422,7 @@ async function _applyWorkouts(rows, result, guard = _NO_GUARD) {
     if (w.deleted_at && !w.date) w = { ...w, date: (await dbQuery(`SELECT date FROM workout_log WHERE id = ?`, [w.id]))[0]?.date };
     // That day's offline edits are still queued; once they have gone up,
     // reconcileWorkoutDate brings the day back in line with the server.
-    if (guard.workoutDates.has(w.date)) { guard.skip(w.updated_at); continue; }
+    if (guard.workoutDates.has(w.date)) { guard.skip(w); continue; }
     if (w.deleted_at) {
       await dbRun(`DELETE FROM workout_log WHERE id = ? AND COALESCE(sync_state, 'clean') != 'pending'`, [w.id]);
       continue;
@@ -1514,7 +1523,7 @@ async function _applyBodyStats(rows, result, guard = _NO_GUARD) {
   for (let b of rows) {
     _assertAlive();
     if (b.deleted_at && !b.date) b = { ...b, date: (await dbQuery(`SELECT date FROM body_stats_log WHERE id = ?`, [b.id]))[0]?.date };
-    if (guard.bodyDates.has(b.date)) { guard.skip(b.updated_at); continue; }
+    if (guard.bodyDates.has(b.date)) { guard.skip(b); continue; }
     if (b.deleted_at) { await dbRun(`DELETE FROM body_stats_log WHERE id = ? AND COALESCE(sync_state, 'clean') != 'pending'`, [b.id]); continue; }
     // One only this device has, on the same date (made before it was
     // connected): both are kept. Where both have a number, the server's
@@ -1563,7 +1572,7 @@ async function _applyExcused(rows, result, guard = _NO_GUARD) {
     if (!e.date) continue;
     seen.add(e.date);
     // A change of that day still on its way up wins; asked for again later.
-    if (guard.excusedDates.has(e.date)) { guard.skip(e.updated_at); continue; }
+    if (guard.excusedDates.has(e.date)) { guard.skip(e); continue; }
     const mine = (await dbQuery(`SELECT sync_state FROM excused_days WHERE date = ?`, [e.date]))[0];
     // This phone's own change the server hasn't had (made standalone, or
     // kept by Disconnect): it stays, to go up with an Upload.
@@ -1662,10 +1671,7 @@ async function _applySettings(rows, result, guard = _NO_GUARD) {
   for (const s of rows) {
     _assertAlive();
     if (!s.key) continue;
-    // Asked for again from its own time: a deleted one has only deleted_at,
-    // and none read as 1970, which dropped the cursor to a full pull that
-    // (for a phone holding none of its own rows) says no deletes.
-    if (queued.has(s.key) || isRecentlyChanged(s.key)) { guard.skip(s.updated_at || s.deleted_at); continue; }
+    if (queued.has(s.key) || isRecentlyChanged(s.key)) { guard.skip(s); continue; }
     // Deleted on the server: back to its default here too.
     if (s.deleted_at) {
       await dbRun(`DELETE FROM user_settings WHERE key = ?`, [s.key]);
