@@ -75,6 +75,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Reminders, a coach's client list and waiting prescriptions follow your clock.** With no time zone known for an account, reminders and the weekly summary went by UTC instead of the server's time zone. A coach's client list counted this week's workouts by UTC's days, and prescriptions waiting for an answer counted from yesterday in UTC. All of them now use the time zone your app last told the server, else the server's own, as the rest of the server does.
 - **On the Android app, the Diary's side rail shows the body stats you just saved.** Right after saving the Body Stats sheet, the side rail showed the values from before (an old waist, say) until the next sync. A save that reaches your server now updates the phone's own copy at once.
 - **Skip, Keep Server Only on the Android app's connect screen can be translated,** like the choices above it.
+- **Workout Complete is said once when the watch finishes a workout.** If the watch finished it while the Android app still showed it unfinished, and you then tapped Finish on the phone too, a second Workout Complete went out. The server now says whether a save is the one that finished the workout, and the phone says nothing more when it wasn't.
 
 ### Security
 

@@ -487,6 +487,7 @@ async function _mergeAndSave(dateStr, clientEntry) {
   } : { ...clientEntry, exercises: nextExercises, deleted_uuids };
   if (!server) { delete toSave.changed_uuids; delete toSave.changed_fields; }
   const saved = await LtApi.saveWorkout(dateStr, toSave);
+  if (saved?.workout && typeof saved.finished === 'boolean') _finishedBy.set(saved.workout, saved.finished);
   // Only once it reached the server: a queued save can still be refused, and
   // a later one sent straight up must still say what this one changed.
   if (saved?.workout && !saved.queued) {
@@ -511,6 +512,17 @@ async function _mergeAndSave(dateStr, clientEntry) {
   // read as the Diary's own change on the next save, and be put back.
   if (saved?.workout) _setSnapshot(dateStr, saved.workout.id ?? sessionId, saved.workout);
   return saved;
+}
+
+// The server's word on whether a save is what marked its workout done
+// (routes/workout.js `finished`), by the workout it answered with.
+const _finishedBy = new WeakMap();
+/** For a workout a save resolved with: true when that save marked it done,
+ *  false when it was done already (finished on the watch, say, while this
+ *  copy was older), undefined when the server didn't say (one from before,
+ *  or a save queued offline). */
+export function saveMadeTheFinish(workout) {
+  return workout && typeof workout === 'object' ? _finishedBy.get(workout) : undefined;
 }
 
 /** Save/update workout log for current date.

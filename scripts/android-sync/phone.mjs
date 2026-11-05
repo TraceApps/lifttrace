@@ -463,6 +463,61 @@ const scenarios = {
       queued: (await queued()) - before, shown: (globalThis.__shown || []).map(n => n.title),
     };
   },
+  // The watch finishes a workout (its save says so, and the server sends the
+  // Workout Complete push), while the phone still shows its copy from before
+  // and the person taps Finish there too: the phone's save is answered as
+  // not the one that finished it, and the phone doesn't say it again. Then a
+  // workout the phone finishes itself: said once, by the phone.
+  async watchThenPhoneFinish() {
+    me();
+    const { createServer: http } = await import('node:http');
+    const got = [];
+    const box = http((req, res) => {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => { got.push({ title: _decodeTitle(req.headers.title) ?? null, body }); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); });
+    });
+    await new Promise(r => box.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${box.address().port}`;
+    globalThis.__plainHttpOk = [base];
+    const st = await import('../../src/stores/settings.js');
+    st.notifPushService.set('ntfy'); st.ntfyUrl.set(base); st.ntfyTopic.set('lifts');
+    await st.flushSettingSaves();
+    localStorage.setItem('lt:userMgmt', '1');
+    const { get } = await import('svelte/store');
+    const wk = await import('../../src/stores/workout.js');
+    const { celebrateWorkoutComplete } = await import('../../src/lib/notifications.js');
+    const arrived = async () => { await until(() => got.length >= 1 || null, 'a push', 5000).catch(() => {}); await later(1500); return got.splice(0).map(p => String(p.title).replace(/^LiftTrace \S /u, '')); };
+    const sets = (done) => [{ uuid: 's1', weight: 60, reps: 5, completed: done }, { uuid: 's2', weight: 60, reps: 5, completed: done }];
+    // What the Diary's Finish does (Diary.svelte finishWorkout), on the copy it shows.
+    const finishOnPhone = async (date) => {
+      await wk.loadWorkout(date);
+      const shown = get(wk.todayLog);
+      const saved = await wk.saveWorkout(date, { ...shown, completed: 1 });
+      const madeIt = wk.saveMadeTheFinish?.(saved);
+      if (madeIt !== false) celebrateWorkoutComplete(shown.name);
+      return { shownDone: !!shown.completed, madeIt: madeIt ?? null };
+    };
+    const day1 = '2026-10-20', day2 = '2026-10-21';
+    await web('phone', 'PUT', `/api/workout/${day1}`, { name: 'Pull', exercises: [{ uuid: 'e1', exercise_id: 1, exercise_name: 'Row', sets: sets(false) }] });
+    await syncNow();
+    // The watch finishes it (WearStore.kt: finished_on, and the fields it changed).
+    const r = await realFetch(`${process.env.LT_SERVER}/api/workout/${day1}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens.phone}`, 'X-Changed-Fields': 'completed' },
+      body: JSON.stringify({ name: 'Pull', completed: 1, finished_on: 'watch', exercises: [{ uuid: 'e1', exercise_id: 1, exercise_name: 'Row', sets: sets(true) }] }),
+    });
+    const watchAnswer = await r.json();
+    const watch = await arrived();
+    const stale = await finishOnPhone(day1);
+    const staleTitles = await arrived();
+    // A workout only the phone finishes.
+    await web('phone', 'PUT', `/api/workout/${day2}`, { name: 'Push', exercises: [{ uuid: 'e2', exercise_id: 1, exercise_name: 'Press', sets: sets(true) }] });
+    await syncNow();
+    const own = await finishOnPhone(day2);
+    const ownTitles = await arrived();
+    box.close();
+    return { watchFinished: watchAnswer.finished ?? null, watch, stale, staleTitles, own, ownTitles };
+  },
   async offlineIds() {
     // What stores/auth.js keeps for the signed-in account (not account 1).
     me();

@@ -7,7 +7,7 @@
   import { shortcutFromQuery, startWorkoutPlan } from '../lib/app-shortcut.js';
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
-  import { currentDate, todayLog, loadWorkout, loadWorkoutSessions, saveWorkout, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
+  import { currentDate, todayLog, loadWorkout, loadWorkoutSessions, saveWorkout, saveMadeTheFinish, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
   import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, bodyStatsVisible, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
@@ -1782,7 +1782,7 @@
       if (!$timerState.paused) pauseTimer();
       finalDuration = Math.round($timerMs / 60000 * 10) / 10;
     }
-    await saveWorkout($currentDate, {
+    const saved = await saveWorkout($currentDate, {
       ...($todayLog || {}),
       duration_min: finalDuration,
       completed: 1,
@@ -1793,7 +1793,9 @@
     resetTimer();
     // Kill any rest still counting down.
     stopRest(false);
-    celebrateWorkoutComplete(workoutName);
+    // Not when the server says it was finished already: the watch finished
+    // it while this Diary showed an older copy, and the server has said so.
+    if (saveMadeTheFinish(saved) !== false) celebrateWorkoutComplete(workoutName);
     // Push the completed workout's estimated calories to NutriTrace if the
     // user has federation set up + calorie estimation on. Fire-and-forget
     // — failures show a soft toast but don't block the summary. The

@@ -416,7 +416,10 @@ router.put('/:date', wrap((req, res) => {
   // throws, so a webhook failure can't block the save.
   sendNewRecords(userId, date, _recordsBefore);
 
-  res.json({ workout, tombstones: _loadTombstones(userId, date, targetId) });
+  // `finished`: whether this save is what marked the workout done. A phone
+  // still holding its copy from before the watch finished it saves the
+  // finish again, and doesn't say it a second time (Diary.svelte).
+  res.json({ workout, tombstones: _loadTombstones(userId, date, targetId), finished: !!(workout?.completed && !wasCompleted) });
 }));
 
 // DELETE /api/workout/:date — explicit day-level deletion. Optional ?id=

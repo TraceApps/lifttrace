@@ -370,6 +370,16 @@ test('body stats only this phone has are kept and merged, never written over', {
   assert.deepEqual(out.phone0901, { weight: 80 });
 });
 
+test('a workout the watch finished, finished again on a phone holding an older copy: Workout Complete is said once', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('watchThenPhoneFinish');
+  assert.equal(out.watchFinished, true, "the watch's save is the one that finished it");
+  assert.deepEqual(out.watch, ['💪 Workout Complete!'], 'the server said it for the watch');
+  assert.deepEqual(out.stale, { shownDone: false, madeIt: false }, 'the phone still showed it unfinished, and its save did not finish it');
+  assert.deepEqual(out.staleTitles, [], 'so the phone said nothing more (dev: a second Workout Complete)');
+  assert.deepEqual(out.own, { shownDone: false, madeIt: true }, 'a workout the phone finishes itself');
+  assert.deepEqual(out.ownTitles, ['💪 Workout Complete!'], 'is said once, by the phone');
+});
+
 test('body stats saved online show on the phone at once, before the next sync', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('bodyStatsSavedOnline');
   assert.deepEqual(out.before, { weight: 80, waist: 90 });
