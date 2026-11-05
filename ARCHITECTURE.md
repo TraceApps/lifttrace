@@ -596,7 +596,9 @@ changes it later.
   the workout reminder, or, without accounts, the pull's program followed;
   a coach's prescription of such a day is hidden too (the client's day,
   upcoming list and waiting count, the coach's list, and the missed scan:
-  `LIVE_PRESCRIPTION_SQL` in `server/lib/program-access.js`);
+  `LIVE_PRESCRIPTION_SQL` in `server/lib/program-access.js`), and no
+  prescription can be made out to one (404); a missed day more than a week
+  past is recorded without a push;
   activate, the week cursor and assign answer a deleted program as not
   found (404), and the pull still sends it (deleted). Reorder is an edit of
   its days and meets the delete as `PUT /api/programs/:id` does (gone if

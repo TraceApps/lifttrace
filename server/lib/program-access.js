@@ -73,6 +73,15 @@ export const LIVE_PRESCRIPTION_SQL = `(cp.template_id IS NULL OR EXISTS (
          SELECT 1 FROM workout_templates lt JOIN programs lp ON lp.id = lt.program_id
           WHERE lt.id = cp.template_id AND lt.deleted_at IS NULL AND lp.deleted_at IS NULL))`;
 
+/** A workout day deleted elsewhere, or one of a program deleted elsewhere:
+ *  not one to prescribe (its readers answer 404). */
+export function dayDeleted(templateId) {
+  const r = db.prepare(
+    'SELECT t.deleted_at AS d, p.deleted_at AS pd FROM workout_templates t JOIN programs p ON p.id = t.program_id WHERE t.id = ?'
+  ).get(templateId);
+  return !!(r && (r.d || r.pd));
+}
+
 /** SQL (aliases t and p) for "workout days this account may see". */
 export function visibleTemplatesSql(userId) {
   const v = visibleProgramsSql(userId);

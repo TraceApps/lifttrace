@@ -18,6 +18,7 @@ import { logger } from '../logger.js';
 import { pushNotify } from './push-notify.js';
 import { getExcusedDay } from './excused-days.js';
 import { userToday } from './user-zone.js';
+import { shiftDate } from '../../src/lib/trained-day.js';
 import { LIVE_PRESCRIPTION_SQL } from './program-access.js';
 
 const REASON_LABEL = { injury: 'Injury', illness: 'Illness', appointment: 'Appointment', other: 'Other' };
@@ -162,6 +163,11 @@ export function checkMissedPrescriptions() {
 
     const optIn = _getSetting(p.trainer_id, 'notifMemberMissed', true);
     if (!optIn) continue;
+    // Old news is recorded for the feed without a push: a prescription that
+    // was hidden while its day was deleted elsewhere (or a scan that hasn't
+    // run for days) would otherwise send one for every date long past. A
+    // week back is still news.
+    if (p.date < shiftDate(todays.get(p.member_id), -7)) continue;
 
     const memberName = _memberLabel(p.member_id);
     const templateName = _templateLabel(p);

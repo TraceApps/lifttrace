@@ -103,7 +103,7 @@ test('every program and day route asks program-access', () => {
     assert.match(body, /(programFor|templateFor)\(/, `${route} checks access`);
   }
   const trainer = read('../server/routes/trainer.js');
-  assert.match(trainer, /if \(template_id && !templateFor\(template_id, uid\(req\)\)\.canSee\)/, 'prescribing a day needs the coach to see it');
+  assert.match(trainer, /if \(template_id && \(!templateFor\(template_id, uid\(req\)\)\.canSee \|\| dayDeleted\(template_id\)\)\)/, 'prescribing a day needs the coach to see it, and it not deleted elsewhere');
   assert.match(trainer, /!templateFor\(next\.template_id, uid\(req\)\)\.canSee/, 'and so does changing it');
 });
 

@@ -3,7 +3,7 @@ import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireTrainerOrAdmin, uid } from '../middleware/auth.js';
-import { LIVE_PRESCRIPTION_SQL, templateFor, toId } from '../lib/program-access.js';
+import { LIVE_PRESCRIPTION_SQL, dayDeleted, templateFor, toId } from '../lib/program-access.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { setVolume } from '../lib/volume.js';
 import { sendCoachFeedback, isEmailConfigured } from '../email.js';
@@ -376,7 +376,9 @@ router.post('/members/:id/prescriptions', wrap((req, res) => {
     return res.status(400).json({ error: 'Provide either template_id or name + exercises[]' });
   }
   // A day the coach can see; prescribing hands it to the athlete.
-  if (template_id && !templateFor(template_id, uid(req)).canSee) {
+  // Nor one deleted elsewhere (a stale screen, an older app): it would be
+  // hidden from the client the moment it was made.
+  if (template_id && (!templateFor(template_id, uid(req)).canSee || dayDeleted(template_id))) {
     return res.status(404).json({ error: 'Template not found' });
   }
   // Waiting for the client's answer (Accept, then Load).
@@ -446,7 +448,7 @@ router.put('/prescriptions/:id', wrap((req, res) => {
   if (body.template_id != null && body.template_id !== '' && !next.template_id) {
     return res.status(400).json({ error: 'Invalid template_id' });
   }
-  if (next.template_id && next.template_id !== row.template_id && !templateFor(next.template_id, uid(req)).canSee) {
+  if (next.template_id && next.template_id !== row.template_id && (!templateFor(next.template_id, uid(req)).canSee || dayDeleted(next.template_id))) {
     return res.status(404).json({ error: 'Template not found' });
   }
   // Re-set or clear the prescription_completed activity flag if the date
