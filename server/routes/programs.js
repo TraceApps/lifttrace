@@ -11,7 +11,7 @@ import { programFor } from '../lib/program-access.js';
 import { answerGone, createdBefore, rememberCreated } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, createdTimes, editBringsBack, stampMerged } from '../lib/newer-wins.js';
 import { syncOf } from '../lib/sync-fields.js';
-import { timesAtDelete } from '../lib/deleted-rows.js';
+import { bringProgramBack, timesAtDelete } from '../lib/deleted-rows.js';
 
 // 404 for a program this account can't see (no hint that it exists), 403
 // for one it can see but not change (program-access.js). Returns true when
@@ -23,13 +23,13 @@ function refuse(res, access, needChange) {
 }
 
 // A program deleted elsewhere (a third-party client's push, a restored
-// backup) is not followed, pinned to a week, reordered or assigned: answered
-// as gone, as an edit made before its delete is (the app drops the change).
-// An edit made after the delete brings it back (PUT below). True when the
-// response was sent.
+// backup) is not followed, pinned to a week or assigned: not found, as its
+// readers say (GET above), so the app shows the server's copy again. An edit
+// made after the delete brings it back (PUT and reorder below). True when
+// the response was sent.
 function refuseDeleted(res, program) {
   if (!program?.deleted_at) return false;
-  res.status(410).json({ error: 'Deleted elsewhere', gone: true });
+  res.status(404).json({ error: 'Program not found' });
   return true;
 }
 
@@ -445,10 +445,15 @@ router.put('/:id/reorder', wrap((req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
   const access = programFor(parseInt(req.params.id), uid(req));
-  if (refuse(res, access, true) || refuseDeleted(res, access.program)) return;
+  if (refuse(res, access, true)) return;
+  // An edit of its days, met as PUT meets one (lib/deleted-rows.js): made
+  // before the delete it is gone; after it, or now, it brings the program back.
+  const program = access.program;
+  if (program.deleted_at && !editBringsBack(req, program)) return res.status(410).json({ error: 'Deleted after this change was made', gone: true });
   const stmt = db.prepare('UPDATE workout_templates SET order_index = ? WHERE id = ? AND program_id = ?');
   const programId = parseInt(req.params.id);
   db.transaction(() => {
+    if (program.deleted_at) bringProgramBack(req, program);
     ids.forEach((id, i) => stmt.run(i, id, programId));
   })();
   res.json({ ok: true });

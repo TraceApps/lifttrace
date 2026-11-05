@@ -592,8 +592,10 @@ changes it later.
   (nor a day of a deleted program), the coach's view of a client, MCP and
   REST v1 (`list_programs`, `get_active_program`, `start_program_workout`),
   the workout reminder, or, without accounts, the pull's program followed;
-  activate, the week cursor, reorder and assign answer a deleted program as
-  gone (410, `gone: true`), and the pull still sends it (deleted). A deleted exercise is still
+  activate, the week cursor and assign answer a deleted program as not
+  found (404), and the pull still sends it (deleted). Reorder is an edit of
+  its days and meets the delete as `PUT /api/programs/:id` does (gone if
+  older, brings the program back if newer). A deleted exercise is still
   read by id for the workouts that name it (#49) and `PUT
   /api/exercises/:id` still answers 404; an edit through a push can bring
   it back. Changes queued together

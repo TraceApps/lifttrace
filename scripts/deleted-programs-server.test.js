@@ -10,11 +10,11 @@
  * - MCP and /api/v1 (list_programs, get_active_program, start_program_workout);
  * - the program followed without accounts (the pull's solo_active).
  *
- * And what acts on a program refuses one that is deleted, answered as gone
- * (410, `gone: true`, as an edit made before a delete is): activate, the
- * week cursor, reorder, and a coach's assign. An edit made after the delete
- * still brings it back (lib/deleted-rows.js), and the pull still carries
- * the deleted row.
+ * And what acts on a program refuses one that is deleted, as not found (its
+ * readers say the same): activate, the week cursor and a coach's assign.
+ * Reorder is an edit of its days, met as PUT meets one (lib/deleted-rows.js):
+ * made before the delete it is gone (410), made after it the program is back.
+ * The pull still carries the deleted row.
  *
  * Before: every reader listed the deleted program and its days, and all four
  * actions worked on it. Against the real server on scratch databases.
@@ -59,8 +59,8 @@ function server() {
     }
     throw new Error('server did not start');
   };
-  s.call = async (who, method, path, body) => {
-    const h = { 'Content-Type': 'application/json' };
+  s.call = async (who, method, path, body, headers = {}) => {
+    const h = { 'Content-Type': 'application/json', ...headers };
     if (who && s.tok[who]) h.Authorization = `Bearer ${s.tok[who]}`;
     const r = await fetch(s.base + path, { method, headers: h, body: body == null ? undefined : JSON.stringify(body) });
     const t = await r.text(); let data; try { data = JSON.parse(t); } catch { data = t; }
@@ -113,6 +113,7 @@ test('a program deleted elsewhere: hidden from every reader, and nothing acts on
     const listed = async () => (await S.ok('client', 'GET', '/api/programs')).map((p) => p.name).sort();
     assert.deepEqual(await listed(), ['Coach Plan', 'Gone Plan', 'Keep Plan']);
 
+    const beforeDelete = new Date(Date.now() - 60000).toISOString();
     await pushDelete(S, 'client', 'programs', gonePlan.id);
     await pushDelete(S, 'client', 'workout_templates', lostDay.id);
     await pushDelete(S, 'coach', 'programs', coachPlan.id);
@@ -132,10 +133,11 @@ test('a program deleted elsewhere: hidden from every reader, and nothing acts on
     assert.equal((await S.ok('client', 'GET', `/api/templates/${keepDay.id}`)).name, 'Keep Day');
 
     // What acts on a program.
-    assert.ok(gone(await S.call('client', 'POST', `/api/programs/${gonePlan.id}/activate`)), 'activate: gone');
-    assert.ok(gone(await S.call('client', 'POST', `/api/programs/${gonePlan.id}/week-cursor`, { week: 2 })), 'week cursor: gone');
-    assert.ok(gone(await S.call('client', 'PUT', `/api/programs/${gonePlan.id}/reorder`, { ids: [goneDayB.id, goneDayA.id] })), 'reorder: gone');
-    assert.ok(gone(await S.call('coach', 'POST', `/api/programs/${coachPlan.id}/assign`, { user_id: S.ids.client, make_active: true })), 'assign: gone');
+    const notFound = (r) => r.status === 404;
+    assert.ok(notFound(await S.call('client', 'POST', `/api/programs/${gonePlan.id}/activate`)), 'activate: not found');
+    assert.ok(notFound(await S.call('client', 'POST', `/api/programs/${gonePlan.id}/week-cursor`, { week: 2 })), 'week cursor: not found');
+    assert.ok(notFound(await S.call('coach', 'POST', `/api/programs/${coachPlan.id}/assign`, { user_id: S.ids.client, make_active: true })), 'assign: not found');
+    assert.ok(gone(await S.call('client', 'PUT', `/api/programs/${gonePlan.id}/reorder`, { ids: [goneDayB.id, goneDayA.id] }, { 'X-Edited-At': beforeDelete })), 'a reorder made before the delete: gone');
     assert.deepEqual(await listed(), ['Keep Plan'], 'and none of them brought it back');
     const sql = (q) => S.node(`const { default: db } = await import('./db.js'); console.log(JSON.stringify(db.prepare(${JSON.stringify(q)}).all()));`).then(JSON.parse);
     assert.deepEqual(await sql(`SELECT name, order_index FROM workout_templates WHERE program_id = ${gonePlan.id} ORDER BY id`), [{ name: 'Gone A', order_index: 0 }, { name: 'Gone B', order_index: 1 }], 'reorder changed nothing');
@@ -173,7 +175,14 @@ test('a program deleted elsewhere: hidden from every reader, and nothing acts on
     assert.deepEqual(await listed(), ['Back Plan', 'Keep Plan'], 'brought back by an edit made after the delete');
     assert.equal((await S.ok('client', 'GET', `/api/programs/${gonePlan.id}`)).templates.length, 2);
     await S.ok('client', 'POST', `/api/programs/${gonePlan.id}/activate`);
-    assert.equal(coachDay.name, 'Coach Day');
+    // A reorder made after a delete brings the program back too, in its order.
+    await pushDelete(S, 'coach', 'programs', coachPlan.id);
+    assert.equal((await S.call('coach', 'GET', `/api/programs/${coachPlan.id}`)).status, 404);
+    const second = await S.ok('coach', 'POST', '/api/templates', { program_id: coachPlan.id, name: 'Coach Day 2', exercises: [] });
+    assert.equal((await S.ok('coach', 'GET', `/api/programs/${coachPlan.id}`)).name, 'Coach Plan', 'a day made after the delete brought it back (as before)');
+    await pushDelete(S, 'coach', 'programs', coachPlan.id);
+    await S.ok('coach', 'PUT', `/api/programs/${coachPlan.id}/reorder`, { ids: [second.id, coachDay.id] });
+    assert.deepEqual((await S.ok('coach', 'GET', `/api/programs/${coachPlan.id}`)).templates.map((t) => t.name), ['Coach Day 2', 'Coach Day'], 'a reorder made now: back, in the new order');
   } finally { await S.close(); }
 });
 
@@ -191,8 +200,8 @@ test('without accounts: a deleted program is neither listed nor followed', { ski
     assert.deepEqual(list.map((x) => x.name).filter((n) => n.startsWith('Solo')), ['Solo Keep'], 'not listed');
     assert.equal((await S.call(null, 'GET', `/api/programs/${p.id}`)).status, 404);
     assert.equal((await S.ok(null, 'GET', ALL)).solo_active, null, 'the pull says nothing is followed');
-    assert.ok(gone(await S.call(null, 'POST', `/api/programs/${p.id}/activate`)), 'activate: gone');
-    assert.ok(gone(await S.call(null, 'POST', `/api/programs/${p.id}/week-cursor`, { week: 1 })), 'week cursor: gone');
+    assert.equal((await S.call(null, 'POST', `/api/programs/${p.id}/activate`)).status, 404, 'activate: not found');
+    assert.equal((await S.call(null, 'POST', `/api/programs/${p.id}/week-cursor`, { week: 1 })).status, 404, 'week cursor: not found');
     await S.ok(null, 'POST', `/api/programs/${k.id}/activate`);
     assert.equal((await S.ok(null, 'GET', ALL)).solo_active?.program_id, k.id);
   } finally { await S.close(); }
