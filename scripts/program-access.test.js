@@ -104,7 +104,7 @@ test('every program and day route asks program-access', () => {
   }
   const trainer = read('../server/routes/trainer.js');
   assert.match(trainer, /if \(template_id && \(!templateFor\(template_id, uid\(req\)\)\.canSee \|\| dayDeleted\(template_id\)\)\)/, 'prescribing a day needs the coach to see it, and it not deleted elsewhere');
-  assert.match(trainer, /!templateFor\(next\.template_id, uid\(req\)\)\.canSee/, 'and so does changing it');
+  assert.match(trainer, /!templateFor\(next\.template_id, uid\(req\)\)\.canSee \|\| dayDeleted\(next\.template_id\)/, 'and so does changing it');
 });
 
 test('the sync pull and push go by the same rules', () => {

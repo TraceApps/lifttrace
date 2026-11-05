@@ -451,6 +451,12 @@ router.put('/prescriptions/:id', wrap((req, res) => {
   if (next.template_id && next.template_id !== row.template_id && (!templateFor(next.template_id, uid(req)).canSee || dayDeleted(next.template_id))) {
     return res.status(404).json({ error: 'Template not found' });
   }
+  // Hidden while its day is deleted elsewhere (a stale screen): not edited
+  // in place, so no client is asked again about a workout they can't open.
+  // Moving it to another day, or to none, is fine.
+  if (next.template_id && next.template_id === row.template_id && dayDeleted(row.template_id)) {
+    return res.status(404).json({ error: 'Prescription not found' });
+  }
   // Re-set or clear the prescription_completed activity flag if the date
   // changed — a missed-day flag that fires for the old date shouldn't
   // linger when the trainer reschedules. Cheap to just clear; the

@@ -597,8 +597,9 @@ changes it later.
   a coach's prescription of such a day is hidden too (the client's day,
   upcoming list and waiting count, the coach's list, and the missed scan:
   `LIVE_PRESCRIPTION_SQL` in `server/lib/program-access.js`), and no
-  prescription can be made out to one (404); a missed day more than a week
-  past is recorded without a push;
+  prescription can be made out to one, nor a hidden one edited in place or
+  answered (404); the coach's activity feed keeps what it recorded before;
+  any missed day more than a week past is recorded without a push;
   activate, the week cursor and assign answer a deleted program as not
   found (404), and the pull still sends it (deleted). Reorder is an edit of
   its days and meets the delete as `PUT /api/programs/:id` does (gone if

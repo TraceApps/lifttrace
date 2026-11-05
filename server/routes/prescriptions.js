@@ -4,7 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
 import { coachesClient, notifyPrescriptionAnswer } from '../lib/coaching.js';
 import { userToday } from '../lib/user-zone.js';
-import { LIVE_PRESCRIPTION_SQL } from '../lib/program-access.js';
+import { LIVE_PRESCRIPTION_SQL, dayDeleted } from '../lib/program-access.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -66,7 +66,8 @@ router.post('/:id/answer', wrap((req, res) => {
   const want = req.body?.answer === 'accept' ? 'accepted' : req.body?.answer === 'decline' ? 'declined' : null;
   if (!want) return res.status(400).json({ error: 'Answer accept or decline.' });
   const row = Number.isFinite(id) ? db.prepare('SELECT * FROM coach_prescriptions WHERE id = ?').get(id) : null;
-  if (!row || userId == null || row.member_id !== userId || !coachesClient(row.trainer_id, userId)) {
+  // Nor one hidden while its day is deleted elsewhere (a stale screen).
+  if (!row || userId == null || row.member_id !== userId || !coachesClient(row.trainer_id, userId) || (row.template_id && dayDeleted(row.template_id))) {
     return res.status(404).json({ error: 'Prescription not found' });
   }
   if (row.status === want) return res.json(parse(row));

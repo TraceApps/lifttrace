@@ -130,6 +130,13 @@ test("a prescription of a day deleted elsewhere is hidden from the client's and 
     assert.equal(made.status, 404, 'a deleted day: not found');
     const moved = await fetch(`${base}/api/trainer/prescriptions/${rxLive.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok.coach}` }, body: JSON.stringify({ template_id: goneDay.id }) });
     assert.equal(moved.status, 404, 'a day of a deleted program: not found');
+    // A hidden one is neither edited in place nor answered (stale screens).
+    const hiddenRx = (await j('coach', 'GET', `/api/trainer/members/${ids.client}/prescriptions`)).length;
+    const edited = await fetch(`${base}/api/trainer/prescriptions/${rxGone.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok.coach}` }, body: JSON.stringify({ name: 'renamed' }) });
+    assert.equal(edited.status, 404, 'edit of a hidden prescription: not found');
+    const answered = await fetch(`${base}/api/prescriptions/${rxGone.id}/answer`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok.client}` }, body: JSON.stringify({ answer: 'accept' }) });
+    assert.equal(answered.status, 404, 'answer to a hidden prescription: not found');
+    assert.equal(hiddenRx, 3);
 
     // Never counted as missed.
     const node = (code) => new Promise((res, rej) => execFile(process.execPath, ['--input-type=module', '-e', code], { cwd: serverDir, env, encoding: 'utf8', timeout: 60000 }, (e, out) => (e ? rej(e) : res(out))));
