@@ -22,6 +22,17 @@ function refuse(res, access, needChange) {
   return false;
 }
 
+// A program deleted elsewhere (a third-party client's push, a restored
+// backup) is not followed, pinned to a week, reordered or assigned: answered
+// as gone, as an edit made before its delete is (the app drops the change).
+// An edit made after the delete brings it back (PUT below). True when the
+// response was sent.
+function refuseDeleted(res, program) {
+  if (!program?.deleted_at) return false;
+  res.status(410).json({ error: 'Deleted elsewhere', gone: true });
+  return true;
+}
+
 const router = Router();
 router.use(requireAuth);
 
@@ -47,11 +58,11 @@ router.get('/', wrap((req, res) => {
        FROM programs p
        LEFT JOIN program_assignments pa ON pa.program_id = p.id AND pa.assigned_to = ?
        LEFT JOIN users assigner ON assigner.id = pa.assigned_by
-       WHERE p.created_by = ? OR pa.id IS NOT NULL
+       WHERE (p.created_by = ? OR pa.id IS NOT NULL) AND p.deleted_at IS NULL
        ORDER BY p.created_at DESC`
     ).all(userId, userId, userId);
   } else {
-    programs = db.prepare('SELECT *, 0 as is_active FROM programs ORDER BY created_at DESC').all();
+    programs = db.prepare('SELECT *, 0 as is_active FROM programs WHERE deleted_at IS NULL ORDER BY created_at DESC').all();
     // Check single-user active
     const activeId = soloActiveId();
     if (activeId != null) {
@@ -64,7 +75,7 @@ router.get('/', wrap((req, res) => {
   // session count so the active program can show "Week 3 · 12 sessions".
   for (const p of programs) {
     const tpls = db.prepare(
-      'SELECT name FROM workout_templates WHERE program_id = ? ORDER BY order_index ASC LIMIT 10'
+      'SELECT name FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL ORDER BY order_index ASC LIMIT 10'
     ).all(p.id);
     p.template_count = tpls.length;
     p.template_names = tpls.slice(0, 3).map(t => t.name);
@@ -121,12 +132,14 @@ router.get('/', wrap((req, res) => {
 // GET /api/programs/:id — detail with templates
 router.get('/:id', wrap((req, res) => {
   const id = parseInt(req.params.id);
-  const program = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  // One deleted elsewhere (a third-party client's push, a restored backup)
+  // isn't there to read, as the app's own delete leaves nothing.
+  const program = db.prepare('SELECT * FROM programs WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!program || refuse(res, programFor(id, uid(req)), false)) {
     if (!res.headersSent) res.status(404).json({ error: 'Program not found' });
     return;
   }
-  const templates = db.prepare('SELECT * FROM workout_templates WHERE program_id = ? ORDER BY order_index ASC').all(id);
+  const templates = db.prepare('SELECT * FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL ORDER BY order_index ASC').all(id);
   for (const t of templates) t.exercises = JSON.parse(t.exercises || '[]');
   program.templates = templates;
 
@@ -303,7 +316,8 @@ router.post('/:id/activate', wrap((req, res) => {
   const userId = uid(req);
   // Following a program means seeing it; activating someone else's
   // private one would also have handed this account a copy.
-  if (refuse(res, programFor(id, userId), false)) return;
+  const access = programFor(id, userId);
+  if (refuse(res, access, false) || refuseDeleted(res, access.program)) return;
   if (userId != null) {
     // Deactivate all, then activate this one
     db.prepare('UPDATE program_assignments SET active = 0 WHERE assigned_to = ?').run(userId);
@@ -334,6 +348,7 @@ router.post('/:id/week-cursor', wrap((req, res) => {
     if (!res.headersSent) res.status(404).json({ error: 'Program not found' });
     return;
   }
+  if (refuseDeleted(res, program)) return;
 
   let week = req.body?.week;
   if (week != null) {
@@ -381,7 +396,9 @@ router.post('/:id/assign', requireTrainerOrAdmin, wrap((req, res) => {
   // they started themselves, say) can be switched on for them too: the
   // coach's member overview offers Make Active for every one of them.
   const alreadyTheirs = db.prepare('SELECT 1 FROM program_assignments WHERE program_id = ? AND assigned_to = ?').get(programId, parseInt(user_id));
-  if (!alreadyTheirs && refuse(res, programFor(programId, uid(req)), false)) return;
+  const access = programFor(programId, uid(req));
+  if (!alreadyTheirs && refuse(res, access, false)) return;
+  if (refuseDeleted(res, access.program)) return;
   // make_active defaults to true (assignment usually means "follow this");
   // pass make_active: false to add the program to the member's library
   // without disrupting whatever they're currently following.
@@ -427,7 +444,8 @@ router.delete('/:id/assign/:userId', requireTrainerOrAdmin, wrap((req, res) => {
 router.put('/:id/reorder', wrap((req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
-  if (refuse(res, programFor(parseInt(req.params.id), uid(req)), true)) return;
+  const access = programFor(parseInt(req.params.id), uid(req));
+  if (refuse(res, access, true) || refuseDeleted(res, access.program)) return;
   const stmt = db.prepare('UPDATE workout_templates SET order_index = ? WHERE id = ? AND program_id = ?');
   const programId = parseInt(req.params.id);
   db.transaction(() => {

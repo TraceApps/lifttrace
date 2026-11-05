@@ -387,7 +387,8 @@ router.get('/pull', wrap((req, res) => {
     const pid = toId(cfg('active_program'));
     let cursor = {};
     try { cursor = JSON.parse(cfg('active_program_cursor') || '{}') || {}; } catch { /* none */ }
-    solo_active = pid && db.prepare('SELECT 1 FROM programs WHERE id = ?').get(pid)
+    // One deleted elsewhere is followed no more (routes/programs.js).
+    solo_active = pid && db.prepare('SELECT 1 FROM programs WHERE id = ? AND deleted_at IS NULL').get(pid)
       ? { program_id: pid, week_cursor: cursor.week ?? null, week_cursor_session_base: cursor.base ?? null, week_cursor_pinned_at: cursor.pinnedAt ?? null, started_at: soloStart() }
       : null;
   }

@@ -581,7 +581,13 @@ changes it later.
   alive keeps taking edits (a pushed delete of a program leaves its days as
   they are), and one made after its program's delete brings the program
   back. A program brought back by an edit of its own leaves its days as they
-  are (a day deleted by itself stays deleted). A deleted exercise is still
+  are (a day deleted by itself stays deleted). A deleted program or day is
+  not read by `GET /api/programs`, `/api/programs/:id`, `/api/templates/:id`
+  (nor a day of a deleted program), the coach's view of a client, MCP and
+  REST v1 (`list_programs`, `get_active_program`, `start_program_workout`),
+  the workout reminder, or, without accounts, the pull's program followed;
+  activate, the week cursor, reorder and assign answer a deleted program as
+  gone (410, `gone: true`), and the pull still sends it (deleted). A deleted exercise is still
   read by id for the workouts that name it (#49) and `PUT
   /api/exercises/:id` still answers 404; an edit through a push can bring
   it back. Changes queued together

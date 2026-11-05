@@ -17,11 +17,13 @@ router.get('/:id', wrap((req, res) => {
   // Join the parent program's duration_weeks so the editor knows how many
   // week tabs to render for the per-week progression matrix (issue #13)
   // without a second round-trip.
+  // A day deleted elsewhere, or one of a program deleted elsewhere (a
+  // third-party client's push, a restored backup), isn't there to read.
   const t = db.prepare(
     `SELECT wt.*, p.duration_weeks
        FROM workout_templates wt
        JOIN programs p ON p.id = wt.program_id
-      WHERE wt.id = ?`
+      WHERE wt.id = ? AND wt.deleted_at IS NULL AND p.deleted_at IS NULL`
   ).get(parseInt(req.params.id));
   if (!t || !templateFor(t.id, uid(req)).canSee) return res.status(404).json({ error: 'Template not found' });
   t.exercises = JSON.parse(t.exercises || '[]');

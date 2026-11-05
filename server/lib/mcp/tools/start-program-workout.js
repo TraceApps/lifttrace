@@ -56,6 +56,9 @@ function _freshIds(exercises) {
   }));
 }
 
+/** A day's program deleted elsewhere: its days aren't there to start either. */
+const _programGone = (programId) => !!db.prepare('SELECT deleted_at FROM programs WHERE id = ?').get(programId)?.deleted_at;
+
 const _exercisesOf = (row) => { try { return JSON.parse(row.exercises || '[]') || []; } catch { return []; } };
 
 /** The account's active program (its assignment and program row), or null. */
@@ -123,7 +126,7 @@ export function startProgramWorkoutCore(userId, { date, template_id } = {}) {
     let template, programTemplates = null;
     if (templateId != null) {
       const access = templateFor(templateId, userId);
-      if (!access.template || !access.canSee || access.template.deleted_at) {
+      if (!access.template || !access.canSee || access.template.deleted_at || _programGone(access.template.program_id)) {
         throw new Error(`No workout day ${templateId} that you can see. get_active_program lists your active program's days.`);
       }
       template = access.template;

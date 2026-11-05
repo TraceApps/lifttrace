@@ -26,12 +26,12 @@ export function getActiveProgramCore(userId, { timeZone, fallbackZone } = {}) {
   const assignment = db.prepare(
     `SELECT pa.*, p.* FROM program_assignments pa
        JOIN programs p ON p.id = pa.program_id
-      WHERE pa.assigned_to = ? AND pa.active = 1`
+      WHERE pa.assigned_to = ? AND pa.active = 1 AND p.deleted_at IS NULL`
   ).get(userId);
   if (!assignment) return { active: false };
 
   const templates = db.prepare(
-    'SELECT id, name, day_label, exercises FROM workout_templates WHERE program_id = ? ORDER BY order_index ASC'
+    'SELECT id, name, day_label, exercises FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL ORDER BY order_index ASC'
   ).all(assignment.program_id);
   const templateCount = templates.length;
 

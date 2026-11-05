@@ -49,7 +49,7 @@ router.get('/members', wrap((req, res) => {
     const active = db.prepare(
       `SELECT p.name FROM program_assignments pa
        JOIN programs p ON p.id = pa.program_id
-       WHERE pa.assigned_to = ? AND pa.active = 1 LIMIT 1`
+       WHERE pa.assigned_to = ? AND pa.active = 1 AND p.deleted_at IS NULL LIMIT 1`
     ).get(u.id);
     const last = db.prepare(
       `SELECT date FROM workout_log WHERE user_id = ? AND completed = 1 AND deleted_at IS NULL ORDER BY date DESC LIMIT 1`
@@ -78,7 +78,7 @@ router.get('/members/:id', wrap((req, res) => {
   const activeProgram = db.prepare(
     `SELECT p.id, p.name, p.goal FROM program_assignments pa
      JOIN programs p ON p.id = pa.program_id
-     WHERE pa.assigned_to = ? AND pa.active = 1 LIMIT 1`
+     WHERE pa.assigned_to = ? AND pa.active = 1 AND p.deleted_at IS NULL LIMIT 1`
   ).get(memberId) || null;
   // Where the client is in it: the plan week, and the days their excused
   // days have paused a calendar program (#121). "Today" is the client's: in
@@ -101,7 +101,7 @@ router.get('/members/:id', wrap((req, res) => {
   const assignedPrograms = db.prepare(
     `SELECT p.id, p.name, p.goal, pa.active, pa.assigned_at FROM program_assignments pa
      JOIN programs p ON p.id = pa.program_id
-     WHERE pa.assigned_to = ? ORDER BY pa.assigned_at DESC`
+     WHERE pa.assigned_to = ? AND p.deleted_at IS NULL ORDER BY pa.assigned_at DESC`
   ).all(memberId);
 
   // Only completed workouts — drafts/empty attempts are noise on the coach

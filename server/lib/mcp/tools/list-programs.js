@@ -19,13 +19,13 @@ export function listProgramsCore(userId) {
             CASE WHEN pa.active = 1 THEN 1 ELSE 0 END as is_active
        FROM programs p
        LEFT JOIN program_assignments pa ON pa.program_id = p.id AND pa.assigned_to = ?
-      WHERE p.created_by = ? OR pa.id IS NOT NULL
+      WHERE (p.created_by = ? OR pa.id IS NOT NULL) AND p.deleted_at IS NULL
       ORDER BY p.created_at DESC`
   ).all(userId, userId);
 
   const list = programs.map(p => {
     const templateCount = db.prepare(
-      'SELECT COUNT(*) as c FROM workout_templates WHERE program_id = ?'
+      'SELECT COUNT(*) as c FROM workout_templates WHERE program_id = ? AND deleted_at IS NULL'
     ).get(p.id)?.c || 0;
     return {
       program_id: p.id,
