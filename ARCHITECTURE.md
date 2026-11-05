@@ -509,7 +509,14 @@ changes it later.
   never touched by a pull (body stats on a day the server also has are
   merged), and are created on the server, under a key, the first time a
   write names them. The server also sends rows deleted outright
-  (`sync_deletions`), the full list of programs and program workouts the
+  (`sync_deletions`; a setting deleted on the server too, by its key, such
+  as by `DELETE /api/settings` from an API client or a restore whose backup
+  lacks it, so the phone goes back to the default; a change of it made
+  before the delete, or pushed with no readable time, leaves it deleted,
+  one made after it sets it again: `resetWins` in
+  `server/lib/deleted-rows.js`. The app's own Clear All Settings sets
+  defaults instead, which sync as any change does), the full
+  list of programs and program workouts the
   account may keep, and, without user accounts, the program being
   followed; the pull is gzipped. A save that reaches the server online
   updates the copy too (a workout, an excused day, a day's body stats:

@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive, uid } from '../middleware/auth.js';
 import { decide } from '../lib/newer-wins.js';
+import { resetWins } from '../lib/deleted-rows.js';
 import { pushNotify } from '../lib/push-notify.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
@@ -50,6 +51,9 @@ router.put('/', wrap((req, res) => {
   // is still written (as it is), so its change time moves and the device
   // gets the value that stays with its next pull.
   const existing = db.prepare('SELECT * FROM user_settings WHERE user_id = ? AND key = ?').get(req.user.id, key);
+  // Reset (Clear All Settings) after this change was made: it stays reset,
+  // and the device that sent it goes back to the default with its next pull.
+  if (!existing && resetWins(req, req.user.id, key)) return res.json({ ok: true, value: null, reset: true });
   // Compared as stored (JSON text): an object sent is the same setting as
   // the same object kept.
   const { keep, times } = decide(req, existing, { value: value === undefined ? undefined : JSON.stringify(value) }, { fields: ['value'] });

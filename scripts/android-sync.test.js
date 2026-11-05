@@ -380,6 +380,13 @@ test('a workout the watch finished, finished again on a phone holding an older c
   assert.deepEqual(out.ownTitles, ['💪 Workout Complete!'], 'is said once, by the phone');
 });
 
+test('settings deleted on the server (DELETE /api/settings) reach the phone; a change the phone made after it stays, one made before it is reset', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('settingsReset');
+  assert.deepEqual(out.before, { restDuration: 120, restAutoStart: false, weightUnit: 'kg' });
+  assert.deepEqual(out.server, { restDuration: null, restAutoStart: false, weightUnit: null }, 'the server: the change made before the reset stays reset (dev: 150 came back), the one after it is kept');
+  assert.deepEqual(out.after, { restDuration: 90, restAutoStart: false, weightUnit: 'lbs' }, 'the phone shows the same: defaults, and the change made after the reset');
+});
+
 test('body stats saved online show on the phone at once, before the next sync', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('bodyStatsSavedOnline');
   assert.deepEqual(out.before, { weight: 80, waist: 90 });

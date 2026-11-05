@@ -43,7 +43,7 @@ import { attachAssignedPrograms } from '../lib/assigned-programs.js';
 import { mergeExercises, ensureExerciseUuids, mergeStatsObject } from '../lib/workout-merge.js';
 import { applyToBody, createdTimes, decide, deleteLoses, deletedTimes, editBringsBack, editedAt, stampMerged, toMs } from '../lib/newer-wins.js';
 import { revivedDay, isStatsObject, onlyMeasurements } from '../lib/body-stats-day.js';
-import { dayEditMeets, bringProgramBack, touchDeleted, countedTimes, timesAtDelete } from '../lib/deleted-rows.js';
+import { dayEditMeets, bringProgramBack, touchDeleted, countedTimes, timesAtDelete, resetWins } from '../lib/deleted-rows.js';
 import { readTimes } from '../lib/field-sync.js';
 import { SYNC_FIELDS, syncOf } from '../lib/sync-fields.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
@@ -970,6 +970,9 @@ router.post('/push', wrap((req, res) => {
         db.prepare(
           `UPDATE user_settings SET value=?, field_times=?, updated_at=datetime('now') WHERE user_id=? AND key=?`
         ).run(keep.has('value') ? existing.value : (s.value ?? null), times, u, s.key);
+      } else if (u != null && resetWins(pushedEdit(s), u, s.key)) {
+        // Reset (Clear All Settings) after it was made, or sent with no
+        // readable time: it stays reset (PUT /api/settings does the same).
       } else if (u != null) {
         const { times } = decide(pushedEdit(s), null, { value: s.value ?? null }, { fields: ['value'] });
         db.prepare(

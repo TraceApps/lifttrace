@@ -85,3 +85,16 @@ export function touchDeleted(day, program) {
   if (day?.deleted_at) db.prepare(`UPDATE workout_templates SET updated_at = datetime('now'), field_times = ? WHERE id = ?`).run(JSON.stringify(countedTimes(day)), day.id);
   if (program?.deleted_at) db.prepare(`UPDATE programs SET updated_at = datetime('now'), field_times = ? WHERE id = ?`).run(JSON.stringify(countedTimes(program)), program.id);
 }
+
+/**
+ * Whether an edit of setting `key` meets its reset (Clear All Settings,
+ * DELETE /api/settings, kept in sync_deletions by db.js so the account's
+ * phones go back to the default too) and loses to it: made before the reset
+ * or in its second, or pushed with no readable time. One made after it, or
+ * now, sets it again. False when the setting isn't reset.
+ */
+export function resetWins(req, userId, key) {
+  if (userId == null) return false;
+  const r = db.prepare(`SELECT deleted_at FROM sync_deletions WHERE tbl = 'user_settings' AND user_id = ? AND row_key = ?`).get(userId, key);
+  return !!r && !editBringsBack(req, { deleted_at: r.deleted_at });
+}

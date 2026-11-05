@@ -518,6 +518,41 @@ const scenarios = {
     box.close();
     return { watchFinished: watchAnswer.finished ?? null, watch, stale, staleTitles, own, ownTitles };
   },
+  // Settings deleted on the server (DELETE /api/settings) while the phone,
+  // offline, changed one setting before it and another after it: once it
+  // syncs, the setting changed before the reset is reset (on the server and
+  // on screen), the one changed after it stays as set and reaches the
+  // server, and one the phone never touched goes back to its default.
+  async settingsReset() {
+    me();
+    // Window events, so the setting stores follow what a sync writes, as
+    // they do on screen (wl:setting).
+    const events = new EventTarget();
+    globalThis.addEventListener = events.addEventListener.bind(events);
+    globalThis.removeEventListener = events.removeEventListener.bind(events);
+    globalThis.dispatchEvent = events.dispatchEvent.bind(events);
+    const { get } = await import('svelte/store');
+    const st = await import('../../src/stores/settings.js');
+    for (const [key, value] of [['restDuration', 120], ['restAutoStart', false], ['weightUnit', 'kg']]) await web('phone', 'PUT', '/api/settings', { key, value });
+    await syncNow();
+    const shown = () => ({ restDuration: get(st.restDuration), restAutoStart: get(st.restAutoStart), weightUnit: get(st.weightUnit) });
+    const before = shown();
+    offline(true);
+    st.restDuration.set(150);           // before the reset
+    await st.flushSettingSaves();
+    await later(1500);
+    await web('phone', 'DELETE', '/api/settings');
+    await later(1500);
+    st.restAutoStart.set(false);         // after it (the value it had, chosen again)
+    st.restAutoStart.set(true); st.restAutoStart.set(false);
+    await st.flushSettingSaves();
+    // Past the few seconds a change on screen is kept from a pull.
+    await later(10500);
+    offline(false);
+    await syncNow(); await syncNow();
+    const server = await web('phone', 'GET', '/api/settings');
+    return { before, after: shown(), server: { restDuration: server.restDuration ?? null, restAutoStart: server.restAutoStart ?? null, weightUnit: server.weightUnit ?? null } };
+  },
   async offlineIds() {
     // What stores/auth.js keeps for the signed-in account (not account 1).
     me();
