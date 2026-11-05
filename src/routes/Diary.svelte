@@ -1084,6 +1084,7 @@
     window.removeEventListener('lt:sync-complete', _onSyncComplete);
     window.removeEventListener('lt:workout-opened', _onWorkoutOpened);
     window.removeEventListener('lt:diary-open-date', _onOpenDate);
+    window.removeEventListener('resize', _clampAddFab);
     _stopDayTick();
   });
 

@@ -209,6 +209,7 @@
   onDestroy(() => {
     _stopViz();
     try { _vizCtx?.close(); } catch {}
+    if (typeof window !== 'undefined') window.removeEventListener('resize', _clampFab);
   });
 
   // ── Draggable FAB ──────────────────────────────────────────────────────────

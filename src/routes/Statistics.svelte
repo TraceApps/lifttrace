@@ -226,6 +226,7 @@
 
   onDestroy(() => {
     if (_onSyncComplete) window.removeEventListener('lt:sync-complete', _onSyncComplete);
+    if (typeof window !== 'undefined') window.removeEventListener('resize', _measureIndicator);
   });
 
   $: range, loadData();

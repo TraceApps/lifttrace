@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
@@ -44,9 +45,9 @@
   // rotating portrait↔landscape sees the toggle reappear without reloading.
   // Threshold matches App.svelte's _persistentAllowed (768px).
   let _viewportW = typeof window !== 'undefined' ? window.innerWidth : 1024;
-  if (typeof window !== 'undefined') {
-    window.addEventListener('resize', () => { _viewportW = window.innerWidth; });
-  }
+  const _onResize = () => { _viewportW = window.innerWidth; };
+  if (typeof window !== 'undefined') window.addEventListener('resize', _onResize);
+  onDestroy(() => { if (typeof window !== 'undefined') window.removeEventListener('resize', _onResize); });
   $: _persistentAllowed = _viewportW >= 768;
 </script>
 
