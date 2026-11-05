@@ -83,10 +83,3 @@ export function rememberZone(userId, zone, now = Date.now()) {
 export function userToday(userId, { fallbackZone, now = Date.now() } = {}) {
   return dayOf(now, zoneFor(userId, fallbackZone));
 }
-
-/** A YYYY-MM-DD moved by `n` calendar days. */
-export function shiftDay(ymd, n) {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}

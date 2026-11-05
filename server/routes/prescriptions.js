@@ -45,11 +45,11 @@ router.get('/my/upcoming/list', wrap((req, res) => {
      LEFT JOIN users u ON u.id = cp.trainer_id
      WHERE cp.member_id = ? AND cp.status != 'declined'
        -- From the client's today (lib/user-zone.js: the zone their app said
-       -- last, else the server's). The same window the waiting count (the
-       -- dot) uses.
+       -- last, else the one this request says, else the server's). The same
+       -- window the waiting count (the dot) uses.
        AND (cp.date IS NULL OR cp.date >= ?)
      ORDER BY cp.date IS NULL, cp.date ASC`
-  ).all(userId, userToday(userId));
+  ).all(userId, userToday(userId, { fallbackZone: req.query?.tz }));
   res.json(rows.map(parse));
 }));
 

@@ -187,7 +187,8 @@ export const LtApi = {
   setUserTrainer: (id, trainer_id) => fetch(`/api/auth/users/${id}/trainer`, { ...jsonOpts, method: 'PUT', body: JSON.stringify({ trainer_id }) }).then(_json),
 
   // ── Trainer / Coaching ─────────────────────────────────────────────────
-  getMyMembers: () => fetch('/api/trainer/members', opts).then(_json),
+  // The coach's zone, for a client whose app hasn't said theirs (week_count).
+  getMyMembers: () => fetch(`/api/trainer/members${planWeekQuery({ cardio: false })}`, opts).then(_json),
   getUnassignedMembers: () => fetch('/api/trainer/unassigned-members', opts).then(_json),
   claimCoachee: (memberId) => fetch(`/api/trainer/members/${memberId}`, { ...opts, method: 'POST' }).then(_json),
   removeCoachee: (memberId) => fetch(`/api/trainer/members/${memberId}`, { ...opts, method: 'DELETE' }).then(_json),
@@ -203,7 +204,7 @@ export const LtApi = {
 
   // Member-side prescription lookups
   getMyPrescriptionForDate: (date) => fetch(`/api/prescriptions/my/${date}`, opts).then(_json),
-  getMyUpcomingPrescriptions: () => fetch('/api/prescriptions/my/upcoming/list', opts).then(_json),
+  getMyUpcomingPrescriptions: () => fetch(`/api/prescriptions/my/upcoming/list${planWeekQuery({ cardio: false })}`, opts).then(_json),
 
   // ── Upload ─────────────────────────────────────────────────────────────
   uploadFile: async (file) => {

@@ -111,7 +111,8 @@ athlete (the coach's view of a
 client, with its streak, MCP, `/api/v1`, the webhook, a prescription
 counted as missed, `/api/stats/streaks`, the coach's client list (its
 `week_count`, workouts in the last seven days), a client's waiting and
-upcoming prescriptions, and the scheduler's reminders and weekly summary)
+upcoming prescriptions (the upcoming list also takes the app's `?tz=` as
+the fallback), and the scheduler's reminders and weekly summary)
 uses the athlete's "today". With none kept the order is
 `zoneFor`: the zone kept, else the zone on the coach's own request (`?tz=`
 on `/api/trainer/members` and `/api/trainer/members/:id`, passed as `fallbackZone`, used for that

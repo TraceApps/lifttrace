@@ -9,7 +9,8 @@
  *   seven days (SQLite date('now', '-7 days'));
  * - a client's waiting prescriptions (the dot on Programs, GET
  *   /api/coaching/state `awaiting`) and their upcoming list (GET
- *   /api/prescriptions/my/upcoming/list): dated ones from yesterday in UTC.
+ *   /api/prescriptions/my/upcoming/list, which the app now sends its zone
+ *   with): dated ones from yesterday in UTC.
  *
  * The scheduler's own fallback (UTC with no zone kept) is
  * scheduler-zone-fallback.test.js. Two zones 25 hours apart that never share
@@ -128,4 +129,8 @@ test("a client's waiting and upcoming prescriptions start at the client's today"
     const state = await S.call(name, 'GET', '/api/coaching/state');
     assert.equal(state.awaiting, 2, `${name}: two waiting for an answer`);
   }
+  // The zone the app's request says counts only when none is kept.
+  const upcomingIn = async (name, zone) => (await S.call(name, 'GET', `/api/prescriptions/my/upcoming/list?tz=${enc(zone)}`)).map((p) => p.name).sort();
+  assert.deepEqual(await upcomingIn('silent', BEHIND), ['today', 'undated', 'yesterday'], "none kept: the request's zone, where the server's yesterday is still today or later");
+  assert.deepEqual(await upcomingIn('ahead', BEHIND), ['today', 'undated'], 'a zone kept wins over the one the request says');
 });
