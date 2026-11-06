@@ -398,7 +398,7 @@ export const TOOLS = [
   {
     name: 'get_stats_overview',
     description:
-      "Snapshot the user's training over a window: days trained, current + best streak, weekly averages, weekly volume + frequency series, muscle-group balance (with imbalance %), top PRs set in range, and how many days in range were excused (couldn't train; each comes off that week's goal). Use for 'how am I doing?' / 'weekly summary'.",
+      "Snapshot the user's training over a window: days trained, current + best streak, weekly averages, weekly volume + frequency series, muscle-group balance (with imbalance %), top PRs set in range (lifts, holds, distances and calories), and how many days in range were excused (couldn't train; each comes off that week's goal). Use for 'how am I doing?' / 'weekly summary'.",
     parameters: {
       type: 'object',
       properties: {
@@ -962,59 +962,71 @@ async function _getActiveProgram() {
   return _shapeProgram(full);
 }
 
+// A records row's kind, date and shape for the model, one definition for
+// get_prs and get_stats_overview (as the Records page reads them). A timed
+// exercise (issue #89) has no max weight; its record is the longest hold.
+// Distance and calorie exercises (issue #119) have the longest distance and
+// the most calories in a set. Each also has its heaviest load
+// (maxHoldWeight, maxDistanceLoad, maxCaloriesLoad).
+function _prKind(r) {
+  if ((r.maxWeight || 0) > 0) return 'reps';
+  if ((r.maxDuration || 0) > 0) return 'time';
+  if ((r.maxDistance || 0) > 0) return 'distance';
+  if ((r.maxCalories || 0) > 0) return 'calories';
+  return null;
+}
+function _prDate(r) {
+  return ({ time: r.durationDate, distance: r.distanceDate, calories: r.caloriesDate }[_prKind(r)] ?? r.date) || null;
+}
+function _prShape(r) {
+  const kind = _prKind(r);
+  if (kind === 'time') {
+    return {
+      exercise_name: r.name,
+      longest_hold_sec: r.maxDuration,
+      ...(r.maxDurationWeight ? { hold_weight: r.maxDurationWeight } : {}),
+      ...(r.maxHoldWeight ? { heaviest_load: r.maxHoldWeight } : {}),
+      date: _prDate(r),
+    };
+  }
+  if (kind === 'distance') {
+    return {
+      exercise_name: r.name,
+      longest_distance_m: r.maxDistance,
+      ...(r.maxDistanceWeight ? { distance_weight: r.maxDistanceWeight } : {}),
+      ...(r.maxDistanceLoad ? { heaviest_load: r.maxDistanceLoad } : {}),
+      date: _prDate(r),
+    };
+  }
+  if (kind === 'calories') {
+    return {
+      exercise_name: r.name,
+      most_calories: r.maxCalories,
+      ...(r.maxCaloriesWeight ? { calories_weight: r.maxCaloriesWeight } : {}),
+      ...(r.maxCaloriesLoad ? { heaviest_load: r.maxCaloriesLoad } : {}),
+      date: _prDate(r),
+    };
+  }
+  return {
+    exercise_name: r.name,
+    weight: r.maxWeight,
+    reps: r.maxReps,
+    one_rep_max_estimate: r.e1rm,
+    date: r.date || null,
+  };
+}
+
 async function _getPrs({ exercise_name, date_from, date_to, limit, offset } = {}) {
   const records = await _get('/api/stats/records');
   const needle = foldText(exercise_name).trim();
-  // A timed exercise (issue #89) has no max weight; its record is the
-  // longest hold. Filtering on maxWeight alone hid every plank PR. Distance
-  // and calorie exercises (issue #119) have the longest distance and the
-  // most calories in a set.
-  const amountOf = (r) => ((r.maxWeight || 0) > 0 ? null
-    : (r.maxDuration || 0) > 0 ? 'time'
-    : (r.maxDistance || 0) > 0 ? 'distance'
-    : (r.maxCalories || 0) > 0 ? 'calories' : null);
-  const recDate = (r) => ({ time: r.durationDate, distance: r.distanceDate, calories: r.caloriesDate }[amountOf(r)] ?? r.date);
   const filtered = records
-    .filter(r => (r.maxWeight || 0) > 0 || amountOf(r))
+    .filter(r => _prKind(r))
     .filter(r => (!needle || foldText(r.name).includes(needle)))
-    .filter(r => (!date_from || (recDate(r) && recDate(r) >= date_from)))
-    .filter(r => (!date_to   || (recDate(r) && recDate(r) <= date_to)))
+    .filter(r => (!date_from || (_prDate(r) && _prDate(r) >= date_from)))
+    .filter(r => (!date_to   || (_prDate(r) && _prDate(r) <= date_to)))
     // Ties by name, so the same list comes in the same order every time.
     .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0) || String(a.name).localeCompare(String(b.name)));
-  const shape = (r) => {
-    const kind = amountOf(r);
-    if (kind === 'time') {
-      return {
-        exercise_name: r.name,
-        longest_hold_sec: r.maxDuration,
-        ...(r.maxDurationWeight ? { hold_weight: r.maxDurationWeight } : {}),
-        date: r.durationDate || null,
-      };
-    }
-    if (kind === 'distance') {
-      return {
-        exercise_name: r.name,
-        longest_distance_m: r.maxDistance,
-        ...(r.maxDistanceWeight ? { distance_weight: r.maxDistanceWeight } : {}),
-        date: r.distanceDate || null,
-      };
-    }
-    if (kind === 'calories') {
-      return {
-        exercise_name: r.name,
-        most_calories: r.maxCalories,
-        ...(r.maxCaloriesWeight ? { calories_weight: r.maxCaloriesWeight } : {}),
-        date: r.caloriesDate || null,
-      };
-    }
-    return {
-      exercise_name: r.name,
-      weight: r.maxWeight,
-      reps: r.maxReps,
-      one_rep_max_estimate: r.e1rm,
-      date: r.date || null,
-    };
-  };
+  const shape = _prShape;
   const page = _page(filtered, { limit, offset, size: 20, max: PR_PAGE_MAX, key: 'records', what: 'records', tool: 'get_prs' });
   return Array.isArray(page) ? page.map(shape) : { ...page, records: page.records.map(shape) };
 }
@@ -1235,11 +1247,17 @@ async function _getStatsOverview({ range } = {}) {
     }))
     .sort((a, b) => b.sets_pct - a.sets_pct);
 
-  const top_prs_in_range = records
-    .filter(r => r.date && r.date >= from && r.date <= to)
-    .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0))
-    .slice(0, 5)
-    .map(r => ({ exercise_name: r.name, weight: r.maxWeight, reps: r.maxReps, one_rep_max_estimate: r.e1rm, date: r.date }));
+  // Records set in the range: the five best lifts by estimated 1RM, then up
+  // to five hold, distance and calorie records, newest first. Ranking those
+  // against a 1RM means nothing, and with only rep records here a plank or
+  // a row PR never reached the summary.
+  const inRange = records.filter(r => _prKind(r) && _prDate(r) && _prDate(r) >= from && _prDate(r) <= to);
+  const top_prs_in_range = [
+    ...inRange.filter(r => _prKind(r) === 'reps')
+      .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0) || String(a.name).localeCompare(String(b.name))).slice(0, 5),
+    ...inRange.filter(r => _prKind(r) !== 'reps')
+      .sort((a, b) => String(_prDate(b)).localeCompare(String(_prDate(a))) || String(a.name).localeCompare(String(b.name))).slice(0, 5),
+  ].map(_prShape);
 
   return {
     range: r,

@@ -1623,6 +1623,7 @@
     "n_sets":               "{n} sets",
     "recent_prs":           "Recent PRs",
     "est_1rm":              " · Est. 1RM {v}",
+    "heaviest_load":        " · Heaviest {v}",
     "total":                "Total",
     "muscle_balance_desc":  "Shaded by effective sets, relative to the hardest-worked muscle in this range.",
     "effective_sets_one":   "{n} effective sets across {m} muscle.",

@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, afterUpdate } from 'svelte';
   import { _ } from 'svelte-i18n';
   import SetRow from './SetRow.svelte';
   import { LtApi } from '../../lib/api.js';
@@ -238,6 +238,29 @@
         : 'partial';
   let expanded = true;
 
+  // Whether the rows' weight fields have dropped their ± buttons, which a
+  // narrow field does on its own (SetRow.svelte, a container query): the
+  // heading then moves to the input's new left edge. Read from the rows
+  // themselves, since the heading's cell can be wider than their field (no
+  // RPE chip in it, and an L/R split or hold timer changes the rows' grid).
+  let setsWrapEl;
+  let weightCompact = false;
+  function _checkWeightSteps() {
+    const btn = setsWrapEl?.querySelector('.set-row:not(.warmup) .weight-field .step-btn')
+      || setsWrapEl?.querySelector('.weight-field .step-btn');
+    const next = !!btn && getComputedStyle(btn).display === 'none';
+    if (next !== weightCompact) weightCompact = next;
+  }
+  afterUpdate(_checkWeightSteps);
+  // A width change (rotating, a fold opening, RPE turned on) re-checks; the
+  // list is only in the page while the card is open, hence the reactive watch.
+  let _weightRo = null;
+  onMount(() => {
+    if (typeof ResizeObserver !== 'undefined') _weightRo = new ResizeObserver(() => _checkWeightSteps());
+    return () => { _weightRo?.disconnect(); _weightRo = null; };
+  });
+  $: if (_weightRo) { _weightRo.disconnect(); if (setsWrapEl) _weightRo.observe(setsWrapEl); }
+
   function addSet() {
     const lastSet = sets[sets.length - 1] || { reps: 0, weight: 0 };
     const next = { reps: lastSet.reps, weight: lastSet.weight, completed: false, notes: '' };
@@ -443,10 +466,10 @@
         {/if}
       </div>
     {/if}
-    <div class="sets-wrap">
+    <div class="sets-wrap" bind:this={setsWrapEl}>
       <div class="sets-header">
         <span class="sh-set">Set</span>
-        <span class="sh-weight">{$_('exercise_card.weight')}</span>
+        <span class="sh-weight"><span class="sh-weight-label" class:compact={weightCompact}>{$_('exercise_card.weight')}</span></span>
         <!-- The distance unit sits in each row's field, as "kg" does in the
              weight field: "Distance (km)" wrapped onto two lines on a phone. -->
         <span class="sh-reps">{#if setType === 'distance'}<span class="sh-dist-word">{$_('exercise_card.distance')}</span><span class="sh-dist-unit">{distanceUnit}</span>{:else}{notReps ? $_(`exercise_card.${setType}`) : $_('exercise_card.reps')}{/if}</span>
@@ -678,7 +701,10 @@
         reps:   8px (no step button on this field)
      Matches the user's mental model of "the label lines up with where
      the number begins". */
-  .sh-weight { padding-left: 28px; }
+  .sh-weight-label { padding-left: 28px; }
+  /* A narrow weight field drops its ± buttons (SetRow.svelte), so its input
+     starts at the field's own 4px; the heading follows (weightCompact). */
+  .sh-weight-label.compact { padding-left: 4px; }
   .sh-reps   { padding-left: 8px; }
   /* With RPE on, a 360px row has no room for the unit inside the distance
      field (SetRow.svelte hides it there), so the header says the unit. */
@@ -691,7 +717,7 @@
      weight-field's own 4px padding instead of 4px + 22px + 2px = 28px.
      Re-derive the same "label over the input's left edge" alignment for
      that context; standalone exercises keep the 28px above unchanged. */
-  :global(.superset-card) .sh-weight { padding-left: 4px; }
+  :global(.superset-card) .sh-weight-label { padding-left: 4px; }
 
   .add-set-actions { display: flex; gap: 6px; margin-top: 6px; }
   .add-set-btn {

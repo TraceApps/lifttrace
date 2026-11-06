@@ -517,3 +517,59 @@ test('the Diary column header says Distance and the unit sits in the field, so i
   // build as unused, which had left the RPE heading rule out entirely.
   assert.doesNotMatch(card, /:has\(\.(rpe-wrap|amount-input)\)/);
 });
+
+// ── Trace: records of every kind ─────────────────────────────────────────
+
+test('Trace get_stats_overview and get_prs report hold, distance and calorie records with their heaviest loads', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const lib = new URL('../src/lib/aiTools.js', import.meta.url).href;
+  const script = `
+    const today = new Date().toLocaleDateString('sv-SE');
+    const records = [
+      { exerciseId: '1', name: 'Bench Press', maxWeight: 100, maxReps: 5, e1rm: 117, date: today },
+      { exerciseId: '2', name: 'Plank', maxWeight: 0, e1rm: 0, date: '', maxDuration: 90, maxDurationWeight: 0, maxHoldWeight: 25, durationDate: today },
+      { exerciseId: '3', name: 'Sled Push', maxWeight: 0, e1rm: 0, date: '', maxDistance: 20, maxDistanceWeight: 110, maxDistanceLoad: 140, distanceDate: today },
+      { exerciseId: '4', name: 'Assault Bike', maxWeight: 0, e1rm: 0, date: '', maxCalories: 24, maxCaloriesWeight: 0, caloriesDate: today },
+      { exerciseId: '5', name: 'Pull Up', maxWeight: 0, e1rm: 0, date: '' },
+    ];
+    globalThis.localStorage = { getItem: () => null };
+    globalThis.fetch = async (path) => ({ ok: true, json: async () => (String(path).startsWith('/api/stats/records') ? records : String(path).includes('streaks') ? {} : []) });
+    const { runTool } = await import(${JSON.stringify(lib)});
+    const overview = await runTool('get_stats_overview', { range: '30d' });
+    const prs = await runTool('get_prs', {});
+    process.stdout.write(JSON.stringify({ top: overview.top_prs_in_range, prs }));`;
+  const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }));
+  const byName = (list) => Object.fromEntries(list.map(r => [r.exercise_name, r]));
+  for (const list of [out.top, out.prs]) {
+    const r = byName(list);
+    assert.deepEqual(Object.keys(r).sort(), ['Assault Bike', 'Bench Press', 'Plank', 'Sled Push'], 'every kind, and no row without a record');
+    assert.equal(r['Bench Press'].one_rep_max_estimate, 117);
+    assert.deepEqual([r.Plank.longest_hold_sec, r.Plank.heaviest_load], [90, 25]);
+    assert.deepEqual([r['Sled Push'].longest_distance_m, r['Sled Push'].distance_weight, r['Sled Push'].heaviest_load], [20, 110, 140]);
+    assert.equal(r['Assault Bike'].most_calories, 24);
+    for (const x of list) assert.ok(x.date, `${x.exercise_name} carries its date`);
+  }
+});
+
+test('the weight is never squeezed out of its field on a phone', () => {
+  // With RPE on, or beside an L/R split, a timer or a distance, the weight
+  // field was too narrow for the ± buttons and the number, and the number
+  // gave (nothing showed at 360px). The buttons and then the unit go first.
+  const row = read('../src/components/diary/SetRow.svelte');
+  assert.match(row, /\.weight-field \{ padding: 0 4px; gap: 2px; container-type: inline-size; \}/);
+  assert.match(row, /@container \(max-width: 124px\) \{\s*\.weight-field \.step-btn \{ display: none; \}/);
+  assert.match(row, /@container \(max-width: 72px\) \{\s*\.weight-field \.set-unit:not\(\.each\) \{ display: none; \}/);
+  // The heading follows the input when the buttons go.
+  const card = read('../src/components/diary/ExerciseCard.svelte');
+  assert.match(card, /class:compact=\{weightCompact\}/);
+  assert.match(card, /getComputedStyle\(btn\)\.display === 'none'/, 'read from the rows, not guessed from the heading cell');
+});
+
+test('the Records page shows a hold, distance or calorie record\'s heaviest load when heavier than the record\'s own', () => {
+  const stats = read('../src/routes/Statistics.svelte');
+  assert.match(stats, /function heaviestLoad\(r\)/);
+  assert.match(stats, /\[r\.maxHoldWeight, r\.maxDurationWeight\]/);
+  assert.match(stats, /\[r\.maxDistanceLoad, r\.maxDistanceWeight\]/);
+  assert.match(stats, /\[r\.maxCaloriesLoad, r\.maxCaloriesWeight\]/);
+  assert.equal((stats.match(/statistics\.heaviest_load/g) || []).length, 2, 'both record row shapes');
+});

@@ -325,6 +325,7 @@ export function renderWeeklySummary(name, summary, origin = '', { unit = 'lbs', 
     const _prText = (p) => p.durationSec ? `${fmtHold(p.durationSec)} hold${at(p)}`
       : p.distanceM ? `${fmtDistanceM(p.distanceM, unit)}${at(p)}`
       : p.calories ? `${nf.format(p.calories)} cal${at(p)}`
+      : p.heaviestLoad ? `heaviest load ${nf.format(p.heaviestLoad)} ${_escapeHtml(unit)}`
       : `${nf.format(p.weight)} ${_escapeHtml(unit)} x ${_escapeHtml(p.reps)}`;
     const prList = prs.length
       ? `<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;">New Personal Records</p>

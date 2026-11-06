@@ -294,7 +294,7 @@
       inputmode="decimal"
     />
     <button class="step-btn tap" on:click={() => bumpWeight(step)} aria-label="Increase weight" tabindex="-1">+</button>
-    <span class="set-unit">{weightHint}</span>
+    <span class="set-unit" class:each={loadType === 'paired'}>{weightHint}</span>
   </div>
 
   {#if isSplit}
@@ -660,7 +660,21 @@
     padding: 0 8px;
     min-width: 0;
   }
-  .weight-field { padding: 0 4px; gap: 2px; }
+  .weight-field { padding: 0 4px; gap: 2px; container-type: inline-size; }
+  /* The weight itself comes first. The ± buttons and the unit take about
+     70px of a field that, with RPE on or beside an L/R split, a timer or a
+     distance, can be under 100px wide on a phone, and the number was what
+     gave: a 102.5 showed as nothing at 360px with RPE on. So when the field
+     is too narrow for the buttons and a five-digit weight, the buttons go
+     (the weight is still typed, as in a superset, issue #75), and when it
+     is narrower still, the unit goes too (the column heading says Weight),
+     unless it says "ea": a weight per hand is not the same number. */
+  @container (max-width: 124px) {
+    .weight-field .step-btn { display: none; }
+  }
+  @container (max-width: 72px) {
+    .weight-field .set-unit:not(.each) { display: none; }
+  }
   .step-btn {
     width: 22px; height: 26px; padding: 0;
     background: none; border: none; cursor: pointer;

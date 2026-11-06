@@ -194,3 +194,47 @@ test('the weekly summary email says the excused days with the goal (#121)', asyn
     assert.doesNotMatch(html, /0 of 0/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('PRs include distance, calories and the heaviest load held or moved, and the email says them (#119)', async (t) => {
+  const plank = (sec, weight = 0) => ({ duration_sec: sec, weight, completed: true });
+  const sled = (m, weight) => ({ distance_m: m, weight, completed: true });
+  const s = buildWeeklySummary({
+    library, today: TODAY,
+    workouts: [
+      w('2026-09-01', [
+        ex(3, 'Plank', [plank(90, 10)], { set_type: 'time' }),
+        ex(2, 'Sled Push', [sled(20, 100)], { set_type: 'distance' }),
+        ex(4, 'Rower', [sled(500, 0)], { set_type: 'distance' }),
+        ex(1, 'Assault Bike', [{ calories: 18, completed: true }], { set_type: 'calories' }),
+      ]),
+      w('2026-09-15', [
+        ex(3, 'Plank', [plank(60, 25)], { set_type: 'time' }),       // shorter, heavier: heaviest load held
+        ex(2, 'Sled Push', [sled(15, 140)], { set_type: 'distance' }), // shorter, heavier: heaviest load moved
+        ex(4, 'Rower', [sled(750, 0)], { set_type: 'distance' }),     // longer
+        ex(1, 'Assault Bike', [{ calories: 22, completed: true }], { set_type: 'calories' }),
+      ]),
+    ],
+  });
+  const by = Object.fromEntries(s.prs.map(p => [p.name, p]));
+  assert.deepEqual(by.Plank, { name: 'Plank', heaviestLoad: 25 });
+  assert.deepEqual(by['Sled Push'], { name: 'Sled Push', heaviestLoad: 140 });
+  assert.equal(by.Rower.distanceM, 750);
+  assert.equal(by['Assault Bike'].calories, 22);
+
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createRequire } = await import('node:module');
+  try { createRequire(new URL('../server/package.json', import.meta.url))('better-sqlite3'); } catch { t.skip('server packages missing'); return; }
+  const dir = mkdtempSync(join(tmpdir(), 'lt-summary-email-'));
+  try {
+    const html = execFileSync(process.execPath, ['--input-type=module', '-e',
+      `const { renderWeeklySummary } = await import('./email.js'); process.stdout.write(renderWeeklySummary('Cleo', ${JSON.stringify(s)}, '', { unit: 'kg' }).html);`],
+    { cwd: new URL('../server/', import.meta.url), env: { PATH: process.env.PATH, DB_PATH: join(dir, 'lt.db'), LOG_LEVEL: 'error', NODE_ENV: 'test' }, encoding: 'utf8' });
+    assert.match(html, /heaviest load 25 kg/);
+    assert.match(html, /heaviest load 140 kg/);
+    assert.match(html, /750 m/);
+    assert.match(html, /22 cal/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

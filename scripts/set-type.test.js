@@ -356,9 +356,12 @@ test('muscle balance volume skips holds on server and Android', () => {
 
 test('Trace get_prs reports hold records instead of filtering them out', () => {
   const tools = read('../src/lib/aiTools.js');
-  const fn = tools.slice(tools.indexOf('async function _getPrs'));
-  assert.match(fn.slice(0, 1600), /\(r\.maxDuration \|\| 0\) > 0/);
-  assert.match(fn.slice(0, 1600), /longest_hold_sec: r\.maxDuration/);
+  // get_prs reads records through _prKind / _prShape, shared with
+  // get_stats_overview (run for real in scripts/distance-calories.test.js).
+  const fn = tools.slice(tools.indexOf('function _prKind'));
+  assert.match(fn.slice(0, 2400), /\(r\.maxDuration \|\| 0\) > 0/);
+  assert.match(fn.slice(0, 2400), /longest_hold_sec: r\.maxDuration/);
+  assert.match(tools.slice(tools.indexOf('async function _getPrs')).slice(0, 600), /\.filter\(r => _prKind\(r\)\)/);
 });
 
 test('program detail shows a timed exercise\'s target time', () => {

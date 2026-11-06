@@ -123,6 +123,15 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
       prs.push({ name: a.name, distanceM: a.maxDistance, weight: a.maxDistanceWeight || 0 });
     } else if (b.maxCalories > 0 && a.maxCalories > b.maxCalories && a.caloriesDate >= start) {
       prs.push({ name: a.name, calories: a.maxCalories, weight: a.maxCaloriesWeight || 0 });
+    } else {
+      // The heaviest load held, or moved that far, as the Records page and
+      // pr.set count it: heavier this week than any session before it.
+      for (const [max, load] of [['maxDuration', 'maxHoldWeight'], ['maxDistance', 'maxDistanceLoad'], ['maxCalories', 'maxCaloriesLoad']]) {
+        if (b[max] > 0 && (a[load] || 0) > (b[load] || 0)) {
+          prs.push({ name: a.name, heaviestLoad: a[load] });
+          break;
+        }
+      }
     }
   }
   prs.sort((x, y) => (x.name || '').localeCompare(y.name || ''));

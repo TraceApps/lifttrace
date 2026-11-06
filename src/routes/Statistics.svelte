@@ -483,6 +483,16 @@
     : progressKind === 'distance' ? $_('statistics.longest_distance')
     : progressKind === 'calories' ? $_('statistics.most_calories')
     : $_('statistics.top_set');
+  // A hold, distance or calorie record's heaviest load (maxHoldWeight,
+  // maxDistanceLoad, maxCaloriesLoad), shown when it is heavier than the
+  // load in the record itself; 0 when there is nothing more to say.
+  function heaviestLoad(r) {
+    if (r.maxWeight > 0) return 0;
+    const [load, w] = (r.maxDuration || 0) > 0 ? [r.maxHoldWeight, r.maxDurationWeight]
+      : (r.maxDistance || 0) > 0 ? [r.maxDistanceLoad, r.maxDistanceWeight]
+      : (r.maxCalories || 0) > 0 ? [r.maxCaloriesLoad, r.maxCaloriesWeight] : [0, 0];
+    return (load || 0) > (w || 0) ? load : 0;
+  }
   function recordLabel(r) {
     const at = (w) => (w ? ` @ ${w} ${$weightUnit}` : '');
     if (!(r.maxWeight > 0)) {
@@ -1022,6 +1032,7 @@
                         <span class="record-meta">
                           {recordDate(r)}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
+                          {#if heaviestLoad(r)}{$_('statistics.heaviest_load', { values: { v: `${heaviestLoad(r)} ${$weightUnit}` } })}{/if}
                         </span>
                       </div>
                       <span class="material-symbols-rounded record-chev">chevron_right</span>
@@ -1034,6 +1045,7 @@
                         <span class="record-meta">
                           {recordDate(r)}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
+                          {#if heaviestLoad(r)}{$_('statistics.heaviest_load', { values: { v: `${heaviestLoad(r)} ${$weightUnit}` } })}{/if}
                         </span>
                       </div>
                     </div>
