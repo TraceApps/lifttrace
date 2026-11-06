@@ -2,7 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, uid } from '../middleware/auth.js';
-import { setVolume, exerciseVolume, isTimedSet, newRecord, accumulateRecord } from '../lib/volume.js';
+import { setVolume, exerciseVolume, isTimedSet, isRepSet, setKind, newRecord, accumulateRecord } from '../lib/volume.js';
 import { normalizeMuscle as _normalizeMuscle } from '../lib/muscle-groups.js';
 import { musclesOf } from '../lib/muscle-load.js';
 import { trainedDateSet } from '../lib/trained-days.js';
@@ -109,12 +109,18 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
     // Timed sets (issue #89) chart by longest hold and count whatever the
     // load, since most holds are bodyweight. Rep sets keep the existing
     // rule of needing real weight.
+    // Distance and calorie sets (issue #119) chart the same way, by the
+    // longest distance in meters and the most calories in one set.
     const timedSets = working.filter(s => isTimedSet(ex, s) && Number(s.duration_sec) > 0);
-    const repSets = working.filter(s => !isTimedSet(ex, s) && s.weight > 0);
-    const completedSets = [...repSets, ...timedSets];
+    const distanceSets = working.filter(s => setKind(ex, s) === 'distance' && Number(s.distance_m) > 0);
+    const calorieSets = working.filter(s => setKind(ex, s) === 'calories' && Number(s.calories) > 0);
+    const repSets = working.filter(s => isRepSet(ex, s) && s.weight > 0);
+    const completedSets = [...repSets, ...timedSets, ...distanceSets, ...calorieSets];
     if (!completedSets.length) continue;
     const maxWeight = repSets.length ? Math.max(...repSets.map(s => s.weight)) : 0;
     const maxDuration = timedSets.length ? Math.max(...timedSets.map(s => Number(s.duration_sec))) : 0;
+    const maxDistance = distanceSets.length ? Math.max(...distanceSets.map(s => Number(s.distance_m))) : 0;
+    const maxCalories = calorieSets.length ? Math.max(...calorieSets.map(s => Number(s.calories))) : 0;
     const lt = ex.load_type || libLoadType || 'bilateral';
     const totalVolume = repSets.reduce((sum, s) => sum + setVolume(s, lt), 0);
     // Average RPE across the session's working sets (when logged). Null
@@ -128,7 +134,7 @@ router.get('/progress/:exerciseId', wrap((req, res) => {
     // workout_id lets a chart distinguish two same-date points once a
     // date can have multiple sessions (issue #76) — additive, existing
     // chart code that only reads `date` is unaffected.
-    progress.push({ date: row.date, workout_id: row.id, maxWeight, maxDuration, totalVolume, sets: completedSets.length, avgRpe });
+    progress.push({ date: row.date, workout_id: row.id, maxWeight, maxDuration, maxDistance, maxCalories, totalVolume, sets: completedSets.length, avgRpe });
   }
   res.json(progress);
 }));
@@ -164,7 +170,7 @@ router.get('/muscle-group-volume', wrap((req, res) => {
       const lt = ex.load_type || info.load_type || 'bilateral';
       for (const set of ex.sets || []) {
         if (!set.completed || set.warmup || set.weight <= 0) continue;
-        if (isTimedSet(ex, set)) continue;   // issue #89: a hold has no volume
+        if (!isRepSet(ex, set)) continue;   // issues #89, #119: a hold, a row or a ride has no volume
         const w = setVolume(set, lt);
         if (w <= 0) continue;
         for (const g of normalized) {

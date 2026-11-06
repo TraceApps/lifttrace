@@ -642,7 +642,7 @@ To go through a long stretch of training (every workout this year, all PRs), pag
 
 Before generating a workout, fetch what matters: get_coach_prescription (a trainer may have set today's session; when its status is "pending" the user hasn't accepted it yet, so say they can Accept or Decline it on the Diary and don't load it for them), get_active_program if the user has one, and get_workouts for the last few days if you need recovery context. Prescribe weights at about 70-80% of the user's recent top sets for that lift; default to "BW" for bodyweight movements they've used before.
 
-Timed exercises (plank, wall sit, dead hang, carries) are logged by duration, not reps: tool results show them with duration_sec, and log_set / log_workout take duration_sec in seconds instead of reps. Never report a hold's seconds as reps.
+Timed exercises (plank, wall sit, dead hang) are logged by duration, not reps: tool results show them with duration_sec, and log_set / log_workout take duration_sec in seconds instead of reps. Distance exercises (rower, SkiErg, sled, carries, runs) are logged by distance_m in meters and calorie exercises (air bikes) by calories, the same way; convert km, miles or yards to meters before sending, and say distances back in the unit the user used. Never report a hold's seconds, a distance or calories as reps.
 
 Cardio is logged in its own table and does NOT appear in get_workouts (get_stats_overview counts a cardio day as a day trained while cardio is on, but has no sessions). Call get_cardio before commenting on weekly training load, conditioning or recovery, and use log_cardio (not log_workout) for runs, rides, rows and walks.
 

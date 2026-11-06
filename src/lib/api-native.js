@@ -19,7 +19,7 @@ import {
   setSyncMeta,
 } from './db-native.js';
 import { planWeekState, pauseWindow, calendarDaysSince } from './programWeek.js';
-import { isTimedSet, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
+import { isTimedSet, isRepSet, setKind, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
 import { musclesOf } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
 import { getServerUrl } from './platform.js';
@@ -36,8 +36,15 @@ function _cleanLoadType(v) {
   if (v == null || v === '') return null;
   return _KNOWN_LOAD_TYPES.has(v) ? v : null;
 }
+// Each kind other than reps: its set field and its record fields, as in
+// server/lib/volume.js accumulateRecord.
+const _RECORD_AMOUNT = {
+  time: ['duration_sec', 'maxDuration', 'maxDurationWeight', 'durationDate', 'maxHoldWeight'],
+  distance: ['distance_m', 'maxDistance', 'maxDistanceWeight', 'distanceDate', 'maxDistanceLoad'],
+  calories: ['calories', 'maxCalories', 'maxCaloriesWeight', 'caloriesDate', 'maxCaloriesLoad'],
+};
 function _cleanSetType(v) {
-  return v === 'reps' || v === 'time' ? v : null;
+  return v === 'reps' || v === 'time' || v === 'distance' || v === 'calories' ? v : null;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -1254,19 +1261,30 @@ const Stats = {
     for (const w of all) {
       for (const ex of w.exercises || []) {
         const id = ex.exercise_id || ex.exercise_name;
-        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, maxHoldWeight: 0, durationDate: '' };
+        if (!records[id]) {
+          records[id] = {
+            name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0,
+            maxDuration: 0, maxDurationWeight: 0, maxHoldWeight: 0, durationDate: '',
+            maxDistance: 0, maxDistanceWeight: 0, maxDistanceLoad: 0, distanceDate: '',
+            maxCalories: 0, maxCaloriesWeight: 0, maxCaloriesLoad: 0, caloriesDate: '',
+          };
+        }
         for (const s of ex.sets || []) {
           if (!s.completed || s.warmup) continue;
-          // Mirror of accumulateRecord in server/lib/volume.js: a timed set
-          // moves the longest-hold fields and never the rep fields.
-          if (isTimedSet(ex, s)) {
-            const sec = Number(s.duration_sec) || 0;
-            if (sec <= 0) continue;
+          // Mirror of accumulateRecord in server/lib/volume.js: a timed,
+          // distance or calorie set moves its own fields (the longest hold,
+          // the longest distance, the most calories, issues #89 and #119)
+          // and never the rep fields.
+          const amount = _RECORD_AMOUNT[setKind(ex, s)];
+          if (amount) {
+            const [field, max, maxW, when, load] = amount;
+            const v = Number(s[field]) || 0;
+            if (v <= 0) continue;
             const hw = Number(s.weight) || 0;
             const r = records[id];
-            if (hw > r.maxHoldWeight) r.maxHoldWeight = hw;
-            if (sec > r.maxDuration || (sec === r.maxDuration && hw > r.maxDurationWeight)) {
-              r.maxDuration = sec; r.maxDurationWeight = hw; r.durationDate = w.date;
+            if (hw > r[load]) r[load] = hw;
+            if (v > r[max] || (v === r[max] && hw > r[maxW])) {
+              r[max] = v; r[maxW] = hw; r[when] = w.date;
             }
             continue;
           }
@@ -1299,12 +1317,17 @@ const Stats = {
       // Mirror of GET /api/stats/progress (issue #89): timed sets chart by
       // longest hold whatever the load; rep sets still need real weight.
       const working = (ex.sets || []).filter(s => s.completed && !s.warmup);
+      // Distance and calorie sets (issue #119) chart the same way.
       const timedSets = working.filter(s => isTimedSet(ex, s) && (Number(s.duration_sec) || 0) > 0);
-      const repSets = working.filter(s => !isTimedSet(ex, s) && (Number(s.weight) || 0) > 0);
-      const completed = [...repSets, ...timedSets];
+      const distanceSets = working.filter(s => setKind(ex, s) === 'distance' && (Number(s.distance_m) || 0) > 0);
+      const calorieSets = working.filter(s => setKind(ex, s) === 'calories' && (Number(s.calories) || 0) > 0);
+      const repSets = working.filter(s => isRepSet(ex, s) && (Number(s.weight) || 0) > 0);
+      const completed = [...repSets, ...timedSets, ...distanceSets, ...calorieSets];
       if (!completed.length) continue;
       const maxWeight = repSets.length ? Math.max(...repSets.map(s => Number(s.weight) || 0)) : 0;
       const maxDuration = timedSets.length ? Math.max(...timedSets.map(s => Number(s.duration_sec) || 0)) : 0;
+      const maxDistance = distanceSets.length ? Math.max(...distanceSets.map(s => Number(s.distance_m) || 0)) : 0;
+      const maxCalories = calorieSets.length ? Math.max(...calorieSets.map(s => Number(s.calories) || 0)) : 0;
       const totalVolume = repSets.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
       const rpeValues = completed
         .map(s => parseFloat(s.rpe))
@@ -1312,7 +1335,7 @@ const Stats = {
       const avgRpe = rpeValues.length
         ? Math.round((rpeValues.reduce((a, b) => a + b, 0) / rpeValues.length) * 10) / 10
         : null;
-      out.push({ date: w.date, maxWeight, maxDuration, totalVolume, sets: completed.length, avgRpe });
+      out.push({ date: w.date, maxWeight, maxDuration, maxDistance, maxCalories, totalVolume, sets: completed.length, avgRpe });
     }
     return out;
   },
@@ -1330,7 +1353,7 @@ const Stats = {
         const lt = resolveLoadType(ex, info.load_type);
         for (const s of ex.sets || []) {
           if (!s.completed || s.warmup || (Number(s.weight) || 0) <= 0) continue;
-          if (isTimedSet(ex, s)) continue;   // a hold has no volume
+          if (!isRepSet(ex, s)) continue;   // a hold, a row or a ride has no volume
           const v = setVolume(s, lt);
           if (v <= 0) continue;
           for (const g of normalized) {

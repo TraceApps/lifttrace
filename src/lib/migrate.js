@@ -437,7 +437,7 @@ function _key(kind, r) {
 }
 
 // Settings kept per exercise, by id (sync.js keeps the same list).
-const _BY_EXERCISE = ['restPerExercise', 'exerciseLoadTypes', 'exerciseSetTypes', 'favoriteExercises'];
+const _BY_EXERCISE = ['restPerExercise', 'exerciseLoadTypes', 'exerciseSetTypes', 'exerciseDistanceUnits', 'favoriteExercises'];
 function _mapExerciseSetting(value, exId) {
   if (Array.isArray(value)) return value.map(v => exId(Number(v))).filter(v => v != null);
   if (value && typeof value === 'object') {

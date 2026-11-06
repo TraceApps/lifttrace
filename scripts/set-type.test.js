@@ -83,8 +83,13 @@ test('timed-by-name list is exact, so real rep exercises are not caught', () => 
     'Push Up to Side Plank', 'Dead Bug', 'Bench Press']) {
     assert.equal(client.defaultSetTypeForName(name), null, `${name} must stay reps`);
   }
-  for (const name of ['Plank', 'Side Bridge', "Farmer's Walk", 'Farmers Walk', 'L-Sit', 'Wall Sit', 'Dead Hang']) {
+  for (const name of ['Plank', 'Side Bridge', 'L-Sit', 'Wall Sit', 'Dead Hang']) {
     assert.equal(client.defaultSetTypeForName(name), 'time', `${name} should default to time`);
+  }
+  // Carries moved to distance with issue #119; an exercise already logged
+  // as timed keeps time from its data (scripts/distance-calories.test.js).
+  for (const name of ["Farmer's Walk", 'Farmers Walk']) {
+    assert.equal(client.defaultSetTypeForName(name), 'distance', `${name} should default to distance`);
   }
 });
 
@@ -264,9 +269,8 @@ test('log_set over MCP and REST accepts duration_sec and refuses to mix kinds', 
   assert.match(core, /reps: z\.number\(\)\.int\(\)\.min\(0\)\.max\(1000\)\.optional\(\)/);
   // Validated in the core, since the REST route passes its body straight in.
   assert.match(core, /duration_sec must be a whole number of seconds/);
-  assert.match(core, /is tracked by reps on/);
-  assert.match(core, /is tracked by time on/);
-  assert.match(core, /if \(timed\) target\.set_type = 'time'/);
+  assert.match(core, /is tracked by \$\{own\.word \|\| 'reps'\} on/);
+  assert.match(core, /if \(amount\) target\.set_type = kind/);
   assert.match(read('../server/lib/mcp/tools/search-exercises.js'), /set_type: r\.set_type \|\| null/);
 });
 
@@ -280,14 +284,14 @@ test('the pr.set webhook reports hold records', () => {
   const route = read('../server/lib/log-webhooks.js');
   assert.match(route, /improvedDuration/);
   assert.match(route, /new_max_duration_sec:/);
-  assert.match(read('../server/lib/mcp/tools/get-records.js'), /isTimedSet\(ex, s\) && Number\(s\.duration_sec\) > 0/,
+  assert.match(read('../server/lib/mcp/tools/get-records.js'), /!isRepSet\(ex, s\) && Number\(s\[AMOUNT_FIELD\[setKind\(ex, s\)\]\]\) > 0/,
     'a plank-only save must be able to raise pr.set');
 });
 
 test('templates prescribe a real duration field through the weeks matrix', () => {
   const editor = read('../src/routes/WorkoutEditor.svelte');
   assert.match(editor, /duration: 'target_duration'/);
-  assert.match(editor, /'weight', 'duration', 'tempo'/);
+  assert.match(editor, /'weight', 'duration', 'distance', 'calories', 'tempo'/);
   // The prescription counts as data, so an existing "Plank 60 reps" template
   // is not flipped to Time by the name default.
   assert.match(editor, /const prescribed = ex\.set_specs\?\.length/);
@@ -299,9 +303,9 @@ test('templates prescribe a real duration field through the weeks matrix', () =>
 test('Trace can log and read timed sets', () => {
   const tools = read('../src/lib/aiTools.js');
   assert.match(tools, /duration_sec:\s+\{ type: 'integer'/);
-  assert.match(tools, /if \(isTimedSet\(ex, s\)\) continue;/, 'Trace volume must skip holds');
+  assert.match(tools, /if \(!isRepSet\(ex, s\)\) continue;/, 'Trace volume must skip holds');
   const trace = read('../src/components/ai/Trace.svelte');
-  assert.match(trace, /Never report a hold's seconds as reps/);
+  assert.match(trace, /Never report a hold's seconds, a distance or calories as reps/);
 });
 
 // ── Gaps found on a second pass ──────────────────────────────────────────
@@ -333,7 +337,7 @@ test('auto warm-ups never ramp a timed exercise', () => {
   // Planned in planned-workout.js for the Diary, Trace and the server (issue #140).
   const plan = read('../src/lib/planned-workout.js');
   const block = plan.slice(plan.indexOf('if (!autoWarmups) return exercises;'));
-  assert.match(block.slice(0, 600), /ex\.set_type === 'time'/);
+  assert.match(block.slice(0, 600), /\['time', 'distance', 'calories'\]\.includes\(ex\.set_type\)/);
   assert.match(read('../src/routes/Diary.svelte'), /autoWarmups: \$autoGenerateWarmups,/);
 });
 
@@ -343,11 +347,11 @@ test('muscle balance volume skips holds on server and Android', () => {
   const stats = read('../server/routes/stats.js');
   const start = stats.indexOf("router.get('/muscle-group-volume'");
   const mgv = stats.slice(start, stats.indexOf('\nrouter.', start + 1));
-  assert.match(mgv, /if \(isTimedSet\(ex, set\)\) continue;/);
+  assert.match(mgv, /if \(!isRepSet\(ex, set\)\) continue;/);
   const native = read('../src/lib/api-native.js');
   const nStart = native.indexOf('async muscleGroupVolume');
   const nm = native.slice(nStart, native.indexOf('async weekdayDistribution', nStart));
-  assert.match(nm, /if \(isTimedSet\(ex, s\)\) continue;/);
+  assert.match(nm, /if \(!isRepSet\(ex, s\)\) continue;/);
 });
 
 test('Trace get_prs reports hold records instead of filtering them out', () => {

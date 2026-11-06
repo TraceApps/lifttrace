@@ -13,7 +13,7 @@
  * chat loop catches and relays a `{ error: ... }` payload to the model.
  */
 import { get } from 'svelte/store';
-import { isTimedSet } from './workout.js';
+import { isRepSet, setKind, SET_TYPE_FIELD } from './workout.js';
 import { buildPlannedExercises, lastCompletedSession, logIntoSets, PLAN_SETTING_DEFAULTS } from './planned-workout.js';
 import { ensureExerciseUuids, withFreshIds } from './workout-uuid.js';
 import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settlePendingSave } from '../stores/workout.js';
@@ -135,7 +135,7 @@ function _exerciseVolume(ex) {
   let total = 0;
   for (const s of (ex.sets || [])) {
     if (!s.completed || s.warmup) continue;
-    if (isTimedSet(ex, s)) continue;   // issue #89: holds carry no volume
+    if (!isRepSet(ex, s)) continue;   // issues #89, #119: holds, rows and rides carry no volume
     total += _setVolume(s, lt);
   }
   return total;
@@ -151,12 +151,15 @@ function _shapeWorkout(w) {
   if (!w) return null;
   const exercises = (w.exercises || []).map(ex => {
     // Timed sets (issue #89) are shown to the model as a duration, never as
-    // reps, so a 60 second plank cannot be read back as sixty reps.
-    const timedEx = (ex.sets || []).some(s => isTimedSet(ex, s));
-    const sets = (ex.sets || []).map(s => (isTimedSet(ex, s)
+    // reps, so a 60 second plank cannot be read back as sixty reps; distance
+    // and calorie sets (issue #119) as distance_m and calories the same way.
+    const kindOf = (st) => setKind(ex, st);
+    const exKind = (ex.sets || []).map(kindOf).find(k => k !== 'reps') || null;
+    const amountField = exKind ? SET_TYPE_FIELD[exKind] : null;
+    const sets = (ex.sets || []).map(s => (kindOf(s) !== 'reps'
       ? {
           weight: s.weight ?? null,
-          duration_sec: Number(s.duration_sec) || 0,
+          [SET_TYPE_FIELD[kindOf(s)]]: Number(s[SET_TYPE_FIELD[kindOf(s)]]) || 0,
           ...(s.rpe != null ? { rpe: s.rpe } : {}),
           ...(s.warmup ? { warmup: true } : {}),
           completed: !!s.completed,
@@ -168,21 +171,21 @@ function _shapeWorkout(w) {
           ...(s.warmup ? { warmup: true } : {}),
           completed: !!s.completed,
         }));
-    const workingSets = timedEx
-      ? sets.filter(s => s.completed && !s.warmup && s.duration_sec > 0)
+    const workingSets = amountField
+      ? sets.filter(s => s.completed && !s.warmup && s[amountField] > 0)
       : sets.filter(s => s.completed && !s.warmup && s.weight > 0);
     const topSet = workingSets.reduce((best, s) => {
       if (!best) return s;
-      return timedEx ? (s.duration_sec > best.duration_sec ? s : best) : (s.weight > best.weight ? s : best);
+      return amountField ? (s[amountField] > best[amountField] ? s : best) : (s.weight > best.weight ? s : best);
     }, null);
     return {
       name: ex.exercise_name,
       ...(ex.exercise_id ? { exercise_id: ex.exercise_id } : {}),
-      ...(timedEx ? { set_type: 'time' } : {}),
+      ...(exKind ? { set_type: exKind } : {}),
       sets,
       total_volume: Math.round(_exerciseVolume(ex)),
-      ...(topSet ? { top_set: timedEx
-        ? { weight: topSet.weight, duration_sec: topSet.duration_sec }
+      ...(topSet ? { top_set: amountField
+        ? { weight: topSet.weight, [amountField]: topSet[amountField] }
         : { weight: topSet.weight, reps: topSet.reps } } : {}),
       ...(ex.notes ? { notes: ex.notes } : {}),
     };
@@ -419,7 +422,7 @@ export const TOOLS = [
   {
     name: 'log_workout',
     description:
-      "Commit a full workout to the diary for a specific date. Each exercise carries its sets [{weight, reps, rpe?, warmup?, completed?}]. For a timed exercise (plank, wall sit, dead hang, carry) send duration_sec in seconds instead of reps. Exercise names are resolved case-insensitively against the library; unknown names error out so the user can confirm before a custom row is created. Use when they say 'log today' / 'I did X, Y, Z'.",
+      "Commit a full workout to the diary for a specific date. Each exercise carries its sets [{weight, reps, rpe?, warmup?, completed?}]. For a timed exercise (plank, wall sit, dead hang) send duration_sec in seconds instead of reps; for a distance exercise (rower, SkiErg, sled, carry, run) send distance_m in meters; for a calorie exercise (air bike) send calories. Exercise names are resolved case-insensitively against the library; unknown names error out so the user can confirm before a custom row is created. Use when they say 'log today' / 'I did X, Y, Z'.",
     parameters: {
       type: 'object',
       properties: {
@@ -441,7 +444,9 @@ export const TOOLS = [
                   properties: {
                     weight:    { type: 'number',  description: 'Load in the user\'s unit (kg or lbs).' },
                     reps:      { type: 'integer', description: 'Reps performed. Omit for a timed set.' },
-                    duration_sec: { type: 'integer', description: 'Seconds held, for timed exercises (plank, wall sit, dead hang, carry). Send instead of reps.' },
+                    duration_sec: { type: 'integer', description: 'Seconds held, for timed exercises (plank, wall sit, dead hang). Send instead of reps.' },
+                    distance_m: { type: 'number', description: 'Distance in meters, for distance exercises (rower, SkiErg, sled, carry, run). Send instead of reps; convert km, miles or yards to meters.' },
+                    calories:  { type: 'integer', description: 'Calories the machine showed, for calorie exercises (air bike). Send instead of reps.' },
                     rpe:       { type: 'number',  description: 'Optional RPE 1-10.' },
                     warmup:    { type: 'boolean', description: 'Warm-up set (excluded from volume/PRs). Default false.' },
                     completed: { type: 'boolean', description: 'Whether the set was completed. Default true.' },
@@ -483,7 +488,9 @@ export const TOOLS = [
         exercise_name: { type: 'string',  description: 'Alternative to exercise_id, resolved by case-insensitive name match.' },
         weight:        { type: 'number',  description: 'Load.' },
         reps:          { type: 'integer', description: 'Reps. Omit for a timed set.' },
-        duration_sec:  { type: 'integer', description: 'Seconds held, for a timed exercise (plank, wall sit, dead hang, carry). Send instead of reps.' },
+        duration_sec:  { type: 'integer', description: 'Seconds held, for a timed exercise (plank, wall sit, dead hang). Send instead of reps.' },
+        distance_m:    { type: 'number',  description: 'Distance in meters, for a distance exercise (rower, SkiErg, sled, carry, run). Send instead of reps.' },
+        calories:      { type: 'integer', description: 'Calories the machine showed, for a calorie exercise (air bike). Send instead of reps.' },
         rpe:           { type: 'number',  description: 'Optional RPE 1-10.' },
         warmup:        { type: 'boolean', description: 'Warm-up set. Default false.' },
         completed:     { type: 'boolean', description: 'Completed. Default true.' },
@@ -959,30 +966,55 @@ async function _getPrs({ exercise_name, date_from, date_to, limit, offset } = {}
   const records = await _get('/api/stats/records');
   const needle = foldText(exercise_name).trim();
   // A timed exercise (issue #89) has no max weight; its record is the
-  // longest hold. Filtering on maxWeight alone hid every plank PR.
-  const isHold = (r) => !((r.maxWeight || 0) > 0) && (r.maxDuration || 0) > 0;
-  const recDate = (r) => (isHold(r) ? r.durationDate : r.date);
+  // longest hold. Filtering on maxWeight alone hid every plank PR. Distance
+  // and calorie exercises (issue #119) have the longest distance and the
+  // most calories in a set.
+  const amountOf = (r) => ((r.maxWeight || 0) > 0 ? null
+    : (r.maxDuration || 0) > 0 ? 'time'
+    : (r.maxDistance || 0) > 0 ? 'distance'
+    : (r.maxCalories || 0) > 0 ? 'calories' : null);
+  const recDate = (r) => ({ time: r.durationDate, distance: r.distanceDate, calories: r.caloriesDate }[amountOf(r)] ?? r.date);
   const filtered = records
-    .filter(r => (r.maxWeight || 0) > 0 || (r.maxDuration || 0) > 0)
+    .filter(r => (r.maxWeight || 0) > 0 || amountOf(r))
     .filter(r => (!needle || foldText(r.name).includes(needle)))
     .filter(r => (!date_from || (recDate(r) && recDate(r) >= date_from)))
     .filter(r => (!date_to   || (recDate(r) && recDate(r) <= date_to)))
     // Ties by name, so the same list comes in the same order every time.
     .sort((a, b) => (b.e1rm || 0) - (a.e1rm || 0) || String(a.name).localeCompare(String(b.name)));
-  const shape = (r) => (isHold(r)
-    ? {
+  const shape = (r) => {
+    const kind = amountOf(r);
+    if (kind === 'time') {
+      return {
         exercise_name: r.name,
         longest_hold_sec: r.maxDuration,
         ...(r.maxDurationWeight ? { hold_weight: r.maxDurationWeight } : {}),
         date: r.durationDate || null,
-      }
-    : {
+      };
+    }
+    if (kind === 'distance') {
+      return {
         exercise_name: r.name,
-        weight: r.maxWeight,
-        reps: r.maxReps,
-        one_rep_max_estimate: r.e1rm,
-        date: r.date || null,
-      });
+        longest_distance_m: r.maxDistance,
+        ...(r.maxDistanceWeight ? { distance_weight: r.maxDistanceWeight } : {}),
+        date: r.distanceDate || null,
+      };
+    }
+    if (kind === 'calories') {
+      return {
+        exercise_name: r.name,
+        most_calories: r.maxCalories,
+        ...(r.maxCaloriesWeight ? { calories_weight: r.maxCaloriesWeight } : {}),
+        date: r.caloriesDate || null,
+      };
+    }
+    return {
+      exercise_name: r.name,
+      weight: r.maxWeight,
+      reps: r.maxReps,
+      one_rep_max_estimate: r.e1rm,
+      date: r.date || null,
+    };
+  };
   const page = _page(filtered, { limit, offset, size: 20, max: PR_PAGE_MAX, key: 'records', what: 'records', tool: 'get_prs' });
   return Array.isArray(page) ? page.map(shape) : { ...page, records: page.records.map(shape) };
 }
@@ -1285,13 +1317,16 @@ async function _logWorkout({ date, name, duration_min, exercises }) {
       weight: Number(s.weight) || 0,
       reps:   Number(s.reps)   || 0,
       ...(Number(s.duration_sec) > 0 ? { duration_sec: Math.round(Number(s.duration_sec)) } : {}),
+      ...(Number(s.distance_m) > 0 ? { distance_m: Math.round(Number(s.distance_m) * 1000) / 1000 } : {}),
+      ...(Number(s.calories) > 0 ? { calories: Math.round(Number(s.calories)) } : {}),
       completed: s.completed !== false,
       ...(s.warmup ? { warmup: true } : {}),
       ...(s.rpe != null ? { rpe: Number(s.rpe) } : {}),
     })),
-    // Stamp timed exercises explicitly (issue #89) so the diary shows a time
-    // input even before anyone opens the exercise.
-    ...((input.sets || []).some(s => Number(s.duration_sec) > 0) ? { set_type: 'time' } : {}),
+    // Stamp timed (issue #89), distance and calorie (issue #119) exercises
+    // explicitly so the diary shows the right input even before anyone
+    // opens the exercise.
+    ...(_amountKind(input.sets) ? { set_type: _amountKind(input.sets) } : {}),
   }));
   const merged = existingExs.concat(newExs);
 
@@ -1314,6 +1349,17 @@ async function _logWorkout({ date, name, duration_min, exercises }) {
     sets_logged,
     total_volume: w ? Math.round(w.exercises?.reduce((a, e) => a + _exerciseVolume(e), 0) || 0) : 0,
   };
+}
+
+/** The kind a list of sets sent by the model is, by the first amount it
+ *  carries: 'time', 'distance', 'calories', or null for reps. */
+function _amountKind(sets) {
+  for (const s of sets || []) {
+    if (Number(s?.duration_sec) > 0) return 'time';
+    if (Number(s?.distance_m) > 0) return 'distance';
+    if (Number(s?.calories) > 0) return 'calories';
+  }
+  return null;
 }
 
 async function _addExerciseToDiary({ exercise_name, date }) {
@@ -1344,7 +1390,7 @@ async function _addExerciseToDiary({ exercise_name, date }) {
   };
 }
 
-async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, duration_sec, rpe, warmup, completed }) {
+async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, duration_sec, distance_m, calories, rpe, warmup, completed }) {
   if (workout_id == null) throw new Error('workout_id is required');
   // Find the workout by scanning recent rows, a longer list when it's older.
   const { rows } = await _recentWorkouts({ id: workout_id });
@@ -1360,19 +1406,25 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
     if (idx < 0) idx = null;
   }
   if (idx == null) throw new Error('exercise_id (position) or exercise_name is required and must match a slot in the workout');
-  const timed = Number(duration_sec) > 0;
+  const kind = _amountKind([{ duration_sec, distance_m, calories }]);
+  const field = kind ? SET_TYPE_FIELD[kind] : null;
+  const amount = kind === 'distance' ? Math.round(Number(distance_m) * 1000) / 1000
+    : kind ? Math.round(Number(kind === 'time' ? duration_sec : calories)) : null;
   const newSet = {
     weight: Number(weight) || 0,
-    reps:   timed ? 0 : (Number(reps) || 0),
-    ...(timed ? { duration_sec: Math.round(Number(duration_sec)) } : {}),
+    reps:   kind ? 0 : (Number(reps) || 0),
+    ...(kind ? { [field]: amount } : {}),
     completed: completed !== false,
     ...(warmup ? { warmup: true } : {}),
     ...(rpe != null ? { rpe: Number(rpe) } : {}),
   };
   // Refuse to mix kinds on an exercise whose type was chosen explicitly; the
-  // set would render and count as the wrong thing (issue #89).
-  if (timed && exs[idx].set_type === 'reps') throw new Error(`${exs[idx].exercise_name} is tracked by reps; send reps, not duration_sec`);
-  if (!timed && exs[idx].set_type === 'time') throw new Error(`${exs[idx].exercise_name} is tracked by time; send duration_sec, not reps`);
+  // set would render and count as the wrong thing (issues #89, #119).
+  const own = exs[idx].set_type;
+  if (['reps', 'time', 'distance', 'calories'].includes(own) && own !== (kind || 'reps')) {
+    const want = own === 'reps' ? 'reps' : SET_TYPE_FIELD[own];
+    throw new Error(`${exs[idx].exercise_name} is tracked by ${own === 'time' ? 'time' : own}; send ${want}, not ${field || 'reps'}`);
+  }
   // A done set fills the next planned set still to do in an unfinished
   // workout, as ticking it in the Diary does (planned-workout.js, issue
   // #140); in a finished one, or with none left, it's added, as the server's
@@ -1382,13 +1434,15 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
     ? { sets: [...(exs[idx].sets || []), newSet], index: (exs[idx].sets || []).length }
     : logIntoSets(exs[idx].sets, {
         weight: given(weight) ? newSet.weight : undefined,
-        reps: !timed && given(reps) ? newSet.reps : undefined,
-        duration_sec: timed ? newSet.duration_sec : undefined,
+        reps: !kind && given(reps) ? newSet.reps : undefined,
+        duration_sec: kind === 'time' ? newSet.duration_sec : undefined,
+        distance_m: kind === 'distance' ? newSet.distance_m : undefined,
+        calories: kind === 'calories' ? newSet.calories : undefined,
         rpe: given(rpe) ? newSet.rpe : undefined,
         warmup: !!warmup,
         completed: newSet.completed,
       }, newSet, { at: new Date().toISOString() });
-  exs[idx] = { ...exs[idx], sets, ...(timed && !exs[idx].set_type ? { set_type: 'time' } : {}) };
+  exs[idx] = { ...exs[idx], sets, ...(kind && !exs[idx].set_type ? { set_type: kind } : {}) };
   const saved = await _put(`/api/workout/${wRow.date}`, {
     id: wRow.id,
     ..._kept(wRow),

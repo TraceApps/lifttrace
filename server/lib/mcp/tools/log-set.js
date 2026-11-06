@@ -64,7 +64,20 @@ export function pickSession(live, { exerciseId, done, warmup, workoutId = null, 
   return live[0] || null;
 }
 
-export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, duration_sec, rpe, warmup, completed, date, workout_id } = {}) {
+// What each kind other than reps sends, its limits and its words (issues
+// #89, #119). Seconds and calories are whole numbers; meters may have a
+// fraction (a mile is 1609.344 m).
+const AMOUNTS = [
+  { kind: 'time', field: 'duration_sec', max: 86400, whole: true, word: 'time',
+    bad: 'duration_sec must be a whole number of seconds between 1 and 86400.' },
+  { kind: 'distance', field: 'distance_m', max: 1000000, whole: false, word: 'distance',
+    bad: 'distance_m must be a distance in meters above 0 and up to 1000000.' },
+  { kind: 'calories', field: 'calories', max: 100000, whole: true, word: 'calories',
+    bad: 'calories must be a whole number between 1 and 100000.' },
+];
+const sentValue = (v) => v != null && v !== '';
+
+export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, duration_sec, distance_m, calories, rpe, warmup, completed, date, workout_id } = {}) {
   // A number however it was sent: a Home Assistant template sends "12", and
   // a string id never matched the day's entry for that exercise.
   const exercise_id = toId(exerciseIdSent) ?? exerciseIdSent;
@@ -80,24 +93,33 @@ export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, 
   ).get(exercise_id, userId);
   if (!catalogEx) throw new Error(`No exercise with id ${exercise_id} in the catalog. Use search_exercises to find a valid id.`);
 
-  // Timed sets (issue #89): planks, holds and carries log a duration in
-  // whole seconds instead of reps. Validated here rather than only in the
-  // MCP schema because the REST route hands its body straight to this core.
-  const timed = duration_sec != null && duration_sec !== '';
-  const dur = timed ? Math.round(Number(duration_sec)) : null;
-  if (timed && (!Number.isFinite(dur) || dur <= 0 || dur > 86400)) {
-    throw new Error('duration_sec must be a whole number of seconds between 1 and 86400.');
+  // Timed sets (issue #89) log a duration in whole seconds instead of reps,
+  // distance sets (issue #119) meters, calorie sets calories. Validated
+  // here rather than only in the MCP schema because the REST route hands
+  // its body straight to this core.
+  const values = { duration_sec, distance_m, calories };
+  const amounts = AMOUNTS.filter(a => sentValue(values[a.field]));
+  if (amounts.length > 1) {
+    throw new Error('Send only one of duration_sec, distance_m and calories.');
   }
-  if (!timed && reps == null) {
-    throw new Error('Send reps for a rep set, or duration_sec for a timed set (plank, hold, carry).');
+  const amount = amounts[0] || null;
+  const kind = amount ? amount.kind : 'reps';
+  let value = null;
+  if (amount) {
+    const n = Number(values[amount.field]);
+    value = amount.whole ? Math.round(n) : Math.round(n * 1000) / 1000;
+    if (!Number.isFinite(value) || value <= 0 || value > amount.max) throw new Error(amount.bad);
+  }
+  if (!amount && reps == null) {
+    throw new Error('Send reps for a rep set, duration_sec for a timed set (plank, hold), distance_m for a distance set (row, sled, carry, run), or calories for a calorie set (air bike).');
   }
 
-  const newSet = timed
+  const newSet = amount
     ? {
         uuid: randomUUID(),
         reps: 0,
         weight: weight ?? 0,
-        duration_sec: dur,
+        [amount.field]: value,
         completed: completed ?? true,
         warmup: warmup ?? false,
         rpe: rpe ?? null,
@@ -117,14 +139,16 @@ export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, 
   // A planned set it fills keeps its planned weight when the call sends
   // none, so a done set without a weight still takes the snapshot.
   const probe = weight == null ? { ...newSet, weight: 1 } : newSet;
-  const recordsBefore = recordsBeforeSave(userId, [{ exercise_id, ...(timed ? { set_type: 'time' } : {}), sets: [probe] }]);
+  const recordsBefore = recordsBeforeSave(userId, [{ exercise_id, ...(amount ? { set_type: kind } : {}), sets: [probe] }]);
 
   // What the call sent, for filling a planned set: anything not sent keeps
   // the planned value (logIntoSets).
   const sent = {
     weight: weight ?? undefined,
-    reps: timed ? undefined : reps,
-    duration_sec: timed ? dur : undefined,
+    reps: amount ? undefined : reps,
+    duration_sec: kind === 'time' ? value : undefined,
+    distance_m: kind === 'distance' ? value : undefined,
+    calories: kind === 'calories' ? value : undefined,
     rpe: rpe ?? undefined,
     warmup: !!warmup,
     completed: newSet.completed,
@@ -141,16 +165,17 @@ export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, 
       target = { uuid: randomUUID(), exercise_id, exercise_name: catalogEx.name, sets: [] };
       // Stamp the type onto a new entry so the app shows the right input
       // without needing to consult the library row.
-      if (timed) target.set_type = 'time';
+      if (amount) target.set_type = kind;
       next.push(target);
     }
     // An entry whose type was chosen explicitly must not silently collect
-    // sets of the other kind; they would render and count wrongly.
-    if (timed && target.set_type === 'reps') {
-      throw new Error(`${catalogEx.name} is tracked by reps on ${day}; send reps instead of duration_sec.`);
-    }
-    if (!timed && target.set_type === 'time') {
-      throw new Error(`${catalogEx.name} is tracked by time on ${day}; send duration_sec instead of reps.`);
+    // sets of another kind; they would render and count wrongly. A type
+    // this server doesn't know is left alone, as before.
+    const own = AMOUNTS.find(a => a.kind === target.set_type) || (target.set_type === 'reps' ? { kind: 'reps' } : null);
+    if (own && own.kind !== kind) {
+      const want = own.kind === 'reps' ? 'reps' : own.field;
+      const got = amount ? amount.field : 'reps';
+      throw new Error(`${catalogEx.name} is tracked by ${own.word || 'reps'} on ${day}; send ${want} instead of ${got}.`);
     }
     if (chosen && !chosen.completed) {
       // An unfinished workout: the next planned set still to do, if any.
@@ -201,14 +226,18 @@ export function registerLogSet(server, { userId }) {
         'workout named by workout_id, else the unfinished workout with that ' +
         "set planned, else the day's unfinished program workout, else the " +
         "day's first. Date defaults to today in the server's timezone. For a " +
-        'timed exercise (plank, wall sit, dead hang, carry) send duration_sec ' +
-        'instead of reps; weight is optional and means a weighted hold. ' +
-        'search_exercises reports set_type.',
+        'timed exercise (plank, wall sit, dead hang) send duration_sec ' +
+        'instead of reps; for a distance exercise (rower, SkiErg, sled, ' +
+        'carry, run) send distance_m in meters; for a calorie exercise (air ' +
+        'bike) send calories. Weight is optional with any of them and means ' +
+        'the load (a weighted hold, a loaded sled). search_exercises reports set_type.',
       inputSchema: {
         exercise_id: z.number().int().positive(),
         reps: z.number().int().min(0).max(1000).optional(),
         weight: z.number().min(0).max(10000).optional(),
         duration_sec: z.number().int().min(1).max(86400).optional(),
+        distance_m: z.number().positive().max(1000000).optional(),
+        calories: z.number().int().min(1).max(100000).optional(),
         rpe: z.number().min(1).max(10).optional(),
         warmup: z.boolean().optional(),
         completed: z.boolean().optional(),
@@ -216,9 +245,9 @@ export function registerLogSet(server, { userId }) {
         workout_id: z.number().int().positive().optional(),
       },
     },
-    async ({ exercise_id, reps, weight, duration_sec, rpe, warmup, completed, date, workout_id }) => {
+    async ({ exercise_id, reps, weight, duration_sec, distance_m, calories, rpe, warmup, completed, date, workout_id }) => {
       try {
-        return toolResult(logSetCore(userId, { exercise_id, reps, weight, duration_sec, rpe, warmup, completed, date, workout_id }));
+        return toolResult(logSetCore(userId, { exercise_id, reps, weight, duration_sec, distance_m, calories, rpe, warmup, completed, date, workout_id }));
       } catch (e) {
         return toolError(e.message);
       }

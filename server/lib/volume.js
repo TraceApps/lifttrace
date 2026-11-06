@@ -45,24 +45,35 @@ export function exerciseVolume(exercise, libraryLoadType) {
   let total = 0;
   for (const s of (exercise.sets || [])) {
     if (!s.completed || s.warmup) continue;
-    if (isTimedSet(exercise, s)) continue;
+    if (!isRepSet(exercise, s)) continue;
     total += setVolume(s, loadType);
   }
   return total;
 }
 
 /**
- * Timed sets (issue #89). Mirror of isTimedSet in src/lib/workout.js;
- * scripts/set-type.test.js runs identical cases through both copies.
+ * Set kinds (issues #89, #119). Mirror of setKind / isTimedSet / isRepSet
+ * in src/lib/workout.js; scripts/set-type.test.js runs identical cases
+ * through both copies.
  *
- * An explicit choice on the exercise instance wins; without one, a set
- * carrying a duration is timed.
+ * An explicit choice on the exercise instance wins; without one, the set's
+ * own data decides: a duration is timed, then a distance, then calories,
+ * and anything else is a rep set.
  */
-export function isTimedSet(exercise, set) {
+const SET_TYPES = ['reps', 'time', 'distance', 'calories'];
+export function setKind(exercise, set) {
   const t = exercise?.set_type;
-  if (t === 'time') return true;
-  if (t === 'reps') return false;
-  return Number(set?.duration_sec) > 0;
+  if (SET_TYPES.includes(t)) return t;
+  if (Number(set?.duration_sec) > 0) return 'time';
+  if (Number(set?.distance_m) > 0) return 'distance';
+  if (Number(set?.calories) > 0) return 'calories';
+  return 'reps';
+}
+export function isTimedSet(exercise, set) {
+  return setKind(exercise, set) === 'time';
+}
+export function isRepSet(exercise, set) {
+  return setKind(exercise, set) === 'reps';
 }
 
 /**
@@ -73,24 +84,39 @@ export function isTimedSet(exercise, set) {
  * Rep sets move maxWeight / maxReps / e1rm exactly as before. Timed sets
  * move maxDuration (longest hold) and maxDurationWeight (the load it was
  * held at), and maxHoldWeight (the heaviest load held, at any length, the
- * Diary's second hold record) instead, and never touch the rep fields: an estimated 1RM for a
- * wall sit is meaningless, and a heavy weighted carry is not a heavier
- * bench.
+ * Diary's second hold record) instead; distance sets move maxDistance
+ * (longest, in meters), maxDistanceWeight and maxDistanceLoad (the heaviest
+ * load at any distance); calorie sets move maxCalories (most in one set),
+ * maxCaloriesWeight and maxCaloriesLoad. None of them touch the rep fields:
+ * an estimated 1RM for a wall sit is meaningless, and a heavy sled push is
+ * not a heavier bench. A tie on the amount is broken by the heavier load.
  */
 export function newRecord(name) {
-  return { name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, maxHoldWeight: 0, durationDate: '' };
+  return {
+    name, maxWeight: 0, date: '', e1rm: 0,
+    maxDuration: 0, maxDurationWeight: 0, maxHoldWeight: 0, durationDate: '',
+    maxDistance: 0, maxDistanceWeight: 0, maxDistanceLoad: 0, distanceDate: '',
+    maxCalories: 0, maxCaloriesWeight: 0, maxCaloriesLoad: 0, caloriesDate: '',
+  };
 }
+const _AMOUNT = {
+  time: ['duration_sec', 'maxDuration', 'maxDurationWeight', 'durationDate', 'maxHoldWeight'],
+  distance: ['distance_m', 'maxDistance', 'maxDistanceWeight', 'distanceDate', 'maxDistanceLoad'],
+  calories: ['calories', 'maxCalories', 'maxCaloriesWeight', 'caloriesDate', 'maxCaloriesLoad'],
+};
 export function accumulateRecord(record, exercise, set, date) {
   if (!set?.completed || set.warmup) return;
-  if (isTimedSet(exercise, set)) {
-    const sec = Number(set.duration_sec) || 0;
-    if (sec <= 0) return;
+  const kind = setKind(exercise, set);
+  if (kind !== 'reps') {
+    const [field, max, maxW, when, load] = _AMOUNT[kind];
+    const amount = Number(set[field]) || 0;
+    if (amount <= 0) return;
     const w = Number(set.weight) || 0;
-    if (w > (record.maxHoldWeight || 0)) record.maxHoldWeight = w;
-    if (sec > record.maxDuration || (sec === record.maxDuration && w > record.maxDurationWeight)) {
-      record.maxDuration = sec;
-      record.maxDurationWeight = w;
-      record.durationDate = date;
+    if (w > (record[load] || 0)) record[load] = w;
+    if (!(record[max] > 0) || amount > record[max] || (amount === record[max] && w > (record[maxW] || 0))) {
+      record[max] = amount;
+      record[maxW] = w;
+      record[when] = date;
     }
     return;
   }

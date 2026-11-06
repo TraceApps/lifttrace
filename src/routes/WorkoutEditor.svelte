@@ -9,8 +9,8 @@
   import { currentUser, userMgmtActive } from '../stores/auth.js';
   import { diffTombstones } from '../lib/workout-uuid.js';
   import { showSuccess, showError } from '../stores/toast.js';
-  import { exerciseLoadTypes, exerciseSetTypes, trackRpe, weightUnit } from '../stores/settings.js';
-  import { resolveLoadType, resolveSetType, parseDuration, defaultSetTypeForName, maskDurationInput, fmtSetDuration } from '../lib/workout.js';
+  import { exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits, trackRpe, weightUnit } from '../stores/settings.js';
+  import { resolveLoadType, resolveSetType, parseDuration, startSetType, distanceUnitOf, toMeters, maskDurationInput, fmtSetDuration, lastCompletedSession } from '../lib/workout.js';
   import TemplateSpecRow from '../components/programs/TemplateSpecRow.svelte';
   import ExercisePicker from '../components/exercises/ExercisePicker.svelte';
   import ExerciseInfoSheet from '../components/exercises/ExerciseInfoSheet.svelte';
@@ -296,24 +296,35 @@
       $exerciseLoadTypes,
     );
   }
-  // Reps or time (issue #89). A template has no logged sets, so its own
-  // prescription stands in as the data: a template that already says
-  // "Plank, 60 reps" keeps showing reps, exactly as starting it would, and
-  // is never flipped to Time by a default added later.
+  // Reps, time (issue #89), distance or calories (issue #119). A template
+  // has no logged sets, so its own prescription stands in as the data: a
+  // template that already says "Plank, 60 reps" keeps showing reps, exactly
+  // as starting it would, and is never flipped by a default added later.
   function exSetType(ex) {
+    const amounts = (src) => ({
+      duration_sec: parseDuration(src.duration) || 0,
+      distance_m: toMeters(src.distance) || 0,
+      calories: parseInt(src.calories) || 0,
+    });
     const prescribed = ex.set_specs?.length
-      ? ex.set_specs.map(s => ({ reps: parseInt(s.reps) || 0, duration_sec: parseDuration(s.duration) || 0 }))
-      : [{ reps: parseInt(ex.target_reps) || 0, duration_sec: parseDuration(ex.target_duration) || 0 }];
+      ? ex.set_specs.map(s => ({ reps: parseInt(s.reps) || 0, ...amounts(s) }))
+      : [{ reps: parseInt(ex.target_reps) || 0, ...amounts({ duration: ex.target_duration, distance: ex.target_distance, calories: ex.target_calories }) }];
     return resolveSetType(
       { ...ex, sets: prescribed },
       ex._library_set_type != null ? ex._library_set_type : (ex.exercise_set_type || null),
       $exerciseSetTypes,
     );
   }
+  const SET_TYPE_ICON = { time: 'timer', distance: 'route', calories: 'local_fire_department' };
+  // The unit a distance exercise's targets are typed in (issue #119).
+  function exDistanceUnit(ex) {
+    return distanceUnitOf(ex, $weightUnit === 'lbs', $exerciseDistanceUnits);
+  }
   function pickSetType(idx, next) {
     const ex = exercises[idx];
     const updated = [...exercises];
-    updated[idx] = { ...ex, set_type: next };
+    // A distance exercise keeps the unit its targets are typed in.
+    updated[idx] = { ...ex, set_type: next, ...(next === 'distance' && !ex.distance_unit ? { distance_unit: exDistanceUnit(ex) } : {}) };
     // commit(), not `exercises = updated`: `exercises` is derived from
     // template.exercises, and save() sends template.exercises. Assigning the
     // derived value showed the new chip and sent the old data, so the choice
@@ -323,6 +334,16 @@
     loadMenuIdx = null;
     if (rememberLoadType && ex.exercise_id != null) {
       exerciseSetTypes.update(curr => ({ ...(curr || {}), [ex.exercise_id]: next }));
+    }
+  }
+  // Targets already typed stay as typed: they now read in the new unit.
+  function pickDistanceUnit(idx, next) {
+    const ex = exercises[idx];
+    const updated = [...exercises];
+    updated[idx] = { ...ex, distance_unit: next };
+    commit(updated);
+    if (rememberLoadType && ex.exercise_id != null) {
+      exerciseDistanceUnits.update(curr => ({ ...(curr || {}), [ex.exercise_id]: next }));
     }
   }
   function pickLoadType(idx, next) {
@@ -505,7 +526,7 @@
   }
 
   // ── Add exercise ───────────────────────────────────────────────────
-  function addExercise(ex) {
+  async function addExercise(ex) {
     showPicker = false;
 
     // Replace mode: swap identity of the targeted exercise, keep everything else
@@ -521,13 +542,21 @@
     // when loaded into a diary, the convention travels with the workout.
     const savedLoadType = ex.id != null && $exerciseLoadTypes
       ? $exerciseLoadTypes[ex.id] : null;
-    // Same default chain as the Diary (issue #89): library, then remembered
-    // choice, then the timed-by-nature name list. A timed exercise starts
-    // with a duration to fill in, not a "10 reps" it would have to clear.
+    // Same default chain as the Diary (issues #89, #119): what you last
+    // logged of it, then the library, then remembered choice, then the name
+    // list. A timed, distance or calorie exercise starts with an amount to
+    // fill in, not a "10 reps" it would have to clear. One you have logged
+    // with reps stays reps, whatever its name.
     const remembered = ex.id != null ? $exerciseSetTypes?.[ex.id] : null;
-    const startTimed = ex.set_type === 'time'
-      || (ex.set_type !== 'reps' && (remembered === 'time'
-        || (remembered !== 'reps' && defaultSetTypeForName(ex.name) === 'time')));
+    // undefined when the history can't be read: no guess from the name then.
+    let last = null;
+    if (ex.id != null) {
+      try { last = lastCompletedSession(await LtApi.getWorkoutHistory(ex.id)) || null; } catch { last = undefined; }
+    }
+    const startType = startSetType(last === undefined ? undefined : (last?.completed || null),
+      ex.set_type, remembered, ex.name, last?.set_type);
+    const startTimed = startType !== 'reps';
+    const amountTarget = { time: 'target_duration', distance: 'target_distance', calories: 'target_calories' }[startType];
     const newEx = {
       exercise_id: ex.id,
       exercise_name: ex.name,
@@ -537,7 +566,8 @@
       notes: '',
       sets: [],
       ...(savedLoadType && savedLoadType !== 'bilateral' ? { load_type: savedLoadType } : {}),
-      ...(startTimed ? { set_type: 'time', target_duration: '' } : {}),
+      ...(startTimed ? { set_type: startType, [amountTarget]: '' } : {}),
+      ...(startType === 'distance' ? { distance_unit: exDistanceUnit({ exercise_id: ex.id, exercise_name: ex.name }) } : {}),
     };
 
     if (addingToSsId) {
@@ -576,7 +606,7 @@
   // strip. Week 1 keeps mirroring the flat target_* / exercise-level defaults
   // (full back-compat); weeks 2..N live in the exercise's optional weeks[]
   // array. Field name mapping between the strip's fields and the flat keys:
-  const FLAT_FIELD = { sets: 'target_sets', reps: 'target_reps', weight: 'target_weight', duration: 'target_duration', tempo: 'tempo', rest_sec: 'rest_sec' };
+  const FLAT_FIELD = { sets: 'target_sets', reps: 'target_reps', weight: 'target_weight', duration: 'target_duration', distance: 'target_distance', calories: 'target_calories', tempo: 'tempo', rest_sec: 'rest_sec' };
   $: durationWeeks = template?.duration_weeks || 1;
   let activeWeek = 1;
   $: if (activeWeek > durationWeeks) activeWeek = durationWeeks;
@@ -619,7 +649,7 @@
     template.exercises = updated;
   }
 
-  const WEEK_FIELDS = ['sets', 'reps', 'weight', 'duration', 'tempo', 'rest_sec'];
+  const WEEK_FIELDS = ['sets', 'reps', 'weight', 'duration', 'distance', 'calories', 'tempo', 'rest_sec'];
 
   // Return a copy of `ex` with week `src`'s effective values written into
   // week `dst`'s entry (creating the sparse array slot as needed).
@@ -684,6 +714,8 @@
       weight: ex.target_weight || '',
       reps: ex.target_reps || '',
       ...(ex.target_duration ? { duration: ex.target_duration } : {}),
+      ...(ex.target_distance ? { distance: ex.target_distance } : {}),
+      ...(ex.target_calories ? { calories: ex.target_calories } : {}),
     }));
     const updated = [...exercises];
     updated[idx] = { ...ex, set_specs: specs };
@@ -760,7 +792,12 @@
     const ex = { ...updated[idx] };
     const specs = [...(ex.set_specs || [])];
     const last = specs[specs.length - 1] || { weight: '', reps: '' };
-    specs.push({ weight: last.weight, reps: last.reps, ...(last.duration ? { duration: last.duration } : {}) });
+    specs.push({
+      weight: last.weight, reps: last.reps,
+      ...(last.duration ? { duration: last.duration } : {}),
+      ...(last.distance ? { distance: last.distance } : {}),
+      ...(last.calories ? { calories: last.calories } : {}),
+    });
     ex.set_specs = specs;
     ex.target_sets = specs.length;
     updated[idx] = ex;
@@ -893,12 +930,12 @@
                         </div>
                         <span class="ex-name">{ex.exercise_name}</span>
                         {#each [exLoadType(ex)] as lt}
-                          <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) === 'time'}
+                          <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) !== 'reps'}
                                   on:click|stopPropagation={(e) => toggleLoadMenu(e, idx)}
                                   title={$_('workout_editor.load_type')}>
                             {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
                             {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
-                            {:else if exSetType(ex) !== 'time'}<span class="material-symbols-rounded">straighten</span>{/if}{#if exSetType(ex) === 'time'}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
+                            {:else if exSetType(ex) === 'reps'}<span class="material-symbols-rounded">straighten</span>{/if}{#if exSetType(ex) !== 'reps'}<span class="material-symbols-rounded">{SET_TYPE_ICON[exSetType(ex)]}</span>{$_(`exercise_card.set_type_${exSetType(ex)}`)}{/if}
                           </button>
                         {/each}
                         <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title={$_('workout_editor.view_details')} aria-label={$_('workout_editor.view_details')}>
@@ -926,6 +963,7 @@
                               {setIdx}
                               loadType={exLoadType(ex)}
                       setType={exSetType(ex)}
+                      distanceUnit={exDistanceUnit(ex)}
                               trackRpe={$trackRpe}
                               showNumberPicker={true}
                               onUpdate={(field, value) => updateSpec(idx, setIdx, field, value)}
@@ -950,6 +988,16 @@
                             <div class="field">
                               <label>{$_('workout_editor.duration')}</label>
                               <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => { const v = maskDurationInput(e.target.value); e.target.value = v; setWeekVal(idx, 'duration', v); }} on:blur={e => { const v = fmtSetDuration(parseDuration(e.target.value)); e.target.value = v; setWeekVal(idx, 'duration', v); }} placeholder="0:00" />
+                            </div>
+                          {:else if exSetType(ex) === 'distance'}
+                            <div class="field">
+                              <label>{$_('exercise_card.distance')} <span class="unit">({exDistanceUnit(ex)})</span></label>
+                              <input type="text" inputmode="decimal" value={weekVal(ex, 'distance', activeWeek)} on:input={e => setWeekVal(idx, 'distance', e.target.value)} placeholder="0" />
+                            </div>
+                          {:else if exSetType(ex) === 'calories'}
+                            <div class="field">
+                              <label>{$_('exercise_card.calories')}</label>
+                              <input type="number" inputmode="numeric" value={weekVal(ex, 'calories', activeWeek)} on:input={e => setWeekVal(idx, 'calories', e.target.value)} placeholder="0" />
                             </div>
                           {:else}
                             <div class="field">
@@ -1008,12 +1056,12 @@
                 <span class="ex-sets-badge">{ex.target_sets || 1}×</span>
                 <span class="ex-name">{ex.exercise_name}</span>
                 {#each [exLoadType(ex)] as lt}
-                  <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) === 'time'}
+                  <button type="button" class="load-chip" class:non-default={lt !== 'bilateral' || exSetType(ex) !== 'reps'}
                           on:click|stopPropagation={(e) => toggleLoadMenu(e, idx)}
                           title={$_('workout_editor.load_type')}>
                     {#if lt === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{$_('workout_editor.load_paired')}
                     {:else if lt === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{$_('workout_editor.load_unilateral')}
-                    {:else if exSetType(ex) !== 'time'}<span class="material-symbols-rounded">straighten</span>{/if}{#if exSetType(ex) === 'time'}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
+                    {:else if exSetType(ex) === 'reps'}<span class="material-symbols-rounded">straighten</span>{/if}{#if exSetType(ex) !== 'reps'}<span class="material-symbols-rounded">{SET_TYPE_ICON[exSetType(ex)]}</span>{$_(`exercise_card.set_type_${exSetType(ex)}`)}{/if}
                   </button>
                 {/each}
                 <button type="button" class="btn-icon-sm" on:click|stopPropagation={() => openExInfo(idx)} title={$_('workout_editor.view_details')} aria-label={$_('workout_editor.view_details')}>
@@ -1041,6 +1089,7 @@
                       {setIdx}
                       loadType={exLoadType(ex)}
                       setType={exSetType(ex)}
+                      distanceUnit={exDistanceUnit(ex)}
                       trackRpe={$trackRpe}
                       showNumberPicker={false}
                       onUpdate={(field, value) => updateSpec(idx, setIdx, field, value)}
@@ -1065,6 +1114,16 @@
                     <div class="field">
                       <label>{$_('workout_editor.duration')}</label>
                       <input type="text" inputmode="numeric" value={weekVal(ex, 'duration', activeWeek)} on:input={e => { const v = maskDurationInput(e.target.value); e.target.value = v; setWeekVal(idx, 'duration', v); }} on:blur={e => { const v = fmtSetDuration(parseDuration(e.target.value)); e.target.value = v; setWeekVal(idx, 'duration', v); }} placeholder="0:00" />
+                    </div>
+                  {:else if exSetType(ex) === 'distance'}
+                    <div class="field">
+                      <label>{$_('exercise_card.distance')} <span class="unit">({exDistanceUnit(ex)})</span></label>
+                      <input type="text" inputmode="decimal" value={weekVal(ex, 'distance', activeWeek)} on:input={e => setWeekVal(idx, 'distance', e.target.value)} placeholder="0" />
+                    </div>
+                  {:else if exSetType(ex) === 'calories'}
+                    <div class="field">
+                      <label>{$_('exercise_card.calories')}</label>
+                      <input type="number" inputmode="numeric" value={weekVal(ex, 'calories', activeWeek)} on:input={e => setWeekVal(idx, 'calories', e.target.value)} placeholder="0" />
                     </div>
                   {:else}
                     <div class="field">
@@ -1119,9 +1178,11 @@
     anchor={loadMenuAnchor}
     loadType={exLoadType(exercises[loadMenuIdx])}
     setType={exSetType(exercises[loadMenuIdx])}
+    distanceUnit={exDistanceUnit(exercises[loadMenuIdx])}
     bind:remember={rememberLoadType}
     on:pickLoad={(e) => pickLoadType(loadMenuIdx, e.detail)}
     on:pickSetType={(e) => pickSetType(loadMenuIdx, e.detail)}
+    on:pickDistanceUnit={(e) => pickDistanceUnit(loadMenuIdx, e.detail)}
     on:close={() => loadMenuIdx = null} />
 {/if}
 

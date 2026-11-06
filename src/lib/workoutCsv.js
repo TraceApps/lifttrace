@@ -11,19 +11,21 @@
  *   date, workout, exercise, exercise_index, superset, set_index,
  *   warmup, reps, weight, weight_unit, side, rpe, completed,
  *   set_notes, exercise_notes, workout_notes, workout_duration_min,
- *   duration_sec
+ *   duration_sec, distance_m, calories
  *
  * duration_sec (issue #89) is the hold time for a timed set (plank, wall
  * sit, carry) and empty for rep sets. It is appended at the end rather than
  * placed beside reps so existing spreadsheets and scripts that index
- * columns by position keep working.
+ * columns by position keep working. distance_m (in meters) and calories
+ * (issue #119) follow it for the same reason, filled only on distance and
+ * calorie sets.
  *
  * `weight_unit` reflects the user's active unit preference at export
  * time (the underlying value is stored in that unit; we don't reconvert).
  */
 
 import { isNative } from './platform.js';
-import { isTimedSet } from './workout.js';
+import { setKind } from './workout.js';
 
 function _escape(v) {
   if (v == null) return '';
@@ -56,7 +58,7 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
     'date', 'workout', 'exercise', 'exercise_index', 'superset',
     'set_index', 'warmup', 'reps', 'weight', 'weight_unit', 'side',
     'rpe', 'completed', 'set_notes', 'exercise_notes', 'workout_notes',
-    'workout_duration_min', 'duration_sec',
+    'workout_duration_min', 'duration_sec', 'distance_m', 'calories',
   ];
   const lines = [_row(header)];
 
@@ -82,7 +84,8 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
     // from the export so shared CSVs report the shared truth.
     const loadType = ex.load_type || _getLib(ex.exercise_id) || 'bilateral';
     (ex.sets || []).forEach((set, setIdx) => {
-      const timed = isTimedSet(ex, set);
+      const kind = setKind(ex, set);
+      const timed = kind !== 'reps';
       const baseCols = [
         date, wName, exName, exIdx + 1, superset, setIdx + 1,
         set.warmup ? 'true' : 'false',
@@ -96,11 +99,14 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
         exNotes,
         wNotes,
         wDur,
-        timed ? (Number(set.duration_sec) || '') : '',
+        kind === 'time' ? (Number(set.duration_sec) || '') : '',
+        kind === 'distance' ? (Number(set.distance_m) || '') : '',
+        kind === 'calories' ? (Number(set.calories) || '') : '',
       ];
 
-      // A timed set is one row: reps is left empty so a hold's seconds can
-      // never be summed as reps, and it is never split by side.
+      // A timed, distance or calorie set is one row: reps is left empty so
+      // its seconds, meters or calories can never be summed as reps, and it
+      // is never split by side.
       if (timed) {
         lines.push(_row([...baseCols, '', set.weight ?? '', ...tailCols]));
         return;

@@ -5,8 +5,8 @@
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { onSyncChanges, newestRead } from '../lib/sync-refresh.js';
-  import { weightUnit } from '../stores/settings.js';
-  import { isTimedSet, fmtSetDuration } from '../lib/workout.js';
+  import { weightUnit, exerciseDistanceUnits } from '../stores/settings.js';
+  import { setKind, SET_TYPE_FIELD, fmtSetAmount, fromMeters, distanceUnitOf } from '../lib/workout.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
@@ -99,29 +99,40 @@
   onMount(() => onSyncChanges(() => { if (showEditor) syncWaiting = true; else load({ quiet: true }); }, ['exercises', 'workouts']));
   $: if (!showEditor && syncWaiting) { syncWaiting = false; load({ quiet: true }); }
 
-  // Timed exercise (issue #89): judged by what the most recent session was,
-  // so an exercise switched to Time shows its hold record and hold chart.
-  $: detailTimed = (() => {
+  // Timed exercise (issue #89), or distance or calorie one (issue #119):
+  // judged by what the most recent session was, so an exercise switched to
+  // another kind shows that kind's record and chart.
+  $: detailKind = (() => {
     const latest = history.find(h => (h.sets || []).some(s => s.completed && !s.warmup));
-    return !!latest && (latest.sets || []).some(s => s.completed && isTimedSet({ set_type: latest.set_type }, s));
+    if (!latest) return 'reps';
+    const kinds = (latest.sets || []).filter(s => s.completed).map(s => setKind({ set_type: latest.set_type }, s));
+    return kinds.find(k => k !== 'reps') || 'reps';
   })();
+  $: detailTimed = detailKind !== 'reps';
+  $: detailUnit = distanceUnitOf({ exercise_id: exercise?.id, exercise_name: exercise?.name, distance_unit: history.find(h => h.distance_unit)?.distance_unit },
+    $weightUnit === 'lbs', $exerciseDistanceUnits);
+  const _amountOf = (s) => Number(s?.[SET_TYPE_FIELD[detailKind]]) || 0;
+  // A chart value as text, in the exercise's terms.
+  const _fmtPoint = (v) => (detailKind === 'distance' ? `${v} ${detailUnit}`
+    : fmtSetAmount(detailKind, { [SET_TYPE_FIELD[detailKind]]: v }, detailUnit));
 
   $: pr = detailTimed ? (() => {
-    let maxDur = 0, atWeight = 0, prDate = '';
+    let top = 0, atWeight = 0, prDate = '', best = null;
     for (const h of history) {
       for (const s of h.sets || []) {
-        if (!s.completed || s.warmup || !isTimedSet({ set_type: h.set_type }, s)) continue;
-        const d = Number(s.duration_sec) || 0;
-        if (d > maxDur || (d === maxDur && (s.weight || 0) > atWeight)) { maxDur = d; atWeight = s.weight || 0; prDate = h.date; }
+        if (!s.completed || s.warmup || setKind({ set_type: h.set_type }, s) !== detailKind) continue;
+        const d = _amountOf(s);
+        if (d > top || (d === top && (s.weight || 0) > atWeight)) { top = d; atWeight = s.weight || 0; prDate = h.date; best = s; }
       }
     }
-    if (!maxDur) return null;
-    return { label: atWeight ? `${fmtSetDuration(maxDur)} @ ${atWeight} ${$weightUnit}` : fmtSetDuration(maxDur), date: prDate };
+    if (!top) return null;
+    const amount = fmtSetAmount(detailKind, best, detailUnit);
+    return { label: atWeight ? `${amount} @ ${atWeight} ${$weightUnit}` : amount, date: prDate };
   })() : (() => {
     let max = 0, prDate = '';
     for (const h of history) {
       for (const s of h.sets || []) {
-        if (s.completed && s.weight > max && !isTimedSet({ set_type: h.set_type }, s)) { max = s.weight; prDate = h.date; }
+        if (s.completed && s.weight > max && setKind({ set_type: h.set_type }, s) === 'reps') { max = s.weight; prDate = h.date; }
       }
     }
     return max > 0 ? { weight: max, date: prDate, unit: $weightUnit } : null;
@@ -136,11 +147,11 @@
       let top = 0, topReps = 0;
       for (const s of (h.sets || [])) {
         if (!s.completed || s.warmup) continue;
-        const timedSet = isTimedSet({ set_type: h.set_type }, s);
-        // Plot the same kind of set the header describes: longest hold for
-        // a timed exercise, heaviest set otherwise.
-        if (detailTimed !== timedSet) continue;
-        const v = timedSet ? (Number(s.duration_sec) || 0) : (s.weight || 0);
+        // Plot the same kind of set the header describes: longest hold,
+        // distance or most calories, else the heaviest set.
+        if (setKind({ set_type: h.set_type }, s) !== detailKind) continue;
+        let v = detailTimed ? _amountOf(s) : (s.weight || 0);
+        if (detailKind === 'distance') v = fromMeters(v, detailUnit) || 0;
         if (v > top) { top = v; topReps = s.reps || 0; }
       }
       if (top > 0) arr.push({ date: h.date, weight: top, reps: topReps });
@@ -221,7 +232,10 @@
       {#if progressSvg}
         <div class="progress-card">
           <div class="progress-head">
-            <h3 class="progress-title">{detailTimed ? $_('exercise_detail.longest_hold_over_time') : $_('exercise_detail.top_set_over_time')}</h3>
+            <h3 class="progress-title">{detailKind === 'time' ? $_('exercise_detail.longest_hold_over_time')
+              : detailKind === 'distance' ? $_('exercise_detail.longest_distance_over_time')
+              : detailKind === 'calories' ? $_('exercise_detail.most_calories_over_time')
+              : $_('exercise_detail.top_set_over_time')}</h3>
             <span class="progress-meta">{progressPoints.length} sessions</span>
           </div>
           <svg class="progress-svg" viewBox="0 0 {progressSvg.W} {progressSvg.H}" preserveAspectRatio="none">
@@ -234,8 +248,8 @@
               stroke="var(--accent)" stroke-width="7" stroke-linecap="round" vector-effect="non-scaling-stroke" />
           </svg>
           <div class="progress-footer">
-            <span>{progressSvg.pts[0].date} · {detailTimed ? fmtSetDuration(progressSvg.pts[0].weight) : `${progressSvg.pts[0].weight} ${$weightUnit}`}</span>
-            <span>{progressSvg.pts.at(-1).date} · {detailTimed ? fmtSetDuration(progressSvg.pts.at(-1).weight) : `${progressSvg.pts.at(-1).weight} ${$weightUnit}`}</span>
+            <span>{progressSvg.pts[0].date} · {detailTimed ? _fmtPoint(progressSvg.pts[0].weight) : `${progressSvg.pts[0].weight} ${$weightUnit}`}</span>
+            <span>{progressSvg.pts.at(-1).date} · {detailTimed ? _fmtPoint(progressSvg.pts.at(-1).weight) : `${progressSvg.pts.at(-1).weight} ${$weightUnit}`}</span>
           </div>
         </div>
       {/if}

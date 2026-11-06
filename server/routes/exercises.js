@@ -157,7 +157,7 @@ function _cleanLoadType(v) {
 }
 // Set type (issue #89), same whitelist-or-unset treatment as load_type.
 function _cleanSetType(v) {
-  return v === 'reps' || v === 'time' ? v : null;
+  return v === 'reps' || v === 'time' || v === 'distance' || v === 'calories' ? v : null;
 }
 
 // POST /api/exercises — create custom exercise

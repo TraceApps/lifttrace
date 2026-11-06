@@ -45,7 +45,8 @@ export function registerSearchExercises(server, { userId }) {
         'Search the exercise catalog by name (case-insensitive substring ' +
         'match). Returns exercise_id, name, category, equipment, and ' +
         'load_type and set_type for each match (set_type "time" means log ' +
-        'duration_sec rather than reps). exercise_id is what log_set expects.',
+        'duration_sec rather than reps, "distance" distance_m in meters, ' +
+        '"calories" calories). exercise_id is what log_set expects.',
       inputSchema: {
         query: z.string().min(1).max(200),
         limit: z.number().int().positive().max(MAX_LIMIT).optional(),

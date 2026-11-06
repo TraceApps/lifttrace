@@ -52,13 +52,17 @@ export function parseFitnotes(csvText, userUnit) {
     // same rule the Strong and Hevy importers use.
     const seconds = _fitnotesSeconds(row['time']);
     const timed = seconds > 0 && reps === 0;
+    // Distance set (issue #119): FitNotes writes the distance with its own
+    // unit per row. Only a unit it names plainly is read; anything else is
+    // left out rather than guessed.
+    const distanceM = reps === 0 ? _fitnotesMeters(row['distance'], row['distance unit']) : 0;
     const comment = (row['comment'] || '').trim();
 
     if (!byDate.has(date)) byDate.set(date, { categories: new Set(), exercises: new Map() });
     const day = byDate.get(date);
     if (category) day.categories.add(category);
     if (!day.exercises.has(exName)) day.exercises.set(exName, []);
-    day.exercises.get(exName).push({ reps, weight, completed: true, notes: comment, rpe: null, ...(timed ? { duration_sec: seconds } : {}) });
+    day.exercises.get(exName).push({ reps, weight, completed: true, notes: comment, rpe: null, ...(timed ? { duration_sec: seconds } : {}), ...(distanceM ? { distance_m: distanceM } : {}) });
   }
 
   const out = [];
@@ -72,12 +76,26 @@ export function parseFitnotes(csvText, userUnit) {
       superset_id: null,
       superset_size: 1,
       sets,
-      ...(sets.length && sets.every(s => s.duration_sec > 0) ? { set_type: 'time' } : {}),
+      // Distance when any set has one and none has reps (see hevy.js).
+      ...(sets.some(s => s.distance_m > 0) && !sets.some(s => s.reps > 0) ? { set_type: 'distance' }
+        : sets.length && sets.every(s => s.duration_sec > 0) ? { set_type: 'time' } : {}),
     }));
     out.push({ date, name, notes: '', duration_min: null, exercises });
   }
   out.sort((a, b) => a.date.localeCompare(b.date));
   return out;
+}
+
+/** A FitNotes distance and its unit as meters, 0 when either is missing or
+ *  the unit isn't one it names plainly. */
+const _FITNOTES_DISTANCE = [[/^(km|kilomet)/, 1000], [/^(mi|mile)/, 1609.344], [/^(yd|yard)/, 0.9144],
+  [/^(ft|feet|foot)/, 0.3048], [/^(m|met)/, 1]];
+function _fitnotesMeters(value, unit) {
+  const n = parseFloat(String(value || '').replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const t = String(unit || '').trim().toLowerCase();
+  const hit = t && _FITNOTES_DISTANCE.find(([re]) => re.test(t));
+  return hit ? Math.round(n * hit[1] * 1000) / 1000 : 0;
 }
 
 /** "kgs", "kg", "Kilograms" -> 'kg'; "lbs", "lb" -> 'lbs'; anything else null. */

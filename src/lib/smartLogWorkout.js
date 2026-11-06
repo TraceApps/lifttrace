@@ -21,7 +21,7 @@ Output ONLY valid JSON matching this schema:
   "exercises": [
     {
       "name": "exercise name exactly as user said it",
-      "sets": [ { "reps": N, "weight": N, "duration_sec": N|null, "rpe": N|null, "amrap": true|false, "bodyweight": true|false } ],
+      "sets": [ { "reps": N, "weight": N, "duration_sec": N|null, "distance_m": N|null, "calories": N|null, "rpe": N|null, "amrap": true|false, "bodyweight": true|false } ],
       "superset_group": "A"|"B"|null,   // fill only when user groups exercises (A1/A2/B1/B2 etc.)
       "notes": string|null
     }
@@ -34,7 +34,9 @@ Rules:
 - "BW" or "bodyweight" → set bodyweight:true and weight:0 (unless user said "BW+25" → bodyweight:true, weight:25).
 - "@8" or "RPE 8" → rpe:8.
 - "AMRAP" or "as many as possible" → amrap:true and reps:0.
-- Timed holds and carries are logged by duration, not reps: "plank 3x45s", "plank 3x1:00", "wall sit 90 seconds", "dead hang 2 min". Put the time in duration_sec as whole seconds and set reps:0. "3x45s" means 3 sets of {duration_sec:45}. A bare "x60" on a plank, wall sit, hold, hang or carry means 60 seconds, not 60 reps. "farmer carry 3x40s @ 50" is duration_sec:40, weight:50.
+- Timed holds and carries are logged by duration, not reps: "plank 3x45s", "plank 3x1:00", "wall sit 90 seconds", "dead hang 2 min". Put the time in duration_sec as whole seconds and set reps:0. "3x45s" means 3 sets of {duration_sec:45}. A bare "x60" on a plank, wall sit, hold or hang means 60 seconds, not 60 reps. "farmer carry 3x40s @ 50" is duration_sec:40, weight:50.
+- Distance work is logged by distance, not reps: "row 500m", "run 5k", "ski erg 1000m", "sled push 4x20m @ 90", "farmer carry 3x40m @ 50". Put the distance in distance_m as meters and set reps:0: 5k is 5000, 1.5 km is 1500, 1 mile is 1609, 40 yards is 36.6. This is the one conversion to make; weights stay as given.
+- Calorie work is logged by calories, not reps: "bike 20 cal", "assault bike 3x15 cal". Put them in calories and set reps:0.
 - "A1: bench, A2: row, 3 rounds" — emit bench AND row with 3 sets each, superset_group:"A".
 - Assume pounds unless user says "kg". Do NOT convert units.
 - If user gives a range like "3x8-10", pick the midpoint (9).
@@ -185,6 +187,8 @@ export function mergeIntoWorkout(matched, existingLog) {
         reps: s.reps || 0,
         weight: s.weight || 0,
         ...(Number(s.duration_sec) > 0 ? { duration_sec: Math.round(Number(s.duration_sec)) } : {}),
+        ...(Number(s.distance_m) > 0 ? { distance_m: Math.round(Number(s.distance_m) * 1000) / 1000 } : {}),
+        ...(Number(s.calories) > 0 ? { calories: Math.round(Number(s.calories)) } : {}),
         completed: false,
         notes: s.notes || '',
         ...(s.amrap ? { amrap: true } : {}),
@@ -202,6 +206,13 @@ export function mergeIntoWorkout(matched, existingLog) {
       row.set_type = 'time';
       row.target_reps = null;
       row.target_duration = String(Math.round(Number(m.sets[0]?.duration_sec) || 0) || '');
+    } else if ((m.sets || []).some(s => Number(s.distance_m) > 0)) {
+      // Distance and calorie exercises (issue #119), the same way.
+      row.set_type = 'distance';
+      row.target_reps = null;
+    } else if ((m.sets || []).some(s => Number(s.calories) > 0)) {
+      row.set_type = 'calories';
+      row.target_reps = null;
     }
     if (m.superset_group) {
       if (!groupIds[m.superset_group]) groupIds[m.superset_group] = nextSupersetId();

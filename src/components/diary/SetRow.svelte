@@ -9,7 +9,7 @@
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
   import { replaceOnType } from '../../lib/replaceOnType.js';
-  import { parseDuration, fmtSetDuration, maskDurationInput } from '../../lib/workout.js';
+  import { parseDuration, fmtSetDuration, maskDurationInput, toMeters, fromMeters } from '../../lib/workout.js';
 
   export let set;
   export let setNum;
@@ -35,6 +35,12 @@
    *  in place of reps; weight stays, for weighted holds and carries. */
   export let setType = 'reps';
   $: timed = setType === 'time';
+  // Distance and calorie sets (issue #119): the amount takes the reps
+  // column, weight stays for a loaded sled or carry. Distance is stored in
+  // meters and typed in the exercise's unit.
+  $: distance = setType === 'distance';
+  $: cals = setType === 'calories';
+  export let distanceUnit = 'm';
   /** True while the hold timer is running for this set (issue #89). The
    *  parent card decides, since only it knows which exercise this row is. */
   export let holdRunning = false;
@@ -45,7 +51,7 @@
   // L/R split is only meaningful for unilateral exercises. When the user
   // taps the split icon we flip into split-mode where reps_l + reps_r are
   // edited separately; clearing both falls back to the single `reps` value.
-  $: isSplit = !timed && loadType === 'unilateral' && (set.reps_l != null || set.reps_r != null);
+  $: isSplit = setType === 'reps' && loadType === 'unilateral' && (set.reps_l != null || set.reps_r != null);
   function toggleSplit() {
     if (isSplit) {
       // Collapse split → keep the higher of the two as the single rep count.
@@ -154,12 +160,16 @@
   let repsLFocused = false;
   let repsRFocused = false;
   let durationFocused = false;
+  let distanceFocused = false;
+  let caloriesFocused = false;
 
   let weightStr = _fmt(set.weight);
   let repsStr = _fmt(set.reps);
   let repsLStr = _fmt(set.reps_l);
   let repsRStr = _fmt(set.reps_r);
   let durationStr = fmtSetDuration(set.duration_sec);
+  let distanceStr = _fmt(fromMeters(set.distance_m, distanceUnit));
+  let caloriesStr = _fmt(set.calories);
 
   function _fmt(v) { return v == null || Number.isNaN(v) ? '' : String(v); }
 
@@ -171,6 +181,22 @@
   $: if (!repsLFocused)  repsLStr  = _fmt(set.reps_l);
   $: if (!repsRFocused)  repsRStr  = _fmt(set.reps_r);
   $: if (!durationFocused) durationStr = fmtSetDuration(set.duration_sec);
+  $: if (!distanceFocused) distanceStr = _fmt(fromMeters(set.distance_m, distanceUnit));
+  $: if (!caloriesFocused) caloriesStr = _fmt(set.calories);
+
+  // Typed in the exercise's unit, kept in meters. A value that converts back
+  // to what is already stored is left alone, so focusing and leaving a field
+  // never nudges a stored distance by a rounding step.
+  function commitDistance(raw) {
+    if (raw === '' || raw == null) {
+      if (set.distance_m) update('distance_m', 0);
+      return;
+    }
+    const m = toMeters(raw, distanceUnit);
+    if (m == null) return;
+    if (fromMeters(set.distance_m, distanceUnit) === fromMeters(m, distanceUnit)) return;
+    update('distance_m', m);
+  }
 
   // Duration entry, timer style: digits fill from the right on the number
   // pad ("130" reads 1:30), shown live as m:ss so nothing is left to guess.
@@ -330,6 +356,38 @@
         </button>
       {/if}
     </div>
+  {:else if distance}
+    <div class="set-field">
+      <input
+        type="text"
+        class="set-input amount-input"
+        bind:value={distanceStr}
+        on:input={() => commitDistance(distanceStr)}
+        use:replaceOnType
+        on:focus={() => { distanceFocused = true; }}
+        on:blur={() => { distanceFocused = false; commitDistance(distanceStr); distanceStr = _fmt(fromMeters(set.distance_m, distanceUnit)); }}
+        on:keydown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        placeholder="0"
+        inputmode="decimal"
+        autocomplete="off"
+        aria-label={$_('exercise_card.distance')}
+      />
+    </div>
+  {:else if cals}
+    <div class="set-field">
+      <input
+        type="number"
+        class="set-input amount-input"
+        bind:value={caloriesStr}
+        on:input={() => commitNumber('calories', caloriesStr, parseInt)}
+        use:replaceOnType
+        on:focus={() => { caloriesFocused = true; }}
+        on:blur={() => { caloriesFocused = false; commitNumber('calories', caloriesStr, parseInt); }}
+        placeholder="0"
+        inputmode="numeric"
+        aria-label={$_('exercise_card.calories')}
+      />
+    </div>
   {:else}
     <div class="set-field">
       <input
@@ -427,6 +485,14 @@
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
   }
   .set-row:has(.split-btn):has(.rpe-wrap) {
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
+  }
+  /* A distance ("2000", "5.25") or calorie count is wider than a rep count,
+     so it gets the same even split. */
+  .set-row:has(.amount-input) {
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
+  }
+  .set-row:has(.amount-input):has(.rpe-wrap) {
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
   }
   /* Tap areas on a touch screen (.tap, styles/buttons.css): 44px tall, the
@@ -621,7 +687,7 @@
   .set-unit { font-size: 11px; color: var(--text-3); white-space: nowrap; }
   /* Durations change width as they tick up (0:45 -> 1:00); tabular figures
      stop the column shifting while typing. */
-  .duration-input { font-variant-numeric: tabular-nums; }
+  .duration-input, .amount-input { font-variant-numeric: tabular-nums; }
   .hold-btn.active { color: var(--danger, #FF5C5C); animation: hold-blink 1s ease-in-out infinite; }
   @keyframes hold-blink { 50% { opacity: 0.45; } }
   @media (prefers-reduced-motion: reduce) { .hold-btn.active { animation: none; } }

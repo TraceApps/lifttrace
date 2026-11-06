@@ -748,4 +748,64 @@ class SessionTest {
         assertEquals(5.0, Session.weightStep("lbs"), 0.001)
         assertEquals(2.5, Session.weightStep("kg"), 0.001)
     }
+
+    // Distance and calories (issue #119).
+    private val engine = """
+        {"workout":{"id":11,"date":"2026-11-06","name":"Engine","exercises":[
+          {"uuid":"r1","exercise_id":31,"exercise_name":"Sled Push","set_type":"distance","distance_unit":"m","sets":[
+            {"uuid":"d1","reps":0,"weight":90,"distance_m":20,"completed":true},
+            {"uuid":"d2","reps":0,"weight":90,"distance_m":20,"completed":false}
+          ]},
+          {"uuid":"r2","exercise_id":32,"exercise_name":"Assault Bike","sets":[
+            {"uuid":"c1","reps":0,"weight":0,"calories":18,"completed":false}
+          ]},
+          {"uuid":"r3","exercise_id":33,"exercise_name":"Run","set_type":"distance","distance_unit":"mi","sets":[
+            {"uuid":"m1","reps":0,"weight":0,"distance_m":1609.344,"completed":true}
+          ]}
+        ]}}
+    """.trimIndent()
+
+    @Test
+    fun `a distance or calorie exercise reads as itself, with its unit`() {
+        val w = Session.parse(engine)!!
+        val sled = w.exercises[0]
+        assertEquals(Session.TYPE_DISTANCE, sled.setType)
+        assertTrue(sled.byDistance)
+        assertEquals("m", Session.distanceUnit(sled, "lbs"))
+        // No unit on the entry: the phone's default for the name and system.
+        assertEquals("yd", Session.distanceUnit(w.exercises[1].copy(name = "Rower"), "lbs"))
+        assertEquals("km", Session.distanceUnit(w.exercises[1].copy(name = "Running"), "kg"))
+        assertEquals(20.0, sled.sets[1].distanceM, 0.001)
+        // No set_type on the entry: the calories on its sets decide.
+        assertEquals(Session.TYPE_CALORIES, w.exercises[1].setType)
+        assertEquals(18, w.exercises[1].sets[0].calories)
+        assertEquals("90 kg x 20 m", Session.setLine(sled, sled.sets[0], "kg"))
+        assertEquals("1 mi", Session.setLine(w.exercises[2], w.exercises[2].sets[0], "kg"))
+        assertEquals("18 cal", Session.setLine(w.exercises[1], w.exercises[1].sets[0], "kg"))
+    }
+
+    @Test
+    fun `a distance set is offered and sent back in meters, and carries no volume`() {
+        val w = Session.parse(engine)!!
+        val draft = Session.suggest(w.exercises[0], 1)
+        assertEquals(20.0, draft.distanceM, 0.001)
+        val sent = Session.upsert(w.raw, draft.copy(distanceM = draft.distanceM + Session.distanceStepM("m"), completed = true))
+        val set = sent.getJSONArray("exercises").getJSONObject(0).getJSONArray("sets").getJSONObject(1)
+        assertEquals(30.0, set.getDouble("distance_m"), 0.001)
+        assertTrue(set.getBoolean("completed"))
+        assertEquals(0.0, Session.volume(w.exercises[0]), 0.001)
+        assertEquals("1.5 mi", Session.distanceText(1609.344 * 1.5, "mi"))
+        assertEquals(160.9344, Session.distanceStepM("mi"), 0.0001)
+        val cal = Session.upsert(w.raw, Session.suggest(w.exercises[1], 0).copy(calories = 21, completed = true))
+        assertEquals(21, cal.getJSONArray("exercises").getJSONObject(1).getJSONArray("sets").getJSONObject(0).getInt("calories"))
+    }
+
+    @Test
+    fun `a set from a watch that never heard of distance keeps its distance`() {
+        // What an older watch sends: a change with no distance on it, ticking the set.
+        val w = Session.parse(engine)!!
+        val sent = Session.upsert(w.raw, Session.Change("r1", "d2", 90.0, 0, null, null, 0, true, false))
+        val set = sent.getJSONArray("exercises").getJSONObject(0).getJSONArray("sets").getJSONObject(1)
+        assertEquals(20.0, set.getDouble("distance_m"), 0.001)
+    }
 }

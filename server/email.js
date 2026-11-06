@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import db from './db.js';
-import { changeVsAvg, fmtMinutes, fmtHold, summaryLine } from './lib/weekly-summary.js';
+import { changeVsAvg, fmtMinutes, fmtHold, fmtDistanceM, summaryLine } from './lib/weekly-summary.js';
 
 export function seedSmtpFromEnv() {
   const map = {
@@ -319,10 +319,17 @@ export function renderWeeklySummary(name, summary, origin = '', { unit = 'lbs', 
     if (week.minutes > 0) rows.push(_statRow('⏱️', 'Time Trained', `${fmtMinutes(week.minutes)}${cmp(week.minutes, summary.avg.minutes)}`));
     rows.push(_statRow('🔥', 'Personal Records', nf.format(prs.length)));
 
+    // A record's own measure: a hold, a distance or calories (issues #89,
+    // #119), with the load when there was one, or weight x reps.
+    const at = (p) => (p.weight > 0 ? ` @ ${nf.format(p.weight)} ${_escapeHtml(unit)}` : '');
+    const _prText = (p) => p.durationSec ? `${fmtHold(p.durationSec)} hold${at(p)}`
+      : p.distanceM ? `${fmtDistanceM(p.distanceM, unit)}${at(p)}`
+      : p.calories ? `${nf.format(p.calories)} cal${at(p)}`
+      : `${nf.format(p.weight)} ${_escapeHtml(unit)} x ${_escapeHtml(p.reps)}`;
     const prList = prs.length
       ? `<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;">New Personal Records</p>
          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:24px;">
-         ${prs.slice(0, 8).map(p => `<tr><td style="padding:6px 0;font-size:14px;color:#C8CDD9;">${_escapeHtml(p.name || '')}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:#FF7433;text-align:right;">${p.durationSec ? `${fmtHold(p.durationSec)} hold${p.weight > 0 ? ` @ ${nf.format(p.weight)} ${_escapeHtml(unit)}` : ''}` : `${nf.format(p.weight)} ${_escapeHtml(unit)} x ${_escapeHtml(p.reps)}`}</td></tr>`).join('')}
+         ${prs.slice(0, 8).map(p => `<tr><td style="padding:6px 0;font-size:14px;color:#C8CDD9;">${_escapeHtml(p.name || '')}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:#FF7433;text-align:right;">${_prText(p)}</td></tr>`).join('')}
          ${prs.length > 8 ? `<tr><td colspan="2" style="padding:6px 0;font-size:13px;color:#6B7590;">and ${prs.length - 8} more</td></tr>` : ''}
          </table>`
       : '';

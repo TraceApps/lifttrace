@@ -40,7 +40,7 @@ const SERVER_SETTINGS = new Set([
   'notifMemberCompletes', 'notifMemberMissed', 'notifMemberReply', 'notifCoachFeedback',
   'notifCoachRecommendation', 'notifClientAnswer', 'notifCoachMessage', 'notifCoachMessageEmail',
   'notifWeeklySummary', 'weeklySummaryDay', 'weeklySummaryTime',
-  'bodyStatsVisible', 'exerciseLoadTypes', 'exerciseSetTypes',
+  'bodyStatsVisible', 'exerciseLoadTypes', 'exerciseSetTypes', 'exerciseDistanceUnits',
   'radioEnabled', 'radioProvider', 'radioUrl', 'radioUser', 'radioPassword', 'radioCrossfade', 'radioOriginalFormat',
   'radioStationsEnabled',
   'updateCheckInterval', // hours between checks: 1, 4, 12, 24, or 0 for manual only
@@ -343,9 +343,14 @@ export const exerciseLoadTypes = createSettingStore('exerciseLoadTypes', {});
 
 // Per-exercise remembered set type (issue #89), set by the same "Remember
 // for this exercise" tickbox on the Diary chip. Shape: { [exercise_id]:
-// 'reps' | 'time' }. Only consulted when an exercise has no data and no
+// 'reps' | 'time' | 'distance' | 'calories' }. Only consulted when an exercise has no data and no
 // library default; see resolveSetType in src/lib/workout.js.
 export const exerciseSetTypes = createSettingStore('exerciseSetTypes', {});
+
+// Per-exercise remembered distance unit (issue #119), from the same tickbox.
+// Shape: { [exercise_id]: 'm' | 'km' | 'yd' | 'mi' }. An entry's own
+// distance_unit wins; see distanceUnitOf in src/lib/workout.js.
+export const exerciseDistanceUnits = createSettingStore('exerciseDistanceUnits', {});
 
 // Radio / Music
 export const radioEnabled  = createSettingStore('radioEnabled',  false);

@@ -10,7 +10,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { setVolume, isTimedSet } from '../../volume.js';
+import { setVolume, isTimedSet, isRepSet, setKind } from '../../volume.js';
 import { DATE_RE, resolveDateRange, toolResult, toolError, validateDateRange } from '../_util.js';
 import { foldText } from '../../search-text.js';
 
@@ -63,12 +63,18 @@ export function getExerciseProgressCore(userId, { exercise_name, start, end } = 
     // Same split as GET /api/stats/progress (issue #89): timed sets report
     // the longest hold whatever the load; rep sets still need weight.
     const working = (ex.sets || []).filter(s => s.completed && !s.warmup);
+    // Distance and calorie sets (issue #119): the longest distance in
+    // meters and the most calories in one set.
     const timedSets = working.filter(s => isTimedSet(ex, s) && Number(s.duration_sec) > 0);
-    const repSets = working.filter(s => !isTimedSet(ex, s) && s.weight > 0);
-    const completedSets = [...repSets, ...timedSets];
+    const distanceSets = working.filter(s => setKind(ex, s) === 'distance' && Number(s.distance_m) > 0);
+    const calorieSets = working.filter(s => setKind(ex, s) === 'calories' && Number(s.calories) > 0);
+    const repSets = working.filter(s => isRepSet(ex, s) && s.weight > 0);
+    const completedSets = [...repSets, ...timedSets, ...distanceSets, ...calorieSets];
     if (!completedSets.length) continue;
     const maxWeight = repSets.length ? Math.max(...repSets.map(s => s.weight)) : 0;
     const maxDuration = timedSets.length ? Math.max(...timedSets.map(s => Number(s.duration_sec))) : 0;
+    const maxDistance = distanceSets.length ? Math.max(...distanceSets.map(s => Number(s.distance_m))) : 0;
+    const maxCalories = calorieSets.length ? Math.max(...calorieSets.map(s => Number(s.calories))) : 0;
     const loadType = ex.load_type || exercise.load_type || 'bilateral';
     const totalVolume = repSets.reduce((sum, s) => sum + setVolume(s, loadType), 0);
     const rpeValues = completedSets
@@ -77,7 +83,7 @@ export function getExerciseProgressCore(userId, { exercise_name, start, end } = 
     const avgRpe = rpeValues.length
       ? Math.round((rpeValues.reduce((a, b) => a + b, 0) / rpeValues.length) * 10) / 10
       : null;
-    progress.push({ date: row.date, maxWeight, max_duration_sec: maxDuration, totalVolume: Math.round(totalVolume), sets: completedSets.length, avgRpe });
+    progress.push({ date: row.date, maxWeight, max_duration_sec: maxDuration, max_distance_m: maxDistance, max_calories: maxCalories, totalVolume: Math.round(totalVolume), sets: completedSets.length, avgRpe });
   }
   return { exercise_name: exercise.name, start: rangeStart, end: rangeEnd, progress };
 }
@@ -89,7 +95,9 @@ export function registerGetExerciseProgress(server, { userId }) {
       title: 'Get Exercise Progress',
       description:
         'Per-session progress for one exercise over a date range: max weight, ' +
-        'total volume, working-set count, and average RPE when logged. Pass ' +
+        'total volume, working-set count, and average RPE when logged, plus ' +
+        'max_duration_sec, max_distance_m and max_calories for timed, distance ' +
+        'and calorie exercises. Pass ' +
         'the exercise by name (case-insensitive substring match). Range ' +
         "defaults to the last 90 days ending today in the server's timezone when " +
         'both bounds are omitted; a supplied bound leaves the other side open.',

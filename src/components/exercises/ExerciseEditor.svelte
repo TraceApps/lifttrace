@@ -48,7 +48,8 @@
   // to 'bilateral' at render time. Setting this here overrides the
   // client-pref tier for everyone reading the catalog entry.
   let load_type = null;
-  // Library-level set type (issue #89): 'reps' | 'time', null = unset.
+  // Library-level set type (issues #89, #119): 'reps' | 'time' | 'distance'
+  // | 'calories', null = unset.
   let set_type = null;
   let saving = false;
 
@@ -171,6 +172,8 @@
         <button type="button" class="chip" class:active={!set_type} on:click={() => set_type = null}>{$_('exercise_editor.set_type_unset')}</button>
         <button type="button" class="chip" class:active={set_type === 'reps'} on:click={() => set_type = 'reps'}>{$_('exercise_card.set_type_reps')}</button>
         <button type="button" class="chip" class:active={set_type === 'time'} on:click={() => set_type = 'time'}>{$_('exercise_card.set_type_time')}</button>
+        <button type="button" class="chip" class:active={set_type === 'distance'} on:click={() => set_type = 'distance'}>{$_('exercise_card.set_type_distance')}</button>
+        <button type="button" class="chip" class:active={set_type === 'calories'} on:click={() => set_type = 'calories'}>{$_('exercise_card.set_type_calories')}</button>
       </div>
     </div>
 

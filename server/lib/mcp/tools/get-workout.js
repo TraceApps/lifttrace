@@ -35,7 +35,8 @@ export function getWorkoutCore(userId, { date } = {}) {
 /**
  * One shape for a logged session, used by this tool and by get_workouts.
  * Kept in one place so a field added for one (set_type and duration_sec
- * were, for issue #89) can never be missing from the other.
+ * were, for issue #89; distance_m and calories for #119) can never be
+ * missing from the other.
  */
 export function formatWorkoutRow(row) {
   const exercises = JSON.parse(row.exercises || '[]');
@@ -57,6 +58,8 @@ export function formatWorkoutRow(row) {
         warmup: !!s.warmup,
         rpe: s.rpe ?? null,
         duration_sec: s.duration_sec ?? null,
+        distance_m: s.distance_m ?? null,
+        calories: s.calories ?? null,
       })),
     })),
   };
@@ -69,7 +72,7 @@ export function registerGetWorkout(server, { userId }) {
       title: 'Get Workout',
       description:
         "Read a day's workout — every exercise and its sets (reps, weight, " +
-        "completed, warmup, RPE, and duration_sec for timed sets like planks). Date defaults to today in the server's " +
+        "completed, warmup, RPE, duration_sec for timed sets like planks, distance_m in meters for distance sets like rows and sled pushes, calories for calorie sets like air bikes). Date defaults to today in the server's " +
         'timezone; pass an explicit YYYY-MM-DD for calendar accuracy from a ' +
         'different TZ.',
       inputSchema: {

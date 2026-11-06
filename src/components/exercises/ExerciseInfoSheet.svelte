@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { LtApi } from '../../lib/api.js';
   import { weightUnit } from '../../stores/settings.js';
+  import { isRepSet } from '../../lib/workout.js';
   import Sheet from '../ui/Sheet.svelte';
   import ExerciseInfo from './ExerciseInfo.svelte';
 
@@ -66,7 +67,9 @@
     let max = 0, prDate = '';
     for (const h of history || []) {
       for (const s of h.sets || []) {
-        if (s.completed && s.weight > max) { max = s.weight; prDate = h.date; }
+        // A rep set's weight: a loaded sled or a weighted plank is not a
+        // heavier lift (issues #89, #119).
+        if (s.completed && s.weight > max && isRepSet({ set_type: h.set_type }, s)) { max = s.weight; prDate = h.date; }
       }
     }
     return max > 0 ? { weight: max, date: prDate, unit: $weightUnit } : null;

@@ -16,7 +16,12 @@ export function exerciseHistory(userId, exerciseId) {
     const exercises = JSON.parse(row.exercises || '[]');
     const match = exercises.find(e => e.exercise_id === exerciseId);
     if (match) {
-      history.push({ date: row.date, sets: match.sets || [], notes: match.notes, ...(match.set_type ? { set_type: match.set_type } : {}) });
+      history.push({
+        date: row.date, sets: match.sets || [], notes: match.notes,
+        ...(match.set_type ? { set_type: match.set_type } : {}),
+        // The unit a distance entry was shown in (issue #119).
+        ...(match.distance_unit ? { distance_unit: match.distance_unit } : {}),
+      });
     }
   }
   return history;

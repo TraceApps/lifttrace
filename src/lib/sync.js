@@ -2158,7 +2158,7 @@ function _pathIds(path) {
 // Settings kept per exercise, by its id: rest memory, remembered load and
 // set types (maps), and favorites (a list). An exercise made offline is in
 // them under its device id until it syncs.
-const _EXERCISE_SETTINGS = ['restPerExercise', 'exerciseLoadTypes', 'exerciseSetTypes', 'favoriteExercises'];
+const _EXERCISE_SETTINGS = ['restPerExercise', 'exerciseLoadTypes', 'exerciseSetTypes', 'exerciseDistanceUnits', 'favoriteExercises'];
 const _isExerciseSetting = (payload) => String(payload?.path || '').split('?')[0] === '/api/settings'
   && payload?.body && typeof payload.body === 'object' && _EXERCISE_SETTINGS.includes(payload.body.key);
 

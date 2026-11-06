@@ -258,6 +258,22 @@ export function celebrateHoldPR(exerciseName, durationSec, weight, unit) {
   notify('🏆 New Hold PR!', body, 5);
 }
 
+/**
+ * Longest-distance or most-calories PR (issue #119), deduped per exercise
+ * per day on the amount itself, for the same reason as holds: most rows and
+ * rides carry no weight. `label` is the amount as shown ("500 m", "20 cal").
+ */
+export function celebrateAmountPR(exerciseName, kind, amount, label, weight, unit) {
+  const key = `lt:prAmountCelebrated:${kind}:${exerciseName}:${new Date().toDateString()}`;
+  const last = parseFloat(localStorage.getItem(key) || '0');
+  if (amount <= last) return;
+  const enabled = DB.getSetting('notifPRCelebrations', true);
+  if (!enabled) return;
+  localStorage.setItem(key, String(amount));
+  const body = weight > 0 ? `${exerciseName}: ${label} @ ${weight} ${unit}` : `${exerciseName}: ${label}`;
+  notify(kind === 'distance' ? '🏆 New Distance PR!' : '🏆 New Calorie PR!', body, 5);
+}
+
 // ── Daily reminder scheduling (Capacitor LocalNotifications) ─────────────
 //
 // On native, schedule daily-repeating reminders directly via the OS so they

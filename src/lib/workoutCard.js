@@ -8,7 +8,7 @@
 // matches the user's theme.
 
 // workout.js is pure (no stores), so importing it keeps this renderer self-contained.
-import { isTimedSet, fmtSetLabel } from './workout.js';
+import { isRepSet, setKind, setAmount, fmtSetLabel, distanceUnitOf } from './workout.js';
 
 const W = 1080;
 const H = 1350;
@@ -64,8 +64,9 @@ function _computeStats(workout) {
     if (completed.length > 0) exercisesWithCompletedSets++;
     const loadType = ex.load_type || 'bilateral';
     for (const s of completed) {
-      // Timed sets (issue #89) count as sets but carry no weight x reps volume.
-      if (!isTimedSet(ex, s)) volume += _setVolume(s, loadType);
+      // Timed, distance and calorie sets (issues #89, #119) count as sets but
+      // carry no weight x reps volume.
+      if (isRepSet(ex, s)) volume += _setVolume(s, loadType);
       sets++;
     }
   }
@@ -195,12 +196,13 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
   function _renderRow(ex, y, leftPad = 0) {
     const completed = (ex.sets || []).filter(s => s.completed);
     // The headline set: heaviest (then most reps) for lifts, longest (then
-    // heaviest) for a timed exercise, where the hold is the achievement.
-    const timed = completed.some(s => isTimedSet(ex, s));
+    // heaviest) for a timed exercise, where the hold is the achievement, and
+    // the same for a distance or calorie one (issue #119).
+    const timed = completed.some(s => setKind(ex, s) !== 'reps');
     const top = completed.reduce((best, s) => {
       if (!best) return s;
       if (timed) {
-        const d = Number(s.duration_sec) || 0, bd = Number(best.duration_sec) || 0;
+        const d = setAmount(ex, s), bd = setAmount(ex, best);
         return d > bd || (d === bd && (s.weight || 0) > (best.weight || 0)) ? s : best;
       }
       return (s.weight || 0) > (best.weight || 0) ||
@@ -215,8 +217,8 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
     ctx.fillStyle = text2;
     ctx.textAlign = 'right';
     const setSummary = completed.length === 1
-      ? fmtSetLabel(ex, top)
-      : `${completed.length} sets · top ${fmtSetLabel(ex, top)}`;
+      ? fmtSetLabel(ex, top, distanceUnitOf(ex, unit === 'lbs'))
+      : `${completed.length} sets · top ${fmtSetLabel(ex, top, distanceUnitOf(ex, unit === 'lbs'))}`;
     ctx.fillText(setSummary, W - 64, y);
     ctx.textAlign = 'left';
     return y + rowGap;

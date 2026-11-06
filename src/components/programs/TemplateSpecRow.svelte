@@ -34,6 +34,9 @@
    *  stored as typed ("45", "1:00") in spec.duration and parsed when the
    *  template is started. */
   export let setType = 'reps';
+  /** A distance spec (issue #119) is typed in this unit and kept as typed
+   *  in spec.distance; a calorie spec in spec.calories. */
+  export let distanceUnit = 'm';
   export let trackRpe = false;
   /** True on supersets — enables the round-number picker. Single-exercise
    *  templates hide the picker (no rounds to number). */
@@ -50,7 +53,7 @@
 
   $: displayNum = spec?.number != null ? spec.number : setIdx + 1;
   $: timed = setType === 'time';
-  $: isSplit = !timed && loadType === 'unilateral'
+  $: isSplit = setType === 'reps' && loadType === 'unilateral'
             && (spec?.reps_l != null || spec?.reps_r != null);
 
   // Number picker
@@ -198,6 +201,16 @@
       on:input={e => { const v = maskDurationInput(e.target.value); e.target.value = v; onUpdate('duration', v); }}
       on:blur={e => { const v = fmtSetDuration(parseDuration(e.target.value)); e.target.value = v; onUpdate('duration', v); }}
       placeholder="0:00" inputmode="numeric" aria-label={$_('template_spec.duration')} />
+  {:else if setType === 'distance'}
+    <input class="ps-input" type="text"
+      value={spec?.distance ?? ''}
+      on:input={e => onUpdate('distance', e.target.value)}
+      placeholder={distanceUnit} inputmode="decimal" aria-label={$_('exercise_card.distance')} />
+  {:else if setType === 'calories'}
+    <input class="ps-input" type="text"
+      value={spec?.calories ?? ''}
+      on:input={e => onUpdate('calories', e.target.value)}
+      placeholder="cal" inputmode="numeric" aria-label={$_('exercise_card.calories')} />
   {:else}
     <input class="ps-input" type="text"
       value={spec?.reps ?? ''}
@@ -205,7 +218,7 @@
       placeholder={$_('template_spec.reps')} />
   {/if}
 
-  {#if !timed && loadType === 'unilateral'}
+  {#if setType === 'reps' && loadType === 'unilateral'}
     <button type="button" class="spec-icon-btn" class:active={isSplit}
       on:click={toggleSplit}
       title={isSplit ? 'Merge L/R reps' : 'Split L/R reps'}

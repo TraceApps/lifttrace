@@ -692,7 +692,14 @@
     "set_type_reps":         "Reps",
     "set_type_reps_hint":    "weight and reps: bench press, squat, curls",
     "set_type_time":         "Time",
-    "set_type_time_hint":    "a duration you hold or carry: plank, wall sit, dead hang"
+    "set_type_time_hint":    "a duration you hold: plank, wall sit, dead hang",
+    "distance":              "Distance",
+    "calories":              "Calories",
+    "set_type_distance":     "Distance",
+    "set_type_distance_hint": "how far you go, with or without a load: rower, SkiErg, sled, carries, runs",
+    "set_type_calories":     "Calories",
+    "set_type_calories_hint": "the calories a machine shows: air bike, echo bike",
+    "distance_unit":         "Distance Unit"
   },
   "set_video": {
     "title":             "Film a Set",
@@ -838,6 +845,8 @@
     "deleted":               "Exercise deleted",
     "top_set_over_time":     "Top Set Over Time",
     "longest_hold_over_time": "Longest Hold Over Time",
+    "longest_distance_over_time": "Longest Distance Over Time",
+    "most_calories_over_time": "Most Calories Over Time",
     "similar_exercises":     "Similar Exercises",
     "try_again":             "Try Again",
     "back_to_exercises":     "Back to Exercises",
@@ -1567,6 +1576,8 @@
     "sessions":          "Sessions",
     "top_set":           "Top Set Over Time",
     "longest_hold": "Longest Hold",
+    "longest_distance": "Longest Distance",
+    "most_calories": "Most Calories",
     "session_history":   "Session History",
     "open_exercise":     "Open Exercise",
     "peak_week":         "Peak Week",

@@ -15,7 +15,7 @@
  *
  * Pure, so it is tested on its own (scripts/rest-shade.test.js).
  */
-import { isTimedSet, fmtWeight, fmtSetDuration, lastCompletedSession } from './workout.js';
+import { isTimedSet, setKind, fmtWeight, fmtSetDuration, fmtDistance, fmtCalories, defaultDistanceUnit, DISTANCE_UNITS, lastCompletedSession } from './workout.js';
 
 const inSuperset = (ex) => ex?.superset_id != null && Number(ex?.superset_size) > 1;
 
@@ -49,6 +49,12 @@ function describe(ex, set, extra) {
     repsR: set.reps_r != null ? Number(set.reps_r) || 0 : null,
     durationSec: Number(set.duration_sec) || 0,
     timed: isTimedSet(ex, set),
+    // Distance and calorie sets (issue #119).
+    kind: setKind(ex, set),
+    distanceM: Number(set.distance_m) || 0,
+    calories: Number(set.calories) || 0,
+    // The entry's own unit; without one setWords picks the default by name.
+    distanceUnit: DISTANCE_UNITS[ex.distance_unit] ? ex.distance_unit : null,
     ...extra,
   };
 }
@@ -116,7 +122,7 @@ export function nextUp(exercises, idx) {
  * One set as words: "150 lbs × 8", "8 reps", "1:00", "20 lbs × 1:00",
  * "8 / 8". `unit` is left out for "Last time 145 × 8". `t` translates.
  */
-export function setWords(s, { unit = '', timed = false, t = defaultT } = {}) {
+export function setWords(s, { unit = '', timed = false, kind = null, distanceUnit = null, t = defaultT } = {}) {
   if (!s) return '';
   const weight = Number(s.weight) || 0;
   const load = weight > 0 ? (unit ? fmtWeight(weight, unit) : fmtNumber(weight)) : '';
@@ -124,7 +130,12 @@ export function setWords(s, { unit = '', timed = false, t = defaultT } = {}) {
   const dur = Number(s.durationSec ?? s.duration_sec) || 0;
   const l = s.repsL ?? s.reps_l;
   const r = s.repsR ?? s.reps_r;
+  const k = kind || s.kind;
+  const meters = Number(s.distanceM ?? s.distance_m) || 0;
+  const cal = Number(s.calories) || 0;
   if (timed && dur > 0) work = fmtSetDuration(dur);
+  else if (k === 'distance' && meters > 0) work = fmtDistance(meters, distanceUnit || s.distanceUnit || defaultDistanceUnit(s.name, unit === 'lbs'));
+  else if (k === 'calories' && cal > 0) work = fmtCalories(cal);
   else if (l != null && r != null && (Number(l) > 0 || Number(r) > 0)) work = `${Number(l) || 0} / ${Number(r) || 0}`;
   else if (Number(s.reps) > 0) work = load ? String(Number(s.reps)) : t('rest_bar.reps', { values: { n: Number(s.reps) } });
   if (load && work) return `${load} × ${work}`;
@@ -151,7 +162,8 @@ export function lastTimeFor(history, { before, number, timed = false, t = defaul
   if (!last || !last.working?.length) return '';
   const n = Number(number) || 1;
   const same = last.working[n - 1] || last.working[last.working.length - 1];
-  return setWords(same, { timed: timed || isTimedSet({ set_type: last.set_type }, same), t });
+  const kind = setKind({ set_type: last.set_type }, same);
+  return setWords(same, { timed: timed || kind === 'time', kind, distanceUnit: last.distance_unit || null, t });
 }
 
 /**

@@ -77,7 +77,8 @@ export function registerGetWorkouts(server, { userId }) {
       description:
         'Read every live workout session in an inclusive date range, with full ' +
         'exercise and set detail (reps, weight, completed, warmup, RPE, and ' +
-        'duration_sec for timed sets like planks) plus session_seq for days with ' +
+        'duration_sec for timed sets like planks, distance_m for distance sets, ' +
+        'calories for calorie sets) plus session_seq for days with ' +
         'more than one session. Start and end are YYYY-MM-DD; when both are ' +
         "omitted the range is the last 90 days ending today in the server's " +
         'timezone, and a supplied bound leaves the other side open. Returns the ' +

@@ -686,6 +686,7 @@ object Pairing {
                 .put("repsLeft", c.repsLeft ?: JSONObject.NULL)
                 .put("repsRight", c.repsRight ?: JSONObject.NULL)
                 .put("durationSec", c.durationSec)
+                .put("distanceM", c.distanceM).put("calories", c.calories)
                 .put("completed", c.completed).put("warmup", c.warmup)
         }
 
@@ -716,6 +717,8 @@ object Pairing {
                         repsLeft = if (o.isNull("repsLeft")) null else o.optInt("repsLeft", 0),
                         repsRight = if (o.isNull("repsRight")) null else o.optInt("repsRight", 0),
                         durationSec = o.optInt("durationSec", 0),
+                        distanceM = o.optDouble("distanceM", 0.0).let { if (it.isNaN()) 0.0 else it },
+                        calories = o.optInt("calories", 0),
                         completed = o.optBoolean("completed", false),
                         warmup = o.optBoolean("warmup", false),
                     ),

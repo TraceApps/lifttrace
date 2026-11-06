@@ -4,7 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
   import { syncTouched } from '../lib/sync-refresh.js';
-  import { weightUnit, pageBanners, bannerStyle, bodyStatsVisible } from '../stores/settings.js';
+  import { weightUnit, pageBanners, bannerStyle, bodyStatsVisible, exerciseDistanceUnits } from '../stores/settings.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import WeeklyVolumeChart from '../components/statistics/WeeklyVolumeChart.svelte';
   import WorkoutFrequencyChart from '../components/statistics/WorkoutFrequencyChart.svelte';
@@ -16,7 +16,7 @@
   import { weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../stores/settings.js';
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
-  import { estimateWorkoutCalories, ageFromDob, isTimedSet, fmtSetDuration } from '../lib/workout.js';
+  import { estimateWorkoutCalories, ageFromDob, isRepSet, fmtSetDuration, fmtDistance, fmtCalories, fromMeters, distanceUnitOf } from '../lib/workout.js';
   import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
   import { trainedDates, weeklyGoal, weekStartOf, shiftDate, hasWorkingSet, exercisesOf, excusedOnly } from '../lib/trained-day.js';
@@ -397,7 +397,7 @@
         const lt = ex.load_type || 'bilateral';
         for (const s of (ex.sets || [])) {
           if (!s.completed || s.warmup) continue;
-          if (isTimedSet(ex, s)) continue;   // issue #89: holds carry no volume
+          if (!isRepSet(ex, s)) continue;   // issues #89, #119: holds, rows and rides carry no volume
           const wt = s.weight || 0;
           if (lt === 'unilateral') {
             if (s.reps_l != null || s.reps_r != null) priorVol += wt * ((s.reps_l || 0) + (s.reps_r || 0));
@@ -439,17 +439,62 @@
 
   // ── Progress-metric derived ──────────────────────────────────────────
   $: selectedExercise = exercises.find(e => e.id === selectedExerciseId);
-  // Timed exercise (issue #89): charted by longest hold. Decided by the most
-  // recent session, so an exercise switched to Time charts its holds. Only
-  // points of the matching kind are plotted, so a switch never drops a zero
-  // into the other kind's line.
-  $: progressTimed = progressData.length > 0 && (progressData[progressData.length - 1].maxDuration || 0) > 0;
-  $: chartData = progressData.filter(p => progressTimed ? (p.maxDuration || 0) > 0 : (p.maxWeight || 0) > 0);
-  function _pv(p) { return progressTimed ? (p.maxDuration || 0) : p.maxWeight; }
-  function _pvLabel(p) { return progressTimed ? fmtSetDuration(p?.maxDuration) : `${p?.maxWeight} ${$weightUnit}`; }
+  // Timed exercise (issue #89): charted by longest hold. Distance and
+  // calorie exercises (issue #119) by the longest distance and the most
+  // calories in a set. Decided by the most recent session, so an exercise
+  // switched to another kind charts that kind. Only points of the matching
+  // kind are plotted, so a switch never drops a zero into the other kind's
+  // line.
+  const _KIND_KEY = { weight: 'maxWeight', time: 'maxDuration', distance: 'maxDistance', calories: 'maxCalories' };
+  function _pointKind(p) {
+    if (!p || (p.maxWeight || 0) > 0) return 'weight';
+    if ((p.maxDuration || 0) > 0) return 'time';
+    if ((p.maxDistance || 0) > 0) return 'distance';
+    if ((p.maxCalories || 0) > 0) return 'calories';
+    return 'weight';
+  }
+  $: progressKind = progressData.length > 0 ? _pointKind(progressData[progressData.length - 1]) : 'weight';
+  $: progressTimed = progressKind === 'time';
+  $: progressDistanceUnit = distanceUnitOf({ exercise_id: selectedExerciseId, exercise_name: selectedExercise?.name }, $weightUnit === 'lbs', $exerciseDistanceUnits);
+  $: chartData = progressData.filter(p => (p[_KIND_KEY[progressKind]] || 0) > 0);
+  // Distances chart in the exercise's own unit, not meters.
+  function _pv(p) {
+    const v = p?.[_KIND_KEY[progressKind]] || 0;
+    return progressKind === 'distance' ? (fromMeters(v, progressDistanceUnit) || 0) : v;
+  }
+  // A value in the chart's own terms: a time, a distance, calories or a weight.
+  function _fmtValue(v) {
+    if (progressKind === 'time') return fmtSetDuration(v);
+    if (progressKind === 'distance') return v ? `${v} ${progressDistanceUnit}` : '';
+    if (progressKind === 'calories') return fmtCalories(v);
+    return `${v} ${$weightUnit}`;
+  }
+  function _pvLabel(p) { return _fmtValue(_pv(p)); }
+  // One session in the history list, by its own kind.
+  function _pointLabel(p) {
+    const k = _pointKind(p);
+    if (k === 'time') return fmtSetDuration(p.maxDuration);
+    if (k === 'distance') return fmtDistance(p.maxDistance, progressDistanceUnit);
+    if (k === 'calories') return fmtCalories(p.maxCalories);
+    return `${p.maxWeight} ${$weightUnit}`;
+  }
+  $: progressTitle = progressKind === 'time' ? $_('statistics.longest_hold')
+    : progressKind === 'distance' ? $_('statistics.longest_distance')
+    : progressKind === 'calories' ? $_('statistics.most_calories')
+    : $_('statistics.top_set');
+  // A hold, distance or calorie record has its own date (rep records use r.date).
+  function recordDate(r) {
+    return r.date || r.durationDate || r.distanceDate || r.caloriesDate || '';
+  }
   function recordLabel(r) {
-    if ((r.maxDuration || 0) > 0 && !(r.maxWeight > 0)) {
-      return r.maxDurationWeight ? `${fmtSetDuration(r.maxDuration)} @ ${r.maxDurationWeight} ${$weightUnit}` : fmtSetDuration(r.maxDuration);
+    const at = (w) => (w ? ` @ ${w} ${$weightUnit}` : '');
+    if (!(r.maxWeight > 0)) {
+      if ((r.maxDuration || 0) > 0) return `${fmtSetDuration(r.maxDuration)}${at(r.maxDurationWeight)}`;
+      if ((r.maxDistance || 0) > 0) {
+        const unit = distanceUnitOf({ exercise_id: Number(r.exerciseId), exercise_name: r.name }, $weightUnit === 'lbs', $exerciseDistanceUnits);
+        return `${fmtDistance(r.maxDistance, unit)}${at(r.maxDistanceWeight)}`;
+      }
+      if ((r.maxCalories || 0) > 0) return `${fmtCalories(r.maxCalories)}${at(r.maxCaloriesWeight)}`;
     }
     return `${r.maxWeight} ${$weightUnit} × ${r.maxReps}`;
   }
@@ -459,7 +504,10 @@
     return {
       min:  Math.min(...weights),
       max:  Math.max(...weights),
-      avg:  Math.round(weights.reduce((a, b) => a + b, 0) / weights.length),
+      // A distance in km or miles keeps its decimals.
+      avg:  progressKind === 'distance'
+        ? Math.round(weights.reduce((a, b) => a + b, 0) / weights.length * 100) / 100
+        : Math.round(weights.reduce((a, b) => a + b, 0) / weights.length),
       sessions: chartData.length,
       first: chartData[0],
       last:  chartData[chartData.length - 1],
@@ -514,16 +562,16 @@
   function _progressPoints(data) {
     if (!data.length) return [];
     const weights = data.map(_pv);
-    const min = Math.min(...weights) - (progressTimed ? 2 : 5);
-    const max = Math.max(...weights) + (progressTimed ? 2 : 5);
+    const min = Math.min(...weights) - (progressKind !== 'weight' ? 2 : 5);
+    const max = Math.max(...weights) + (progressKind !== 'weight' ? 2 : 5);
     const rng = Math.max(1, max - min);
     return data.map((p, i) => `${i * 20 + 10},${110 - ((_pv(p) - min) / rng * 90 + 10)}`);
   }
   function _progressPointObjs(data) {
     if (!data.length) return [];
     const weights = data.map(_pv);
-    const min = Math.min(...weights) - (progressTimed ? 2 : 5);
-    const max = Math.max(...weights) + (progressTimed ? 2 : 5);
+    const min = Math.min(...weights) - (progressKind !== 'weight' ? 2 : 5);
+    const max = Math.max(...weights) + (progressKind !== 'weight' ? 2 : 5);
     const rng = Math.max(1, max - min);
     return data.map((p, i) => ({ x: i * 20 + 10, y: 110 - ((_pv(p) - min) / rng * 90 + 10) }));
   }
@@ -869,15 +917,15 @@
           <div class="summary-row">
             <div class="summary-card">
               <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.max) : progressStats.max}</span>
-              <span class="sc-label">{$_('statistics.max')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
+              <span class="sc-label">{$_('statistics.max')} {#if !progressTimed}<span class="unit">{progressKind === 'distance' ? progressDistanceUnit : progressKind === 'calories' ? 'cal' : $weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.min) : progressStats.min}</span>
-              <span class="sc-label">{$_('statistics.min')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
+              <span class="sc-label">{$_('statistics.min')} {#if !progressTimed}<span class="unit">{progressKind === 'distance' ? progressDistanceUnit : progressKind === 'calories' ? 'cal' : $weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressTimed ? fmtSetDuration(progressStats.avg) : progressStats.avg}</span>
-              <span class="sc-label">{$_('statistics.avg')} {#if !progressTimed}<span class="unit">{$weightUnit}</span>{/if}</span>
+              <span class="sc-label">{$_('statistics.avg')} {#if !progressTimed}<span class="unit">{progressKind === 'distance' ? progressDistanceUnit : progressKind === 'calories' ? 'cal' : $weightUnit}</span>{/if}</span>
             </div>
             <div class="summary-card">
               <span class="sc-value-sm">{progressStats.sessions}</span>
@@ -887,7 +935,7 @@
 
           <div class="chart-card">
             <div class="chart-title-row">
-              <h3 class="chart-title">{progressTimed ? $_('statistics.longest_hold') : $_('statistics.top_set')}</h3>
+              <h3 class="chart-title">{progressTitle}</h3>
               {#if hasRpe}
                 <div class="chart-legend">
                   <span class="legend-item"><span class="legend-swatch accent"></span>{$_('statistics.top_set_legend', { values: { unit: $weightUnit } })}</span>
@@ -918,7 +966,7 @@
             {#each progressData.slice().reverse() as p}
               <div class="history-row">
                 <span class="hr-date">{p.date}</span>
-                <span class="hr-value">{(p.maxDuration || 0) > 0 && !(p.maxWeight > 0) ? fmtSetDuration(p.maxDuration) : `${p.maxWeight} ${$weightUnit}`} · {$_('statistics.n_sets', { values: { n: p.sets } })}</span>
+                <span class="hr-value">{_pointLabel(p)} · {$_('statistics.n_sets', { values: { n: p.sets } })}</span>
               </div>
             {/each}
           </div>
@@ -975,7 +1023,7 @@
                       <div class="record-data">
                         <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">
-                          {r.date}
+                          {recordDate(r)}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
                         </span>
                       </div>
@@ -987,7 +1035,7 @@
                       <div class="record-data">
                         <span class="record-weight">{recordLabel(r)}</span>
                         <span class="record-meta">
-                          {r.date}
+                          {recordDate(r)}
                           {#if r.e1rm > r.maxWeight}{$_('statistics.est_1rm', { values: { v: r.e1rm } })}{/if}
                         </span>
                       </div>

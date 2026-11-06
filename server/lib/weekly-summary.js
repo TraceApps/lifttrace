@@ -11,7 +11,7 @@
  * week over the 28 days before that: steadier than last week alone, so one
  * missed session doesn't read as a collapse.
  */
-import { setVolume, resolveLoadType, isTimedSet, newRecord, accumulateRecord } from './volume.js';
+import { setVolume, resolveLoadType, isRepSet, newRecord, accumulateRecord } from './volume.js';
 import { normalizeMuscle } from './muscle-groups.js';
 import { trainedDates, weeklyGoal, excusedOnly } from '../../src/lib/trained-day.js';
 
@@ -81,7 +81,7 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
         accumulateRecord(after[key], ex, set, row.date);
         if (!bucket) continue;
         bucket.sets++;
-        if (!isTimedSet(ex, set)) bucket.volume += setVolume(set, loadType);
+        if (isRepSet(ex, set)) bucket.volume += setVolume(set, loadType);
         if (inWeek) for (const g of groups) muscles[g] = (muscles[g] || 0) + 1;
       }
     }
@@ -118,6 +118,11 @@ export function buildWeeklySummary({ workouts, library = new Map(), today, goal 
       prs.push({ name: a.name, weight: a.maxWeight, reps: a.maxReps });
     } else if (b.maxDuration > 0 && a.maxDuration > b.maxDuration && a.durationDate >= start) {
       prs.push({ name: a.name, durationSec: a.maxDuration, weight: a.maxDurationWeight || 0 });
+    } else if (b.maxDistance > 0 && a.maxDistance > b.maxDistance && a.distanceDate >= start) {
+      // Issue #119: the longest distance, in meters.
+      prs.push({ name: a.name, distanceM: a.maxDistance, weight: a.maxDistanceWeight || 0 });
+    } else if (b.maxCalories > 0 && a.maxCalories > b.maxCalories && a.caloriesDate >= start) {
+      prs.push({ name: a.name, calories: a.maxCalories, weight: a.maxCaloriesWeight || 0 });
     }
   }
   prs.sort((x, y) => (x.name || '').localeCompare(y.name || ''));
@@ -161,6 +166,19 @@ export function fmtMinutes(min) {
 export function fmtHold(sec) {
   const s = Math.round(Number(sec) || 0);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** A distance record for the email (issue #119), in the account's system:
+ *  meters up to a kilometer then kilometers, or yards up to a mile then
+ *  miles. */
+export function fmtDistanceM(meters, unit = 'lbs') {
+  const m = Number(meters) || 0;
+  const round = (v, p) => Math.round(v * p) / p;
+  if (unit === 'lbs') {
+    const yd = m / 0.9144;
+    return yd >= 1760 ? `${round(m / 1609.344, 100)} mi` : `${round(yd, 1)} yd`;
+  }
+  return m >= 1000 ? `${round(m / 1000, 100)} km` : `${round(m, 1)} m`;
 }
 
 /** One line for the push notification. */

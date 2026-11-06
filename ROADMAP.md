@@ -104,8 +104,8 @@ Injury, Illness, Appointment or Other, with a note. Comes off the weekly goal, h
 ### ~~Cardio session logging~~ *(done, v1.1.0, [#23](https://github.com/TraceApps/lifttrace/issues/23))*
 Opt-in Track Cardio: sessions with activity, duration, optional distance and average heart rate, kept apart from lifting volume and PRs, with a weekly Cardio view in Statistics and pinned quick-log templates.
 
-### Track by distance or calories
-In progress, not on dev yet ([#119](https://github.com/TraceApps/lifttrace/issues/119)): an exercise tracked by Distance or Calories next to Reps and Time, for sled pushes, carries for distance and machine work. This replaces the old "cardio fields on the set row" idea for distance. Live heart rate on a set is not planned (see Bundle B).
+### ~~Track by distance or calories~~ *(done, on dev, [#119](https://github.com/TraceApps/lifttrace/issues/119))*
+An exercise tracked by Distance (m, km, yd or mi) or Calories next to Reps and Time, for rowers, SkiErgs, sled pushes, carries, runs and air bikes, with weight still there for a loaded sled. Longest distance and most calories are records; built-ins that are naturally distance or calorie based start that way only if never logged. This replaces the old "cardio fields on the set row" idea for distance. Live heart rate on a set is not planned (see Bundle B).
 
 ### Per-side hold timer
 Open ([#143](https://github.com/TraceApps/lifttrace/issues/143)): a timed Alternating or Per Side exercise timing each side.

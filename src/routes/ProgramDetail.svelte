@@ -1,7 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { wideContent } from '../lib/wide.js';
-  import { fmtSetDuration, parseDuration } from '../lib/workout.js';
+  import { fmtSetDuration, parseDuration, distanceUnitOf } from '../lib/workout.js';
+  import { weightUnit } from '../stores/settings.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -463,9 +464,9 @@
                     <span class="ptp-ex-num">{i + 1}</span>
                     <div class="ptp-ex-body">
                       <span class="ptp-ex-name">{ex.name || ex.exercise_name || 'Exercise'}</span>
-                      {#if ex.target_sets || ex.target_reps || ex.target_weight || ex.target_duration}
+                      {#if ex.target_sets || ex.target_reps || ex.target_weight || ex.target_duration || ex.target_distance || ex.target_calories}
                         <span class="ptp-ex-spec">
-                          {#if ex.target_sets}{ex.target_sets}{' × '}{/if}{#if ex.set_type === 'time'}{fmtSetDuration(parseDuration(ex.target_duration)) || ex.target_duration || ''}{:else if ex.target_reps}{ex.target_reps}{/if}{#if ex.target_weight}{' @ '}{ex.target_weight}{/if}
+                          {#if ex.target_sets}{ex.target_sets}{' × '}{/if}{#if ex.set_type === 'time'}{fmtSetDuration(parseDuration(ex.target_duration)) || ex.target_duration || ''}{:else if ex.set_type === 'distance'}{ex.target_distance ? `${ex.target_distance} ${distanceUnitOf(ex, $weightUnit === 'lbs')}` : ''}{:else if ex.set_type === 'calories'}{ex.target_calories ? `${ex.target_calories} cal` : ''}{:else if ex.target_reps}{ex.target_reps}{/if}{#if ex.target_weight}{' @ '}{ex.target_weight}{/if}
                         </span>
                       {/if}
                     </div>

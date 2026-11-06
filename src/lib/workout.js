@@ -5,7 +5,8 @@
 // Shared with the server (issue #140): parseDuration, lastCompletedSession
 // and generateWarmupSets live in planned-workout.js, so the Diary and the
 // API plan a workout day the same way.
-export { parseDuration, lastCompletedSession, generateWarmupSets } from './planned-workout.js';
+export { parseDuration, lastCompletedSession, generateWarmupSets, defaultDistanceUnit } from './planned-workout.js';
+import { METERS_PER, exerciseNameKey, defaultDistanceUnit } from './planned-workout.js';
 
 /**
  * Resolve which `load_type` applies to a workout-instance exercise.
@@ -32,81 +33,201 @@ export function resolveLoadType(exercise, libraryLoadType, clientPrefs) {
   return 'bilateral';
 }
 
-// ── Set type: reps or time (issue #89) ─────────────────────────────────
+// ── Set type: reps, time, distance or calories (issues #89, #119) ─────
 //
 // Most sets are weight x reps. Isometric holds (plank, wall sit, dead hang)
-// and timed carries are logged by duration instead, stored on the set as
-// whole seconds in `duration_sec`. Weight stays meaningful for both: a
-// weighted plank is "25 lbs for 1:00", a bodyweight one leaves weight empty.
+// are logged by duration instead, stored on the set as whole seconds in
+// `duration_sec` (#89). Conditioning work (rower, SkiErg, sled, carries,
+// runs) is logged by distance, stored in meters in `distance_m`, or by the
+// calories a machine shows, in `calories` (#119). Weight stays meaningful
+// for every kind: a weighted plank is "25 lbs for 1:00", a sled push
+// "90 kg for 20 m", a bodyweight one leaves weight empty.
 //
 // The mirror of these helpers for the server lives in server/lib/volume.js.
 // scripts/set-type.test.js runs the same cases through both so the two
-// cannot disagree about what counts as a timed set.
+// cannot disagree about what kind a set is.
 
-export const SET_TYPES = ['reps', 'time'];
+export const SET_TYPES = ['reps', 'time', 'distance', 'calories'];
+
+/** The set field each kind other than reps records its amount in. */
+export const SET_TYPE_FIELD = { time: 'duration_sec', distance: 'distance_m', calories: 'calories' };
 
 function _cleanSetType(v) {
-  return v === 'time' || v === 'reps' ? v : null;
+  return SET_TYPES.includes(v) ? v : null;
+}
+
+/** The kind a set's own data says it is, or null when it carries none. A
+ *  duration is checked first, so a set timed before #119 reads as before. */
+function _dataSetType(set) {
+  if (Number(set?.duration_sec) > 0) return 'time';
+  if (Number(set?.distance_m) > 0) return 'distance';
+  if (Number(set?.calories) > 0) return 'calories';
+  return null;
 }
 
 /**
- * True when this set should be treated as a timed set by any math: volume,
- * 1RM, PRs, charts.
+ * What kind of set this is for any math (volume, 1RM, records, charts):
+ * 'reps', 'time', 'distance' or 'calories'.
  *
  * An explicit choice on the exercise instance always wins. Without one, the
- * set's own data decides: a set carrying a duration is timed. That order is
- * what lets a user flip an exercise to Time without losing the reps they had
- * already typed (they stay on the set, ignored), and flip back to get them.
+ * set's own data decides. That order is what lets a user flip an exercise
+ * to another kind without losing what they had already typed (it stays on
+ * the set, ignored), and flip back to get it.
  */
+export function setKind(exercise, set) {
+  return _cleanSetType(exercise?.set_type) || _dataSetType(set) || 'reps';
+}
+
+/** A timed set (issue #89). */
 export function isTimedSet(exercise, set) {
-  const t = _cleanSetType(exercise?.set_type);
-  if (t) return t === 'time';
-  return Number(set?.duration_sec) > 0;
+  return setKind(exercise, set) === 'time';
+}
+
+/** A weight x reps set: the only kind that has volume or an estimated 1RM. */
+export function isRepSet(exercise, set) {
+  return setKind(exercise, set) === 'reps';
+}
+
+/** The amount a non-rep set records (seconds, meters or calories), 0 for a
+ *  rep set or an empty one. */
+export function setAmount(exercise, set) {
+  const field = SET_TYPE_FIELD[setKind(exercise, set)];
+  return field ? (Number(set?.[field]) || 0) : 0;
 }
 
 /**
- * Exercises that are timed by nature, matched by exact normalised name.
+ * Exercises tracked by something other than reps by nature, matched by
+ * exact normalised name.
  *
  * Deliberately exact rather than a pattern: in the free-exercise-db catalogue
  * "hang" also matches Hang Clean and Hang Snatch, "bridge" matches Glute
- * Bridge and "plank" matches Push Up to Side Plank, all rep exercises. This
- * is only a starting default for an exercise with no data, no library
- * setting and no remembered choice; any of those overrides it.
+ * Bridge, "plank" matches Push Up to Side Plank, "row" every rowing lift and
+ * "Air Bike" is a crunch. This is only a starting default for an exercise
+ * that has never been logged and has no library setting and no remembered
+ * choice; any of those overrides it, so an exercise someone already logged
+ * with reps keeps its reps (issue #119).
  */
-const TIMED_BY_NAME = new Set([
-  'plank', 'side plank', 'side bridge', 'copenhagen plank',
-  'wall sit', 'dead hang', 'bar hang', 'one handed hang', 'flexed arm hang',
-  'hollow hold', 'hollow body hold', 'l sit',
-  'farmers walk', 'farmer walk', 'farmers carry', 'suitcase carry', 'rickshaw carry',
+const TYPE_BY_NAME = new Map([
+  ...['plank', 'side plank', 'side bridge', 'copenhagen plank',
+    'wall sit', 'dead hang', 'bar hang', 'one handed hang', 'flexed arm hang',
+    'hollow hold', 'hollow body hold', 'l sit'].map(n => [n, 'time']),
+  ...['rowing stationary', 'rowing', 'rowing machine', 'rower', 'indoor row', 'indoor rowing', 'row erg', 'rowerg',
+    'skierg', 'ski erg', 'ski ergometer', 'bikeerg', 'bike erg',
+    'sled push', 'sled pull', 'sled drag', 'sled drag harness', 'backward drag', 'prowler push', 'prowler sprint',
+    'farmers walk', 'farmer walk', 'farmers carry', 'farmer carry', 'suitcase carry', 'rickshaw carry',
+    'yoke walk', 'yoke carry', 'sandbag carry',
+    'running treadmill', 'jogging treadmill', 'walking treadmill', 'trail running walking',
+    'run', 'running', 'bicycling', 'cycling'].map(n => [n, 'distance']),
+  ...['assault bike', 'echo bike', 'airdyne', 'fan bike', 'assault air bike'].map(n => [n, 'calories']),
 ]);
 export function defaultSetTypeForName(name) {
-  const key = String(name || '').toLowerCase().replace(/[’'`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-  return TIMED_BY_NAME.has(key) ? 'time' : null;
+  return TYPE_BY_NAME.get(exerciseNameKey(name)) || null;
 }
 
 /**
- * Which input a workout-instance exercise shows: 'reps' or 'time'.
+ * The kind a new entry of an exercise starts as, before it has sets of its
+ * own: what the last session was (its own set_type, `lastSetType`, then what
+ * its sets recorded), so history never changes shape; then the library
+ * default, the remembered choice, the name list, and reps.
+ *
+ * `lastSets` undefined means the history could not be read (offline, say):
+ * the name list is skipped then, since the exercise may well have been
+ * logged with reps, and a guess would stamp a shape on it that sticks.
+ * null or [] means it was read and there is none.
+ */
+export function startSetType(lastSets, librarySetType, remembered, name, lastSetType = null) {
+  const last = _cleanSetType(lastSetType);
+  if (last) return last;
+  const sets = Array.isArray(lastSets) ? lastSets : [];
+  for (const s of sets) { const t = _dataSetType(s); if (t) return t; }
+  if (sets.some(s => Number(s?.reps) > 0)) return 'reps';
+  const chosen = _cleanSetType(librarySetType) || _cleanSetType(remembered);
+  if (chosen) return chosen;
+  if (lastSets === undefined) return 'reps';
+  return defaultSetTypeForName(name) || 'reps';
+}
+
+/**
+ * Which input a workout-instance exercise shows: 'reps', 'time',
+ * 'distance' or 'calories'.
  *
  *   1. Per-instance choice (`exercise.set_type`), made from the Diary chip.
- *   2. The data already recorded on it. This outranks every default below,
- *      so marking an exercise as timed in the library can never change the
- *      shape of history someone has already logged with reps.
+ *   2. The data already recorded on it, then on the last session
+ *      (`lastSets`, when the caller has it). This outranks every default
+ *      below, so marking an exercise as timed in the library, or a built-in
+ *      becoming distance-based, can never change the shape of history
+ *      someone has already logged with reps.
  *   3. Library default (`librarySetType`, from the exercises table).
  *   4. The user's remembered preference for this exercise.
- *   5. A short list of exercises timed by nature (see defaultSetTypeForName).
+ *   5. A short list of exercises tracked otherwise by nature (see
+ *      defaultSetTypeForName).
  *   6. 'reps'.
  */
-export function resolveSetType(exercise, librarySetType, clientPrefs) {
+export function resolveSetType(exercise, librarySetType, clientPrefs, lastSets = null, lastSetType = null) {
   const own = _cleanSetType(exercise?.set_type);
   if (own) return own;
   const sets = exercise?.sets || [];
-  if (sets.some(s => Number(s?.duration_sec) > 0)) return 'time';
+  for (const s of sets) { const t = _dataSetType(s); if (t) return t; }
   if (sets.some(s => Number(s?.reps) > 0)) return 'reps';
-  const lib = _cleanSetType(librarySetType);
-  if (lib) return lib;
   const exId = exercise?.exercise_id;
-  const pref = clientPrefs && exId != null ? _cleanSetType(clientPrefs[exId]) : null;
-  return pref || defaultSetTypeForName(exercise?.exercise_name) || 'reps';
+  const pref = clientPrefs && exId != null ? clientPrefs[exId] : null;
+  return startSetType(lastSets, librarySetType, pref, exercise?.exercise_name, lastSetType);
+}
+
+// ── Distance units (issue #119) ─────────────────────────────────────────
+//
+// Distance is stored in meters and shown in the exercise's unit: meters or
+// yards for a rower, sled or carry, kilometers or miles for a run or a
+// ride, following the account's weight unit (lbs reads as imperial). The
+// unit chosen on an entry rides on it as `distance_unit`.
+
+export const DISTANCE_UNITS = METERS_PER;
+
+/** The unit an entry shows its distance in: its own, the remembered one for
+ *  the exercise, or the default for its name. */
+export function distanceUnitOf(exercise, imperial = false, prefs = null) {
+  if (DISTANCE_UNITS[exercise?.distance_unit]) return exercise.distance_unit;
+  const exId = exercise?.exercise_id;
+  const pref = prefs && exId != null ? prefs[exId] : null;
+  if (DISTANCE_UNITS[pref]) return pref;
+  return defaultDistanceUnit(exercise?.exercise_name, imperial);
+}
+
+/** A distance typed in `unit` as meters, or null when it isn't one. */
+export function toMeters(value, unit = 'm') {
+  const n = typeof value === 'number' ? value : parseFloat(String(value ?? '').replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * (DISTANCE_UNITS[unit] || 1) * 1000) / 1000;
+}
+
+/** Meters in `unit`, rounded for display: two decimals for km and mi, one
+ *  for m and yd. 0 or nothing reads as null. */
+export function fromMeters(meters, unit = 'm') {
+  const m = Number(meters);
+  if (!Number.isFinite(m) || m <= 0) return null;
+  const v = m / (DISTANCE_UNITS[unit] || 1);
+  const places = unit === 'km' || unit === 'mi' ? 100 : 10;
+  return Math.round(v * places) / places;
+}
+
+/** "500 m", "5.2 km", "" for none. */
+export function fmtDistance(meters, unit = 'm') {
+  const v = fromMeters(meters, unit);
+  return v == null ? '' : `${v} ${unit}`;
+}
+
+/** "20 cal", "" for none. */
+export function fmtCalories(cal) {
+  const n = Math.round(Number(cal));
+  return Number.isFinite(n) && n > 0 ? `${n} cal` : '';
+}
+
+/** A non-rep set's amount as text: "1:00", "500 m", "20 cal". */
+export function fmtSetAmount(kind, set, unit = 'm') {
+  if (kind === 'time') return fmtSetDuration(set?.duration_sec) || '0:00';
+  if (kind === 'distance') return fmtDistance(set?.distance_m, unit) || `0 ${unit}`;
+  if (kind === 'calories') return fmtCalories(set?.calories) || '0 cal';
+  return '';
 }
 
 /** 75 -> "1:15", 45 -> "0:45", 3725 -> "1:02:05". Empty for no duration. */
@@ -137,12 +258,14 @@ export function maskDurationInput(raw) {
 /**
  * Compact label for one logged set, as used in history lists and summaries:
  * "135×8" for reps, "25×1:00" for a weighted hold, "1:00" for a bodyweight
- * one. Unilateral splits are left to callers that render them specially.
+ * one, "90×20 m" for a sled push, "20 cal" on a bike. Unilateral splits are
+ * left to callers that render them specially.
  */
-export function fmtSetLabel(exercise, set) {
+export function fmtSetLabel(exercise, set, distanceUnit = null) {
   if (!set) return '';
-  if (isTimedSet(exercise, set)) {
-    const t = fmtSetDuration(set.duration_sec) || '0:00';
+  const kind = setKind(exercise, set);
+  if (kind !== 'reps') {
+    const t = fmtSetAmount(kind, set, distanceUnit || distanceUnitOf(exercise));
     return set.weight ? `${set.weight}×${t}` : t;
   }
   return `${set.weight || 0}×${set.reps || 0}`;
@@ -197,9 +320,10 @@ export function exerciseVolume(exercise, opts = {}) {
   let total = 0;
   for (const s of (exercise.sets || [])) {
     if (!s.completed || s.warmup) continue;
-    // Timed sets are not weight x reps work. Leftover reps on a set whose
-    // exercise was flipped to Time must not sneak back into volume.
-    if (isTimedSet(exercise, s)) continue;
+    // Timed, distance and calorie sets are not weight x reps work. Leftover
+    // reps on a set whose exercise was flipped to another kind must not
+    // sneak back into volume.
+    if (!isRepSet(exercise, s)) continue;
     total += setVolume(s, loadType);
   }
   return total;

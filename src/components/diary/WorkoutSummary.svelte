@@ -9,7 +9,7 @@
   import { exportWorkoutCsv } from '../../lib/workoutCsv.js';
   import { LtApi } from '../../lib/api.js';
   import { showError } from '../../stores/toast.js';
-  import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume, fmtSetLabel } from '../../lib/workout.js';
+  import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume, fmtSetLabel, distanceUnitOf } from '../../lib/workout.js';
   import { timerState, timerMs } from '../../stores/workoutTimer.js';
 
   export let open = false;
@@ -275,7 +275,7 @@
                 <div class="ws-ex-row ss-member">
                   <span class="ws-ex-name">{ex.exercise_name}</span>
                   <span class="ws-ex-sets">
-                    {completed.map(s => fmtSetLabel(ex, s)).join(' · ')}
+                    {completed.map(s => fmtSetLabel(ex, s, distanceUnitOf(ex, $weightUnit === 'lbs'))).join(' · ')}
                   </span>
                 </div>
               {/each}
@@ -285,7 +285,7 @@
             <div class="ws-ex-row">
               <span class="ws-ex-name">{group.exercise.exercise_name}</span>
               <span class="ws-ex-sets">
-                {completed.map(s => fmtSetLabel(group.exercise, s)).join(' · ')}
+                {completed.map(s => fmtSetLabel(group.exercise, s, distanceUnitOf(group.exercise, $weightUnit === 'lbs'))).join(' · ')}
               </span>
             </div>
           {/if}

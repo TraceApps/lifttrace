@@ -808,6 +808,8 @@ private fun SetScreen(
     // crown scrolls the list until you tap a number to hand it over.
     var dialing by remember(setUuid) { mutableStateOf<String?>(null) }
     val step = Session.weightStep(state.unit)
+    val distanceUnit = Session.distanceUnit(exercise, state.unit)
+    val distanceStep = Session.distanceStepM(distanceUnit)
     val done = fresh == null && exercise.sets[index].completed
     val label = state.workout?.let { Session.supersetLabel(it, exercise) }
     val named = if (fresh != null) "New set"
@@ -867,6 +869,8 @@ private fun SetScreen(
             draft = when (dialing) {
                 "weight" -> draft.copy(weight = maxOf(0.0, draft.weight + steps * step))
                 "hold" -> draft.copy(durationSec = maxOf(0, draft.durationSec + steps * 5))
+                "distance" -> draft.copy(distanceM = maxOf(0.0, draft.distanceM + steps * distanceStep))
+                "calories" -> draft.copy(calories = maxOf(0, draft.calories + steps))
                 "reps" -> draft.copy(reps = maxOf(0, draft.reps + steps))
                 "left" -> draft.copy(repsLeft = maxOf(0, (draft.repsLeft ?: 0) + steps))
                 "right" -> draft.copy(repsRight = maxOf(0, (draft.repsRight ?: 0) + steps))
@@ -940,6 +944,27 @@ private fun SetScreen(
                         },
                         label = { Text("Start the hold") },
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            } else if (exercise.byDistance) {
+                // Distance (issue #119), in the exercise's own unit.
+                item {
+                    Stepper(
+                        text = Session.distanceText(draft.distanceM, distanceUnit),
+                        selected = dialing == "distance",
+                        onSelect = { dialing = if (dialing == "distance") null else "distance" },
+                        onDown = { draft = draft.copy(distanceM = maxOf(0.0, draft.distanceM - distanceStep)) },
+                        onUp = { draft = draft.copy(distanceM = draft.distanceM + distanceStep) },
+                    )
+                }
+            } else if (exercise.byCalories) {
+                item {
+                    Stepper(
+                        text = "${draft.calories} cal",
+                        selected = dialing == "calories",
+                        onSelect = { dialing = if (dialing == "calories") null else "calories" },
+                        onDown = { draft = draft.copy(calories = maxOf(0, draft.calories - 1)) },
+                        onUp = { draft = draft.copy(calories = draft.calories + 1) },
                     )
                 }
             } else if (draft.repsLeft != null || draft.repsRight != null) {

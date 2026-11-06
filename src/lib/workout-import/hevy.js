@@ -7,7 +7,7 @@ import { parseCsv, convertWeight } from './common.js';
  *   duration_seconds,rpe
  *
  * Comma-delimited. One row per set. Start/end times give us workout duration.
- * Weight is ALWAYS kg. Has superset_id which we preserve.
+ * Weight is ALWAYS kg, distance ALWAYS km. Has superset_id which we preserve.
  */
 export function parseHevy(csvText, userUnit) {
   const rows = parseCsv(csvText, ',');
@@ -51,6 +51,10 @@ export function parseHevy(csvText, userUnit) {
     // reps. Previously read and discarded, so they arrived as empty sets.
     const durationSec = Math.round(parseFloat(row[f.durationSec] || '0')) || 0;
     const timed = durationSec > 0 && reps === 0;
+    // Distance set (issue #119): rows, runs, sleds and carries come with
+    // distance_km and no reps. A duration beside it (a timed run) is kept.
+    const km = parseFloat(row[f.distanceKm] || '0') || 0;
+    const distanceM = km > 0 && reps === 0 ? Math.round(km * 1000 * 1000) / 1000 : 0;
     const rpe = parseFloat(row[f.rpe] || '') || null;
     const setType = (row[f.setType] || 'normal').toLowerCase();
     const exerciseNotes = row[f.exerciseNotes] || '';
@@ -78,6 +82,7 @@ export function parseHevy(csvText, userUnit) {
     workout.byExercise.get(exName).sets.push({
       reps, weight, completed: true,
       ...(timed ? { duration_sec: durationSec } : {}),
+      ...(distanceM ? { distance_m: distanceM } : {}),
       notes: rpe ? `${setType !== 'normal' ? setType + ' ' : ''}RPE ${rpe}`.trim()
                  : (setType !== 'normal' ? setType : ''),
       rpe,
@@ -105,7 +110,10 @@ export function parseHevy(csvText, userUnit) {
         superset_id: mySsId,
         superset_size: 1,     // back-fill below
         sets: ex.sets,
-        ...(ex.sets.length && ex.sets.every(s => s.duration_sec > 0) ? { set_type: 'time' } : {}),
+        // Distance when any set has one and none has reps: a warm-up row
+        // with only a time must not make the whole run a hold.
+        ...(ex.sets.some(s => s.distance_m > 0) && !ex.sets.some(s => s.reps > 0) ? { set_type: 'distance' }
+          : ex.sets.length && ex.sets.every(s => s.duration_sec > 0) ? { set_type: 'time' } : {}),
       });
     }
     // Back-fill superset_size

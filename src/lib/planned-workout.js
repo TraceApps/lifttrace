@@ -121,6 +121,36 @@ export function generateWarmupSets(workingWeight, unit = 'lbs') {
   return sets;
 }
 
+// Distances (issue #119) are kept in meters and shown in a unit: meters or
+// yards for a rower, sled or carry, kilometers or miles for a run or a ride,
+// following the account's weight unit (lbs reads as imperial). Here rather
+// than in workout.js so the server plans with the same default.
+export const METERS_PER = { m: 1, km: 1000, yd: 0.9144, mi: 1609.344 };
+const LONG_DISTANCE_BY_NAME = new Set([
+  'running treadmill', 'jogging treadmill', 'walking treadmill', 'trail running walking',
+  'run', 'running', 'bicycling', 'cycling',
+]);
+export const exerciseNameKey = (name) => String(name || '').toLowerCase().replace(/[’'`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+export function defaultDistanceUnit(name, imperial = false) {
+  const long = LONG_DISTANCE_BY_NAME.has(exerciseNameKey(name));
+  if (imperial) return long ? 'mi' : 'yd';
+  return long ? 'km' : 'm';
+}
+
+// A prescribed distance is kept as typed, in the exercise's distance_unit;
+// sets hold meters. A prescribed calorie count is a whole number. Both read
+// as null when empty or not a number.
+function _plannedMeters(typed, ex, weightUnit) {
+  const n = parseFloat(String(typed ?? '').replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const unit = METERS_PER[ex?.distance_unit] ? ex.distance_unit : defaultDistanceUnit(ex?.exercise_name, weightUnit === 'lbs');
+  return Math.round(n * METERS_PER[unit] * 1000) / 1000;
+}
+function _plannedCalories(typed) {
+  const n = Math.round(parseFloat(String(typed ?? '')));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /**
  * Effective prescription for a given 1-based plan week (issue #13).
  * Merges the exercise's weeks[wk-1] entry over its exercise-level defaults;
@@ -132,6 +162,7 @@ export function resolveWeek(ex, wk) {
   const base = {
     sets: ex.target_sets, reps: ex.target_reps, weight: ex.target_weight,
     duration: ex.target_duration,
+    distance: ex.target_distance, calories: ex.target_calories,
     tempo: ex.tempo, rest_sec: ex.rest_sec,
   };
   if (!wk || !ex.weeks?.length) return base;
@@ -142,6 +173,8 @@ export function resolveWeek(ex, wk) {
     reps: w.reps ?? base.reps,
     weight: w.weight ?? base.weight,
     duration: w.duration ?? base.duration,
+    distance: w.distance ?? base.distance,
+    calories: w.calories ?? base.calories,
     tempo: w.tempo ?? base.tempo,
     rest_sec: w.rest_sec ?? base.rest_sec,
   };
@@ -197,6 +230,12 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
         if (ex.set_type === 'time') {
           const dur = parseDuration(spec.duration) ?? past?.duration_sec ?? 0;
           if (dur) set.duration_sec = dur;
+        } else if (ex.set_type === 'distance') {
+          const m = _plannedMeters(spec.distance, ex, weightUnit) ?? past?.distance_m ?? 0;
+          if (m) set.distance_m = m;
+        } else if (ex.set_type === 'calories') {
+          const cal = _plannedCalories(spec.calories) ?? past?.calories ?? 0;
+          if (cal) set.calories = cal;
         }
         // Asymmetric supersets: the template can pin a set to a specific
         // round via spec.number. Falls back to position when unset, matching
@@ -241,14 +280,19 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
       }
       // Timed exercise (issue #89): the prescribed duration, or the last
       // session's when history wins, fills each set.
-      if (ex.set_type === 'time') {
-        const planned = parseDuration(eff.duration) || 0;
+      // Distance and calorie exercises (issue #119) fill the same way.
+      const amount = ex.set_type === 'time' ? ['duration_sec', parseDuration(eff.duration) || 0]
+        : ex.set_type === 'distance' ? ['distance_m', _plannedMeters(eff.distance, ex, weightUnit) || 0]
+        : ex.set_type === 'calories' ? ['calories', _plannedCalories(eff.calories) || 0]
+        : null;
+      if (amount) {
+        const [field, planned] = amount;
         sets = sets.map((set, i) => {
           const fromLast = (lastWorking && !planWins)
-            ? (lastWorking[i]?.duration_sec ?? lastWorking[lastWorking.length - 1]?.duration_sec)
+            ? (lastWorking[i]?.[field] ?? lastWorking[lastWorking.length - 1]?.[field])
             : null;
-          const dur = fromLast || planned;
-          return dur ? { ...set, duration_sec: dur } : set;
+          const value = fromLast || planned;
+          return value ? { ...set, [field]: value } : set;
         });
       }
     }
@@ -261,9 +305,10 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
   // A warm-up ramp before the working sets, for an exercise with a usable
   // working weight.
   return exercises.map(ex => {
-    // A warm-up ramp is weight x reps sets; it means nothing for a hold or
-    // carry (issue #89), whatever load it is done with.
-    if (ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0)) return ex;
+    // A warm-up ramp is weight x reps sets; it means nothing for a hold, a
+    // carry or a row (issues #89, #119), whatever load it is done with.
+    if (['time', 'distance', 'calories'].includes(ex.set_type)
+      || (ex.sets || []).some(s => Number(s.duration_sec) > 0 || Number(s.distance_m) > 0 || Number(s.calories) > 0)) return ex;
     const firstWorking = (ex.sets || []).find(s => !s.warmup);
     const w = parseFloat(firstWorking?.weight || ex.target_weight || 0) || 0;
     const warmups = generateWarmupSets(w, weightUnit);
@@ -280,7 +325,8 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
  * say) stays as planned. With no such set, or a set sent as not done,
  * `added` goes after the others, as before.
  *
- *   sent   { reps, weight, duration_sec, rpe, warmup, completed }, each
+ *   sent   { reps, weight, duration_sec, distance_m, calories, rpe, warmup,
+ *          completed }, each
  *          undefined (or null) when not sent
  *   added  the whole set to add when there's nothing to fill
  *   at     when it was done (ISO), kept on a filled set as completedAt: the
@@ -304,6 +350,8 @@ export function logIntoSets(sets, sent, added, { at = null } = {}) {
   const set = { ...list[index], completed: true };
   if (given(sent.weight)) set.weight = sent.weight;
   if (given(sent.duration_sec)) set.duration_sec = sent.duration_sec;
+  if (given(sent.distance_m)) set.distance_m = sent.distance_m;
+  if (given(sent.calories)) set.calories = sent.calories;
   if (given(sent.reps)) {
     set.reps = sent.reps;
     // A left/right target says nothing about the reps done.

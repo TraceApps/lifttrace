@@ -23,6 +23,12 @@ object Session {
 
     const val TYPE_REPS = "reps"
     const val TYPE_TIME = "time"
+    /** Distance in meters, and calories off a machine (issue #119). */
+    const val TYPE_DISTANCE = "distance"
+    const val TYPE_CALORIES = "calories"
+    private val SET_TYPES = setOf(TYPE_REPS, TYPE_TIME, TYPE_DISTANCE, TYPE_CALORIES)
+    /** Meters in each unit a distance exercise can be shown in. */
+    val DISTANCE_UNITS = mapOf("m" to 1.0, "km" to 1000.0, "yd" to 0.9144, "mi" to 1609.344)
     const val LOAD_BILATERAL = "bilateral"
     const val LOAD_UNILATERAL = "unilateral"
     const val LOAD_PAIRED = "paired"
@@ -39,13 +45,16 @@ object Session {
         val warmup: Boolean,
         /** The plan's own numbering, when a set carries one. */
         val number: Int?,
+        val distanceM: Double = 0.0,
+        val calories: Int = 0,
     ) {
         /** A set the phone is recording per side, as it does for alternating work. */
         val split: Boolean get() = repsLeft != null || repsRight != null
 
         /** Has anything been put on this set, by you or by the plan? */
         val hasNumbers: Boolean
-            get() = weight > 0 || reps > 0 || durationSec > 0 || (repsLeft ?: 0) > 0 || (repsRight ?: 0) > 0
+            get() = weight > 0 || reps > 0 || durationSec > 0 || distanceM > 0 || calories > 0 ||
+                (repsLeft ?: 0) > 0 || (repsRight ?: 0) > 0
     }
 
     data class Exercise(
@@ -68,8 +77,12 @@ object Session {
          */
         val ownLoadType: String? = null,
         val ownSetType: String? = null,
+        /** The unit the entry says its distance is shown in (m, km, yd, mi), if any. */
+        val ownDistanceUnit: String? = null,
     ) {
         val timed: Boolean get() = setType == TYPE_TIME
+        val byDistance: Boolean get() = setType == TYPE_DISTANCE
+        val byCalories: Boolean get() = setType == TYPE_CALORIES
         val done: Int get() = sets.count { it.completed }
         val total: Int get() = sets.size
         val finished: Boolean get() = total > 0 && done == total
@@ -118,6 +131,8 @@ object Session {
         val durationSec: Int,
         val completed: Boolean,
         val warmup: Boolean,
+        val distanceM: Double = 0.0,
+        val calories: Int = 0,
     )
 
     // ── Reading ──────────────────────────────────────────────────────────
@@ -158,6 +173,7 @@ object Session {
                     sets = sets,
                     ownLoadType = if (e.isNull("load_type")) null else e.optString("load_type").ifBlank { null },
                     ownSetType = if (e.isNull("set_type")) null else e.optString("set_type").ifBlank { null },
+                    ownDistanceUnit = e.optString("distance_unit").takeIf { it in DISTANCE_UNITS },
                 )
             )
         }
@@ -181,6 +197,8 @@ object Session {
         completed = s.optBoolean("completed", false),
         warmup = s.optBoolean("warmup", false),
         number = if (s.isNull("number")) null else s.optInt("number").takeIf { it > 0 },
+        distanceM = s.optDouble("distance_m", 0.0).let { if (it.isNaN() || it < 0) 0.0 else it },
+        calories = s.optInt("calories", 0).coerceAtLeast(0),
     )
 
     /**
@@ -191,10 +209,12 @@ object Session {
      */
     private fun setType(e: JSONObject, sets: List<Set>): String {
         val own = e.optString("set_type").lowercase()
-        if (own == TYPE_TIME || own == TYPE_REPS) return own
+        if (own in SET_TYPES) return own
         val library = e.optString("_library_set_type").lowercase()
-        if (library == TYPE_TIME || library == TYPE_REPS) return library
+        if (library in SET_TYPES) return library
         if (sets.any { it.durationSec > 0 }) return TYPE_TIME
+        if (sets.any { it.distanceM > 0 }) return TYPE_DISTANCE
+        if (sets.any { it.calories > 0 }) return TYPE_CALORIES
         return TYPE_REPS
     }
 
@@ -330,6 +350,8 @@ object Session {
             durationSec = pick(target?.durationSec, earlier?.durationSec, 0),
             completed = target?.completed ?: false,
             warmup = target?.warmup ?: false,
+            distanceM = pick(target?.distanceM, earlier?.distanceM, 0.0),
+            calories = pick(target?.calories, earlier?.calories, 0),
         )
     }
 
@@ -388,6 +410,8 @@ object Session {
         s.put("completed", change.completed)
         if (change.warmup) s.put("warmup", true)
         if (change.durationSec > 0) s.put("duration_sec", change.durationSec)
+        if (change.distanceM > 0) s.put("distance_m", Math.round(change.distanceM * 1000.0) / 1000.0)
+        if (change.calories > 0) s.put("calories", change.calories)
         // A set the phone is keeping per side stays per side; one that is not
         // must not suddenly grow the fields, or the phone would draw it split.
         if (change.repsLeft != null) s.put("reps_l", change.repsLeft)
@@ -410,6 +434,8 @@ object Session {
                 completed = change.completed,
                 warmup = change.warmup,
                 number = existing?.number,
+                distanceM = change.distanceM,
+                calories = change.calories,
             )
             val sets = if (e.sets.any { it.uuid == change.setUuid }) {
                 e.sets.map { if (it.uuid == change.setUuid) updated else it }
@@ -489,12 +515,13 @@ object Session {
         var total = 0.0
         for (s in exercise.sets) {
             if (!s.completed || s.warmup) continue
-            val timed = when (exercise.ownSetType) {
-                TYPE_TIME -> true
+            // Holds, distances and calories carry no weight x reps volume.
+            val notReps = when (exercise.ownSetType) {
+                TYPE_TIME, TYPE_DISTANCE, TYPE_CALORIES -> true
                 TYPE_REPS -> false
-                else -> s.durationSec > 0
+                else -> s.durationSec > 0 || s.distanceM > 0 || s.calories > 0
             }
-            if (timed) continue
+            if (notReps) continue
             total += setVolume(s, loadType)
         }
         return total
@@ -599,6 +626,8 @@ object Session {
         val done = exercise.working.filter { it.completed && it.hasNumbers }
         if (done.isEmpty()) return null
         return if (exercise.timed) done.maxByOrNull { it.durationSec }
+        else if (exercise.byDistance) done.maxByOrNull { it.distanceM }
+        else if (exercise.byCalories) done.maxByOrNull { it.calories }
         else done.maxWithOrNull(compareBy({ it.weight }, { it.reps }))
     }
 
@@ -723,12 +752,47 @@ object Session {
         val load = if (set.weight > 0) weightText(set.weight, unit) else ""
         val work = when {
             exercise.timed && set.durationSec > 0 -> clock(set.durationSec)
+            exercise.byDistance && set.distanceM > 0 -> distanceText(set.distanceM, distanceUnit(exercise, unit))
+            exercise.byCalories && set.calories > 0 -> "${set.calories} cal"
             set.split -> "${set.repsLeft ?: 0} / ${set.repsRight ?: 0}"
             set.reps > 0 -> "${set.reps} reps"
             else -> ""
         }
         val text = listOf(load, work).filter { it.isNotBlank() }.joinToString(" x ")
         return text.ifBlank { if (exercise.timed) "No hold yet" else "Nothing on it yet" }
+    }
+
+    /** Kilometers or miles for a run or a ride, as the phone's default (planned-workout.js). */
+    private val LONG_DISTANCE_BY_NAME = setOf(
+        "running treadmill", "jogging treadmill", "walking treadmill", "trail running walking",
+        "run", "running", "bicycling", "cycling",
+    )
+
+    /**
+     * The unit a distance exercise is shown in: the entry's own, else the
+     * phone's default for its name in the account's system (lbs reads as
+     * imperial), so a run logged through the API reads 5 km, not 5000 m.
+     */
+    fun distanceUnit(exercise: Exercise, weightUnit: String): String {
+        exercise.ownDistanceUnit?.let { return it }
+        val key = exercise.name.lowercase().replace(Regex("[’'`]"), "").replace(Regex("[^a-z0-9]+"), " ").trim()
+        val long = key in LONG_DISTANCE_BY_NAME
+        return if (weightUnit == "lbs") (if (long) "mi" else "yd") else (if (long) "km" else "m")
+    }
+
+    /** Meters in the exercise's unit: "500 m", "5.25 km", one decimal for m and yd. */
+    fun distanceText(meters: Double, unit: String): String {
+        val per = DISTANCE_UNITS[unit] ?: 1.0
+        val places = if (unit == "km" || unit == "mi") 100.0 else 10.0
+        val v = Math.round(meters / per * places) / places
+        val number = if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()
+        return "$number $unit"
+    }
+
+    /** One crown or button step for a distance in its unit: 10 m or yd, 0.1 km or mi. */
+    fun distanceStepM(unit: String): Double {
+        val per = DISTANCE_UNITS[unit] ?: 1.0
+        return if (unit == "km" || unit == "mi") 0.1 * per else 10.0 * per
     }
 
     /** A weight without a pointless decimal: 60 rather than 60.0, 62.5 as it is. */

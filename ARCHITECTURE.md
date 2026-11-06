@@ -301,7 +301,8 @@ it that day (earlier cards, then earlier sets by position, so tick order doesn't
 matter, plus the day's earlier workouts from `todaySessions`). A set that only
 matches an earlier one isn't. The records are weight, estimated 1RM (the same
 rounded one `accumulateRecord` uses) and, for a timed set, longest hold and
-heaviest load held. The Diary keeps each exercise's history as the server sent
+heaviest load held (a distance or calorie set likewise: longest distance or
+most calories, and heaviest load). The Diary keeps each exercise's history as the server sent
 it and works the badges out from it, so they follow edits, unticks and a
 reopened day. The server never decides per set: `pr.set` compares the records
 before and after a save (`recordsBeforeSave`, `sendNewRecords`), which agrees
@@ -310,6 +311,31 @@ with the rule for weight, estimated 1RM, longest hold and heaviest load held
 afterwards for an earlier date can badge a set that moves no all-time record,
 and sends no `pr.set` for it. `scripts/pr-sets.test.js` holds the
 rule to `accumulateRecord`.
+
+### A set is reps, time, distance or calories
+
+What a set records is its kind (`setKind` in `src/lib/workout.js`, mirrored in
+`server/lib/volume.js`, both run through the same cases by
+`scripts/set-type.test.js` and `scripts/distance-calories.test.js`): `reps`
+(weight x reps), `time` (`duration_sec`, issue #89), `distance`
+(`distance_m`, always meters) or `calories` (`calories`, issue #119). The
+exercise entry's `set_type` decides; without one the set's own data does
+(a duration first, so sets timed before #119 read as before). Only rep sets
+have volume and an estimated 1RM; each other kind has its own record fields
+(`maxDuration`, `maxDistance`, `maxCalories`, with the load as the tiebreak)
+in `accumulateRecord`.
+
+A distance is typed and shown in the entry's `distance_unit` (m, km, yd, mi),
+stamped on the entry when it becomes a distance one, so every device shows
+it the same; meters underneath mean a change of unit never changes a
+distance. The kind an entry starts as (`startSetType`) puts what the last
+session recorded first, then the library default, the remembered choice and
+a short exact-name list, so a built-in that is naturally distance-based
+(rower, sled, carry) starts that way only for someone who never logged it;
+the Diary reads the last session for this even with Auto-Fill off. Sets are
+JSON inside `workout_log.exercises`, and every client edits a set by
+spreading it, so an app or watch from before a kind existed keeps its field
+untouched; it shows the set as reps.
 
 ### The watch is a client, not a satellite
 

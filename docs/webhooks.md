@@ -36,7 +36,7 @@ signatures on the receiving end and cannot be retrieved again later.
 | `workout.completed` | A workout session is marked completed. |
 | `body_stat.logged` | Any body-stat value (weight, body fat, a measurement) is logged or updated, whether from the app, the `log_body_stat` MCP tool, or `PUT /api/v1/body-stats/:date`. Sent on every save, including a save that changes nothing. |
 | `progress_photo.logged` | A progress photo is attached to a date, whether from the app, an MCP tool, or the REST API. |
-| `pr.set` | A new personal record (max weight, estimated 1-rep max, or longest hold or heaviest load held on a timed exercise) is set on an exercise, whether from the app, the `log_set` MCP tool, or `POST /api/v1/workouts/:date/sets`. Uses the same record definition the Statistics page and `/api/v1/records` already use. One per exercise whose record moved; a save that moves no record (sent again, equal to the set that set it, or lighter) sends none, so a repeat of a record set is never a second `pr.set`. |
+| `pr.set` | A new personal record (max weight, estimated 1-rep max, longest hold or heaviest load held on a timed exercise, or longest distance, most calories or heaviest load on a distance or calorie exercise) is set on an exercise, whether from the app, the `log_set` MCP tool, or `POST /api/v1/workouts/:date/sets`. Uses the same record definition the Statistics page and `/api/v1/records` already use. One per exercise whose record moved; a save that moves no record (sent again, equal to the set that set it, or lighter) sends none, so a repeat of a record set is never a second `pr.set`. |
 | `program.advanced` | An active program moves to its next week. |
 | `cardio.logged` | A new cardio session is logged, whether from the Diary, Trace, the Android app, an MCP tool, or the REST API. Not sent when a session is edited, or when a re-sent `external_id` returns a session already logged. |
 
@@ -116,16 +116,29 @@ date after the save, as stored:
   "new_max_duration_sec": 0,
   "previous_max_duration_sec": 0,
   "new_max_hold_weight": 0,
-  "previous_max_hold_weight": 0
+  "previous_max_hold_weight": 0,
+  "new_max_distance_m": 0,
+  "previous_max_distance_m": 0,
+  "new_max_distance_load": 0,
+  "previous_max_distance_load": 0,
+  "new_max_calories": 0,
+  "previous_max_calories": 0,
+  "new_max_calories_load": 0,
+  "previous_max_calories_load": 0
 }
 ```
 
-For a timed exercise (plank, wall sit, dead hang, carry) the record that
-moved is the longest hold or the heaviest load held: `new_max_duration_sec`
-and `previous_max_duration_sec` carry the longest hold in seconds,
+For a timed exercise (plank, wall sit, dead hang) the record that moved is
+the longest hold or the heaviest load held: `new_max_duration_sec` and
+`previous_max_duration_sec` carry the longest hold in seconds,
 `new_max_hold_weight` and `previous_max_hold_weight` the heaviest weight
 held at any length, and the rep weight fields stay at zero unless the
-exercise also has rep sets.
+exercise also has rep sets. A distance exercise (rower, SkiErg, sled, carry,
+run) moves `new_max_distance_m` and `previous_max_distance_m`, the longest
+set in meters, or `new_max_distance_load` and `previous_max_distance_load`,
+the heaviest load at any distance; a calorie exercise (air bike) moves
+`new_max_calories` and `previous_max_calories`, the most calories in one
+set, or `new_max_calories_load` and `previous_max_calories_load`.
 
 `data` for `cardio.logged` is the session, in the shape each session has in
 `GET /api/v1/cardio`:

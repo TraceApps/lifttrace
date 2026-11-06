@@ -11,7 +11,7 @@
  *
  * Pure helper — no DB / fetch. Caller passes in workouts + exercises.
  */
-import { isTimedSet } from './workout.js';
+import { isRepSet, setAmount } from './workout.js';
 
 export const MUSCLE_BUCKETS = [
   'chest', 'back', 'shoulders',
@@ -110,8 +110,9 @@ export function computeMuscleRecovery(workouts, exerciseLibrary, windowDays = 7)
         const weight = +set.weight || 0;
         const reps = +set.reps || 0;
         // A timed set (issue #89) is real training for recovery purposes, a
-        // plank works the core, but it carries no weight x reps volume.
-        const timed = isTimedSet(ex, set) && (+set.duration_sec || 0) > 0;
+        // plank works the core, and so is a row or a sled push (issue #119),
+        // but none of them carries weight x reps volume.
+        const timed = !isRepSet(ex, set) && setAmount(ex, set) > 0;
         if (!timed && (weight <= 0 || reps <= 0)) continue;
         const vol = timed ? 0 : weight * reps;
 

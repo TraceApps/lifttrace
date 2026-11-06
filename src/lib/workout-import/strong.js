@@ -7,7 +7,8 @@ import { parseCsv, convertWeight } from './common.js';
  * Delimiter is SEMICOLON. One row per set. Date includes time.
  *
  * Older exports (pre-2023) used a slightly different column set — we read by
- * header name so both are tolerated. Distance is still ignored. Seconds is
+ * header name so both are tolerated. Distance is still ignored: the export
+ * does not say its unit (issue #119). Seconds is
  * read for timed sets (issue #89): a row with seconds and no reps is a
  * plank, hold or carry, and used to arrive as an empty 0 x 0 set.
  */

@@ -1,7 +1,8 @@
 <script>
   import { resolveAssetUrl } from '../../lib/platform.js';
   import { _ } from 'svelte-i18n';
-  import { isTimedSet, fmtSetLabel } from '../../lib/workout.js';
+  import { setKind, fmtSetLabel, distanceUnitOf } from '../../lib/workout.js';
+  import { weightUnit, exerciseDistanceUnits } from '../../stores/settings.js';
   /**
    * Shared exercise detail content — reused by the full ExerciseDetail
    * page and the ExerciseInfoSheet bottom-sheet preview. Takes an
@@ -17,8 +18,14 @@
   // `w × reps` form. Uses the exercise library's `load_type` since
   // this component receives the library exercise object.
   function _formatSet(s, h) {
-    // Timed sets (issue #89) read as a duration: "1:00" or "25×1:00".
-    if (isTimedSet({ set_type: h?.set_type }, s)) return fmtSetLabel({ set_type: 'time' }, s);
+    // Timed sets (issue #89) read as a duration: "1:00" or "25×1:00";
+    // distance and calorie sets (issue #119) as "500 m" or "20 cal".
+    const kind = setKind({ set_type: h?.set_type }, s);
+    if (kind !== 'reps') {
+      const unit = distanceUnitOf({ exercise_id: exercise?.id, exercise_name: exercise?.name, distance_unit: h?.distance_unit },
+        $weightUnit === 'lbs', $exerciseDistanceUnits);
+      return fmtSetLabel({ set_type: kind }, s, unit);
+    }
     const lt = exercise?.load_type || 'bilateral';
     if (lt === 'unilateral' && (s.reps_l != null || s.reps_r != null)) {
       const l = s.reps_l ?? '';

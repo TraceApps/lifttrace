@@ -5,8 +5,8 @@
   import { LtApi } from '../../lib/api.js';
   import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, isTimedSet, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
-  import { exerciseLoadTypes, exerciseSetTypes } from '../../stores/settings.js';
+  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, setKind, fmtSetLabel, distanceUnitOf, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
+  import { exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits } from '../../stores/settings.js';
   import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
   import LoadTypeMenu from '../ui/LoadTypeMenu.svelte';
 
@@ -93,14 +93,21 @@
     exercise._library_load_type != null ? exercise._library_load_type : libraryLoadType,
     $exerciseLoadTypes,
   );
-  // Reps or time (issue #89). Recorded data outranks every default, so an
-  // exercise that already has reps logged never flips shape on its own.
+  // Reps, time (issue #89), distance or calories (issue #119). Recorded
+  // data, this entry's then the last session's, outranks every default, so
+  // an exercise that already has reps logged never flips shape on its own.
   $: setType = resolveSetType(
     exercise,
     exercise._library_set_type != null ? exercise._library_set_type : librarySetType,
     $exerciseSetTypes,
+    lastSession?.sets || null,
+    lastSession?.set_type || null,
   );
   $: timed = setType === 'time';
+  // Anything but weight x reps: no warm-up ramp, no weight nudges.
+  $: notReps = setType !== 'reps';
+  $: distanceUnit = distanceUnitOf(exercise, unit === 'lbs', $exerciseDistanceUnits);
+  const SET_TYPE_ICON = { time: 'timer', distance: 'route', calories: 'local_fire_department' };
   // The chip's own label, from the same keys the chooser uses.
   $: loadTypeLabel = loadType === 'paired' ? $_('workout_editor.load_paired')
                    : loadType === 'unilateral' ? $_('workout_editor.load_unilateral')
@@ -136,9 +143,21 @@
   // stay on them (ignored while timed) and reappear if you switch back.
   function pickSetType(nextType) {
     loadMenuOpen = false;
-    dispatch('update', { ...exercise, set_type: nextType });
+    // A distance entry keeps the unit it is shown in, so it reads the same
+    // on every device whatever their defaults.
+    const unitStamp = nextType === 'distance' && !exercise.distance_unit ? { distance_unit: distanceUnit } : {};
+    dispatch('update', { ...exercise, set_type: nextType, ...unitStamp });
     if (rememberLoad && exercise.exercise_id != null) {
       exerciseSetTypes.update(curr => ({ ...(curr || {}), [exercise.exercise_id]: nextType }));
+    }
+  }
+
+  // The unit a distance exercise is typed in. Stays open: the unit row sits
+  // under Distance in the same menu.
+  function pickDistanceUnit(nextUnit) {
+    dispatch('update', { ...exercise, distance_unit: nextUnit });
+    if (rememberLoad && exercise.exercise_id != null) {
+      exerciseDistanceUnits.update(curr => ({ ...(curr || {}), [exercise.exercise_id]: nextUnit }));
     }
   }
 
@@ -153,7 +172,7 @@
   // suggest +5 (or +2.5 for kg) on today's target weight.
   $: progressionSuggestion = (() => {
     // Weight nudges are a reps idea; a hold is progressed by time.
-    if (timed || !lastSession || !exercise.target_reps) return null;
+    if (notReps || !lastSession || !exercise.target_reps) return null;
     const tgtReps = parseInt(String(exercise.target_reps).split(/[-\u2013]/)[0]);
     if (!Number.isFinite(tgtReps)) return null;
     const hitAll = lastSession.sets.length > 0 && lastSession.sets.every(s => (parseInt(s.reps) || 0) >= tgtReps);
@@ -223,6 +242,8 @@
     const lastSet = sets[sets.length - 1] || { reps: 0, weight: 0 };
     const next = { reps: lastSet.reps, weight: lastSet.weight, completed: false, notes: '' };
     if (lastSet.duration_sec) next.duration_sec = lastSet.duration_sec;
+    if (lastSet.distance_m) next.distance_m = lastSet.distance_m;
+    if (lastSet.calories) next.calories = lastSet.calories;
     const updated = { ...exercise, sets: [...sets, next] };
     dispatch('update', updated);
   }
@@ -344,9 +365,11 @@
       anchor={loadMenuAnchor}
       {loadType}
       {setType}
+      {distanceUnit}
       bind:remember={rememberLoad}
       on:pickLoad={(e) => pickLoadType(e.detail)}
       on:pickSetType={(e) => pickSetType(e.detail)}
+      on:pickDistanceUnit={(e) => pickDistanceUnit(e.detail)}
       on:close={() => loadMenuOpen = false} />
   {/if}
   <div class="ex-header"
@@ -355,13 +378,13 @@
     <div class="ex-info">
       <div class="ex-name-row">
         <span class="ex-name">{exercise.exercise_name}</span>
-        <button class="load-chip tap" class:non-default={loadType !== 'bilateral' || timed}
+        <button class="load-chip tap" class:non-default={loadType !== 'bilateral' || notReps}
                 on:click|stopPropagation={toggleLoadMenu}
                 title="Load type">
           {#if loadType === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{loadTypeLabel}
           {:else if loadType === 'unilateral'}<span class="material-symbols-rounded">swap_horiz</span>{loadTypeLabel}
-          {:else if !timed}<span class="material-symbols-rounded">straighten</span>{/if}
-          {#if timed}<span class="material-symbols-rounded">timer</span>{$_('exercise_card.set_type_time')}{/if}
+          {:else if !notReps}<span class="material-symbols-rounded">straighten</span>{/if}
+          {#if notReps}<span class="material-symbols-rounded">{SET_TYPE_ICON[setType]}</span>{$_(`exercise_card.set_type_${setType}`)}{/if}
         </button>
       </div>
       <div class="ex-meta-row">
@@ -405,8 +428,8 @@
         <span class="last-label">Last ({fmtRelDate(lastSession.date)})</span>
         <span class="last-sets">
           {#each lastSession.sets as s, i}
-            {#if isTimedSet({ set_type: lastSession.set_type }, s)}
-              <span class="last-set">{s.weight ? `${s.weight}×` : ''}{fmtSetDuration(s.duration_sec) || '0:00'}</span>
+            {#if setKind({ set_type: lastSession.set_type }, s) !== 'reps'}
+              <span class="last-set">{fmtSetLabel({ set_type: lastSession.set_type }, s, distanceUnit)}</span>
             {:else}
               <span class="last-set">{s.weight || 0}×{s.reps || 0}</span>
             {/if}{#if i < lastSession.sets.length - 1}<span class="last-sep">·</span>{/if}
@@ -424,7 +447,8 @@
       <div class="sets-header">
         <span class="sh-set">Set</span>
         <span class="sh-weight">{$_('exercise_card.weight')}</span>
-        <span class="sh-reps">{timed ? $_('exercise_card.time') : $_('exercise_card.reps')}</span>
+        <span class="sh-reps">{setType === 'distance' ? `${$_('exercise_card.distance')} (${distanceUnit})`
+          : notReps ? $_(`exercise_card.${setType}`) : $_('exercise_card.reps')}</span>
         <span class="sh-done"></span>
         <!-- placeholder over the remove-set column so the right edge of the
              header lines up with the right edge of every SetRow -->
@@ -443,6 +467,7 @@
           {unit}
           {loadType}
           {setType}
+          {distanceUnit}
           holdRunning={holdMatches($holdTimer, { date, exIdx: idx, exercise, setIdx })}
           on:startHold={() => startHoldFor(setIdx)}
           on:stopHold={() => stopHold()}
@@ -456,7 +481,7 @@
           <span class="material-symbols-rounded">add</span>
           Add Set
         </button>
-        {#if !timed && !hasWarmups && workingWeight > 0}
+        {#if !notReps && !hasWarmups && workingWeight > 0}
           <button class="add-warmup-btn tap" on:click={addWarmups} title="Add warm-up progression based on working weight">
             <span class="material-symbols-rounded">bolt</span>
             Warm-ups
@@ -465,11 +490,13 @@
       </div>
     </div>
 
-    {#if exercise.target_weight || (!timed && exercise.target_reps) || (timed && exercise.target_duration) || exercise.notes || progressionSuggestion}
+    {#if exercise.target_weight || (!notReps && exercise.target_reps) || (timed && exercise.target_duration) || (setType === 'distance' && exercise.target_distance) || (setType === 'calories' && exercise.target_calories) || exercise.notes || progressionSuggestion}
       <div class="target-info">
         {#if exercise.target_weight}<span class="target-chip">Target: {exercise.target_weight}</span>{/if}
-        {#if !timed && exercise.target_reps}<span class="target-chip">{exercise.target_reps} reps</span>{/if}
+        {#if !notReps && exercise.target_reps}<span class="target-chip">{exercise.target_reps} reps</span>{/if}
         {#if timed && exercise.target_duration}<span class="target-chip">{fmtSetDuration(parseDuration(exercise.target_duration)) || exercise.target_duration}</span>{/if}
+        {#if setType === 'distance' && exercise.target_distance}<span class="target-chip">{exercise.target_distance} {distanceUnit}</span>{/if}
+        {#if setType === 'calories' && exercise.target_calories}<span class="target-chip">{exercise.target_calories} cal</span>{/if}
         {#if progressionSuggestion}
           <span class="progression-chip" title="Last session hit target reps — try going up">
             <span class="material-symbols-rounded">trending_up</span>
@@ -627,6 +654,14 @@
      ✓ column right-anchored over its actual cell. */
   .sets-wrap:has(.rpe-wrap) .sets-header {
     grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px auto 32px;
+  }
+  /* Distance and calorie rows split the columns evenly (SetRow.svelte), so
+     the header follows them. */
+  .sets-wrap:has(.amount-input) .sets-header {
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
+  }
+  .sets-wrap:has(.amount-input):has(.rpe-wrap) .sets-header {
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
   }
   .sets-header span { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; }
   .sh-set { text-align: center; }

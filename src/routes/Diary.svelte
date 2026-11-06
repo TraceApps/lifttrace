@@ -8,13 +8,13 @@
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { currentDate, todayLog, loadWorkout, loadWorkoutSessions, saveWorkout, saveMadeTheFinish, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, bodyStatsVisible, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, bodyStatsVisible, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
-  import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, requestPermission } from '../lib/notifications.js';
+  import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, celebrateAmountPR, requestPermission } from '../lib/notifications.js';
   import { prFlags, celebrationFor, earlierWorkouts } from '../lib/pr-sets.js';
-  import { estimateWorkoutCalories, ageFromDob, isTimedSet, parseDuration, fmtSetDuration, defaultSetTypeForName, lastCompletedSession } from '../lib/workout.js';
+  import { estimateWorkoutCalories, ageFromDob, setKind, parseDuration, fmtSetDuration, startSetType, distanceUnitOf, fmtSetAmount, lastCompletedSession } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import { startRest as startRestTimer, stopRest, noteRestLastTime } from '../stores/restTimer.js';
   import { nextUp, lastTimeFor } from '../lib/rest-next.js';
@@ -511,6 +511,18 @@
       const sets = ex.target_sets || 1;
       const w = ex.target_weight ? ` @ ${ex.target_weight}${$weightUnit}` : '';
       return `${sets}×${t(ex.target_duration)}${w}`;
+    }
+    // Distance and calorie exercises (issue #119) prescribe an amount.
+    if (ex.set_type === 'distance' || ex.set_type === 'calories') {
+      const u = ex.set_type === 'distance' ? ` ${distanceUnitOf(ex, $weightUnit === 'lbs', $exerciseDistanceUnits)}` : ' cal';
+      const t = (v) => (v ? `${v}${u}` : '-');
+      const key = ex.set_type === 'distance' ? 'distance' : 'calories';
+      if (ex.set_specs?.length) {
+        return ex.set_specs.map(s => s.weight ? `${t(s[key])} @ ${s.weight}${$weightUnit}` : t(s[key])).join(', ');
+      }
+      const sets = ex.target_sets || 1;
+      const w = ex.target_weight ? ` @ ${ex.target_weight}${$weightUnit}` : '';
+      return `${sets}×${t(ex[`target_${key}`])}${w}`;
     }
     // Per-set spec wins when present (template author pinned each set);
     // otherwise fall back to the uniform sets/reps/weight target row.
@@ -1459,6 +1471,8 @@
           const src = lastSets[i] || lastSets[lastSets.length - 1] || {};
           const next = { weight: src.weight || 0, reps: src.reps || 0, completed: false, notes: '' };
           if (src.duration_sec) next.duration_sec = src.duration_sec;
+          if (src.distance_m) next.distance_m = src.distance_m;
+          if (src.calories) next.calories = src.calories;
           return next;
         });
       } else {
@@ -1466,9 +1480,12 @@
       }
       sets = [...warmups, ...sets];
       // Regenerated sets would otherwise lose the only evidence an exercise
-      // was timed, so carry it on the instance explicitly (issue #89).
-      const wasTimed = ex.set_type === 'time' || (ex.sets || []).some(s => Number(s.duration_sec) > 0);
-      return wasTimed ? { ...ex, set_type: 'time', sets } : { ...ex, sets };
+      // was timed (issue #89), or tracked by distance or calories (#119), so
+      // carry it on the instance explicitly.
+      // An explicit choice, reps included, stands; without one the sets say.
+      const kind = ['reps', 'time', 'distance', 'calories'].includes(ex.set_type) ? ex.set_type
+        : (ex.sets || []).map(s => setKind({}, s)).find(k => k !== 'reps');
+      return kind && kind !== 'reps' ? { ...ex, set_type: kind, sets } : { ...ex, sets };
     }));
     await saveWorkout($currentDate, {
       ...($todayLog || {}),
@@ -1491,6 +1508,18 @@
       if (last) return withWarmups ? last.completed : last.working;
     } catch {}
     return null;
+  }
+
+  // The last session of an exercise whatever Auto-Fill says, for deciding
+  // what it is tracked by (issue #119): up to and including the day open, so
+  // an earlier workout today counts. null when it was never logged,
+  // undefined when the history couldn't be read (startSetType then makes no
+  // guess from the name).
+  async function lastEntryForType(exerciseId) {
+    if (!exerciseId) return null;
+    try {
+      return lastCompletedSession(await LtApi.getWorkoutHistory(exerciseId), { before: `${$currentDate}~` }) || null;
+    } catch { return undefined; }
   }
 
   let pickerTargetSupersetId = null;
@@ -1548,6 +1577,8 @@
       sets = lastSets.map(s => {
         const next = { reps: s.reps || 0, weight: s.weight || 0, completed: false };
         if (s.duration_sec) next.duration_sec = s.duration_sec;
+        if (s.distance_m) next.distance_m = s.distance_m;
+        if (s.calories) next.calories = s.calories;
         if (s.warmup) next.warmup = true;
         return next;
       });
@@ -1567,18 +1598,30 @@
     // Falls back to bilateral when no preference exists.
     const savedLoadType = ex.id != null && $exerciseLoadTypes
       ? $exerciseLoadTypes[ex.id] : null;
-    // Timed (issue #89): the last session's own data decides first, then the
-    // library default, then the user's remembered choice. Stamped onto the
-    // instance so every later reader (volume, stats, CSV, the API) sees it
-    // without needing the library row or this device's preferences.
-    const lastWasTimed = !!lastSets?.some(s => Number(s.duration_sec) > 0);
-    const lastWasReps = !!lastSets?.some(s => Number(s.reps) > 0);
+    // Reps, time (issue #89), distance or calories (issue #119): the last
+    // session's own data decides first, then the library default, then the
+    // user's remembered choice, then the name. Stamped onto the instance so
+    // every later reader (volume, stats, CSV, the API) sees it without
+    // needing the library row or this device's preferences. The last
+    // session is read here even with Auto-Fill off, so an exercise already
+    // logged with reps never starts as distance because of its name.
+    const lastEntry = await lastEntryForType(ex.id);
     const remembered = ex.id != null ? $exerciseSetTypes?.[ex.id] : null;
-    const startTimed = lastWasTimed
-      || (!lastWasReps && (ex.set_type === 'time'
-        || (ex.set_type !== 'reps' && (remembered === 'time'
-          || (remembered !== 'reps' && defaultSetTypeForName(ex.name) === 'time')))));
+    const startType = startSetType(lastEntry === undefined ? undefined : (lastEntry?.completed || null),
+      ex.set_type, remembered, ex.name, lastEntry?.set_type);
+    const startTimed = startType !== 'reps';
+    const distanceUnit = startType === 'distance'
+      ? distanceUnitOf({ exercise_id: ex.id, exercise_name: ex.name }, $weightUnit === 'lbs', $exerciseDistanceUnits)
+      : null;
     if (startTimed) targetReps = '';
+    // Only the amount of the kind it starts as is carried over: a distance
+    // left on a set flipped back to reps last time must not turn this one.
+    const keep = { time: 'duration_sec', distance: 'distance_m', calories: 'calories' }[startType];
+    sets = sets.map(st => {
+      const out = { ...st };
+      for (const f of ['duration_sec', 'distance_m', 'calories']) if (f !== keep) delete out[f];
+      return out;
+    });
     const newExercise = {
       exercise_id: ex.id,
       exercise_name: ex.name,
@@ -1588,7 +1631,8 @@
       notes: '',
       sets,
       ...(savedLoadType && savedLoadType !== 'bilateral' ? { load_type: savedLoadType } : {}),
-      ...(startTimed ? { set_type: 'time' } : {}),
+      ...(startTimed ? { set_type: startType } : {}),
+      ...(distanceUnit ? { distance_unit: distanceUnit } : {}),
     };
 
     let updated;
@@ -1718,9 +1762,10 @@
           const setIdx = ex.sets.findIndex((s, i) => s.completed && (!old.sets[i] || !old.sets[i].completed));
           const justCompletedSet = setIdx >= 0 ? ex.sets[setIdx] : null;
           if (isFuture || !justCompletedSet || !ex.exercise_id) return;
-          const timed = isTimedSet(ex, justCompletedSet);
-          if (timed ? !(!justCompletedSet.warmup && Number(justCompletedSet.duration_sec) > 0)
-                    : !(justCompletedSet.weight > 0)) return;
+          const kind = setKind(ex, justCompletedSet);
+          const amountField = { time: 'duration_sec', distance: 'distance_m', calories: 'calories' }[kind];
+          if (amountField ? !(!justCompletedSet.warmup && Number(justCompletedSet[amountField]) > 0)
+                          : !(justCompletedSet.weight > 0)) return;
           try {
             const history = await LtApi.getWorkoutHistory(ex.exercise_id);
             const inWorkout = [...exercises];
@@ -1731,6 +1776,9 @@
             });
             if (win === 'hold') {
               celebrateHoldPR(ex.exercise_name, Number(justCompletedSet.duration_sec), justCompletedSet.weight || 0, $weightUnit);
+            } else if (win === 'distance' || win === 'calories') {
+              const label = fmtSetAmount(win, justCompletedSet, distanceUnitOf(ex, $weightUnit === 'lbs', $exerciseDistanceUnits));
+              celebrateAmountPR(ex.exercise_name, win, Number(justCompletedSet[amountField]), label, justCompletedSet.weight || 0, $weightUnit);
             } else if (win) {
               celebratePR(ex.exercise_name, justCompletedSet.weight, $weightUnit, justCompletedSet.reps, win);
             }

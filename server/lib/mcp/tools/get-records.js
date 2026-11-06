@@ -10,7 +10,9 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, toolError, toolResult, validateDateRange } from '../_util.js';
-import { isTimedSet, newRecord, accumulateRecord } from '../../volume.js';
+import { isRepSet, setKind, newRecord, accumulateRecord } from '../../volume.js';
+
+const AMOUNT_FIELD = { time: 'duration_sec', distance: 'distance_m', calories: 'calories' };
 
 export function hasCompletedSet(exercises) {
   return exercises.some(ex => (ex.sets || []).some(s => s.completed));
@@ -24,10 +26,11 @@ export function hasCompletedSet(exercises) {
  * record (e.g. one that only edits notes or duration).
  */
 export function hasQualifyingSet(exercises) {
-  // A timed set qualifies on duration alone: a bodyweight plank has no
-  // weight, and without this a plank-only save could never raise pr.set.
+  // A timed, distance or calorie set qualifies on its amount alone: a
+  // bodyweight plank or an unloaded row has no weight, and without this a
+  // save of only those could never raise pr.set.
   return exercises.some(ex => (ex.sets || []).some(s =>
-    s.completed && !s.warmup && (s.weight > 0 || (isTimedSet(ex, s) && Number(s.duration_sec) > 0))));
+    s.completed && !s.warmup && (s.weight > 0 || (!isRepSet(ex, s) && Number(s[AMOUNT_FIELD[setKind(ex, s)]]) > 0))));
 }
 
 /**
@@ -86,7 +89,11 @@ export function registerGetRecords(server, { userId }) {
         'count at that weight, the date, and estimated 1-rep max. For timed ' +
         'exercises (planks, holds, carries) maxDuration is the longest hold in ' +
         'seconds, maxDurationWeight the load it was held at and maxHoldWeight the ' +
-        'heaviest load held at any length. Optionally ' +
+        'heaviest load held at any length. For distance exercises (rower, ' +
+        'SkiErg, sled, carries, runs) maxDistance is the longest set in meters, ' +
+        'maxDistanceWeight its load and maxDistanceLoad the heaviest load at any ' +
+        'distance; for calorie exercises (air bikes) maxCalories is the most ' +
+        'calories in one set. Optionally ' +
         'filter to one exercise by name (case-insensitive substring match). ' +
         'Optional inclusive start/end YYYY-MM-DD bounds limit the source history: ' +
         "with a range these are the best lifts WITHIN those dates, not the user's " +

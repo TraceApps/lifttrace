@@ -56,7 +56,8 @@ export function recordsBeforeSave(userId, exercises) {
 
 /**
  * pr.set once per exercise whose max weight, estimated 1-rep max, longest
- * hold (issue #89) or heaviest load held improved since `before`, using the record definition
+ * hold (issue #89), heaviest load held, longest distance or most calories
+ * (issue #119), or heaviest load moved that far, improved since `before`, using the record definition
  * get-records.js gives GET /api/v1/records and the Statistics page, so all
  * agree on what "a record" means. A save that changed no record (a repeat
  * of the same save, a lighter set) sends nothing.
@@ -72,7 +73,14 @@ export function sendNewRecords(userId, date, before) {
       const improvedE1rm = after.e1rm > (prev?.e1rm ?? 0);
       const improvedDuration = (after.maxDuration || 0) > (prev?.maxDuration ?? 0);
       const improvedHoldWeight = (after.maxHoldWeight || 0) > (prev?.maxHoldWeight ?? 0);
-      if (improvedWeight || improvedE1rm || improvedDuration || improvedHoldWeight) {
+      // Longest distance and most calories in a set, and the heaviest load
+      // either was done with (issue #119).
+      const improvedDistance = (after.maxDistance || 0) > (prev?.maxDistance ?? 0);
+      const improvedCalories = (after.maxCalories || 0) > (prev?.maxCalories ?? 0);
+      const improvedDistanceLoad = (after.maxDistanceLoad || 0) > (prev?.maxDistanceLoad ?? 0);
+      const improvedCaloriesLoad = (after.maxCaloriesLoad || 0) > (prev?.maxCaloriesLoad ?? 0);
+      if (improvedWeight || improvedE1rm || improvedDuration || improvedHoldWeight
+        || improvedDistance || improvedCalories || improvedDistanceLoad || improvedCaloriesLoad) {
         dispatchWebhookEvent(userId, 'pr.set', {
           exercise_id: after.exercise_id,
           exercise_name: after.name,
@@ -86,6 +94,14 @@ export function sendNewRecords(userId, date, before) {
           previous_max_duration_sec: prev?.maxDuration ?? 0,
           new_max_hold_weight: after.maxHoldWeight || 0,
           previous_max_hold_weight: prev?.maxHoldWeight ?? 0,
+          new_max_distance_m: after.maxDistance || 0,
+          previous_max_distance_m: prev?.maxDistance ?? 0,
+          new_max_distance_load: after.maxDistanceLoad || 0,
+          previous_max_distance_load: prev?.maxDistanceLoad ?? 0,
+          new_max_calories: after.maxCalories || 0,
+          previous_max_calories: prev?.maxCalories ?? 0,
+          new_max_calories_load: after.maxCaloriesLoad || 0,
+          previous_max_calories_load: prev?.maxCaloriesLoad ?? 0,
         });
       }
     }

@@ -32,6 +32,8 @@
   export let anchor = null;
   export let loadType = 'bilateral';
   export let setType = 'reps';
+  /** 'm' | 'km' | 'yd' | 'mi', for a distance exercise. */
+  export let distanceUnit = 'm';
   /** Bound: "Remember for this exercise". */
   export let remember = false;
 
@@ -45,7 +47,11 @@
   const SET_TYPES = [
     ['reps', 'exercise_card.set_type_reps', 'exercise_card.set_type_reps_hint'],
     ['time', 'exercise_card.set_type_time', 'exercise_card.set_type_time_hint'],
+    ['distance', 'exercise_card.set_type_distance', 'exercise_card.set_type_distance_hint'],
+    ['calories', 'exercise_card.set_type_calories', 'exercise_card.set_type_calories_hint'],
   ];
+  // The unit a distance exercise is typed and shown in (issue #119).
+  const DISTANCE_UNITS = ['m', 'km', 'yd', 'mi'];
 
   const GAP = 6;      // between the chip and the menu
   const MARGIN = 14;  // smallest distance kept from any screen edge
@@ -126,6 +132,15 @@
       </div>
       {#if setType === val}<span class="material-symbols-rounded ltm-check">check</span>{/if}
     </button>
+    {#if val === 'distance' && setType === 'distance'}
+      <div class="ltm-units" role="group" aria-label={$_('exercise_card.distance_unit')}>
+        {#each DISTANCE_UNITS as u}
+          <button type="button" class="ltm-unit" class:active={distanceUnit === u}
+                  aria-pressed={distanceUnit === u}
+                  on:click={() => dispatch('pickDistanceUnit', u)}>{u}</button>
+        {/each}
+      </div>
+    {/if}
   {/each}
 
   <label class="ltm-remember">
@@ -166,6 +181,14 @@
   .ltm-label { font-size: 14px; font-weight: 700; color: var(--text-1); }
   .ltm-hint  { font-size: 11px; color: var(--text-3); line-height: 1.35; }
   .ltm-check { font-size: 18px; color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+  .ltm-units { display: flex; gap: 6px; padding: 2px 10px 6px; }
+  .ltm-unit {
+    flex: 1; min-height: 32px; padding: 4px 0;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-md); cursor: pointer;
+    font-family: inherit; font-size: 13px; font-weight: 700; color: var(--text-2);
+  }
+  .ltm-unit.active { background: var(--accent-dim); border-color: var(--accent); color: var(--text-1); }
   .ltm-remember {
     display: flex; align-items: center; gap: 6px;
     padding: 8px 10px;

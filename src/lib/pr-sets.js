@@ -4,6 +4,8 @@
 // A set is a PR when it beats what came before it, in any one of these:
 //   a rep set: the top weight, or the top estimated 1-rep max
 //   a timed set (issue #89): the longest hold, or the heaviest load held
+//   a distance or calorie set (issue #119): the longest distance or the
+//     most calories in a set, or the heaviest load it was done with
 // and what came before it is the exercise's history on the days before the
 // set's own (a PR as of that date: a later day that matches or beats it
 // never takes its badge away, and a day logged afterwards for an earlier
@@ -22,13 +24,26 @@
 // day logged afterwards for an earlier date can badge a set that moves no
 // all-time record, and sends none), so only the app computes it per set and
 // there is no copy on the server. (The heaviest load held, a timed
-// set's second record, is the records' maxHoldWeight.)
-import { isTimedSet } from './workout.js';
+// set's second record, is the records' maxHoldWeight; a distance or calorie
+// set's, maxDistanceLoad and maxCaloriesLoad.)
+import { setKind } from './workout.js';
 
 /** What an exercise's earlier sets have reached so far. */
 export function newBests() {
-  return { weight: 0, e1rm: 0, duration: 0, load: 0, reps: 0, holds: 0 };
+  return {
+    weight: 0, e1rm: 0, duration: 0, load: 0, reps: 0, holds: 0,
+    distance: 0, distanceLoad: 0, distances: 0,
+    calories: 0, caloriesLoad: 0, calorieSets: 0,
+  };
 }
+
+// For each kind other than reps: the set field, then the bests keys for its
+// top amount, its heaviest load and how many such sets there were.
+const AMOUNT = {
+  time: ['duration_sec', 'duration', 'load', 'holds'],
+  distance: ['distance_m', 'distance', 'distanceLoad', 'distances'],
+  calories: ['calories', 'calories', 'caloriesLoad', 'calorieSets'],
+};
 
 function e1rmOf(w, r) {
   if (!(r >= 0)) return null; // reps missing: no estimate, as in the records
@@ -39,12 +54,14 @@ function e1rmOf(w, r) {
 export function prKinds(bests, exercise, set) {
   if (!set || !set.completed || set.warmup) return [];
   const out = [];
-  if (isTimedSet(exercise, set)) {
-    const d = Number(set.duration_sec) || 0;
+  const amount = AMOUNT[setKind(exercise, set)];
+  if (amount) {
+    const [field, top, load] = amount;
+    const d = Number(set[field]) || 0;
     if (d <= 0) return out;
     const w = Number(set.weight) || 0;
-    if (d > bests.duration) out.push('duration');
-    if (w > 0 && w > bests.load) out.push('load');
+    if (d > bests[top]) out.push(top);
+    if (w > 0 && w > bests[load]) out.push(load);
     return out;
   }
   const w = Number(set.weight) || 0;
@@ -58,13 +75,15 @@ export function prKinds(bests, exercise, set) {
 /** Fold a set into `bests` (the next set is judged against it too). */
 export function absorbSet(bests, exercise, set) {
   if (!set || !set.completed || set.warmup) return;
-  if (isTimedSet(exercise, set)) {
-    const d = Number(set.duration_sec) || 0;
+  const amount = AMOUNT[setKind(exercise, set)];
+  if (amount) {
+    const [field, top, load, count] = amount;
+    const d = Number(set[field]) || 0;
     if (d <= 0) return;
-    bests.holds++;
-    if (d > bests.duration) bests.duration = d;
+    bests[count]++;
+    if (d > bests[top]) bests[top] = d;
     const w = Number(set.weight) || 0;
-    if (w > bests.load) bests.load = w;
+    if (w > bests[load]) bests[load] = w;
     return;
   }
   const w = Number(set.weight) || 0;
@@ -149,8 +168,8 @@ export function prFlags({ exercises, history, date, earlier = [] }) {
 }
 
 /**
- * What to celebrate for one set just ticked: 'weight', 'e1rm' or 'hold', or
- * null. The same rule as the badge, and as before only once the exercise has
+ * What to celebrate for one set just ticked: 'weight', 'e1rm', 'hold',
+ * 'distance' or 'calories', or null. The same rule as the badge, and as before only once the exercise has
  * a first session behind it (nothing to beat on the very first one).
  * `history` is that exercise's getWorkoutHistory answer.
  */
@@ -159,12 +178,13 @@ export function celebrationFor({ exercises, exIdx, setIdx, history, date, earlie
   const set = ex?.sets?.[setIdx];
   if (!ex?.exercise_id || !set || !Array.isArray(history)) return null;
   const base = historyBests(history, date);
-  const timed = isTimedSet(ex, set);
-  if (timed ? base.holds === 0 : base.reps === 0) return null;
+  const kind = setKind(ex, set);
+  const amount = AMOUNT[kind];
+  if (base[amount ? amount[3] : 'reps'] === 0) return null;
   let kinds = [];
   walk({ exercises, history: { [ex.exercise_id]: history }, date, earlier }, (i, j, k) => {
     if (i === exIdx && j === setIdx) kinds = k;
   });
-  if (timed) return kinds.length ? 'hold' : null;
+  if (amount) return kinds.length ? (kind === 'time' ? 'hold' : kind) : null;
   return kinds.includes('weight') ? 'weight' : kinds.includes('e1rm') ? 'e1rm' : null;
 }
