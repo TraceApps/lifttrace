@@ -2313,7 +2313,7 @@
          menu itself: handleAddFabClick skips the click that ends a FAB
          drag, and keeps skipping until the FAB is touched again. -->
     {#if $wideContent && exercises.length > 0}
-      <button class="btn-icon accent" on:click={() => showAddMenu = true}
+      <button class="btn-icon accent tap" on:click={() => showAddMenu = true}
               aria-label={$_('diary_extra.add_menu_title')} title={$_('diary_extra.add_menu_title')}>
         <span class="material-symbols-rounded">add</span>
       </button>
@@ -2322,7 +2322,7 @@
          page header it sat under the strip's buttons. The header copy
          below takes over where the pinned rail shows. -->
     {#if showCoachInboxButton}
-      <button class="btn-icon accent diary-topbar-coach"
+      <button class="btn-icon accent tap diary-topbar-coach"
               on:click={openCoachInbox}
               aria-label={$_('coaching.sheets.coach_feedback')} title={$_('coaching.sheets.coach_feedback')}>
         <span class="material-symbols-rounded">
@@ -2333,13 +2333,13 @@
         {/if}
       </button>
     {/if}
-    <button class="btn-icon accent" on:click={() => showGymTools = true} aria-label={$_('diary.actions.gym_tools')} title={$_('diary.actions.gym_tools_long')}>
+    <button class="btn-icon accent tap" on:click={() => showGymTools = true} aria-label={$_('diary.actions.gym_tools')} title={$_('diary.actions.gym_tools_long')}>
       <span class="material-symbols-rounded">calculate</span>
     </button>
-    <button class="btn-icon accent" on:click={() => showBodyStats = true} aria-label={$_('diary.actions.body_stats')} title={$_('diary.actions.body_stats_long')}>
+    <button class="btn-icon accent tap" on:click={() => showBodyStats = true} aria-label={$_('diary.actions.body_stats')} title={$_('diary.actions.body_stats_long')}>
       <span class="material-symbols-rounded">scale</span>
     </button>
-    <button class="btn-icon accent" on:click={() => showWorkoutActions = true} aria-label={$_('diary.actions.workout_actions')} title={$_('diary.actions.workout_options')}>
+    <button class="btn-icon accent tap" on:click={() => showWorkoutActions = true} aria-label={$_('diary.actions.workout_actions')} title={$_('diary.actions.workout_options')}>
       <span class="material-symbols-rounded">more_vert</span>
     </button>
   </div>
@@ -2383,10 +2383,10 @@
        container so the two move as one block instead of computing
        separate top offsets. -->
   <div class="date-nav">
-    <button class="btn-icon accent" on:click={prevDay} aria-label={$_('diary.nav.previous_day')} title={$_('diary.nav.previous_day')}>
+    <button class="btn-icon accent tap" on:click={prevDay} aria-label={$_('diary.nav.previous_day')} title={$_('diary.nav.previous_day')}>
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
-    <button class="date-btn" on:click={openDatePicker} title={$_('diary.nav.jump_to_date')}>
+    <button class="date-btn tap" on:click={openDatePicker} title={$_('diary.nav.jump_to_date')}>
       <span class="date-text">{formatDateHeader($currentDate)}</span>
       <span class="date-sub">{formatDateSub($currentDate)}</span>
     </button>
@@ -2401,7 +2401,7 @@
         Today
       </button>
     {/if}
-    <button class="btn-icon accent" on:click={nextDay} aria-label={$_('diary.nav.next_day')} title={$_('diary.nav.next_day')}>
+    <button class="btn-icon accent tap" on:click={nextDay} aria-label={$_('diary.nav.next_day')} title={$_('diary.nav.next_day')}>
       <span class="material-symbols-rounded">chevron_right</span>
     </button>
   </div>
@@ -2462,7 +2462,7 @@
         {#if !$todayLog?.completed}
           <WorkoutTimer bind:minutes={durationMin} on:update={e => updateDuration(e.detail)} />
         {/if}
-        <button class="wake-toggle" class:active={$screenOn} on:click={toggleWakeLock} title={$screenOn ? 'Screen lock on' : 'Screen lock off'}>
+        <button class="wake-toggle tap" class:active={$screenOn} on:click={toggleWakeLock} title={$screenOn ? 'Screen lock on' : 'Screen lock off'}>
           <span class="material-symbols-rounded">
             {$screenOn ? 'stay_current_portrait' : 'screen_lock_portrait'}
           </span>
@@ -2767,7 +2767,7 @@
           placeholder={$_('diary.workout_name_placeholder')}
         />
       {:else}
-        <button class="workout-title" on:click={startEditName} title={$_('diary.tap_to_rename')}>
+        <button class="workout-title tap" on:click={startEditName} title={$_('diary.tap_to_rename')}>
           <span class="workout-title-text">{workoutName || 'Untitled workout'}</span>
           <span class="material-symbols-rounded title-edit-icon">edit</span>
         </button>
@@ -2998,7 +2998,7 @@
           ></textarea>
         </div>
       {:else}
-        <button class="notes-trigger" on:click={() => notesExpanded = true}>
+        <button class="notes-trigger tap" on:click={() => notesExpanded = true}>
           <span class="material-symbols-rounded">edit_note</span>
           Add workout notes
         </button>
@@ -3690,6 +3690,12 @@
     align-items: center;
     gap: 2px;
     pointer-events: all;
+  }
+  /* Touch screens: 4px apart, so each button's tap area (.tap) reaches 44px
+     across without taking its neighbor's. */
+  @media (pointer: coarse) {
+    :global(.diary-topbar-actions) { gap: 4px; }
+    :global(.diary-topbar-actions .btn-icon) { --tap-w: 44px; }
   }
 
   /* Sticky date sub-bar — sits directly below the page-header.

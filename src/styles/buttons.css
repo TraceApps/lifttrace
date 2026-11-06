@@ -93,3 +93,22 @@
 }
 .fab:active { transform: scale(0.92); }
 .fab:hover  { box-shadow: var(--shadow-lg), 0 0 0 8px var(--accent-dim); }
+/* Tap area: a control drawn smaller than a fingertip still takes a 44px tap
+   on a touch screen, without changing how it looks. The area is centered on
+   the control; where a neighbor sits closer than that, the control sets
+   --tap-w / --tap-h to what fits between them (and --tap-dx / --tap-dy to
+   lean it), so
+   two tap areas never overlap. A control positioned fixed or absolute keeps
+   its own position (its rule is more specific than this one). */
+@media (pointer: coarse) {
+  .tap { position: relative; }
+  .tap::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--tap-w, 44px));
+    height: max(100%, var(--tap-h, 44px));
+    transform: translate(calc(-50% + var(--tap-dx, 0px)), calc(-50% + var(--tap-dy, 0px)));
+  }
+}

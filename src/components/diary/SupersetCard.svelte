@@ -119,7 +119,7 @@
       </div>
       <div class="ss-meta">
         <span class="ss-progress">{completedSets}/{totalSets} sets</span>
-        <button class="ss-remove-btn" on:click|stopPropagation={() => dispatch('removeSuperset', supersetId)} title="Remove entire superset">
+        <button class="ss-remove-btn tap" on:click|stopPropagation={() => dispatch('removeSuperset', supersetId)} title="Remove entire superset">
           <span class="material-symbols-rounded">close</span>
         </button>
         <span class="material-symbols-rounded ss-chevron" class:rotated={!expanded}>expand_more</span>

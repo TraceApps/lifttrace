@@ -90,8 +90,8 @@ test('the strip carries every tool: Add, Coach Feedback, Gym Tools, Body Stats, 
   ];
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   // Opens the menu itself: handleAddFabClick ignores clicks after a FAB drag.
-  assert.match(strip, /\{#if \$wideContent && exercises\.length > 0\}\s*<button class="btn-icon accent" on:click=\{\(\) => showAddMenu = true\}/);
-  assert.match(strip, /class="btn-icon accent diary-topbar-coach"[\s\S]*on:click=\{openCoachInbox\}/);
+  assert.match(strip, /\{#if \$wideContent && exercises\.length > 0\}\s*<button class="btn-icon accent tap" on:click=\{\(\) => showAddMenu = true\}/);
+  assert.match(strip, /class="btn-icon accent tap diary-topbar-coach"[\s\S]*on:click=\{openCoachInbox\}/);
   assert.match(strip, /\{#if unreadFeedbackCount > 0\}\s*<span class="diary-topbar-badge">\{unreadFeedbackCount\}<\/span>/);
 });
 

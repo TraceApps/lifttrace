@@ -355,7 +355,7 @@
     <div class="ex-info">
       <div class="ex-name-row">
         <span class="ex-name">{exercise.exercise_name}</span>
-        <button class="load-chip" class:non-default={loadType !== 'bilateral' || timed}
+        <button class="load-chip tap" class:non-default={loadType !== 'bilateral' || timed}
                 on:click|stopPropagation={toggleLoadMenu}
                 title="Load type">
           {#if loadType === 'paired'}<span class="material-symbols-rounded">compare_arrows</span>{loadTypeLabel}
@@ -377,22 +377,22 @@
     </div>
     <div class="ex-actions">
       {#if canMoveUp}
-        <button class="btn-icon-sm" on:click|stopPropagation={() => dispatch('moveUp')} title="Move up">
+        <button class="btn-icon-sm tap" on:click|stopPropagation={() => dispatch('moveUp')} title="Move up">
           <span class="material-symbols-rounded">keyboard_double_arrow_up</span>
         </button>
       {/if}
       {#if canMoveDown}
-        <button class="btn-icon-sm" on:click|stopPropagation={() => dispatch('moveDown')} title="Move down">
+        <button class="btn-icon-sm tap" on:click|stopPropagation={() => dispatch('moveDown')} title="Move down">
           <span class="material-symbols-rounded">keyboard_double_arrow_down</span>
         </button>
       {/if}
-      <button class="btn-icon-sm" on:click|stopPropagation={() => dispatch('info')} title="View exercise details" aria-label="View exercise details">
+      <button class="btn-icon-sm tap" on:click|stopPropagation={() => dispatch('info')} title="View exercise details" aria-label="View exercise details">
         <span class="material-symbols-rounded">info</span>
       </button>
-      <button class="btn-icon-sm" on:click|stopPropagation={() => dispatch('menu')} title="More options">
+      <button class="btn-icon-sm tap" on:click|stopPropagation={() => dispatch('menu')} title="More options">
         <span class="material-symbols-rounded">more_vert</span>
       </button>
-      <button class="btn-icon" on:click|stopPropagation={remove} title="Remove exercise">
+      <button class="btn-icon tap" on:click|stopPropagation={remove} title="Remove exercise">
         <span class="material-symbols-rounded">close</span>
       </button>
       <span class="material-symbols-rounded expand-icon" class:rotated={!expanded}>expand_more</span>
@@ -452,12 +452,12 @@
       {/each}
 
       <div class="add-set-actions">
-        <button class="add-set-btn" on:click={addSet}>
+        <button class="add-set-btn tap" on:click={addSet}>
           <span class="material-symbols-rounded">add</span>
           Add Set
         </button>
         {#if !timed && !hasWarmups && workingWeight > 0}
-          <button class="add-warmup-btn" on:click={addWarmups} title="Add warm-up progression based on working weight">
+          <button class="add-warmup-btn tap" on:click={addWarmups} title="Add warm-up progression based on working weight">
             <span class="material-symbols-rounded">bolt</span>
             Warm-ups
           </button>
@@ -690,6 +690,12 @@
     color: var(--text-3); display: flex; align-items: center; justify-content: center;
     border-radius: var(--radius-sm);
   }
+  /* Touch tap areas (.tap, styles/buttons.css): 44px tall; across, the
+     header's icons sit 4px apart and each takes half of it on both sides. */
+  .btn-icon-sm, .ex-actions .btn-icon { --tap-w: calc(100% + 4px); }
+  /* The load chip sits 3px above the clip chip's row: with a clip there,
+     its area reaches up into the card's top padding instead of down. */
+  .ex-info:has(.ex-clip) .load-chip { --tap-h: 34px; --tap-dy: -8px; }
   .btn-icon-sm:hover { color: var(--accent); background: var(--surface-2); }
   .btn-icon-sm .material-symbols-rounded { font-size: 20px; }
 </style>

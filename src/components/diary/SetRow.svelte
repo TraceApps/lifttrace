@@ -228,7 +228,7 @@
     <span class="set-num">W</span>
   {:else}
     <div class="set-num-wrap">
-      <button class="set-num set-num-btn" class:custom={set.number != null}
+      <button class="set-num set-num-btn tap" class:custom={set.number != null}
         bind:this={numTriggerEl}
         on:click={() => numOpen ? (numOpen = false) : openNumPicker()}
         title="Set number — tap to reassign for asymmetric supersets" aria-label="Edit set number">
@@ -255,7 +255,7 @@
   {/if}
 
   <div class="set-field weight-field">
-    <button class="step-btn" on:click={() => bumpWeight(-step)} aria-label="Decrease weight" tabindex="-1">−</button>
+    <button class="step-btn tap" on:click={() => bumpWeight(-step)} aria-label="Decrease weight" tabindex="-1">−</button>
     <input
       type="number"
       class="set-input"
@@ -267,7 +267,7 @@
       placeholder="0"
       inputmode="decimal"
     />
-    <button class="step-btn" on:click={() => bumpWeight(step)} aria-label="Increase weight" tabindex="-1">+</button>
+    <button class="step-btn tap" on:click={() => bumpWeight(step)} aria-label="Increase weight" tabindex="-1">+</button>
     <span class="set-unit">{weightHint}</span>
   </div>
 
@@ -299,7 +299,7 @@
         placeholder="0"
         inputmode="numeric"
       />
-      <button class="split-btn active" on:click={toggleSplit} title="Merge L/R" aria-label="Merge L/R">
+      <button class="split-btn tap active" on:click={toggleSplit} title="Merge L/R" aria-label="Merge L/R">
         <span class="material-symbols-rounded">link_off</span>
       </button>
     </div>
@@ -322,7 +322,7 @@
       <!-- Hold timer: sits inside the field like the L/R split button does
            in the reps field, so the row gets no wider on a narrow phone. -->
       {#if !set.completed || holdRunning}
-        <button class="split-btn hold-btn" class:active={holdRunning}
+        <button class="split-btn hold-btn tap" class:active={holdRunning}
           on:click={() => dispatch(holdRunning ? 'stopHold' : 'startHold')}
           title={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}
           aria-label={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}>
@@ -351,14 +351,14 @@
            the RPE chip's auto column, and the label's own width +
            gap was routinely eating the entire input (issue #75). -->
       {#if loadType === 'unilateral'}
-        <button class="split-btn" on:click={toggleSplit} title="Split L/R reps" aria-label="Split L/R reps">
+        <button class="split-btn tap" on:click={toggleSplit} title="Split L/R reps" aria-label="Split L/R reps">
           <span class="material-symbols-rounded">add_link</span>
         </button>
       {/if}
     </div>
   {/if}
 
-  <button class="check-btn" class:checked={set.completed} on:click={toggleComplete} aria-label={set.completed ? 'Mark incomplete' : 'Mark complete'}>
+  <button class="check-btn tap" class:checked={set.completed} on:click={toggleComplete} aria-label={set.completed ? 'Mark incomplete' : 'Mark complete'}>
     <span class="material-symbols-rounded">
       {set.completed ? 'check_circle' : 'radio_button_unchecked'}
     </span>
@@ -366,7 +366,7 @@
 
   {#if $trackRpe && !showAsWarmup}
     <div class="rpe-wrap">
-      <button class="rpe-chip" class:set={set.rpe != null}
+      <button class="rpe-chip tap" class:set={set.rpe != null}
         bind:this={rpeTriggerEl}
         on:click={() => rpeOpen ? (rpeOpen = false) : openRpePicker()}
         title="Rate of Perceived Exertion">
@@ -388,7 +388,7 @@
     </div>
   {/if}
 
-  <button class="remove-btn" on:click={() => dispatch('remove')} title="Remove set" aria-label="Remove set">
+  <button class="remove-btn tap" on:click={() => dispatch('remove')} title="Remove set" aria-label="Remove set">
     <span class="material-symbols-rounded">close</span>
   </button>
 </div>
@@ -429,6 +429,23 @@
   .set-row:has(.split-btn):has(.rpe-wrap) {
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
   }
+  /* Tap areas on a touch screen (.tap, styles/buttons.css): 44px tall, the
+     rows are 49px apart. Across, no control's area reaches past half the
+     6px gap to its neighbor's box: the set number leans into the card's
+     left edge, and check and remove share the gap between them unevenly
+     with remove leaning into the card's right edge, so these reach 44.
+     − reaches over the field's edge; + sits between the input and the unit
+     (a tap on the unit must not change the weight), and the L/R and hold
+     buttons against their input, so they keep less across. */
+  .set-num-btn { --tap-w: 44px; --tap-dx: -6px; }
+  .rpe-chip { --tap-w: calc(100% + 8px); }
+  .step-btn { --tap-w: 32px; --tap-dx: -5px; }
+  .step-btn + .set-input + .step-btn { --tap-w: 100%; --tap-dx: 0px; }
+  .split-btn { --tap-w: 100%; }
+  .check-btn { --tap-w: 44px; --tap-dx: 1px; }
+  .remove-btn { --tap-w: 44px; --tap-dx: 5px; }
+  .set-row:has(.rpe-wrap) .check-btn { --tap-w: calc(100% + 6px); --tap-dx: 0px; }
+  .set-row:has(.rpe-wrap) .remove-btn { --tap-dx: 3px; }
   .set-row.done { opacity: 0.6; }
   /* A clip on this set. Sits opposite the PR badge so the two never fight
      for the same corner, and stays small: it marks the row, the player is

@@ -35,13 +35,13 @@
         <span class="rest-time">{displayMin}:{String(displaySec).padStart(2, '0')}</span>
       </div>
       <div class="rest-actions">
-        <button class="rest-btn" on:click={() => addRestTime(REST_ADD_SEC)} title={$_('rest_bar.add_title', { values: { s: REST_ADD_SEC } })}>{$_('rest_bar.add', { values: { s: REST_ADD_SEC } })}</button>
-        <button class="rest-btn icon" on:click={() => (paused ? resumeRest() : pauseRest())}
+        <button class="rest-btn tap" on:click={() => addRestTime(REST_ADD_SEC)} title={$_('rest_bar.add_title', { values: { s: REST_ADD_SEC } })}>{$_('rest_bar.add', { values: { s: REST_ADD_SEC } })}</button>
+        <button class="rest-btn icon tap" on:click={() => (paused ? resumeRest() : pauseRest())}
           title={paused ? $_('rest_bar.resume') : $_('rest_bar.pause')}
           aria-label={paused ? $_('rest_bar.resume') : $_('rest_bar.pause')}>
           <span class="material-symbols-rounded">{paused ? 'play_arrow' : 'pause'}</span>
         </button>
-        <button class="rest-btn icon" on:click={() => stopRest(false)} title={$_('rest_bar.skip')} aria-label={$_('rest_bar.skip')}>
+        <button class="rest-btn icon tap" on:click={() => stopRest(false)} title={$_('rest_bar.skip')} aria-label={$_('rest_bar.skip')}>
           <span class="material-symbols-rounded">skip_next</span>
         </button>
       </div>
@@ -96,6 +96,11 @@
   }
   .rest-btn:hover { background: rgba(255,255,255,0.14); }
   .rest-btn.icon { padding: 5px 8px; }
+  /* Touch tap areas (.tap, styles/buttons.css): 44px tall inside the 68px
+     bar, and across each takes half the 4px gap on both sides; the icon
+     buttons are drawn 40px wide on a touch screen to reach 44. */
+  .rest-btn { --tap-w: 44px; }
+  @media (pointer: coarse) { .rest-btn.icon { min-width: 40px; } }
   /* Held: the bar and the number stop, and the time reads as waiting. */
   .rest-sticky.paused .rest-label { color: var(--text-3); }
   .rest-sticky.paused .rest-time { color: var(--text-2); }

@@ -87,7 +87,7 @@ test('the result is applied through the card\'s normal set update and completes 
 
 test('the row button lives inside the time field and only on unfinished or running sets', () => {
   const timeField = row.slice(row.indexOf('{:else if timed}'), row.indexOf('{:else}', row.indexOf('{:else if timed}')));
-  assert.match(timeField, /class="split-btn hold-btn"/);
+  assert.match(timeField, /class="split-btn hold-btn tap"/);
   assert.match(timeField, /\{#if !set\.completed \|\| holdRunning\}/);
 });
 

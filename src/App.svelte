@@ -859,7 +859,7 @@
 {#if showHamburger}
   <header class="app-topbar">
     <button
-      class="hamburger"
+      class="hamburger tap"
       on:click={() => sidebarOpen = !sidebarOpen}
       aria-label="Open menu"
     >

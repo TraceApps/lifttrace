@@ -27,7 +27,7 @@
 </script>
 
 <div class="timer" class:running class:paused>
-  <button class="timer-btn" on:click={toggle}
+  <button class="timer-btn tap" on:click={toggle}
     title={running ? 'Pause workout timer' : paused ? 'Resume workout timer' : 'Start workout timer'}
     aria-label={running ? 'Pause workout timer' : paused ? 'Resume workout timer' : 'Start workout timer'}>
     <span class="material-symbols-rounded timer-icon">
