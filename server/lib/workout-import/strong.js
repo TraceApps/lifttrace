@@ -4,7 +4,9 @@ import { parseCsv, convertWeight } from './common.js';
  * Strong CSV export format (as of 2024+):
  *   Date;Workout Name;Exercise Name;Set Order;Weight;Reps;Distance;Seconds;Notes;Workout Notes;RPE;Weight Unit
  *
- * Delimiter is SEMICOLON. One row per set. Date includes time.
+ * Android exports separate with SEMICOLONS; iOS exports with commas and no
+ * Weight Unit column (#151). The header line says which. One row per set.
+ * Date includes time.
  *
  * Older exports (pre-2023) used a slightly different column set — we read by
  * header name so both are tolerated. Distance is still ignored: the export
@@ -13,7 +15,10 @@ import { parseCsv, convertWeight } from './common.js';
  * plank, hold or carry, and used to arrive as an empty 0 x 0 set.
  */
 export function parseStrong(csvText, userUnit) {
-  const rows = parseCsv(csvText, ';');
+  // A header with more semicolons than commas is the Android export.
+  const header = String(csvText).split('\n', 1)[0];
+  const delim = header.split(';').length > header.split(',').length ? ';' : ',';
+  const rows = parseCsv(csvText, delim);
   if (rows.length === 0) return [];
 
   // Header normalization: Strong uses Title Case; parseCsv lowercases.

@@ -1069,7 +1069,7 @@
     },
     "intro": "Bring in your workout history from another gym app via CSV, or a Garmin strength-training session via its raw FIT file. Your exercises are auto-matched against your LiftTrace library; anything without a match stays as free-text so nothing is lost.",
     "sources": {
-      "strong": "Semicolon CSV · set-level + RPE",
+      "strong": "iPhone or Android CSV · set-level + RPE",
       "hevy": "Comma CSV · supersets preserved",
       "fitnotes": "Android CSV · per-day organization",
       "jefit": "Web export · flexible header layout",
