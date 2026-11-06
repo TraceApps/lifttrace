@@ -301,9 +301,9 @@ test('a badged rep set is exactly one that moves the records list (weight or est
   }
 });
 
-test('a badged hold is exactly one that lengthens the longest hold in the records list', () => {
+test('a badged hold is exactly one that lengthens the longest hold or raises the heaviest load held in the records list', () => {
   const rand = rng(77);
-  const hold = () => ({ duration_sec: 20 + Math.floor(rand() * 5) * 10, weight: 0, completed: true });
+  const hold = () => ({ duration_sec: 20 + Math.floor(rand() * 5) * 10, weight: [0, 0, 10, 20, 25][Math.floor(rand() * 5)], completed: true });
   for (let n = 0; n < 200; n++) {
     const old = Array.from({ length: Math.floor(rand() * 3) }, hold);
     const today = Array.from({ length: 1 + Math.floor(rand() * 4) }, hold);
@@ -312,9 +312,9 @@ test('a badged hold is exactly one that lengthens the longest hold in the record
     const rec = volume.newRecord('Plank');
     for (const s of old) volume.accumulateRecord(rec, { set_type: 'time' }, s, '2026-10-28');
     today.forEach((s, i) => {
-      const before = rec.maxDuration;
+      const before = { d: rec.maxDuration, w: rec.maxHoldWeight };
       volume.accumulateRecord(rec, { set_type: 'time' }, s, DATE);
-      assert.equal(got.has(i), rec.maxDuration > before, `hold ${i} of ${JSON.stringify({ old, today })}`);
+      assert.equal(got.has(i), rec.maxDuration > before.d || rec.maxHoldWeight > before.w, `hold ${i} of ${JSON.stringify({ old, today })}`);
     });
   }
 });

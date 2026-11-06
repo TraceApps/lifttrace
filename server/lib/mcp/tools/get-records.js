@@ -85,7 +85,8 @@ export function registerGetRecords(server, { userId }) {
         'Personal records per exercise: max weight ever lifted, the rep ' +
         'count at that weight, the date, and estimated 1-rep max. For timed ' +
         'exercises (planks, holds, carries) maxDuration is the longest hold in ' +
-        'seconds and maxDurationWeight the load it was held at. Optionally ' +
+        'seconds, maxDurationWeight the load it was held at and maxHoldWeight the ' +
+        'heaviest load held at any length. Optionally ' +
         'filter to one exercise by name (case-insensitive substring match). ' +
         'Optional inclusive start/end YYYY-MM-DD bounds limit the source history: ' +
         "with a range these are the best lifts WITHIN those dates, not the user's " +

@@ -304,8 +304,10 @@ heaviest load held. The Diary keeps each exercise's history as the server sent
 it and works the badges out from it, so they follow edits, unticks and a
 reopened day. The server never decides per set: `pr.set` compares the records
 before and after a save (`recordsBeforeSave`, `sendNewRecords`), which agrees
-with the rule for weight, estimated 1RM and longest hold (the heaviest load
-held is a badge only), so there is no server copy. `scripts/pr-sets.test.js` holds the
+with the rule for weight, estimated 1RM, longest hold and heaviest load held
+(`maxHoldWeight`) for the newest day, so there is no server copy. A day logged
+afterwards for an earlier date can badge a set that moves no all-time record,
+and sends no `pr.set` for it. `scripts/pr-sets.test.js` holds the
 rule to `accumulateRecord`.
 
 ### The watch is a client, not a satellite

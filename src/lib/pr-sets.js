@@ -17,10 +17,12 @@
 // The estimated 1-rep max is the one the records list, GET /api/v1/records
 // and the pr.set webhook use (server/lib/volume.js accumulateRecord): rounded,
 // and the weight itself for a single. scripts/pr-sets.test.js holds the two
-// to each other. The server sends pr.set by comparing the records before and
-// after a save, which agrees with this rule, so only the app computes it per
-// set and there is no copy on the server. (The heaviest load held, a timed
-// set's second record, is a badge only: pr.set has never been sent for it.)
+// to each other. The server sends pr.set by comparing the all-time records
+// before and after a save, which agrees with this rule for the newest day (a
+// day logged afterwards for an earlier date can badge a set that moves no
+// all-time record, and sends none), so only the app computes it per set and
+// there is no copy on the server. (The heaviest load held, a timed
+// set's second record, is the records' maxHoldWeight.)
 import { isTimedSet } from './workout.js';
 
 /** What an exercise's earlier sets have reached so far. */

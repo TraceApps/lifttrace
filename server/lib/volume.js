@@ -72,12 +72,13 @@ export function isTimedSet(exercise, set) {
  *
  * Rep sets move maxWeight / maxReps / e1rm exactly as before. Timed sets
  * move maxDuration (longest hold) and maxDurationWeight (the load it was
- * held at) instead, and never touch the rep fields: an estimated 1RM for a
+ * held at), and maxHoldWeight (the heaviest load held, at any length, the
+ * Diary's second hold record) instead, and never touch the rep fields: an estimated 1RM for a
  * wall sit is meaningless, and a heavy weighted carry is not a heavier
  * bench.
  */
 export function newRecord(name) {
-  return { name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, durationDate: '' };
+  return { name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, maxHoldWeight: 0, durationDate: '' };
 }
 export function accumulateRecord(record, exercise, set, date) {
   if (!set?.completed || set.warmup) return;
@@ -85,6 +86,7 @@ export function accumulateRecord(record, exercise, set, date) {
     const sec = Number(set.duration_sec) || 0;
     if (sec <= 0) return;
     const w = Number(set.weight) || 0;
+    if (w > (record.maxHoldWeight || 0)) record.maxHoldWeight = w;
     if (sec > record.maxDuration || (sec === record.maxDuration && w > record.maxDurationWeight)) {
       record.maxDuration = sec;
       record.maxDurationWeight = w;

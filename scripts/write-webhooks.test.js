@@ -242,6 +242,37 @@ test('pr.set: a longer hold over MCP is a record too', opts, async () => {
   assert.equal(shorter.events.length, 0);
 });
 
+test('pr.set: the heaviest load held is a record too, on the app, REST and MCP, once', opts, async () => {
+  // The Diary badges a hold held with more weight than ever before (src/lib/pr-sets.js
+  // 'load'), even a shorter one; the webhook now says so too.
+  const carry = (await app('POST', '/api/exercises', { name: 'Farmer Hold', set_type: 'time' })).data.id;
+  const hold = (sec, kg, id) => ({ uuid: id, duration_sec: sec, weight: kg, completed: true });
+  const first = await sent('pr.set', () => app('PUT', '/api/workout/2026-10-10', { exercises: [{ uuid: 'ex-fh-1', exercise_id: carry, exercise_name: 'Farmer Hold', set_type: 'time', sets: [hold(60, 20, 'fh-1')] }], client_key: 'fh-1-key' }));
+  assert.equal(first.events.length, 1);
+  assert.equal(first.events[0].new_max_hold_weight, 20);
+  assert.equal(first.events[0].previous_max_hold_weight, 0);
+
+  // A shorter hold with more weight: the load record moved, the duration one did not.
+  const viaApp = await sent('pr.set', () => app('PUT', '/api/workout/2026-10-11', { exercises: [{ uuid: 'ex-fh-2', exercise_id: carry, exercise_name: 'Farmer Hold', set_type: 'time', sets: [hold(30, 30, 'fh-2')] }], client_key: 'fh-2-key' }));
+  assert.equal(viaApp.events.length, 1);
+  assert.equal(viaApp.events[0].new_max_hold_weight, 30);
+  assert.equal(viaApp.events[0].previous_max_hold_weight, 20);
+  assert.equal(viaApp.events[0].new_max_duration_sec, 60);
+
+  const viaRest = await sent('pr.set', () => rest('POST', '/workouts/2026-10-12/sets', { exercise_id: carry, duration_sec: 20, weight: 35 }));
+  assert.equal(viaRest.events.length, 1, JSON.stringify(viaRest.out.data));
+  assert.equal(viaRest.events[0].new_max_hold_weight, 35);
+  const viaMcp = await sent('pr.set', () => mcp('log_set', { exercise_id: carry, duration_sec: 20, weight: 40, date: '2026-10-13' }));
+  assert.equal(viaMcp.events.length, 1);
+  assert.equal(viaMcp.events[0].new_max_hold_weight, 40);
+
+  // Matching the heaviest load, or a lighter one, is no record.
+  const repeat = await sent('pr.set', () => mcp('log_set', { exercise_id: carry, duration_sec: 15, weight: 40, date: '2026-10-14' }));
+  assert.equal(repeat.events.length, 0);
+  const lighter = await sent('pr.set', () => rest('POST', '/workouts/2026-10-14/sets', { exercise_id: carry, duration_sec: 10, weight: 25 }));
+  assert.equal(lighter.events.length, 0);
+});
+
 test('cardio off: REST and MCP refuse with code cardio_disabled and send nothing', opts, async () => {
   const viaRest = await sent('cardio.logged', () => rest('POST', '/cardio', { activity: 'Run', duration_min: 30, date: DAY }));
   assert.equal(viaRest.out.status, 400);

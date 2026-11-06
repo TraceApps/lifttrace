@@ -1254,7 +1254,7 @@ const Stats = {
     for (const w of all) {
       for (const ex of w.exercises || []) {
         const id = ex.exercise_id || ex.exercise_name;
-        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, durationDate: '' };
+        if (!records[id]) records[id] = { name: ex.exercise_name, maxWeight: 0, date: '', e1rm: 0, maxDuration: 0, maxDurationWeight: 0, maxHoldWeight: 0, durationDate: '' };
         for (const s of ex.sets || []) {
           if (!s.completed || s.warmup) continue;
           // Mirror of accumulateRecord in server/lib/volume.js: a timed set
@@ -1264,6 +1264,7 @@ const Stats = {
             if (sec <= 0) continue;
             const hw = Number(s.weight) || 0;
             const r = records[id];
+            if (hw > r.maxHoldWeight) r.maxHoldWeight = hw;
             if (sec > r.maxDuration || (sec === r.maxDuration && hw > r.maxDurationWeight)) {
               r.maxDuration = sec; r.maxDurationWeight = hw; r.durationDate = w.date;
             }
