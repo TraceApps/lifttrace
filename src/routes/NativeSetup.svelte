@@ -224,7 +224,18 @@
   }
 
   async function migrateDownload() {
+    // Replacing the phone's data drops changes from an earlier connection
+    // that never reached a server: asked about first, as Settings' Download
+    // asks (lib/local-account.js). Not sent: they may be another account's.
     migrateBusy = true;
+    try {
+      const { settleQueuedChanges } = await import('../lib/local-account.js');
+      if (!(await settleQueuedChanges('download', { send: false }))) { migrateBusy = false; return; }
+    } catch (e) {
+      migrateBusy = false;
+      showError(e.message || $_('native_setup.toast.cant_clear_local'));
+      return;
+    }
     try {
       await destroyLocalDb();
       showSuccess($_('native_setup.toast.local_cleared'));

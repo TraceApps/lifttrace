@@ -838,6 +838,9 @@
 {#if showNativeSetup}
   <NativeSetup />
   <Toast />
+  <!-- Replace with Server asks before dropping unsent changes, and the
+       local-data count can ask whether a server is the same one. -->
+  <ConfirmDialogMount />
 {:else if !authLoaded}
   <!-- Asking the server who is signed in: a blank page, never the app. -->
 {:else if needsLogin}
