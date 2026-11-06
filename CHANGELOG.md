@@ -93,6 +93,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Settings cleared on the server stay cleared when an offline phone syncs.** After `DELETE /api/settings` (from an API client) or a restore whose backup lacked a setting, a change made on the Android app while it was offline, before that, came back once the phone synced, on the server and every device. It now stays cleared, as does one a third-party app sends with no time of its own; a change made after it is kept.
 - **A setting deleted on the server reaches an Android phone whose own change of it was still waiting to go up.** If the phone synced while that change couldn't be sent yet, it kept its old value for good once the change went up, instead of going back to the default. The same went for a phone that held no workouts, programs or exercises of its own and pulled everything again: it wasn't told what was deleted. A row deleted on the server while a change of it waited also no longer makes the phone download everything again.
 
+### Translations
+
+- **Russian is in the language picker** ([#149](https://github.com/TraceApps/lifttrace/issues/149)), translated by @GalKander on Weblate. A phone set to Russian opens the app in it.
+
 ### Security
 
 - **Linking a sign-in provider asks for your password first.** Profile > Linked Accounts > Link now asks for your password, and your two-step code when that's on, before it starts; the server checks it, not just the page. Before, anyone holding a signed-in session could link their own single sign-on account and keep signing in with it, even after a password change. An account that only signs in through single sign-on can link another provider, or set a first password, within 15 minutes of signing in. The link has to finish in the browser it started in. A changed email waits too: Profile asks you to confirm it with your password, and until then single sign-on doesn't link to your account by it and a password reset goes to your previous email. (from [nutritrace#222](https://github.com/TraceApps/nutritrace/issues/222))

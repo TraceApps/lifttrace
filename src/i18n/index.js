@@ -6,12 +6,14 @@ import { register, init, getLocaleFromNavigator } from 'svelte-i18n';
 register('en', () => import('./en.json'));
 register('es', () => import('./es.json'));
 register('it', () => import('./it.json'));
+register('ru', () => import('./ru.json'));
 register('zh-Hans', () => import('./zh-Hans.json'));
 
 export const AVAILABLE_LOCALES = [
   { code: 'en', label: 'English' },
   { code: 'es', label: 'Español' },
   { code: 'it', label: 'Italiano' },
+  { code: 'ru', label: 'Русский' },
   { code: 'zh-Hans', label: '简体中文' },
 ];
 

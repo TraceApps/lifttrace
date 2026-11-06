@@ -19,9 +19,13 @@ test('Simplified Chinese is in the picker', () => {
   assert.ok(AVAILABLE_LOCALES.some(l => l.code === 'zh-Hans' && l.label === '简体中文'));
 });
 
+test('Russian is in the picker', () => {
+  assert.ok(AVAILABLE_LOCALES.some(l => l.code === 'ru' && l.label === 'Русский'));
+});
+
 test('a phone language tag picks the app locale', () => {
   const cases = {
-    'en-US': 'en', 'es-MX': 'es', 'es': 'es', 'it-IT': 'it', 'fr-FR': 'en', 'de': 'en',
+    'en-US': 'en', 'es-MX': 'es', 'es': 'es', 'it-IT': 'it', 'fr-FR': 'en', 'de': 'en', 'ru': 'ru', 'ru-RU': 'ru', 'ru_UA': 'ru',
     'zh': 'zh-Hans', 'zh-CN': 'zh-Hans', 'zh-SG': 'zh-Hans', 'zh-Hans': 'zh-Hans',
     'zh-Hans-CN': 'zh-Hans', 'zh_CN': 'zh-Hans', 'zh-Hans-TW': 'zh-Hans',
     'zh-TW': 'en', 'zh-HK': 'en', 'zh-MO': 'en', 'zh-Hant': 'en', 'zh-Hant-TW': 'en',
