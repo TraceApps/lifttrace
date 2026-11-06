@@ -30,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **The Diary's edge tab is easier to tap** (open foldables and tablets). The tab on the right edge that opens the widget panel was a 24px sliver; on a touch screen it now takes a tap 44px in from the edge, and the exercise cards stop short of that strip so a tap there never lands on a card's buttons. It looks the same.
 - **The rest bar names what's next, not the lift you just finished.** With no set left to do but an exercise still waiting for its sets, the bar said "Next: Barbell Row" after Barbell Row's last set. It now names that waiting exercise ("Next: Biceps Curl"), and says nothing when nothing is left.
 - **Replace with Server on the connect screen asks before dropping unsent changes** (Android). Like Settings' Download, it now says when changes made while the phone was connected to a server never reached it, and replaces the phone's data only after Download Anyway; before, it deleted them straight away.
 - **The `pr.set` webhook is sent for the heaviest load held.** A timed set held with more weight than ever before, a shorter one included, got a PR badge in the Diary but sent no `pr.set`, from the app, `log_set` or `POST /api/v1/workouts/:date/sets`. It now sends one, with `new_max_hold_weight` and `previous_max_hold_weight`, and the records (`GET /api/v1/records`, `get_records`) carry `maxHoldWeight`.

@@ -382,7 +382,11 @@
   $: _railRoom = _bodyW >= HUD_COL + CENTER_MIN + RAIL_COL + 2 * GRID_GAP + 2 * _pagePx();
   // Two columns (no rail): is the exercise column still 720px wide? Below
   // that its cards stay linear (history above the sets, not beside them).
-  $: _centerRoom = _bodyW >= HUD_COL + CENTER_MIN + 20 + 2 * _pagePx();  // the two-column gap is 20px
+  $: _centerRoom = _bodyW >= HUD_COL + CENTER_MIN + 20 + 2 * _pagePx() + _edgeTabGutter;  // the two-column gap is 20px
+  // On a touch screen the Diary keeps 24px clear for the edge tab's tap
+  // area wherever the tab shows (.diary-body.edge-tab-room).
+  const _coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+  $: _edgeTabGutter = _coarse && $wideContent && !_railPinnedShown ? 24 : 0;
   // The pinned Overview rail is on screen: wide-content, room for its
   // column, and the rail pinned. It carries Load Workout, Body Stats, Gym
   // Tools and Workout Actions inline, so the page header holds only Add and
@@ -2416,7 +2420,7 @@
        .diary-right-rail is display:none. Gated by
        html:not(.force-mobile-layout) so the desktop opt-out toggle
        still delivers the mobile flow at any width. -->
-  <div class="diary-body" class:rail-hidden={_railMode === 'hidden'} class:rail-room={_railRoom} class:center-room={_centerRoom} bind:this={_diaryBodyEl}>
+  <div class="diary-body" class:edge-tab-room={$wideContent && !_railPinnedShown} class:rail-hidden={_railMode === 'hidden'} class:rail-room={_railRoom} class:center-room={_centerRoom} bind:this={_diaryBodyEl}>
 
   <!-- Left column wrapper (desktop only via grid; mobile just stacks).
        Groups the session HUD (summary-bar + now-strip) into one grid
@@ -5484,6 +5488,23 @@
       width: 28px;
     }
     :global(html.wide-content) .rail-edge-tab .material-symbols-rounded { font-size: 18px; }
+    /* On a touch screen (an open foldable, a tablet) the tab takes a 44px
+       tap: its tap area reaches 20px in from the edge, and the Diary keeps
+       that strip clear so the area never lies over a card's own buttons.
+       While the panel is open the panel is there, so the tab is as drawn. */
+    @media (pointer: coarse) {
+      :global(html.wide-content) .rail-edge-tab[aria-expanded='false']::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: 44px;
+      }
+      :global(html.wide-content) .diary-body.edge-tab-room {
+        padding-right: calc(var(--page-px) + 24px);
+      }
+    }
   }
 
 
