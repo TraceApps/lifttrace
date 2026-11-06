@@ -85,8 +85,9 @@ test('the card, auto-fill, PR badges, celebrations and the watch use the same da
   const inSuperset = tags(read('../src/components/diary/SupersetCard.svelte'), 'ExerciseCard');
   assert.equal(inSuperset.length, 2);
   for (const tag of inSuperset) assert.match(tag, /\{date\}/);
-  // PR badges and the PR celebrations leave the day out (src/lib/pr-sets.js).
-  assert.match(read('../src/lib/pr-sets.js'), /if \(!h \|\| h\.date === date\) continue;/);
+  // PR badges and the PR celebrations leave the day out, and every later
+  // day too: only the days before count (src/lib/pr-sets.js).
+  assert.match(read('../src/lib/pr-sets.js'), /if \(!h \|\| !\(String\(h\.date\) < String\(date\)\)\) continue;/);
   assert.match(diary, /prFlags\(\{ exercises, history: historyByExId, date: \$currentDate,/);
   assert.match(diary, /history, date: \$currentDate,/);
   // The watch's "Last time": days before today only.

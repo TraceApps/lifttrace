@@ -125,6 +125,10 @@ sessions that were logged after the backfilled date. `lastCompletedSession()` an
 the record detection in `server/lib/volume.js` order by date, so a backdated best
 set should register as a record *as of that date* and not retroactively invalidate
 later records. Add tests for the ordering.
+Done for the Diary's PR badge, summary count and celebration (`src/lib/pr-sets.js`
+judges a set only against the days before its own, with a day-by-day test in
+`scripts/pr-sets.test.js`). The all-time records and `pr.set` still move only for a
+new all-time best, which is right for them.
 
 **Effort:** 2 to 3 days.
 

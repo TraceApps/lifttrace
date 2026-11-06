@@ -4,12 +4,15 @@
 // A set is a PR when it beats what came before it, in any one of these:
 //   a rep set: the top weight, or the top estimated 1-rep max
 //   a timed set (issue #89): the longest hold, or the heaviest load held
-// and what came before it is the exercise's history on other days, every
-// earlier completed working set of the same exercise today (earlier cards
-// first, then earlier sets on the card, by position, so the badge does not
-// depend on the order the sets were ticked in), and the earlier workouts of
-// the same day. A set that only matches an earlier one, today or before, is
-// not a PR. Warm-ups and unfinished sets never count, either way.
+// and what came before it is the exercise's history on the days before the
+// set's own (a PR as of that date: a later day that matches or beats it
+// never takes its badge away, and a day logged afterwards for an earlier
+// date is judged by the days before it), every earlier completed working
+// set of the same exercise that day (earlier cards first, then earlier sets
+// on the card, by position, so the badge does not depend on the order the
+// sets were ticked in), and the earlier workouts of the same day. A set that
+// only matches an earlier one, that day or before, is not a PR. Warm-ups and
+// unfinished sets never count, either way.
 //
 // The estimated 1-rep max is the one the records list, GET /api/v1/records
 // and the pr.set webhook use (server/lib/volume.js accumulateRecord): rounded,
@@ -70,11 +73,11 @@ export function absorbSet(bests, exercise, set) {
   if (e != null && e > bests.e1rm) bests.e1rm = e;
 }
 
-/** The bests on days other than `date`: `history` is GET /api/workout/history/:id. */
+/** The bests on the days before `date`: `history` is GET /api/workout/history/:id. */
 export function historyBests(history, date) {
   const b = newBests();
   for (const h of history || []) {
-    if (!h || h.date === date) continue;
+    if (!h || !(String(h.date) < String(date))) continue;
     for (const s of h.sets || []) absorbSet(b, h, s);
   }
   return b;
@@ -132,7 +135,7 @@ function walk({ exercises, history, date, earlier }, visit) {
  *  exercises  the workout's exercises, in order
  *  history    { exerciseId: getWorkoutHistory answer }; an exercise whose
  *             history has not arrived yet is left out (no badge on a guess)
- *  date       the workout's date; its own entries in the history are skipped
+ *  date       the workout's date; only the history before it counts
  *  earlier    the exercise lists of this day's earlier workouts
  */
 export function prFlags({ exercises, history, date, earlier = [] }) {

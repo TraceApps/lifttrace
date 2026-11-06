@@ -202,6 +202,50 @@ test('the day\'s earlier workout, as the Diary hands it over, decides the second
   assert.deepEqual(flags({ exercises: sessions[0].exercises, history, earlier: earlierWorkouts(sessions, 1, DATE) }), { 0: [0, 1] });
 });
 
+// ── As of that date: only the days before count ─────────────────────────
+
+test('as of that date: a later day matching or beating a set leaves its badge alone', () => {
+  // Monday 150x8 after 145x8; Wednesday matches it, Friday beats it. Reopened
+  // later, Monday still shows the PR it was on the day.
+  const history = hist(past(done(145, 8)), { date: '2026-11-06', sets: [done(150, 8)] }, { date: '2026-11-08', sets: [done(160, 8)] });
+  assert.deepEqual(flags({ exercises: [ex([done(150, 8)])], history }), { 0: [0] });
+});
+
+test('as of that date: a later day is judged against the earlier ones, so a match is not a PR there', () => {
+  const history = hist(past(done(145, 8)), { date: DATE, sets: [done(150, 8)] });
+  assert.deepEqual(prFlags({ date: '2026-11-06', exercises: [ex([done(150, 8)])], history })[0], undefined);
+});
+
+test('as of that date: the first session celebrates nothing even when later days exist', () => {
+  const history = [{ date: '2026-11-06', sets: [done(100, 5)] }];
+  assert.equal(celebrationFor({ exercises: [ex([done(150, 8)])], exIdx: 0, setIdx: 0, history, date: DATE }), null);
+  assert.equal(celebrationFor({ exercises: [ex([done(150, 8)])], exIdx: 0, setIdx: 0, history: [...history, past(done(145, 8))], date: DATE }), 'weight');
+});
+
+test('as of that date: a backfilled day with a later best is badged by the days before it only', () => {
+  // Logged afterwards for 2026-10-01: 120x5. The later 145x8 does not take its PR away.
+  const history = hist({ date: '2026-09-20', sets: [done(110, 5)] }, past(done(145, 8)));
+  assert.deepEqual(prFlags({ date: '2026-10-01', exercises: [ex([done(120, 5)])], history }), { 0: new Set([0]) });
+});
+
+test('every day\'s badges are exactly the sets that move the records list folded day by day', () => {
+  const rand = rng(20261106);
+  const pick = (a) => a[Math.floor(rand() * a.length)];
+  const days = ['2026-10-01', '2026-10-05', '2026-10-09', '2026-10-13', '2026-10-17'];
+  for (let n = 0; n < 200; n++) {
+    const log = days.map(date => ({ date, sets: Array.from({ length: 1 + Math.floor(rand() * 3) }, () => done(pick([50, 60, 70, 80]), pick([3, 5, 8]))) }));
+    const rec = volume.newRecord('Bench Press');
+    for (const day of log) {
+      const got = prFlags({ date: day.date, exercises: [ex(day.sets)], history: hist(...log) })[0] || new Set();
+      day.sets.forEach((s, i) => {
+        const before = { weight: rec.maxWeight, e1rm: rec.e1rm };
+        volume.accumulateRecord(rec, {}, s, day.date);
+        assert.equal(got.has(i), rec.maxWeight > before.weight || rec.e1rm > before.e1rm, `${day.date} set ${i} of ${JSON.stringify(log)}`);
+      });
+    }
+  }
+});
+
 // ── The celebration reads the same rule ─────────────────────────────────
 
 test('celebration: a first record is celebrated, an identical repeat is not', () => {

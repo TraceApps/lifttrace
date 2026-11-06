@@ -293,8 +293,10 @@ server's volume totals never compare sessions.
 
 Which sets wear the PR badge, count in the summary's "N new PRs" and get the
 PR notification is one rule, `src/lib/pr-sets.js`: a set is a PR when it beats
-the exercise's history on other days and every earlier completed working set of
-it today (earlier cards, then earlier sets by position, so tick order doesn't
+the exercise's history on the days before the set's own (a PR as of that date:
+a later day never takes a badge away, and a day logged afterwards for an earlier
+date is judged by the days before it) and every earlier completed working set of
+it that day (earlier cards, then earlier sets by position, so tick order doesn't
 matter, plus the day's earlier workouts from `todaySessions`). A set that only
 matches an earlier one isn't. The records are weight, estimated 1RM (the same
 rounded one `accumulateRecord` uses) and, for a timed set, longest hold and
