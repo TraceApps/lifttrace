@@ -355,12 +355,12 @@ history.
 
 ### [ ] 10. RIR alongside RPE
 
-**Note:** ROADMAP.md claims this is done at v0.9.4-beta.13. It is not. The code
-stores `set.rpe` only, and there is no RIR scale in the source or in `en.json`. Fix
-that ROADMAP line as part of this work.
+**Note:** ROADMAP.md used to claim this was done at v0.9.4-beta.13. It is not: the
+code stores `set.rpe` only, and there is no RIR scale in the source or in `en.json`.
+ROADMAP.md now says so (refreshed for #150).
 
 **Design:** a per-user choice of scale (RPE 1-10 or RIR 0-5+), with each set storing
-the scale it was logged with so old data keeps its meaning. Colour code the chip by
+the scale it was logged with so old data keeps its meaning. Color code the chip by
 level, with a plain sentence per level ("one more rep in the tank"). Progression and
 1RM stay independent of it, as they are today.
 
