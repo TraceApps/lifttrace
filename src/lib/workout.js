@@ -214,9 +214,11 @@ export function exerciseVolume(exercise, opts = {}) {
  * excluded on both sides, as in exerciseVolume); with fewer than N last time,
  * against all of them, never padded with zeros.
  *
- * When the exercise is done (every working set ticked, or `done`: the
- * workout is finished) it is the whole of last time's, which is the number
- * the chip always showed for a full session.
+ * Once the workout is finished (`done`) it is the whole of last time's,
+ * which is the number the chip always showed for a full session. Not
+ * before: with 3 sets planned against 4 last time, ticking the third would
+ * otherwise jump from 3 against 3 to 3 against all 4 and turn red while the
+ * lifter is ahead set for set.
  *
  * `exercise` is today's, with its resolved `load_type`; `lastSets` the last
  * session's completed sets, in order (lastCompletedSession's `completed`).
@@ -230,9 +232,7 @@ export function volumeDelta(exercise, lastSets, { done = false } = {}) {
   const current = exerciseVolume({ ...exercise, sets: today });
   if (!(current > 0)) return null;
   const working = lastSets.filter(s => !s.warmup && !isTimedSet({}, s));
-  const everyTicked = (exercise.sets || []).every(s => s.warmup || s.completed);
-  const whole = done || everyTicked;
-  const used = whole ? working : working.slice(0, today.length);
+  const used = done ? working : working.slice(0, today.length);
   const before = exerciseVolume({ load_type: exercise.load_type, sets: used.map(s => ({ ...s, completed: true })) });
   if (!(before > 0)) return null;
   return {

@@ -287,8 +287,9 @@ responsive grid of thumbnails.
 The Diary's volume chip (`volumeDelta` in `src/lib/workout.js`, shown by
 `ExerciseCard.svelte`) compares set for set: today's N completed working sets
 against the first N working sets of the last session (`lastCompletedSession`),
-all of them when it had fewer; once every set of the exercise is ticked, or the
-workout is finished (`workoutDone`), the whole of both. It is client-only: the
+all of them when it had fewer; once the workout is finished (`workoutDone`),
+the whole of both (not when the exercise's last set is ticked: with fewer sets
+planned than last time that would jump to all of last time's). It is client-only: the
 server's volume totals never compare sessions.
 
 Which sets wear the PR badge, count in the summary's "N new PRs" and get the

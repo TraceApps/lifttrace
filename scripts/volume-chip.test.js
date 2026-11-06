@@ -4,8 +4,9 @@
  *
  * Mid-workout, after 2 of 3 sets, it used to set today's two sets against all
  * of last time's three and read -28% (red) while the lifter was ahead. Now
- * today's N completed working sets are set against the first N of last time;
- * a finished exercise or workout is compared whole, as it always was.
+ * today's N completed working sets are set against the first N of last time,
+ * however many are ticked; a finished workout is compared whole, as it
+ * always was.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -49,10 +50,30 @@ test('every set done: the whole session, as before', () => {
   assert.equal(d.partial, false);
 });
 
-test('done with fewer sets than last time: still the whole session, not the first N', () => {
+test('every set ticked but the workout not finished, with fewer planned than last time: still set for set', () => {
   const today = ex([set(135, 8), set(135, 8)]);
-  assert.equal(volumeDelta(today, LAST).pct, -33);
-  assert.equal(volumeDelta(today, LAST).pct, wholeSession(today, LAST));
+  const d = volumeDelta(today, LAST);
+  assert.equal(d.pct, 0);
+  assert.equal(d.sets, 2);
+  assert.equal(d.partial, true);
+});
+
+test('finished with fewer sets than last time: the whole session, not the first N', () => {
+  const today = ex([set(135, 8), set(135, 8)]);
+  assert.equal(volumeDelta(today, LAST, { done: true }).pct, -33);
+  assert.equal(volumeDelta(today, LAST, { done: true }).pct, wholeSession(today, LAST));
+});
+
+test('last time 4 sets, today 3 planned: ticking the third keeps comparing set for set, not 3 against all 4', () => {
+  const last = [set(135, 8), set(135, 8), set(135, 8), set(135, 8)];
+  const after2 = volumeDelta(ex([set(145, 8), set(145, 8), todo(145, 8)]), last);
+  assert.equal(after2.pct, 7);
+  const after3 = volumeDelta(ex([set(145, 8), set(145, 8), set(145, 8)]), last);
+  assert.equal(after3.pct, 7, 'still ahead set for set, not -19% (red) against all four');
+  assert.equal(after3.sets, 3);
+  assert.equal(after3.partial, true);
+  // Finishing the workout is when the whole of both counts.
+  assert.equal(volumeDelta(ex([set(145, 8), set(145, 8), set(145, 8)]), last, { done: true }).pct, -19);
 });
 
 test('a finished workout compares whole even with sets never ticked', () => {
@@ -121,7 +142,10 @@ test('done: the same number as the whole-session comparison for any mix of sets'
     const last = make(Math.floor(rnd() * 6), true);
     const old = wholeSession(today, last);
     assert.equal(volumeDelta(today, last, { done: true })?.pct ?? null, old, `finished ${i}`);
-    if (today.sets.every(s => s.warmup || s.completed)) assert.equal(volumeDelta(today, last)?.pct ?? null, old, `all ticked ${i}`);
+    // Unfinished, it is set for set however many are ticked.
+    const n = today.sets.filter(s => s.completed && !s.warmup && !(s.duration_sec > 0)).length;
+    const firstN = last.filter(s => !s.warmup && !(s.duration_sec > 0)).slice(0, n);
+    assert.equal(volumeDelta(today, last)?.pct ?? null, wholeSession({ ...today, sets: today.sets.filter(s => s.completed) }, firstN), `unfinished ${i}`);
   }
 });
 
