@@ -174,6 +174,29 @@ test('nothing left in the session is nothing next', () => {
   assert.equal(nextUp([], 0), null);
 });
 
+test('the last set done with a lift still to add sets to: that lift is next, by name only', () => {
+  const list = [ex('Barbell Row', [s(145, 8, true), s(145, 8, true)]), ex('Biceps Curl', [])];
+  const next = nextUp(list, 0);
+  assert.equal(next.name, 'Biceps Curl');
+  assert.equal(next.noSets, true);
+  // A set still to do anywhere comes first, as before.
+  const withWork = [ex('Barbell Row', [s(145, 8, true)]), ex('Biceps Curl', []), ex('Face Pull', [s(30, 12)])];
+  assert.equal(nextUp(withWork, 0).name, 'Face Pull');
+  assert.equal(nextUp(withWork, 0).noSets, undefined);
+  // In a superset too: its partner added without sets yet is next.
+  const ss = { superset_id: 's1', superset_size: 2 };
+  const pair = [ex('Barbell Row', [s(145, 8, true)], ss), ex('Biceps Curl', [], ss)];
+  assert.equal(nextUp(pair, 0).name, 'Biceps Curl');
+  // Its notification names it and promises no set.
+  assert.deepEqual(restNoticeText(next, { t: (k, o) => (k === 'rest_bar.next' ? `Next: ${o.values.name}` : k) }), { title: 'Next: Biceps Curl', text: '' });
+});
+
+test('the rest bar names what is next, never the lift just finished', () => {
+  assert.match(diary, /exerciseName: next \? next\.name \|\| '' : '',/);
+  assert.doesNotMatch(diary, /exerciseName: next\?\.name \|\| nextEx\.exercise_name/);
+  assert.match(diary, /!next\.noSets && next\.exerciseId/, 'no last time looked up for a lift with no sets');
+});
+
 // ── The words ────────────────────────────────────────────────────────────
 
 const t = (key, opts) => {

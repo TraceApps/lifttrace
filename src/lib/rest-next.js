@@ -10,6 +10,8 @@
  * watch picks the same way, Session.kt). When the exercise, or the whole
  * group, has nothing left, the next is the first exercise after it in the
  * session with a working set to do: that is the hand-off to the next lift.
+ * With no set left to do anywhere, a lift added without sets yet is next
+ * (`noSets`, named only); with none of those either, nothing is.
  *
  * Pure, so it is tested on its own (scripts/rest-shade.test.js).
  */
@@ -99,6 +101,14 @@ export function nextUp(exercises, idx) {
     const found = nextInGroup(list, members);
     if (found) return found;
   }
+  // No set left anywhere, but a lift added without sets yet keeps the
+  // workout open: that lift is next, though there is no set to describe.
+  for (const i of order) {
+    const ex = list[i];
+    if (ex && !(ex.sets || []).length) {
+      return { exerciseId: ex.exercise_id ?? null, name: ex.exercise_name || '', superset: inSuperset(ex), noSets: true };
+    }
+  }
   return null;
 }
 
@@ -152,6 +162,8 @@ export function lastTimeFor(history, { before, number, timed = false, t = defaul
  */
 export function restNoticeText(next, { unit = 'lbs', last = '', t = defaultT, fallbackTitle = '' } = {}) {
   if (!next || !next.name) return { title: fallbackTitle, text: '' };
+  // A lift with no sets yet: its name, and nothing planned or done to show.
+  if (next.noSets) return { title: t('rest_bar.next', { values: { name: next.name } }), text: '' };
   const key = next.warmup ? 'rest_bar.warmup' : next.superset ? 'rest_bar.round_of' : 'rest_bar.set_of';
   const title = t(key, { values: { name: next.name, n: next.number, count: next.count } });
   const parts = [];

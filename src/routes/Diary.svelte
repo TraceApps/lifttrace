@@ -1684,7 +1684,9 @@
           const restDay = $currentDate;
           const rest = startRestTimer({
             exerciseId:   nextEx.exercise_id || null,
-            exerciseName: next?.name || nextEx.exercise_name || '',
+            // Nothing left to lift: no name, rather than the lift just
+            // finished.
+            exerciseName: next ? next.name || '' : '',
             // A plan's per-exercise rest (issue #13) overrides the global
             // default when present; otherwise fall back to the user's setting.
             durationSec:  Number(nextEx.rest_sec) > 0 ? Number(nextEx.rest_sec) : $restDuration,
@@ -1693,7 +1695,7 @@
           });
           // What you did on that set last time, by the Diary's own rule
           // (lastCompletedSession), once the history is in.
-          if (rest && next && !next.warmup && next.exerciseId) {
+          if (rest && next && !next.warmup && !next.noSets && next.exerciseId) {
             LtApi.getWorkoutHistory(next.exerciseId)
               .then(history => noteRestLastTime(rest.startedAt, lastTimeFor(history, {
                 before: restDay, number: next.number, timed: next.timed, t: $_,
