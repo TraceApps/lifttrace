@@ -486,3 +486,34 @@ test('an older app saving the day back keeps every distance set as it was', opts
   assert.deepEqual(back.exercises[0].sets.map(s => [s.distance_m, s.completed]), [[1000, true]]);
   assert.equal(back.exercises[0].set_type, 'distance');
 });
+
+// ── Records list and the Diary header (follow-ups) ──────────────────────
+
+test('a records row with no record in it is left out, and every kind keeps its date', async () => {
+  const { hasRecord, recordDate } = await import('../src/lib/statsFormat.js');
+  // A bodyweight rep exercise: the records track weight, so it has none.
+  // It used to read "0 kg × undefined".
+  assert.equal(hasRecord({ name: 'Pull-Up', maxWeight: 0, e1rm: 0, date: '' }), false);
+  assert.equal(hasRecord({ maxWeight: 100, maxReps: 5 }), true);
+  assert.equal(hasRecord({ maxWeight: 0, maxDuration: 60 }), true);
+  assert.equal(hasRecord({ maxWeight: 0, maxDistance: 500 }), true);
+  assert.equal(hasRecord({ maxWeight: 0, maxCalories: 20 }), true);
+  assert.equal(recordDate({ date: '', distanceDate: '2026-11-05' }), '2026-11-05');
+  assert.equal(recordDate({ date: '', caloriesDate: '2026-11-04' }), '2026-11-04');
+  assert.equal(recordDate({ date: '2026-11-01', durationDate: '' }), '2026-11-01');
+  const stats = read('../src/routes/Statistics.svelte');
+  assert.match(stats, /records = \(r \|\| \[\]\)\.filter\(hasRecord\);/);
+  assert.match(stats, /\.map\(r => \(!r\.date && recordDate\(r\) \?/, 'recent PRs date every kind');
+});
+
+test('the Diary column header says Distance and the unit sits in the field, so it fits on a phone', () => {
+  const card = read('../src/components/diary/ExerciseCard.svelte');
+  assert.doesNotMatch(card, /exercise_card\.distance'\)\} \(\$\{distanceUnit\}\)/);
+  assert.match(read('../src/components/diary/SetRow.svelte'), /<span class="set-unit">\{distanceUnit\}<\/span>/);
+  // With RPE on there is no room for it in the field: the header names it.
+  assert.match(read('../src/components/diary/SetRow.svelte'), /\.set-row:has\(\.rpe-wrap\) \.amount-input \+ \.set-unit \{ display: none; \}/);
+  assert.match(card, /\.sets-wrap:has\(:global\(\.rpe-wrap\)\) \.sh-dist-unit \{ display: inline; \}/);
+  // The rows are SetRow's: a plain class inside :has() is dropped from the
+  // build as unused, which had left the RPE heading rule out entirely.
+  assert.doesNotMatch(card, /:has\(\.(rpe-wrap|amount-input)\)/);
+});

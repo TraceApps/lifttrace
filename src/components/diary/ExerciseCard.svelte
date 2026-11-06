@@ -447,8 +447,9 @@
       <div class="sets-header">
         <span class="sh-set">Set</span>
         <span class="sh-weight">{$_('exercise_card.weight')}</span>
-        <span class="sh-reps">{setType === 'distance' ? `${$_('exercise_card.distance')} (${distanceUnit})`
-          : notReps ? $_(`exercise_card.${setType}`) : $_('exercise_card.reps')}</span>
+        <!-- The distance unit sits in each row's field, as "kg" does in the
+             weight field: "Distance (km)" wrapped onto two lines on a phone. -->
+        <span class="sh-reps">{#if setType === 'distance'}<span class="sh-dist-word">{$_('exercise_card.distance')}</span><span class="sh-dist-unit">{distanceUnit}</span>{:else}{notReps ? $_(`exercise_card.${setType}`) : $_('exercise_card.reps')}{/if}</span>
         <span class="sh-done"></span>
         <!-- placeholder over the remove-set column so the right edge of the
              header lines up with the right edge of every SetRow -->
@@ -648,19 +649,22 @@
     border-bottom: 1px solid var(--border);
     margin-bottom: 4px;
   }
-  /* When RPE is on, SetRow injects an extra `auto` column. The header has
+  /* The rows are SetRow's, so what they hold is matched with :global()
+     inside :has(); a plain class there is dropped from the build as unused,
+     which left these rules out entirely.
+     When RPE is on, SetRow injects an extra `auto` column. The header has
      no RPE label (the RPE chip in each row is content-sized + sits where
      it lands), so we add a placeholder column with auto width to keep the
      ✓ column right-anchored over its actual cell. */
-  .sets-wrap:has(.rpe-wrap) .sets-header {
+  .sets-wrap:has(:global(.rpe-wrap)) .sets-header {
     grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px auto 32px;
   }
   /* Distance and calorie rows split the columns evenly (SetRow.svelte), so
      the header follows them. */
-  .sets-wrap:has(.amount-input) .sets-header {
+  .sets-wrap:has(:global(.amount-input)) .sets-header {
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
   }
-  .sets-wrap:has(.amount-input):has(.rpe-wrap) .sets-header {
+  .sets-wrap:has(:global(.amount-input)):has(:global(.rpe-wrap)) .sets-header {
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
   }
   .sets-header span { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; }
@@ -676,6 +680,11 @@
      the number begins". */
   .sh-weight { padding-left: 28px; }
   .sh-reps   { padding-left: 8px; }
+  /* With RPE on, a 360px row has no room for the unit inside the distance
+     field (SetRow.svelte hides it there), so the header says the unit. */
+  .sh-dist-unit { display: none; }
+  .sets-wrap:has(:global(.rpe-wrap)) .sh-dist-word { display: none; }
+  .sets-wrap:has(:global(.rpe-wrap)) .sh-dist-unit { display: inline; }
   /* Inside a superset the ± step buttons are hidden (SupersetCard.svelte,
      issue #75 — they were the one lever with room to give at phone
      widths), so the weight input's left edge sits right after

@@ -372,6 +372,9 @@
         autocomplete="off"
         aria-label={$_('exercise_card.distance')}
       />
+      <!-- The unit, as the weight field shows "kg": the column header only
+           says Distance, so it fits on one line at phone widths. -->
+      <span class="set-unit">{distanceUnit}</span>
     </div>
   {:else if cals}
     <div class="set-field">
@@ -688,6 +691,9 @@
   /* Durations change width as they tick up (0:45 -> 1:00); tabular figures
      stop the column shifting while typing. */
   .duration-input, .amount-input { font-variant-numeric: tabular-nums; }
+  /* With RPE on, the distance field is too narrow for "10000" and a unit
+     beside it at 360px; the column header names the unit instead. */
+  .set-row:has(.rpe-wrap) .amount-input + .set-unit { display: none; }
   .hold-btn.active { color: var(--danger, #FF5C5C); animation: hold-blink 1s ease-in-out infinite; }
   @keyframes hold-blink { 50% { opacity: 0.45; } }
   @media (prefers-reduced-motion: reduce) { .hold-btn.active { animation: none; } }

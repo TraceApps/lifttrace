@@ -17,7 +17,7 @@
   import { currentUser } from '../stores/auth.js';
   import { DB } from '../lib/db.js';
   import { estimateWorkoutCalories, ageFromDob, isRepSet, fmtSetDuration, fmtDistance, fmtCalories, fromMeters, distanceUnitOf } from '../lib/workout.js';
-  import { fmtVol, fmtWeekLabel } from '../lib/statsFormat.js';
+  import { fmtVol, fmtWeekLabel, hasRecord, recordDate } from '../lib/statsFormat.js';
   import { localDateStr } from '../lib/db.js';
   import { trainedDates, weeklyGoal, weekStartOf, shiftDate, hasWorkingSet, exercisesOf, excusedOnly } from '../lib/trained-day.js';
   import { excusedMap } from '../lib/excused-view.js';
@@ -258,7 +258,8 @@
       failed.forEach(x => console.error(x.reason));
       if (v !== undefined) volume = v;
       if (f !== undefined) frequency = f;
-      if (r !== undefined) records = r;
+      // Rows with no record in them (a bodyweight rep exercise) are left out.
+      if (r !== undefined) records = (r || []).filter(hasRecord);
       if (s !== undefined) streaks = s;
       if (mg !== undefined) muscleGroups = mg;
       if (mes !== undefined) muscleLoad = mes || {};
@@ -482,10 +483,6 @@
     : progressKind === 'distance' ? $_('statistics.longest_distance')
     : progressKind === 'calories' ? $_('statistics.most_calories')
     : $_('statistics.top_set');
-  // A hold, distance or calorie record has its own date (rep records use r.date).
-  function recordDate(r) {
-    return r.date || r.durationDate || r.distanceDate || r.caloriesDate || '';
-  }
   function recordLabel(r) {
     const at = (w) => (w ? ` @ ${w} ${$weightUnit}` : '');
     if (!(r.maxWeight > 0)) {
@@ -538,9 +535,9 @@
       .map(c => ({ category: c, labelKey: CATEGORY_LABELS[c], records: byCat[c] }));
   })();
 
-  // A timed record's date lives in durationDate (issue #89).
+  // A hold, distance or calorie record's date lives in its own field.
   $: recentPRs = records
-    .map(r => (!r.date && r.durationDate ? { ...r, date: r.durationDate } : r))
+    .map(r => (!r.date && recordDate(r) ? { ...r, date: recordDate(r) } : r))
     .filter(r => r.date)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5);
