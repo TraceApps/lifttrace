@@ -58,7 +58,10 @@ test('packed controls share the gap between them instead of overlapping', () => 
   // 11px into the card's edge), together the 6px gap between them.
   assert.match(row, /\.check-btn \{ --tap-w: 44px; --tap-dx: 1px; \}/);
   assert.match(row, /\.remove-btn \{ --tap-w: 44px; --tap-dx: 5px; \}/);
-  assert.match(row, /\.set-row:has\(\.rpe-wrap\) \.check-btn \{ --tap-w: calc\(100% \+ 6px\); --tap-dx: 0px; \}/);
+  // RPE on is a class on the row now (every row keeps the RPE column).
+  assert.match(row, /\.set-row\.rpe \.check-btn \{ --tap-w: calc\(100% \+ 6px\); --tap-dx: 0px; \}/);
+  // On a phone the gaps are 4px (3px on the narrowest): see set-row-layout.test.js.
+  assert.match(row, /\.set-row \.remove-btn, \.set-row\.rpe \.remove-btn \{ --tap-dx: 8px; \}/);
   // + never reaches over the unit beside it: a tap on "lbs" must not change the weight.
   assert.match(row, /\.step-btn \+ \.set-input \+ \.step-btn \{ --tap-w: 100%; --tap-dx: 0px; \}/);
   const card = read('src/components/diary/ExerciseCard.svelte');

@@ -5,8 +5,8 @@
   import { LtApi } from '../../lib/api.js';
   import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, setKind, fmtSetLabel, distanceUnitOf, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
-  import { exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits } from '../../stores/settings.js';
+  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, setKind, fmtSetLabel, rowShape, distanceUnitOf, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
+  import { exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits, trackRpe } from '../../stores/settings.js';
   import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
   import LoadTypeMenu from '../ui/LoadTypeMenu.svelte';
 
@@ -104,6 +104,8 @@
     lastSession?.set_type || null,
   );
   $: timed = setType === 'time';
+  // The rows' grid (SetRow.svelte), so the heading row can share it.
+  $: shape = rowShape(setType, loadType);
   // Anything but weight x reps: no warm-up ramp, no weight nudges.
   $: notReps = setType !== 'reps';
   $: distanceUnit = distanceUnitOf(exercise, unit === 'lbs', $exerciseDistanceUnits);
@@ -467,13 +469,14 @@
       </div>
     {/if}
     <div class="sets-wrap" bind:this={setsWrapEl}>
-      <div class="sets-header">
+      <div class="sets-header" class:rpe={$trackRpe} class:wide={shape.wide} class:hold={shape.hold} class:uni={shape.uni}>
         <span class="sh-set">Set</span>
         <span class="sh-weight"><span class="sh-weight-label" class:compact={weightCompact}>{$_('exercise_card.weight')}</span></span>
         <!-- The distance unit sits in each row's field, as "kg" does in the
              weight field: "Distance (km)" wrapped onto two lines on a phone. -->
         <span class="sh-reps">{#if setType === 'distance'}<span class="sh-dist-word">{$_('exercise_card.distance')}</span><span class="sh-dist-unit">{distanceUnit}</span>{:else}{notReps ? $_(`exercise_card.${setType}`) : $_('exercise_card.reps')}{/if}</span>
         <span class="sh-done"></span>
+        {#if $trackRpe}<span class="sh-rpe"></span>{/if}
         <!-- placeholder over the remove-set column so the right edge of the
              header lines up with the right edge of every SetRow -->
         <span class="sh-spacer"></span>
@@ -659,36 +662,33 @@
   }
   .progression-chip .material-symbols-rounded { font-size: 12px; }
 
-  .sets-wrap { padding: 0 14px 12px; }
-  /* Mirror the SetRow grid exactly so the "Set / Weight / Reps / ✓" labels
-     line up over their inputs. Weight gets more flex than reps because
-     weights are typically 3-4 digits + step buttons + unit, while reps are
-     usually 1-2 digits in a plain input. */
+  /* `sets` is the container SetRow's phone layout asks about, and so does
+     the heading row below. */
+  .sets-wrap { padding: 0 14px 12px; container: sets / inline-size; }
+  /* The SetRow grid, from the same variables and classes (rowShape), so
+     the "Set / Weight / Reps / ✓" labels line up over their inputs, with
+     RPE on too (its column here is empty). */
   .sets-header {
+    --c-num: 28px; --c-w: 1.4fr; --c-s: 0.7fr; --c-check: 36px; --c-rpe: 40px; --c-rm: 32px; --row-gap: 6px;
     display: grid;
-    grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px 32px;
-    gap: 6px;
+    grid-template-columns: var(--c-num) minmax(0, var(--c-w)) minmax(0, var(--c-s)) var(--c-check) var(--c-rm);
+    gap: var(--row-gap);
     padding: 0 0 6px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 4px;
   }
-  /* The rows are SetRow's, so what they hold is matched with :global()
-     inside :has(); a plain class there is dropped from the build as unused,
-     which left these rules out entirely.
-     When RPE is on, SetRow injects an extra `auto` column. The header has
-     no RPE label (the RPE chip in each row is content-sized + sits where
-     it lands), so we add a placeholder column with auto width to keep the
-     ✓ column right-anchored over its actual cell. */
-  .sets-wrap:has(:global(.rpe-wrap)) .sets-header {
-    grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px auto 32px;
+  .sets-header.rpe {
+    grid-template-columns: var(--c-num) minmax(0, var(--c-w)) minmax(0, var(--c-s)) var(--c-check) var(--c-rpe) var(--c-rm);
   }
-  /* Distance and calorie rows split the columns evenly (SetRow.svelte), so
-     the header follows them. */
-  .sets-wrap:has(:global(.amount-input)) .sets-header {
-    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
+  .sets-header.wide { --c-w: 1fr; --c-s: 1fr; }
+  @container sets (max-width: 340px) {
+    .sets-header { --c-num: 24px; --c-check: 30px; --c-rpe: 34px; --c-rm: 26px; --row-gap: 4px; }
+    .sets-header.hold, .sets-header.uni { --c-w: 0.8fr; --c-s: 1.2fr; }
+    .sets-header .sh-reps { padding-left: 4px; }
   }
-  .sets-wrap:has(:global(.amount-input)):has(:global(.rpe-wrap)) .sets-header {
-    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
+  @container sets (max-width: 280px) {
+    .sets-header { --c-check: 28px; --c-rpe: 30px; --c-rm: 24px; --row-gap: 3px; }
+    .sets-header.hold { --c-w: 0.9fr; --c-s: 1.1fr; }
   }
   .sets-header span { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; }
   .sh-set { text-align: center; }
@@ -709,8 +709,8 @@
   /* With RPE on, a 360px row has no room for the unit inside the distance
      field (SetRow.svelte hides it there), so the header says the unit. */
   .sh-dist-unit { display: none; }
-  .sets-wrap:has(:global(.rpe-wrap)) .sh-dist-word { display: none; }
-  .sets-wrap:has(:global(.rpe-wrap)) .sh-dist-unit { display: inline; }
+  .sets-header.rpe .sh-dist-word { display: none; }
+  .sets-header.rpe .sh-dist-unit { display: inline; }
   /* Inside a superset the ± step buttons are hidden (SupersetCard.svelte,
      issue #75 — they were the one lever with room to give at phone
      widths), so the weight input's left edge sits right after

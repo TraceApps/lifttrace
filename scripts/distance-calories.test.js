@@ -511,8 +511,8 @@ test('the Diary column header says Distance and the unit sits in the field, so i
   assert.doesNotMatch(card, /exercise_card\.distance'\)\} \(\$\{distanceUnit\}\)/);
   assert.match(read('../src/components/diary/SetRow.svelte'), /<span class="set-unit">\{distanceUnit\}<\/span>/);
   // With RPE on there is no room for it in the field: the header names it.
-  assert.match(read('../src/components/diary/SetRow.svelte'), /\.set-row:has\(\.rpe-wrap\) \.amount-input \+ \.set-unit \{ display: none; \}/);
-  assert.match(card, /\.sets-wrap:has\(:global\(\.rpe-wrap\)\) \.sh-dist-unit \{ display: inline; \}/);
+  assert.match(read('../src/components/diary/SetRow.svelte'), /\.set-row\.rpe \.amount-input \+ \.set-unit \{ display: none; \}/);
+  assert.match(card, /\.sets-header\.rpe \.sh-dist-unit \{ display: inline; \}/);
   // The rows are SetRow's: a plain class inside :has() is dropped from the
   // build as unused, which had left the RPE heading rule out entirely.
   assert.doesNotMatch(card, /:has\(\.(rpe-wrap|amount-input)\)/);
@@ -558,7 +558,7 @@ test('the weight is never squeezed out of its field on a phone', () => {
   const row = read('../src/components/diary/SetRow.svelte');
   assert.match(row, /\.weight-field \{ padding: 0 4px; gap: 2px; container-type: inline-size; \}/);
   assert.match(row, /@container \(max-width: 124px\) \{\s*\.weight-field \.step-btn \{ display: none; \}/);
-  assert.match(row, /@container \(max-width: 72px\) \{\s*\.weight-field \.set-unit:not\(\.each\) \{ display: none; \}/);
+  assert.match(row, /@container \(max-width: 72px\) \{\s*\.weight-field \.set-unit:not\(\.each\), \.weight-field \.unit-word \{ display: none; \}/);
   // The heading follows the input when the buttons go.
   const card = read('../src/components/diary/ExerciseCard.svelte');
   assert.match(card, /class:compact=\{weightCompact\}/);

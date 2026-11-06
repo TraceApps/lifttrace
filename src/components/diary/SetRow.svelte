@@ -9,7 +9,7 @@
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
   import { replaceOnType } from '../../lib/replaceOnType.js';
-  import { parseDuration, fmtSetDuration, maskDurationInput, toMeters, fromMeters } from '../../lib/workout.js';
+  import { parseDuration, fmtSetDuration, maskDurationInput, toMeters, fromMeters, rowShape } from '../../lib/workout.js';
 
   export let set;
   export let setNum;
@@ -35,6 +35,7 @@
    *  in place of reps; weight stays, for weighted holds and carries. */
   export let setType = 'reps';
   $: timed = setType === 'time';
+  $: shape = rowShape(setType, loadType);
   // Distance and calorie sets (issue #119): the amount takes the reps
   // column, weight stays for a loaded sled or carry. Distance is stored in
   // meters and typed in the exercise's unit.
@@ -240,7 +241,10 @@
   }
 </script>
 
-<div class="set-row" class:done={set.completed} class:pulse={pulseOn} class:warmup={showAsWarmup} class:is-next={isNext} class:pr={isPR}>
+<!-- The grid is chosen by the exercise (rowShape), not by what this row
+     happens to hold, so every row of a card and its heading line up. -->
+<div class="set-row" class:done={set.completed} class:pulse={pulseOn} class:warmup={showAsWarmup} class:is-next={isNext} class:pr={isPR}
+  class:rpe={$trackRpe} class:wide={shape.wide} class:hold={shape.hold} class:uni={shape.uni}>
   {#if media}
     <button type="button" class="clip-badge" on:click|stopPropagation={() => dispatch('openMedia', media)}
       title="Watch this set" aria-label="Watch this set">
@@ -294,7 +298,9 @@
       inputmode="decimal"
     />
     <button class="step-btn tap" on:click={() => bumpWeight(step)} aria-label="Increase weight" tabindex="-1">+</button>
-    <span class="set-unit" class:each={loadType === 'paired'}>{weightHint}</span>
+    <!-- Per hand: "lbs ea". In the narrowest field the unit goes and "ea"
+         stays, since a weight per hand is not the same number. -->
+    <span class="set-unit" class:each={loadType === 'paired'}>{#if loadType === 'paired'}<span class="unit-word">{unit}</span> ea{:else}{weightHint}{/if}</span>
   </div>
 
   {#if isSplit}
@@ -334,6 +340,7 @@
       <input
         type="text"
         class="set-input duration-input"
+        class:hours={durationStr.split(':').length > 2}
         bind:value={durationStr}
         on:input={() => { durationStr = maskDurationInput(durationStr); commitDuration(durationStr); }}
         use:replaceOnType
@@ -447,6 +454,9 @@
         </div>
       {/if}
     </div>
+  {:else if $trackRpe}
+    <!-- A warm-up has no RPE, but keeps the column so it lines up. -->
+    <span class="rpe-slot" aria-hidden="true"></span>
   {/if}
 
   <button class="remove-btn tap" on:click={() => dispatch('remove')} title="Remove set" aria-label="Remove set">
@@ -455,49 +465,6 @@
 </div>
 
 <style>
-  .set-row {
-    display: grid;
-    /* minmax(0, _fr) lets the columns actually shrink on narrow viewports —
-       default 1fr won't go below the intrinsic width of a <input type=number>,
-       clipping multi-digit values.
-       Weight gets more flex than reps (1.4 vs 0.7) since weight has step
-       buttons + unit + 3-4 digit values, while reps is a plain input that's
-       almost always 1-2 digits. */
-    grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px 32px;
-    gap: 6px;
-    align-items: center;
-    padding: 6px 0;
-    transition: opacity var(--dur-fast), background var(--dur-base);
-    border-radius: var(--radius-sm);
-  }
-  /* Only inject the RPE column when the feature is on — otherwise the empty
-     `auto` track still adds a 6px gap. Toggled via :has() on the child. */
-  .set-row:has(.rpe-wrap) {
-    grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 0.7fr) 36px auto 32px;
-  }
-  /* Widen the reps column whenever the split-toggle button appears in it.
-     Two cases both trip the same problem:
-       - unilateral + split mode: two <input>s + L/R labels + chain-off
-       - unilateral + non-split:  <input> + 'reps' unit + add-link button
-     Either way the default 0.7fr reps column plus the button eats enough
-     width that a 360dp phone clips digits (~12px left for the actual input
-     in non-split; ~15px per cell in split). Rebalancing to 1fr/1fr when a
-     .split-btn is present covers both. Bilateral / paired stay at
-     1.4fr/0.7fr since they have no split button. */
-  .set-row:has(.split-btn) {
-    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
-  }
-  .set-row:has(.split-btn):has(.rpe-wrap) {
-    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
-  }
-  /* A distance ("2000", "5.25") or calorie count is wider than a rep count,
-     so it gets the same even split. */
-  .set-row:has(.amount-input) {
-    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px 32px;
-  }
-  .set-row:has(.amount-input):has(.rpe-wrap) {
-    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px auto 32px;
-  }
   /* Tap areas on a touch screen (.tap, styles/buttons.css): 44px tall, the
      rows are 49px apart. Across, no control's area reaches past half the
      6px gap to its neighbor's box: the set number leans into the card's
@@ -505,7 +472,9 @@
      with remove leaning into the card's right edge, so these reach 44.
      − reaches over the field's edge; + sits between the input and the unit
      (a tap on the unit must not change the weight), and the L/R and hold
-     buttons against their input, so they keep less across. */
+     buttons against their input, so they keep less across. Kept above the
+     phone layout below (@container sets), whose tighter values must come
+     later to win: the selectors weigh the same. */
   .set-num-btn { --tap-w: 44px; --tap-dx: -6px; }
   .rpe-chip { --tap-w: calc(100% + 8px); }
   .step-btn { --tap-w: 32px; --tap-dx: -5px; }
@@ -513,8 +482,71 @@
   .split-btn { --tap-w: 100%; }
   .check-btn { --tap-w: 44px; --tap-dx: 1px; }
   .remove-btn { --tap-w: 44px; --tap-dx: 5px; }
-  .set-row:has(.rpe-wrap) .check-btn { --tap-w: calc(100% + 6px); --tap-dx: 0px; }
-  .set-row:has(.rpe-wrap) .remove-btn { --tap-dx: 3px; }
+  .set-row.rpe .check-btn { --tap-w: calc(100% + 6px); --tap-dx: 0px; }
+  .set-row.rpe .remove-btn { --tap-dx: 3px; }
+  /* The columns: set number, weight, the second column (reps, a time, a
+     distance, calories, or L/R reps), done, RPE when it is tracked, remove.
+     minmax(0, _fr) lets the columns actually shrink on narrow viewports;
+     default 1fr won't go below the intrinsic width of an <input>.
+     Weight gets more flex than reps (1.4 vs 0.7) since weight has step
+     buttons + unit + 3-4 digit values, while reps is a plain input that's
+     almost always 1-2 digits. A time, a distance, calories, and an
+     alternating exercise's reps (an L/R split, or the button for one) need
+     more, so those exercises split evenly (`wide`). The same variables
+     shape the heading row (ExerciseCard.svelte), which carries the same
+     classes, so every label sits over its column. */
+  .set-row {
+    --c-num: 28px; --c-w: 1.4fr; --c-s: 0.7fr; --c-check: 36px; --c-rpe: 40px; --c-rm: 32px; --row-gap: 6px;
+    display: grid;
+    grid-template-columns: var(--c-num) minmax(0, var(--c-w)) minmax(0, var(--c-s)) var(--c-check) var(--c-rm);
+    gap: var(--row-gap);
+    align-items: center;
+    padding: 6px 0;
+    transition: opacity var(--dur-fast), background var(--dur-base);
+    border-radius: var(--radius-sm);
+  }
+  /* RPE gets a fixed column on every row (a warm-up keeps it empty), so the
+     rows and the heading share one grid. */
+  .set-row.rpe {
+    grid-template-columns: var(--c-num) minmax(0, var(--c-w)) minmax(0, var(--c-s)) var(--c-check) var(--c-rpe) var(--c-rm);
+  }
+  .set-row.wide { --c-w: 1fr; --c-s: 1fr; }
+  /* A phone (the card's set list under 340px, `sets` in ExerciseCard): at
+     320px with RPE on, the fixed columns and gaps left 86px for weight and
+     the second column together, and reps, an L/R split, a 2000 m distance
+     and a 1:30 hold all showed cut or empty. The fixed columns and gaps
+     tighten, the second column's padding halves, and a hold or an L/R
+     split gets the larger share (its field also holds a button). */
+  @container sets (max-width: 340px) {
+    .set-row { --c-num: 24px; --c-check: 30px; --c-rpe: 34px; --c-rm: 26px; --row-gap: 4px; }
+    .set-row.hold, .set-row.uni { --c-w: 0.8fr; --c-s: 1.2fr; }
+    .set-field:not(.weight-field) { padding: 0 4px; }
+    .set-row .set-field.reps-split { padding: 0 2px; gap: 2px; }
+    .set-row .set-num-btn { min-width: 22px; }
+    .set-row .rpe-chip { padding: 3px 2px; min-width: 0; }
+    /* Tap areas with 4px gaps: none reaches more than 2px into a gap. The
+       remove button leans right, into the card's padding; done and the RPE
+       chip keep to their own column plus 2px. */
+    .set-row .remove-btn, .set-row.rpe .remove-btn { --tap-dx: 8px; }
+    .set-row .set-num-btn { --tap-dx: -8px; }
+    .set-row .check-btn, .set-row.rpe .check-btn { --tap-w: calc(100% + 4px); --tap-dx: 0px; }
+    .set-row .rpe-chip { --tap-w: calc(100% + 4px); }
+  }
+  /* The narrowest phones (a 320px screen; 360px stays above this): the
+     fixed columns give a little more, the L and R letters go (left is still
+     first), and a hold gets the room for an hour-long time (1:02:05) beside
+     its timer button while its weight keeps room for "22.5 ea". */
+  @container sets (max-width: 280px) {
+    .set-row { --c-check: 28px; --c-rpe: 30px; --c-rm: 24px; --row-gap: 3px; }
+    .set-row .lr-label { display: none; }
+    /* 3px gaps: no tap area reaches more than 1px into one. */
+    .set-row .remove-btn, .set-row.rpe .remove-btn { --tap-dx: 9px; }
+    .set-row .set-num-btn { --tap-dx: -9px; }
+    .set-row .check-btn, .set-row.rpe .check-btn, .set-row .rpe-chip { --tap-w: calc(100% + 2px); }
+    .set-row.hold { --c-w: 0.9fr; --c-s: 1.1fr; }
+    .set-row .duration-input.hours { font-size: 11px; }
+    .set-row.hold .set-field:not(.weight-field) { padding: 0 2px; gap: 2px; }
+  }
   .set-row.done { opacity: 0.6; }
   /* A clip on this set. Sits opposite the PR badge so the two never fight
      for the same corner, and stays small: it marks the row, the player is
@@ -673,7 +705,7 @@
     .weight-field .step-btn { display: none; }
   }
   @container (max-width: 72px) {
-    .weight-field .set-unit:not(.each) { display: none; }
+    .weight-field .set-unit:not(.each), .weight-field .unit-word { display: none; }
   }
   .step-btn {
     width: 22px; height: 26px; padding: 0;
@@ -707,7 +739,7 @@
   .duration-input, .amount-input { font-variant-numeric: tabular-nums; }
   /* With RPE on, the distance field is too narrow for "10000" and a unit
      beside it at 360px; the column header names the unit instead. */
-  .set-row:has(.rpe-wrap) .amount-input + .set-unit { display: none; }
+  .set-row.rpe .amount-input + .set-unit { display: none; }
   .hold-btn.active { color: var(--danger, #FF5C5C); animation: hold-blink 1s ease-in-out infinite; }
   @keyframes hold-blink { 50% { opacity: 0.45; } }
   @media (prefers-reduced-motion: reduce) { .hold-btn.active { animation: none; } }
@@ -752,6 +784,7 @@
   /* RPE chip + picker popover */
   .rpe-wrap { position: relative; }
   .rpe-chip {
+    width: 100%;
     padding: 3px 8px; border-radius: var(--radius-full);
     background: var(--surface-2);
     border: 1px solid var(--border);

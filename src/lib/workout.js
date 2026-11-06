@@ -216,6 +216,19 @@ export function fmtDistance(meters, unit = 'm') {
   return v == null ? '' : `${v} ${unit}`;
 }
 
+/**
+ * The shape of an exercise's set rows in the Diary, the same for every row
+ * of it and for its heading row: `wide` splits weight and the second column
+ * evenly (a time, a distance, calories, or an alternating exercise's reps),
+ * and on a phone `hold` and `uni` give the second column the larger share,
+ * since a hold's field also holds the timer button and an L/R split two
+ * numbers and a button.
+ */
+export function rowShape(setType, loadType) {
+  const uni = setType === 'reps' && loadType === 'unilateral';
+  return { wide: setType !== 'reps' || uni, hold: setType === 'time', uni };
+}
+
 /** "20 cal", "" for none. */
 export function fmtCalories(cal) {
   const n = Math.round(Number(cal));
