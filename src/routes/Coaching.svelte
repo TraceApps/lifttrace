@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { isRepSet, setKind, fmtSetAmount, distanceUnitOf } from '../lib/workout.js';
+  import { isRepSet, setKind, fmtSetAmount, distanceUnitOf, repsLabel } from '../lib/workout.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { LtApi } from '../lib/api.js';
@@ -1164,7 +1164,7 @@
                   {#if !isRepSet(ex, s)}
                     <span class="wd-set-detail">{s.weight ? `${s.weight} ${unit} × ` : ''}{fmtSetAmount(setKind(ex, s), s, distanceUnitOf(ex, unit === 'lbs'))}</span>
                   {:else}
-                    <span class="wd-set-detail">{s.weight || 0} {unit} × {s.reps || 0}</span>
+                    <span class="wd-set-detail">{s.weight || 0} {unit} × {repsLabel(s)}</span>
                   {/if}
                   {#if s.rpe != null}<span class="wd-set-rpe">@ {s.rpe}</span>{/if}
                 </div>

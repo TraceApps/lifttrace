@@ -26,7 +26,7 @@
 // there is no copy on the server. (The heaviest load held, a timed
 // set's second record, is the records' maxHoldWeight; a distance or calorie
 // set's, maxDistanceLoad and maxCaloriesLoad.)
-import { setKind } from './workout.js';
+import { setKind, setReps } from './workout.js';
 
 /** What an exercise's earlier sets have reached so far. */
 export function newBests() {
@@ -65,7 +65,8 @@ export function prKinds(bests, exercise, set) {
     return out;
   }
   const w = Number(set.weight) || 0;
-  const r = Number(set.reps) || 0;
+  // Split reps count at the weaker side (setReps), as in the records.
+  const r = Number(setReps(set)) || 0;
   if (!(w > 0) || !(r > 0)) return out;
   if (w > bests.weight) out.push('weight');
   if (e1rmOf(w, r) > bests.e1rm) out.push('e1rm');
@@ -90,7 +91,7 @@ export function absorbSet(bests, exercise, set) {
   if (!(w > 0)) return;
   bests.reps++;
   if (w > bests.weight) bests.weight = w;
-  const e = e1rmOf(w, Number(set.reps));
+  const e = e1rmOf(w, Number(setReps(set)));
   if (e != null && e > bests.e1rm) bests.e1rm = e;
 }
 

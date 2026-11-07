@@ -5,7 +5,7 @@
   import { LtApi } from '../../lib/api.js';
   import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, setKind, fmtSetLabel, rowShape, distanceUnitOf, fmtSetDuration, holdSides, parseDuration, lastCompletedSession } from '../../lib/workout.js';
+  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, setKind, fmtSetLabel, rowShape, distanceUnitOf, fmtSetDuration, holdSides, parseDuration, lastCompletedSession, setReps } from '../../lib/workout.js';
   import { exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits, trackRpe } from '../../stores/settings.js';
   import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
   import { applyHold } from '../../lib/holdPhase.js';
@@ -178,7 +178,7 @@
     if (notReps || !lastSession || !exercise.target_reps) return null;
     const tgtReps = parseInt(String(exercise.target_reps).split(/[-\u2013]/)[0]);
     if (!Number.isFinite(tgtReps)) return null;
-    const hitAll = lastSession.sets.length > 0 && lastSession.sets.every(s => (parseInt(s.reps) || 0) >= tgtReps);
+    const hitAll = lastSession.sets.length > 0 && lastSession.sets.every(s => (parseInt(setReps(s)) || 0) >= tgtReps);
     if (!hitAll) return null;
     const lastWeight = Math.max(...lastSession.sets.map(s => parseFloat(s.weight) || 0));
     if (!lastWeight) return null;
@@ -266,7 +266,7 @@
 
   function addSet() {
     const lastSet = sets[sets.length - 1] || { reps: 0, weight: 0 };
-    const next = { reps: lastSet.reps, weight: lastSet.weight, completed: false, notes: '' };
+    const next = { reps: setReps(lastSet), weight: lastSet.weight, completed: false, notes: '' };
     if (lastSet.duration_sec) next.duration_sec = lastSet.duration_sec;
     if (lastSet.distance_m) next.distance_m = lastSet.distance_m;
     if (lastSet.calories) next.calories = lastSet.calories;
@@ -463,11 +463,7 @@
         <span class="last-label">Last ({fmtRelDate(lastSession.date)})</span>
         <span class="last-sets">
           {#each lastSession.sets as s, i}
-            {#if setKind({ set_type: lastSession.set_type }, s) !== 'reps'}
-              <span class="last-set">{fmtSetLabel({ set_type: lastSession.set_type }, s, distanceUnit)}</span>
-            {:else}
-              <span class="last-set">{s.weight || 0}×{s.reps || 0}</span>
-            {/if}{#if i < lastSession.sets.length - 1}<span class="last-sep">·</span>{/if}
+            <span class="last-set">{fmtSetLabel({ set_type: lastSession.set_type }, s, distanceUnit)}</span>{#if i < lastSession.sets.length - 1}<span class="last-sep">·</span>{/if}
           {/each}
         </span>
         {#if volumeDeltaPct !== null && volumeDeltaPct !== 0}

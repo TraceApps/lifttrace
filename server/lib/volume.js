@@ -106,6 +106,31 @@ export function holdSides(set) {
 }
 
 /**
+ * Reps logged per side (an Alternating exercise's L/R split, `reps_l` and
+ * `reps_r`) count at the weaker side, as a hold per side does (issue #143):
+ * records, PR badges, the estimated 1RM, charts, Trace and the API read
+ * setReps, never `reps` alone, so a set split from 12 and typed as 10 and 6
+ * is a set of 6 even where an older app left `reps` at 12. Writers keep
+ * `reps` the weaker side too, for readers that know only `reps`. Volume
+ * still counts both sides (setVolume). Mirrored in server/lib/volume.js and
+ * src/lib/workout.js, run through the same cases by
+ * scripts/split-reps.test.js.
+ *
+ * sideReps: the weaker of two sides, a side not given left out (a side
+ * typed as 0 is a side of 0), null for neither.
+ */
+export function sideReps(l, r) {
+  const given = [l, r].filter(v => v != null && v !== '').map(Number).filter(Number.isFinite);
+  return given.length ? Math.min(...given) : null;
+}
+
+/** A set's reps: the weaker side when it has sides, else `reps` as it is. */
+export function setReps(set) {
+  if (!set) return undefined;
+  return sideReps(set.reps_l, set.reps_r) ?? set.reps;
+}
+
+/**
  * Fold one set into a per-exercise record, the single definition of "a
  * record" used by GET /api/stats/records, get_records over MCP, the REST
  * /api/v1/records route, and the pr.set webhook.
@@ -150,10 +175,12 @@ export function accumulateRecord(record, exercise, set, date) {
     return;
   }
   if (!(set.weight > 0)) return;
-  const e1rm = set.reps === 1 ? set.weight : Math.round(set.weight * (1 + set.reps / 30));
+  // Split reps count at the weaker side (setReps).
+  const reps = setReps(set);
+  const e1rm = reps === 1 ? set.weight : Math.round(set.weight * (1 + reps / 30));
   if (set.weight > record.maxWeight) {
     record.maxWeight = set.weight;
-    record.maxReps = set.reps;
+    record.maxReps = reps;
     record.date = date;
   }
   if (e1rm > record.e1rm) record.e1rm = e1rm;

@@ -14,7 +14,7 @@
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
   import { celebrateWorkoutComplete, celebratePR, celebrateHoldPR, celebrateAmountPR, requestPermission } from '../lib/notifications.js';
   import { prFlags, celebrationFor, earlierWorkouts } from '../lib/pr-sets.js';
-  import { estimateWorkoutCalories, ageFromDob, setKind, parseDuration, fmtSetDuration, startSetType, distanceUnitOf, fmtSetAmount, lastCompletedSession } from '../lib/workout.js';
+  import { estimateWorkoutCalories, ageFromDob, setKind, parseDuration, fmtSetDuration, startSetType, distanceUnitOf, fmtSetAmount, lastCompletedSession, setReps } from '../lib/workout.js';
   import Spinner from '../components/ui/Spinner.svelte';
   import { startRest as startRestTimer, stopRest, noteRestLastTime } from '../stores/restTimer.js';
   import { nextUp, lastTimeFor } from '../lib/rest-next.js';
@@ -1462,14 +1462,14 @@
       const recentWarmups = (ex.sets || []).filter(s => s?.warmup);
       const numSets = (ex.sets || []).filter(s => !s?.warmup).length || ex.target_sets || 3;
       const warmups = recentWarmups.map(s => ({
-        weight: lastSets ? (s.weight || 0) : 0, reps: lastSets ? (s.reps || 0) : 0,
+        weight: lastSets ? (s.weight || 0) : 0, reps: lastSets ? (setReps(s) || 0) : 0,
         completed: false, notes: '', warmup: true,
       }));
       let sets;
       if (lastSets) {
         sets = Array.from({ length: numSets }, (_, i) => {
           const src = lastSets[i] || lastSets[lastSets.length - 1] || {};
-          const next = { weight: src.weight || 0, reps: src.reps || 0, completed: false, notes: '' };
+          const next = { weight: src.weight || 0, reps: setReps(src) || 0, completed: false, notes: '' };
           if (src.duration_sec) next.duration_sec = src.duration_sec;
           if (src.distance_m) next.distance_m = src.distance_m;
           if (src.calories) next.calories = src.calories;
@@ -1575,7 +1575,7 @@
 
     if (lastSets) {
       sets = lastSets.map(s => {
-        const next = { reps: s.reps || 0, weight: s.weight || 0, completed: false };
+        const next = { reps: setReps(s) || 0, weight: s.weight || 0, completed: false };
         if (s.duration_sec) next.duration_sec = s.duration_sec;
         if (s.distance_m) next.distance_m = s.distance_m;
         if (s.calories) next.calories = s.calories;
@@ -1584,7 +1584,7 @@
       });
       const working = lastSets.filter(s => !s.warmup);
       targetSets = working.length;
-      targetReps = String(working[0]?.reps || 10);
+      targetReps = String(setReps(working[0]) || 10);
       targetWeight = String(working[0]?.weight || '');
     } else {
       sets = [{ reps: 0, weight: 0, completed: false }];
@@ -1780,7 +1780,7 @@
               const label = fmtSetAmount(win, justCompletedSet, distanceUnitOf(ex, $weightUnit === 'lbs', $exerciseDistanceUnits));
               celebrateAmountPR(ex.exercise_name, win, Number(justCompletedSet[amountField]), label, justCompletedSet.weight || 0, $weightUnit);
             } else if (win) {
-              celebratePR(ex.exercise_name, justCompletedSet.weight, $weightUnit, justCompletedSet.reps, win);
+              celebratePR(ex.exercise_name, justCompletedSet.weight, $weightUnit, setReps(justCompletedSet), win);
             }
           } catch {}
         };

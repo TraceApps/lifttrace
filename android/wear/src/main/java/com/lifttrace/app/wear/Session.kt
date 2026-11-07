@@ -33,6 +33,14 @@ object Session {
     const val LOAD_UNILATERAL = "unilateral"
     const val LOAD_PAIRED = "paired"
 
+    /**
+     * Reps split per side count at the weaker side, as the phone and server
+     * count them (setReps in workout.js and volume.js): records, PR badges
+     * and every reader that knows only `reps` read the weaker side. A side
+     * not given is left out; null for neither.
+     */
+    fun sideReps(left: Int?, right: Int?): Int? = listOfNotNull(left, right).minOrNull()
+
     data class Set(
         val uuid: String,
         val reps: Int,
@@ -57,6 +65,9 @@ object Session {
     ) {
         /** A set the phone is recording per side, as it does for alternating work. */
         val split: Boolean get() = repsLeft != null || repsRight != null
+
+        /** The reps the set counts as: the weaker side when it is split. */
+        val countedReps: Int get() = sideReps(repsLeft, repsRight) ?: reps
 
         /**
          * Timed per side, and still what the sides say: a hold changed to one
@@ -149,7 +160,10 @@ object Session {
         val warmup: Boolean,
         val distanceM: Double = 0.0,
         val calories: Int = 0,
-    )
+    ) {
+        /** The reps written: the weaker side when the set is split. */
+        val countedReps: Int get() = sideReps(repsLeft, repsRight) ?: reps
+    }
 
     // ── Reading ──────────────────────────────────────────────────────────
 
@@ -424,7 +438,7 @@ object Session {
 
     private fun write(s: JSONObject, change: Change): JSONObject {
         s.put("weight", change.weight)
-        s.put("reps", change.reps)
+        s.put("reps", change.countedReps)
         s.put("completed", change.completed)
         if (change.warmup) s.put("warmup", true)
         if (change.durationSec > 0) s.put("duration_sec", change.durationSec)
@@ -444,7 +458,7 @@ object Session {
             val existing = e.sets.firstOrNull { it.uuid == change.setUuid }
             val updated = Set(
                 uuid = change.setUuid,
-                reps = change.reps,
+                reps = change.countedReps,
                 repsLeft = change.repsLeft,
                 repsRight = change.repsRight,
                 weight = change.weight,
@@ -649,7 +663,7 @@ object Session {
         return if (exercise.timed) done.maxByOrNull { it.durationSec }
         else if (exercise.byDistance) done.maxByOrNull { it.distanceM }
         else if (exercise.byCalories) done.maxByOrNull { it.calories }
-        else done.maxWithOrNull(compareBy({ it.weight }, { it.reps }))
+        else done.maxWithOrNull(compareBy({ it.weight }, { it.countedReps }))
     }
 
     // ── Resting ──────────────────────────────────────────────────────────

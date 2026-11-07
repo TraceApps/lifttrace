@@ -123,6 +123,11 @@ test('the Diary plans every day exactly as it did before the move', async () => 
     const c = genDay(r);
     const getLastSets = async (id) => (id ? (c.last[id] ?? null) : null);
     const before = await diaryLoadTemplateBefore140(c.template, { planWeek: c.planWeek, getLastSets, autoGenerateWarmups: c.autoGenerateWarmups, weightUnit: c.weightUnit });
+    // One deliberate change since: a set planned with a left/right split
+    // plans `reps` as the weaker side (scripts/split-reps.test.js).
+    for (const ex of before) for (const s of ex.sets || []) {
+      if (s.reps_l != null || s.reps_r != null) s.reps = Math.min(...[s.reps_l, s.reps_r].filter(v => v != null));
+    }
     // The Diary now: last sessions first, then the shared planner.
     const exs = c.template.exercises || [];
     const lastAll = await Promise.all(exs.map(ex => getLastSets(ex.exercise_id, { withWarmups: true })));

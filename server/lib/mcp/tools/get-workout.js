@@ -13,12 +13,16 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
-import { holdSides } from '../../volume.js';
+import { holdSides, sideReps, setReps } from '../../volume.js';
 
 const sidesOf = (s) => {
   const sides = holdSides(s);
   return sides ? { duration_l_sec: sides.l, duration_r_sec: sides.r } : {};
 };
+// Reps split left/right: reps is the weaker side, whatever an older app left
+// in it (setReps), and the sides go with it.
+const repSidesOf = (s) => (sideReps(s.reps_l, s.reps_r) != null
+  ? { reps_l: s.reps_l ?? null, reps_r: s.reps_r ?? null } : {});
 
 /**
  * Core lookup, shared by the MCP tool below and the public REST API
@@ -58,7 +62,8 @@ export function formatWorkoutRow(row) {
       superset_id: ex.superset_id ?? null,
       set_type: ex.set_type ?? null,
       sets: (ex.sets || []).map(s => ({
-        reps: s.reps ?? null,
+        reps: setReps(s) ?? null,
+        ...repSidesOf(s),
         weight: s.weight ?? null,
         completed: !!s.completed,
         warmup: !!s.warmup,
@@ -79,7 +84,7 @@ export function registerGetWorkout(server, { userId }) {
     {
       title: 'Get Workout',
       description:
-        "Read a day's workout — every exercise and its sets (reps, weight, " +
+        "Read a day's workout — every exercise and its sets (reps, with reps_l and reps_r for reps split left/right and reps then the weaker side, weight, " +
         "completed, warmup, RPE, duration_sec for timed sets like planks (with duration_l_sec and duration_r_sec for a hold timed per side, duration_sec then the shorter side), distance_m in meters for distance sets like rows and sled pushes, calories for calorie sets like air bikes). Date defaults to today in the server's " +
         'timezone; pass an explicit YYYY-MM-DD for calendar accuracy from a ' +
         'different TZ.',

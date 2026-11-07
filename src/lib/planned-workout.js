@@ -146,6 +146,15 @@ function _plannedMeters(typed, ex, weightUnit) {
   const unit = METERS_PER[ex?.distance_unit] ? ex.distance_unit : defaultDistanceUnit(ex?.exercise_name, weightUnit === 'lbs');
   return Math.round(n * METERS_PER[unit] * 1000) / 1000;
 }
+// A set's reps with reps split left/right counted at the weaker side, as
+// setReps in src/lib/workout.js and server/lib/volume.js counts them (this
+// file takes no imports), so a set an older app left with `reps` above its
+// weaker side plans from the weaker side.
+function _setReps(s) {
+  const sides = [s?.reps_l, s?.reps_r].filter(v => v != null && v !== '').map(Number).filter(Number.isFinite);
+  return sides.length ? Math.min(...sides) : s?.reps;
+}
+
 function _plannedCalories(typed) {
   const n = Math.round(parseFloat(String(typed ?? '')));
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -223,7 +232,7 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
         const parsedRepsR = parseInt(spec.reps_r);
         const set = {
           weight: Number.isFinite(parsedWeight) ? parsedWeight : (past?.weight ?? 0),
-          reps: Number.isFinite(parsedReps) ? parsedReps : (past?.reps ?? 0),
+          reps: Number.isFinite(parsedReps) ? parsedReps : (_setReps(past) ?? 0),
           completed: false,
           notes: '',
         };
@@ -251,6 +260,8 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
         // has reps_l/reps_r.
         if (Number.isFinite(parsedRepsL)) set.reps_l = parsedRepsL;
         if (Number.isFinite(parsedRepsR)) set.reps_r = parsedRepsR;
+        // ...and `reps` is the weaker side, as the Diary row keeps it.
+        if (set.reps_l != null || set.reps_r != null) set.reps = _setReps(set);
         return set;
       });
     } else {
@@ -268,7 +279,7 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
         // isn't overwritten by last week's logged load.
         sets = Array.from({ length: numSets }, (_, i) => ({
           weight: lastWorking[i]?.weight ?? lastWorking[lastWorking.length - 1]?.weight ?? baseWeight,
-          reps: lastWorking[i]?.reps ?? lastWorking[lastWorking.length - 1]?.reps ?? baseReps,
+          reps: _setReps(lastWorking[i]) ?? _setReps(lastWorking[lastWorking.length - 1]) ?? baseReps,
           completed: false,
           notes: '',
         }));

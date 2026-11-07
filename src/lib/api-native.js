@@ -19,7 +19,7 @@ import {
   setSyncMeta,
 } from './db-native.js';
 import { planWeekState, pauseWindow, calendarDaysSince } from './programWeek.js';
-import { isTimedSet, isRepSet, setKind, exerciseVolume, setVolume, resolveLoadType } from './workout.js';
+import { isTimedSet, isRepSet, setKind, exerciseVolume, setVolume, resolveLoadType, setReps } from './workout.js';
 import { musclesOf } from './muscle-load.js';
 import { normalizeMuscle } from './muscle-groups.js';
 import { getServerUrl } from './platform.js';
@@ -1289,7 +1289,7 @@ const Stats = {
             continue;
           }
           const wt = Number(s.weight) || 0;
-          const reps = Number(s.reps) || 0;
+          const reps = Number(setReps(s)) || 0;
           if (wt <= 0) continue;
           const e1rm = reps === 1 ? wt : Math.round(wt * (1 + reps / 30));
           if (wt > records[id].maxWeight) {

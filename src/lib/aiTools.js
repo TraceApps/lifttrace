@@ -13,7 +13,7 @@
  * chat loop catches and relays a `{ error: ... }` payload to the model.
  */
 import { get } from 'svelte/store';
-import { isRepSet, setKind, SET_TYPE_FIELD, holdSides, sideHoldSec } from './workout.js';
+import { isRepSet, setKind, SET_TYPE_FIELD, holdSides, sideHoldSec, sideReps, setReps } from './workout.js';
 import { buildPlannedExercises, lastCompletedSession, logIntoSets, PLAN_SETTING_DEFAULTS } from './planned-workout.js';
 import { ensureExerciseUuids, withFreshIds } from './workout-uuid.js';
 import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settlePendingSave } from '../stores/workout.js';
@@ -168,7 +168,9 @@ function _shapeWorkout(w) {
         }
       : {
           weight: s.weight ?? null,
-          reps: s.reps ?? null,
+          // Split reps count at the weaker side; the sides go with them.
+          reps: setReps(s) ?? null,
+          ...(sideReps(s.reps_l, s.reps_r) != null ? { reps_l: s.reps_l ?? null, reps_r: s.reps_r ?? null } : {}),
           ...(s.rpe != null ? { rpe: s.rpe } : {}),
           ...(s.warmup ? { warmup: true } : {}),
           completed: !!s.completed,

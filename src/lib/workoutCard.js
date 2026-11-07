@@ -8,7 +8,7 @@
 // matches the user's theme.
 
 // workout.js is pure (no stores), so importing it keeps this renderer self-contained.
-import { isRepSet, setKind, setAmount, fmtSetLabel, distanceUnitOf } from './workout.js';
+import { isRepSet, setKind, setAmount, fmtSetLabel, distanceUnitOf, setReps } from './workout.js';
 
 const W = 1080;
 const H = 1350;
@@ -206,7 +206,7 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
         return d > bd || (d === bd && (s.weight || 0) > (best.weight || 0)) ? s : best;
       }
       return (s.weight || 0) > (best.weight || 0) ||
-        ((s.weight || 0) === (best.weight || 0) && (s.reps || 0) > (best.reps || 0)) ? s : best;
+        ((s.weight || 0) === (best.weight || 0) && (Number(setReps(s)) || 0) > (Number(setReps(best)) || 0)) ? s : best;
     }, null);
     ctx.font = '600 32px system-ui, -apple-system, sans-serif';
     ctx.fillStyle = text1;

@@ -232,6 +232,20 @@ class SessionTest {
         val set = sent.getJSONArray("exercises").getJSONObject(0).getJSONArray("sets").getJSONObject(0)
         assertEquals(7, set.getInt("reps_l"))
         assertEquals(8, set.getInt("reps_r"))
+        // reps is the weaker side, so records and an older phone count 7.
+        assertEquals(7, set.getInt("reps"))
+        assertEquals(7, Session.applyChange(w, draft.copy(repsLeft = 7)).exercises[0].sets[0].reps)
+    }
+
+    @Test
+    fun `split reps count at the weaker side`() {
+        assertEquals(6, Session.sideReps(10, 6))
+        assertEquals(10, Session.sideReps(10, null))
+        assertNull(Session.sideReps(null, null))
+        // A set an older phone saved with reps left at 12 counts as 6.
+        val w = Session.parse(split.replace("\"reps_l\":8,\"reps_r\":8", "\"reps\":12,\"reps_l\":10,\"reps_r\":6"))!!
+        assertEquals(6, w.exercises[0].sets[0].countedReps)
+        assertEquals(8, Session.parse(body)!!.exercises[0].sets[1].countedReps)
     }
 
     @Test

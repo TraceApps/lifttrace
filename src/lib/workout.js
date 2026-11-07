@@ -117,6 +117,31 @@ export function holdSides(set) {
   return { l: Math.round(Number(set.duration_l_sec)) || 0, r: Math.round(Number(set.duration_r_sec)) || 0 };
 }
 
+/**
+ * Reps logged per side (an Alternating exercise's L/R split, `reps_l` and
+ * `reps_r`) count at the weaker side, as a hold per side does (issue #143):
+ * records, PR badges, the estimated 1RM, charts, Trace and the API read
+ * setReps, never `reps` alone, so a set split from 12 and typed as 10 and 6
+ * is a set of 6 even where an older app left `reps` at 12. Writers keep
+ * `reps` the weaker side too, for readers that know only `reps`. Volume
+ * still counts both sides (setVolume). Mirrored in server/lib/volume.js and
+ * src/lib/workout.js, run through the same cases by
+ * scripts/split-reps.test.js.
+ *
+ * sideReps: the weaker of two sides, a side not given left out (a side
+ * typed as 0 is a side of 0), null for neither.
+ */
+export function sideReps(l, r) {
+  const given = [l, r].filter(v => v != null && v !== '').map(Number).filter(Number.isFinite);
+  return given.length ? Math.min(...given) : null;
+}
+
+/** A set's reps: the weaker side when it has sides, else `reps` as it is. */
+export function setReps(set) {
+  if (!set) return undefined;
+  return sideReps(set.reps_l, set.reps_r) ?? set.reps;
+}
+
 /** The amount a non-rep set records (seconds, meters or calories), 0 for a
  *  rep set or an empty one. */
 export function setAmount(exercise, set) {
@@ -304,8 +329,8 @@ export function maskDurationInput(raw) {
 /**
  * Compact label for one logged set, as used in history lists and summaries:
  * "135×8" for reps, "25×1:00" for a weighted hold, "1:00" for a bodyweight
- * one, "90×20 m" for a sled push, "20 cal" on a bike. Unilateral splits are
- * left to callers that render them specially.
+ * one, "90×20 m" for a sled push, "20 cal" on a bike, "40×10/6" for reps
+ * split left/right.
  */
 export function fmtSetLabel(exercise, set, distanceUnit = null) {
   if (!set) return '';
@@ -317,7 +342,14 @@ export function fmtSetLabel(exercise, set, distanceUnit = null) {
       : fmtSetAmount(kind, set, distanceUnit || distanceUnitOf(exercise));
     return set.weight ? `${set.weight}×${t}` : t;
   }
-  return `${set.weight || 0}×${set.reps || 0}`;
+  return `${set.weight || 0}×${repsLabel(set)}`;
+}
+
+/** A rep set's reps as shown: "10/6" when split left/right, else the reps. */
+export function repsLabel(set) {
+  if (!set) return 0;
+  if (sideReps(set.reps_l, set.reps_r) != null) return `${set.reps_l ?? 0}/${set.reps_r ?? 0}`;
+  return set.reps || 0;
 }
 
 /**

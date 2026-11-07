@@ -351,6 +351,17 @@ left, a switch countdown as long as the lead-in, right) are pure functions in
 right phase; stopping writes the sides held so far and ticks only a set held
 on both sides. Only Alternating (`unilateral`) exercises time per side.
 
+Reps split per side (`reps_l`, `reps_r`) count at the weaker side the same
+way, but through the readers rather than through `reps` alone: sets saved
+before this rule kept `reps` at whatever it was when the set was split, so
+`setReps` (in `src/lib/workout.js` and `server/lib/volume.js`, held together
+by `scripts/split-reps.test.js`) gives the weaker of the sides a set has and
+`reps` only for a set without them. Records, PR badges, the estimated 1RM,
+charts, Trace and the API read `setReps`; volume still counts both sides
+(`setVolume`). Writers (the Diary row, the planned workout fill, the watch)
+also keep `reps` the weaker side, for an older app or watch that reads only
+`reps`. Stored history is not rewritten.
+
 ### The watch is a client, not a satellite
 
 `android/wear` is a standalone Wear OS app that talks to the server itself

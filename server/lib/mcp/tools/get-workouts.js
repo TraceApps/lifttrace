@@ -76,7 +76,8 @@ export function registerGetWorkouts(server, { userId }) {
       title: 'Get Workouts',
       description:
         'Read every live workout session in an inclusive date range, with full ' +
-        'exercise and set detail (reps, weight, completed, warmup, RPE, and ' +
+        'exercise and set detail (reps, with reps_l and reps_r for reps split ' +
+        'left/right and reps then the weaker side, weight, completed, warmup, RPE, and ' +
         'duration_sec for timed sets like planks, with duration_l_sec and ' +
         'duration_r_sec for a hold timed per side, distance_m for distance sets, ' +
         'calories for calorie sets) plus session_seq for days with ' +

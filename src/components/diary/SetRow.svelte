@@ -9,7 +9,7 @@
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
   import { replaceOnType } from '../../lib/replaceOnType.js';
-  import { parseDuration, fmtSetDuration, maskDurationInput, toMeters, fromMeters, rowShape, holdSides, sideHoldSec } from '../../lib/workout.js';
+  import { parseDuration, fmtSetDuration, maskDurationInput, toMeters, fromMeters, rowShape, holdSides, sideHoldSec, sideReps, setReps } from '../../lib/workout.js';
 
   export let set;
   export let setNum;
@@ -52,12 +52,14 @@
   // L/R split is only meaningful for unilateral exercises. When the user
   // taps the split icon we flip into split-mode where reps_l + reps_r are
   // edited separately; clearing both falls back to the single `reps` value.
+  // `reps` stays the weaker side (sideReps), so records, PR badges, charts,
+  // an older app and the watch count a split set at its weaker side.
   $: isSplit = setType === 'reps' && loadType === 'unilateral' && (set.reps_l != null || set.reps_r != null);
   function toggleSplit() {
     if (isSplit) {
-      // Collapse split → keep the higher of the two as the single rep count.
-      const r = Math.max(Number(set.reps_l) || 0, Number(set.reps_r) || 0);
-      dispatch('update', { ...set, reps: r, reps_l: null, reps_r: null });
+      // Back to one count: the weaker side, which `reps` already is, so
+      // merging never moves a record (as a hold per side merges, #143).
+      dispatch('update', { ...set, reps: sideReps(set.reps_l, set.reps_r) ?? 0, reps_l: null, reps_r: null });
     } else {
       const r = Number(set.reps) || 0;
       dispatch('update', { ...set, reps_l: r, reps_r: r });
@@ -80,6 +82,28 @@
       dispatch('update', { ...set, duration_l_sec: d, duration_r_sec: d, duration_sec: d });
     }
   }
+  // One side's reps typed: the side, and `reps` as the weaker side. Empty
+  // commits as 0 and mid-typing NaN is skipped, as commitNumber does.
+  function commitSideReps(field, raw) {
+    const n = raw === '' || raw == null ? 0 : parseInt(raw);
+    if (Number.isNaN(n)) return;
+    const l = field === 'reps_l' ? n : set.reps_l;
+    const r = field === 'reps_r' ? n : set.reps_r;
+    const reps = sideReps(l, r) ?? 0;
+    if (n === set[field]) return;
+    dispatch('update', { ...set, reps_l: l, reps_r: r, reps });
+  }
+
+  // A set with sides shown as one count (its exercise is no longer
+  // Alternating) reads as its weaker side; a count typed over it replaces
+  // the sides, or they would go on counting instead of it.
+  function commitReps(raw) {
+    if (sideReps(set.reps_l, set.reps_r) == null) { commitNumber('reps', raw, parseInt); return; }
+    const n = raw === '' || raw == null ? 0 : parseInt(raw);
+    if (Number.isNaN(n) || n === setReps(set)) return;
+    dispatch('update', { ...set, reps: n, reps_l: null, reps_r: null });
+  }
+
   function commitSideDuration(field, raw) {
     const sec = raw === '' || raw == null ? 0 : parseDuration(raw);
     if (sec == null) return;
@@ -193,7 +217,7 @@
   let caloriesFocused = false;
 
   let weightStr = _fmt(set.weight);
-  let repsStr = _fmt(set.reps);
+  let repsStr = _fmt(setReps(set));
   let repsLStr = _fmt(set.reps_l);
   let repsRStr = _fmt(set.reps_r);
   let durationStr = fmtSetDuration(set.duration_sec);
@@ -208,7 +232,7 @@
   // input isn't the current source of change. When focused we let the
   // user's typing win until they blur.
   $: if (!weightFocused) weightStr = _fmt(set.weight);
-  $: if (!repsFocused)   repsStr   = _fmt(set.reps);
+  $: if (!repsFocused)   repsStr   = _fmt(setReps(set));
   $: if (!repsLFocused)  repsLStr  = _fmt(set.reps_l);
   $: if (!repsRFocused)  repsRStr  = _fmt(set.reps_r);
   $: if (!durationFocused) durationStr = fmtSetDuration(set.duration_sec);
@@ -344,10 +368,10 @@
         type="number"
         class="set-input"
         bind:value={repsLStr}
-        on:input={() => commitNumber('reps_l', repsLStr, parseInt)}
+        on:input={() => commitSideReps('reps_l', repsLStr)}
         use:replaceOnType
         on:focus={() => { repsLFocused = true; }}
-        on:blur={() => { repsLFocused = false; commitNumber('reps_l', repsLStr, parseInt); }}
+        on:blur={() => { repsLFocused = false; commitSideReps('reps_l', repsLStr); }}
         placeholder="0"
         inputmode="numeric"
       />
@@ -356,10 +380,10 @@
         type="number"
         class="set-input"
         bind:value={repsRStr}
-        on:input={() => commitNumber('reps_r', repsRStr, parseInt)}
+        on:input={() => commitSideReps('reps_r', repsRStr)}
         use:replaceOnType
         on:focus={() => { repsRFocused = true; }}
-        on:blur={() => { repsRFocused = false; commitNumber('reps_r', repsRStr, parseInt); }}
+        on:blur={() => { repsRFocused = false; commitSideReps('reps_r', repsRStr); }}
         placeholder="0"
         inputmode="numeric"
       />
@@ -494,10 +518,10 @@
         type="number"
         class="set-input"
         bind:value={repsStr}
-        on:input={() => commitNumber('reps', repsStr, parseInt)}
+        on:input={() => commitReps(repsStr)}
         use:replaceOnType
         on:focus={() => { repsFocused = true; }}
-        on:blur={() => { repsFocused = false; commitNumber('reps', repsStr, parseInt); }}
+        on:blur={() => { repsFocused = false; commitReps(repsStr); }}
         placeholder="0"
         inputmode="numeric"
       />

@@ -6,7 +6,7 @@
   import { LtApi } from '../lib/api.js';
   import { onSyncChanges, newestRead } from '../lib/sync-refresh.js';
   import { weightUnit, exerciseDistanceUnits } from '../stores/settings.js';
-  import { setKind, SET_TYPE_FIELD, fmtSetAmount, fromMeters, distanceUnitOf } from '../lib/workout.js';
+  import { setKind, SET_TYPE_FIELD, fmtSetAmount, fromMeters, distanceUnitOf, setReps } from '../lib/workout.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import ExerciseInfo from '../components/exercises/ExerciseInfo.svelte';
@@ -152,7 +152,7 @@
         if (setKind({ set_type: h.set_type }, s) !== detailKind) continue;
         let v = detailTimed ? _amountOf(s) : (s.weight || 0);
         if (detailKind === 'distance') v = fromMeters(v, detailUnit) || 0;
-        if (v > top) { top = v; topReps = s.reps || 0; }
+        if (v > top) { top = v; topReps = setReps(s) || 0; }
       }
       if (top > 0) arr.push({ date: h.date, weight: top, reps: topReps });
     }
