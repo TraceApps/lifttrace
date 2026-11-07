@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.5.0-dev01] - DATE (pre-release)
+## [1.5.0-dev01] - 2026-11-07 (pre-release)
 
 First dev pre-release of the 1.5.0 minor. Two-step sign-in, excused days, sets tracked by distance or calories, a hold timer for each side, the rest timer on the lock screen, plain HTTP to a server on your own network, and LiftTrace in Russian. Everything in [v1.4.0](https://github.com/TraceApps/lifttrace/releases/tag/v1.4.0) is included.
 
@@ -93,6 +93,7 @@ First dev pre-release of the 1.5.0 minor. Two-step sign-in, excused days, sets t
 - **markdown-it** 15.0.3 closes [GHSA-gfr2-rv44-r23c](https://github.com/advisories/GHSA-gfr2-rv44-r23c) and [GHSA-vfgh-jcmw-g37q](https://github.com/advisories/GHSA-vfgh-jcmw-g37q), a slow render that only an AI provider ignoring Trace's length limit could trigger.
 - **vite** 6.4.5 closes [GHSA-587h-7wmj-h5pm](https://github.com/advisories/GHSA-587h-7wmj-h5pm), [GHSA-698v-4r3x-3vcv](https://github.com/advisories/GHSA-698v-4r3x-3vcv) and [GHSA-r825-w8mm-5pxw](https://github.com/advisories/GHSA-r825-w8mm-5pxw), in the development server only; the app and server you install never include it.
 - **hono** 4.13.13 on the server closes [GHSA-5r4p-p66f-jhc7](https://github.com/advisories/GHSA-5r4p-p66f-jhc7). LiftTrace never used the affected part.
+- **Server dependencies updated** (body-parser, multer, undici, zod and others): `npm audit` reports 0 vulnerabilities for the server. The 12 low and moderate findings left in the app are in build tools and aren't in what you install.
 
 ---
 
