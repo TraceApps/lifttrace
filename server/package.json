@@ -1,6 +1,6 @@
 {
   "name": "lifttrace-api",
-  "version": "1.4.0",
+  "version": "1.5.0-dev01",
   "type": "module",
   "scripts": {
     "start": "node index.js",

@@ -16,8 +16,8 @@ android {
         minSdkVersion 30
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Its own numbering; the name tracks the phone app it pairs with.
-        versionCode 2
-        versionName "1.4.0"
+        versionCode 3
+        versionName "1.5.0"
         // The exact release this is (v1.4.0-dev05), from package.json like the
         // phone's: versionName stays the same across dev builds, so the watch
         // couldn't tell itself apart from the next one when catching up to the
