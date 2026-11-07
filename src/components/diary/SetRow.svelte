@@ -376,6 +376,7 @@
       <input
         type="text"
         class="set-input duration-input"
+        class:long={durationLStr.length > 4}
         bind:value={durationLStr}
         on:input={() => { durationLStr = maskDurationInput(durationLStr); commitSideDuration('duration_l_sec', durationLStr); }}
         use:replaceOnType
@@ -391,6 +392,7 @@
       <input
         type="text"
         class="set-input duration-input"
+        class:long={durationRStr.length > 4}
         bind:value={durationRStr}
         on:input={() => { durationRStr = maskDurationInput(durationRStr); commitSideDuration('duration_r_sec', durationRStr); }}
         use:replaceOnType
@@ -609,6 +611,8 @@
     .set-row { --c-num: 24px; --c-check: 30px; --c-rpe: 34px; --c-rm: 26px; --row-gap: 4px; }
     .set-row.hold, .set-row.uni { --c-w: 0.8fr; --c-s: 1.2fr; }
     .set-row.sides { --c-w: 0.65fr; --c-s: 1.35fr; }
+    /* Its single time sits beside two buttons (split and timer). */
+    .set-row.sides .duration-input.hours { font-size: 11px; }
     .set-field:not(.weight-field) { padding: 0 4px; }
     .set-row .set-field.reps-split { padding: 0 2px; gap: 2px; }
     .set-row .set-field.time-split { gap: 1px; }
@@ -855,6 +859,9 @@
      0:45 and 0:40 both show beside the button on a 320px phone. */
   .time-split .duration-input { font-size: 13px; }
   .time-split .lr-label { padding-right: 0; }
+  /* 10:00 and longer: smaller again, so a side up to 59:59 still shows
+     whole on a 320px phone with RPE on. */
+  .time-split .duration-input.long { font-size: 10px; }
   .split-btn.active { color: var(--accent); }
 
   .check-btn {

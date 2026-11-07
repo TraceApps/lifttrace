@@ -259,7 +259,7 @@ test('the card times an Alternating hold per side and applies the result through
   assert.match(store, /export function switchHoldSide\(\)/);
   assert.match(store, /if \(result\.held\) holdResult\.set\(result\)/);
   const en = JSON.parse(read('../src/i18n/en.json'));
-  for (const k of ['side_left', 'side_right', 'switch_sides', 'switch_ready', 'skip_switch', 'left_held', 'sides_held', 'left_time', 'right_time', 'split_sides', 'merge_sides']) {
+  for (const k of ['side_left', 'side_right', 'switch_sides', 'switch_ready', 'skip_switch', 'left_held', 'sides_held', 'left_only_held', 'left_time', 'right_time', 'split_sides', 'merge_sides']) {
     assert.ok(en.hold_timer[k], `hold_timer.${k}`);
   }
 });

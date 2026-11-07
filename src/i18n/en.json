@@ -758,6 +758,7 @@
     "skip_switch":    "Start the right side now",
     "left_held":      "Left {time}",
     "sides_held":     "left {left}, right {right}",
+    "left_only_held": "left {left}",
     "left_time":      "Left Side Time",
     "right_time":     "Right Side Time",
     "split_sides":    "Split L/R Times",

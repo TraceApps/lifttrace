@@ -79,6 +79,7 @@
   let unclaimedTimer = null;
   function heldText(r) {
     if (!r.sideSec) return clock(r.elapsedSec);
+    if (!r.sideSec.r) return $_('hold_timer.left_only_held', { values: { left: clock(r.sideSec.l || 0) } });
     return $_('hold_timer.sides_held', { values: { left: clock(r.sideSec.l || 0), right: clock(r.sideSec.r || 0) } });
   }
   function stop() {
