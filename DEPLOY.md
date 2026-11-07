@@ -16,6 +16,8 @@ The app will be available at `http://localhost:3002`.
 
 ## Local Development
 
+Running from source needs Node 24, plus Python 3, make and a C++ compiler for the server's `npm install` (better-sqlite3 13 builds there with node-gyp). See [Dev setup](https://traceapps.github.io/docs/contribute/dev-setup/).
+
 Two ways to run the app from a source checkout. **Pick the single-origin
 path when you need to verify your own branch end-to-end.** The Vite dev
 server has a well-known blank-screen pitfall (below) and, being a separate
