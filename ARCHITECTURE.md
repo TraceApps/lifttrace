@@ -337,6 +337,20 @@ JSON inside `workout_log.exercises`, and every client edits a set by
 spreading it, so an app or watch from before a kind existed keeps its field
 untouched; it shows the set as reps.
 
+An Alternating hold can be timed per side (issue #143): `duration_l_sec` and
+`duration_r_sec` on the set, with `duration_sec` always the shorter side
+(`sideHoldSec`), so records, PR badges, charts, an older app, the watch and an
+older server read the weaker side without knowing about sides. `holdSides`
+(in `src/lib/workout.js` and `server/lib/volume.js`, held together by
+`scripts/hold-sides.test.js`) treats a set as per side only while its
+`duration_sec` still equals what its sides give: something that knows only
+`duration_sec` and changes it leaves the sides on the set, untouched, and
+every reader shows its newer single time. The hold timer's phases (lead-in,
+left, a switch countdown as long as the lead-in, right) are pure functions in
+`src/lib/holdPhase.js` over the saved timestamps, so a reload resumes the
+right phase; stopping writes the sides held so far and ticks only a set held
+on both sides. Only Alternating (`unilateral`) exercises time per side.
+
 ### The watch is a client, not a satellite
 
 `android/wear` is a standalone Wear OS app that talks to the server itself

@@ -87,7 +87,7 @@ test('leaving without typing changes nothing', () => {
 test('no number field selects its text on focus any more', () => {
   const row = read('../src/components/diary/SetRow.svelte');
   assert.doesNotMatch(row, /select\?\.\(\)|selectOnFocus/);
-  assert.equal((row.match(/use:replaceOnType/g) || []).length, 7, 'weight, reps, L, R, time, distance and calories');
+  assert.equal((row.match(/use:replaceOnType/g) || []).length, 9, 'weight, reps, L, R, time, L and R time (issue #143), distance and calories');
   const bs = read('../src/components/diary/BodyStatsWidget.svelte');
   assert.doesNotMatch(bs, /inputEl\?\.select\(\)/);
   assert.match(bs, /use:replaceOnType/);

@@ -9,7 +9,7 @@
   import { haptic as _haptic } from '../../lib/haptics.js';
   import { portal } from '../../lib/portal.js';
   import { replaceOnType } from '../../lib/replaceOnType.js';
-  import { parseDuration, fmtSetDuration, maskDurationInput, toMeters, fromMeters, rowShape } from '../../lib/workout.js';
+  import { parseDuration, fmtSetDuration, maskDurationInput, toMeters, fromMeters, rowShape, holdSides, sideHoldSec } from '../../lib/workout.js';
 
   export let set;
   export let setNum;
@@ -62,6 +62,32 @@
       const r = Number(set.reps) || 0;
       dispatch('update', { ...set, reps_l: r, reps_r: r });
     }
+  }
+
+  // A timed Alternating exercise is held per side (issue #143): the same
+  // L/R split, of times. duration_sec stays the shorter side, so records,
+  // charts and an older app read the weaker side. A set an older app or the
+  // watch changed to a single time reads as that time (holdSides).
+  $: perSide = timed && loadType === 'unilateral';
+  $: sides = perSide ? holdSides(set) : null;
+  $: isTimeSplit = !!sides;
+  function toggleTimeSplit() {
+    if (isTimeSplit) {
+      // Back to one time: the shorter side, which duration_sec already is.
+      dispatch('update', { ...set, duration_l_sec: null, duration_r_sec: null });
+    } else {
+      const d = Math.round(Number(set.duration_sec)) || 0;
+      dispatch('update', { ...set, duration_l_sec: d, duration_r_sec: d, duration_sec: d });
+    }
+  }
+  function commitSideDuration(field, raw) {
+    const sec = raw === '' || raw == null ? 0 : parseDuration(raw);
+    if (sec == null) return;
+    const cur = sides || { l: 0, r: 0 };
+    const l = field === 'duration_l_sec' ? sec : cur.l;
+    const r = field === 'duration_r_sec' ? sec : cur.r;
+    if (sides && l === sides.l && r === sides.r) return;
+    dispatch('update', { ...set, duration_l_sec: l, duration_r_sec: r, duration_sec: sideHoldSec(l, r) });
   }
 
   const dispatch = createEventDispatcher();
@@ -161,6 +187,8 @@
   let repsLFocused = false;
   let repsRFocused = false;
   let durationFocused = false;
+  let durationLFocused = false;
+  let durationRFocused = false;
   let distanceFocused = false;
   let caloriesFocused = false;
 
@@ -169,6 +197,8 @@
   let repsLStr = _fmt(set.reps_l);
   let repsRStr = _fmt(set.reps_r);
   let durationStr = fmtSetDuration(set.duration_sec);
+  let durationLStr = fmtSetDuration(set.duration_l_sec);
+  let durationRStr = fmtSetDuration(set.duration_r_sec);
   let distanceStr = _fmt(fromMeters(set.distance_m, distanceUnit));
   let caloriesStr = _fmt(set.calories);
 
@@ -182,6 +212,8 @@
   $: if (!repsLFocused)  repsLStr  = _fmt(set.reps_l);
   $: if (!repsRFocused)  repsRStr  = _fmt(set.reps_r);
   $: if (!durationFocused) durationStr = fmtSetDuration(set.duration_sec);
+  $: if (!durationLFocused) durationLStr = fmtSetDuration(sides?.l);
+  $: if (!durationRFocused) durationRStr = fmtSetDuration(sides?.r);
   $: if (!distanceFocused) distanceStr = _fmt(fromMeters(set.distance_m, distanceUnit));
   $: if (!caloriesFocused) caloriesStr = _fmt(set.calories);
 
@@ -244,7 +276,7 @@
 <!-- The grid is chosen by the exercise (rowShape), not by what this row
      happens to hold, so every row of a card and its heading line up. -->
 <div class="set-row" class:done={set.completed} class:pulse={pulseOn} class:warmup={showAsWarmup} class:is-next={isNext} class:pr={isPR}
-  class:rpe={$trackRpe} class:wide={shape.wide} class:hold={shape.hold} class:uni={shape.uni}>
+  class:rpe={$trackRpe} class:wide={shape.wide} class:hold={shape.hold} class:uni={shape.uni} class:sides={shape.sides}>
   {#if media}
     <button type="button" class="clip-badge" on:click|stopPropagation={() => dispatch('openMedia', media)}
       title="Watch this set" aria-label="Watch this set">
@@ -335,6 +367,56 @@
         <span class="material-symbols-rounded">link_off</span>
       </button>
     </div>
+  {:else if isTimeSplit}
+    <!-- An Alternating hold timed per side (issue #143): a time for each
+         side, typed as the single time is, with the hold timer (it times
+         left, then right) and the button back to one time. -->
+    <div class="set-field reps-split time-split">
+      <span class="lr-label">L</span>
+      <input
+        type="text"
+        class="set-input duration-input"
+        bind:value={durationLStr}
+        on:input={() => { durationLStr = maskDurationInput(durationLStr); commitSideDuration('duration_l_sec', durationLStr); }}
+        use:replaceOnType
+        on:focus={() => { durationLFocused = true; }}
+        on:blur={() => { durationLFocused = false; commitSideDuration('duration_l_sec', durationLStr); durationLStr = fmtSetDuration(holdSides(set)?.l); }}
+        on:keydown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        placeholder="0:00"
+        inputmode="numeric"
+        autocomplete="off"
+        aria-label={$_('hold_timer.left_time')}
+      />
+      <span class="lr-label">R</span>
+      <input
+        type="text"
+        class="set-input duration-input"
+        bind:value={durationRStr}
+        on:input={() => { durationRStr = maskDurationInput(durationRStr); commitSideDuration('duration_r_sec', durationRStr); }}
+        use:replaceOnType
+        on:focus={() => { durationRFocused = true; }}
+        on:blur={() => { durationRFocused = false; commitSideDuration('duration_r_sec', durationRStr); durationRStr = fmtSetDuration(holdSides(set)?.r); }}
+        on:keydown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        placeholder="0:00"
+        inputmode="numeric"
+        autocomplete="off"
+        aria-label={$_('hold_timer.right_time')}
+      />
+      {#if !set.completed || holdRunning}
+        <button class="split-btn hold-btn tap" class:active={holdRunning}
+          on:click={() => dispatch(holdRunning ? 'stopHold' : 'startHold')}
+          title={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}
+          aria-label={holdRunning ? $_('hold_timer.stop') : $_('hold_timer.start')}>
+          <span class="material-symbols-rounded">{holdRunning ? 'stop_circle' : 'timer'}</span>
+        </button>
+      {:else}
+        <!-- One button fits beside two times on a 320px phone: the timer
+             while the set is open, the way back to one time once done. -->
+        <button class="split-btn tap active" on:click={toggleTimeSplit} title={$_('hold_timer.merge_sides')} aria-label={$_('hold_timer.merge_sides')}>
+          <span class="material-symbols-rounded">link_off</span>
+        </button>
+      {/if}
+    </div>
   {:else if timed}
     <div class="set-field">
       <input
@@ -352,6 +434,12 @@
         autocomplete="off"
         aria-label="Duration"
       />
+      <!-- An Alternating exercise can be timed per side by hand too. -->
+      {#if perSide && !holdRunning}
+        <button class="split-btn tap" on:click={toggleTimeSplit} title={$_('hold_timer.split_sides')} aria-label={$_('hold_timer.split_sides')}>
+          <span class="material-symbols-rounded">add_link</span>
+        </button>
+      {/if}
       <!-- Hold timer: sits inside the field like the L/R split button does
            in the reps field, so the row gets no wider on a narrow phone. -->
       {#if !set.completed || holdRunning}
@@ -520,8 +608,10 @@
   @container sets (max-width: 340px) {
     .set-row { --c-num: 24px; --c-check: 30px; --c-rpe: 34px; --c-rm: 26px; --row-gap: 4px; }
     .set-row.hold, .set-row.uni { --c-w: 0.8fr; --c-s: 1.2fr; }
+    .set-row.sides { --c-w: 0.65fr; --c-s: 1.35fr; }
     .set-field:not(.weight-field) { padding: 0 4px; }
     .set-row .set-field.reps-split { padding: 0 2px; gap: 2px; }
+    .set-row .set-field.time-split { gap: 1px; }
     .set-row .set-num-btn { min-width: 22px; }
     .set-row .rpe-chip { padding: 3px 2px; min-width: 0; }
     /* Tap areas with 4px gaps: none reaches more than 2px into a gap. The
@@ -544,6 +634,7 @@
     .set-row .set-num-btn { --tap-dx: -9px; }
     .set-row .check-btn, .set-row.rpe .check-btn, .set-row .rpe-chip { --tap-w: calc(100% + 2px); }
     .set-row.hold { --c-w: 0.9fr; --c-s: 1.1fr; }
+    .set-row.sides { --c-w: 0.65fr; --c-s: 1.35fr; }
     .set-row .duration-input.hours { font-size: 11px; }
     .set-row.hold .set-field:not(.weight-field) { padding: 0 2px; gap: 2px; }
   }
@@ -760,6 +851,10 @@
   }
   .split-btn:hover { color: var(--accent); background: var(--surface-2); }
   .split-btn .material-symbols-rounded { font-size: 16px; }
+  /* Two times side by side (issue #143): a little smaller than one, so
+     0:45 and 0:40 both show beside the button on a 320px phone. */
+  .time-split .duration-input { font-size: 13px; }
+  .time-split .lr-label { padding-right: 0; }
   .split-btn.active { color: var(--accent); }
 
   .check-btn {

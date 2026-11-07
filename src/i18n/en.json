@@ -750,7 +750,18 @@
     "target":         "Target {time}",
     "target_reached": "Target {time} reached · keep going",
     "open_date":      "Open {date} to stop",
-    "set_not_found":  "Couldn't find that set. You held {time}."
+    "set_not_found":  "Couldn't find that set. You held {time}.",
+    "side_left":      "LEFT",
+    "side_right":     "RIGHT",
+    "switch_sides":   "Switch Sides",
+    "switch_ready":   "Left held {time} · switch sides, tap to start now",
+    "skip_switch":    "Start the right side now",
+    "left_held":      "Left {time}",
+    "sides_held":     "left {left}, right {right}",
+    "left_time":      "Left Side Time",
+    "right_time":     "Right Side Time",
+    "split_sides":    "Split L/R Times",
+    "merge_sides":    "Merge L/R Times"
   },
   "rest_bar": {
     "label":          "REST",

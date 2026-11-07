@@ -325,9 +325,10 @@ export function buildPlannedExercises(templateExercises, { planWeek = null, last
  * say) stays as planned. With no such set, or a set sent as not done,
  * `added` goes after the others, as before.
  *
- *   sent   { reps, weight, duration_sec, distance_m, calories, rpe, warmup,
- *          completed }, each
- *          undefined (or null) when not sent
+ *   sent   { reps, weight, duration_sec, duration_l_sec, duration_r_sec,
+ *          distance_m, calories, rpe, warmup, completed }, each
+ *          undefined (or null) when not sent; a hold per side (issue #143)
+ *          sends both sides and duration_sec, the shorter one
  *   added  the whole set to add when there's nothing to fill
  *   at     when it was done (ISO), kept on a filled set as completedAt: the
  *          merge (server/lib/workout-merge.js) then keeps it over a copy
@@ -349,7 +350,16 @@ export function logIntoSets(sets, sent, added, { at = null } = {}) {
   }
   const set = { ...list[index], completed: true };
   if (given(sent.weight)) set.weight = sent.weight;
-  if (given(sent.duration_sec)) set.duration_sec = sent.duration_sec;
+  if (given(sent.duration_sec)) {
+    set.duration_sec = sent.duration_sec;
+    // One time says nothing about each side's, as with reps below.
+    delete set.duration_l_sec;
+    delete set.duration_r_sec;
+  }
+  if (given(sent.duration_l_sec) && given(sent.duration_r_sec)) {
+    set.duration_l_sec = sent.duration_l_sec;
+    set.duration_r_sec = sent.duration_r_sec;
+  }
   if (given(sent.distance_m)) set.distance_m = sent.distance_m;
   if (given(sent.calories)) set.calories = sent.calories;
   if (given(sent.reps)) {

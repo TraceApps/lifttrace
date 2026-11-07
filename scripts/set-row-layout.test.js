@@ -29,9 +29,12 @@ const base = vars(between(row, '  .set-row {\n    --c-num'));
 const phone = between(row, '@container sets (max-width: 340px)');
 const narrowest = between(row, '@container sets (max-width: 280px)');
 const P = vars(phone.slice(0, phone.indexOf('.set-row.hold')));
-const holdShare = vars(phone.slice(phone.indexOf('.set-row.hold')));
+const line = (src, from) => src.slice(src.indexOf(from), src.indexOf('\n', src.indexOf(from)));
+const holdShare = vars(line(phone, '.set-row.hold'));
+const sidesShare = vars(line(phone, '.set-row.sides {'));
 const N = vars(narrowest.slice(0, narrowest.indexOf('.set-row .lr-label')));
-const holdShare280 = vars(narrowest.slice(narrowest.indexOf('.set-row.hold {')));
+const holdShare280 = vars(line(narrowest, '.set-row.hold {'));
+const sidesShare280 = vars(line(narrowest, '.set-row.sides {'));
 const fieldPad = Number(phone.match(/\.set-field:not\(\.weight-field\) \{ padding: 0 (\d+)px; \}/)[1]);
 const holdPad280 = Number(narrowest.match(/\.set-row\.hold \.set-field:not\(\.weight-field\) \{ padding: 0 (\d+)px; gap: (\d+)px; \}/)[1]);
 
@@ -39,7 +42,7 @@ const holdPad280 = Number(narrowest.match(/\.set-row\.hold \.set-field:not\(\.we
 // gutters, the card's border and the list's own 14px padding.
 const LIST = { 320: 258, 360: 298, 390: 328 };
 const BUTTON = 20; // the hold timer / L/R split button inside the field
-const NEED = { reps3: 27, hold: 31, hours11px: 41, distance: 40, cal: 25, splitEach: 17, weight: 40, weight22: 33 };
+const NEED = { side13: 27, reps3: 27, hold: 31, hours11px: 41, distance: 40, cal: 25, splitEach: 17, weight: 40, weight22: 33 };
 // Weight field chrome: 2px border, 4px padding each side; the unit ("lbs",
 // about 18px with its gap) unless the content is 72px or less; "ea" (about
 // 14px with its gap) always for a per-hand weight; the ± buttons (about
@@ -59,6 +62,7 @@ function columns(width, rpe, shape) {
   if (shape.wide) { w = 1; s = 1; }
   if (narrow && (shape.hold || shape.uni)) { w = holdShare['c-w']; s = holdShare['c-s']; }
   if (width <= 280 && shape.hold) { w = holdShare280['c-w']; s = holdShare280['c-s']; }
+  if (narrow && shape.sides) { const sh = width <= 280 ? sidesShare280 : sidesShare; w = sh['c-w']; s = sh['c-s']; }
   const fixed = v['c-num'] + v['c-check'] + v['c-rm'] + (rpe ? v['c-rpe'] : 0);
   const gaps = (rpe ? 5 : 4) * v['row-gap'];
   const fr = width - fixed - gaps;
@@ -66,12 +70,13 @@ function columns(width, rpe, shape) {
 }
 
 test('rows and their heading share one grid, chosen by the exercise', () => {
-  assert.deepEqual(rowShape('reps', 'bilateral'), { wide: false, hold: false, uni: false });
-  assert.deepEqual(rowShape('reps', 'unilateral'), { wide: true, hold: false, uni: true });
-  assert.deepEqual(rowShape('time', 'unilateral'), { wide: true, hold: true, uni: false });
-  assert.deepEqual(rowShape('distance', 'paired'), { wide: true, hold: false, uni: false });
+  assert.deepEqual(rowShape('reps', 'bilateral'), { wide: false, hold: false, uni: false, sides: false });
+  assert.deepEqual(rowShape('reps', 'unilateral'), { wide: true, hold: false, uni: true, sides: false });
+  assert.deepEqual(rowShape('time', 'bilateral'), { wide: true, hold: true, uni: false, sides: false });
+  assert.deepEqual(rowShape('time', 'unilateral'), { wide: true, hold: true, uni: false, sides: true });
+  assert.deepEqual(rowShape('distance', 'paired'), { wide: true, hold: false, uni: false, sides: false });
   for (const src of [row, card]) {
-    assert.match(src, /class:rpe=\{\$trackRpe\} class:wide=\{shape\.wide\} class:hold=\{shape\.hold\} class:uni=\{shape\.uni\}/);
+    assert.match(src, /class:rpe=\{\$trackRpe\} class:wide=\{shape\.wide\} class:hold=\{shape\.hold\} class:uni=\{shape\.uni\} class:sides=\{shape\.sides\}/);
   }
   // A row's grid used to follow what it held (:has(.split-btn), a hold
   // button only on unfinished sets), so rows of one card disagreed with
@@ -81,9 +86,11 @@ test('rows and their heading share one grid, chosen by the exercise', () => {
   assert.match(card, /container: sets \/ inline-size;/);
   assert.match(card, /\{#if \$trackRpe\}<span class="sh-rpe"><\/span>\{\/if\}/, 'the heading keeps the RPE column');
   assert.match(row, /\{:else if \$trackRpe\}\s*<!--[^>]*-->\s*<span class="rpe-slot"/, 'a warm-up keeps it too');
-  // The heading repeats the phone values.
+  // The heading repeats the phone values, the shares included.
   const head = between(card, '@container sets (max-width: 340px)');
   assert.deepEqual(vars(head.slice(0, head.indexOf('.sets-header.hold'))), P);
+  assert.deepEqual(vars(line(head, '.sets-header.sides {')), sidesShare);
+  assert.deepEqual(vars(line(between(card, '@container sets (max-width: 280px)'), '.sets-header.sides {')), sidesShare280);
 });
 
 for (const width of [320, 360, 390]) {
@@ -109,6 +116,18 @@ for (const width of [320, 360, 390]) {
       const letters = W <= 280 ? 0 : 2 * 9;
       assert.ok((uni.second - 2 - 4 - BUTTON - 4 * 2 - letters) / 2 >= NEED.splitEach, `L/R split 12 / 10: ${uni.second}`);
       assert.ok(uni.weight - 10 >= NEED.weight - 8, `alternating weight 22.5: ${uni.weight}`);
+      // An Alternating hold timed per side (issue #143): two times at 13px
+      // and one button (the L and R letters go at 320px, as for reps), and
+      // a weight per side beside it.
+      const sides = columns(W, rpe, rowShape('time', 'unilateral'));
+      // Measured on the next-up row, which is 8px narrower (its accent edge).
+      const sideLetters = W <= 280 ? 0 : 2 * 7;
+      const sideGaps = W <= 280 ? 2 * 2 : 4 * 1;
+      const nextUp = 8 * (sides.second / (sides.second + sides.weight));
+      assert.ok((sides.second - nextUp - 2 - 2 * 2 - BUTTON - sideGaps - sideLetters) / 2 >= NEED.side13, `L/R hold 0:45 / 0:40: ${sides.second}`);
+      assert.ok(weightRoom(sides.weight, false) >= NEED.weight22, `per-side hold weight 22.5: ${sides.weight}`);
+      // Its single time, with the split button and the timer beside it.
+      assert.ok(sides.second - 2 - 2 * sides.pad - 2 * BUTTON - 2 * 4 >= NEED.hold, `single hold 1:30 with two buttons: ${sides.second}`);
     });
   }
 }

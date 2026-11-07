@@ -13,7 +13,7 @@
  * chat loop catches and relays a `{ error: ... }` payload to the model.
  */
 import { get } from 'svelte/store';
-import { isRepSet, setKind, SET_TYPE_FIELD } from './workout.js';
+import { isRepSet, setKind, SET_TYPE_FIELD, holdSides, sideHoldSec } from './workout.js';
 import { buildPlannedExercises, lastCompletedSession, logIntoSets, PLAN_SETTING_DEFAULTS } from './planned-workout.js';
 import { ensureExerciseUuids, withFreshIds } from './workout-uuid.js';
 import { currentDate, currentSessionId, showWorkout, loadWorkoutSessions, settlePendingSave } from '../stores/workout.js';
@@ -160,6 +160,8 @@ function _shapeWorkout(w) {
       ? {
           weight: s.weight ?? null,
           [SET_TYPE_FIELD[kindOf(s)]]: Number(s[SET_TYPE_FIELD[kindOf(s)]]) || 0,
+          // A hold timed per side (issue #143): duration_sec is the shorter side.
+          ...(kindOf(s) === 'time' && holdSides(s) ? { duration_l_sec: holdSides(s).l, duration_r_sec: holdSides(s).r } : {}),
           ...(s.rpe != null ? { rpe: s.rpe } : {}),
           ...(s.warmup ? { warmup: true } : {}),
           completed: !!s.completed,
@@ -422,7 +424,7 @@ export const TOOLS = [
   {
     name: 'log_workout',
     description:
-      "Commit a full workout to the diary for a specific date. Each exercise carries its sets [{weight, reps, rpe?, warmup?, completed?}]. For a timed exercise (plank, wall sit, dead hang) send duration_sec in seconds instead of reps; for a distance exercise (rower, SkiErg, sled, carry, run) send distance_m in meters; for a calorie exercise (air bike) send calories. Exercise names are resolved case-insensitively against the library; unknown names error out so the user can confirm before a custom row is created. Use when they say 'log today' / 'I did X, Y, Z'.",
+      "Commit a full workout to the diary for a specific date. Each exercise carries its sets [{weight, reps, rpe?, warmup?, completed?}]. For a timed exercise (plank, wall sit, dead hang) send duration_sec in seconds instead of reps (a hold timed per side, such as a side plank, sends duration_l_sec and duration_r_sec instead); for a distance exercise (rower, SkiErg, sled, carry, run) send distance_m in meters; for a calorie exercise (air bike) send calories. Exercise names are resolved case-insensitively against the library; unknown names error out so the user can confirm before a custom row is created. Use when they say 'log today' / 'I did X, Y, Z'.",
     parameters: {
       type: 'object',
       properties: {
@@ -445,6 +447,8 @@ export const TOOLS = [
                     weight:    { type: 'number',  description: 'Load in the user\'s unit (kg or lbs).' },
                     reps:      { type: 'integer', description: 'Reps performed. Omit for a timed set.' },
                     duration_sec: { type: 'integer', description: 'Seconds held, for timed exercises (plank, wall sit, dead hang). Send instead of reps.' },
+                    duration_l_sec: { type: 'integer', description: 'Seconds held on the left side, for a hold timed per side (side plank). Send with duration_r_sec instead of duration_sec.' },
+                    duration_r_sec: { type: 'integer', description: 'Seconds held on the right side, with duration_l_sec.' },
                     distance_m: { type: 'number', description: 'Distance in meters, for distance exercises (rower, SkiErg, sled, carry, run). Send instead of reps; convert km, miles or yards to meters.' },
                     calories:  { type: 'integer', description: 'Calories the machine showed, for calorie exercises (air bike). Send instead of reps.' },
                     rpe:       { type: 'number',  description: 'Optional RPE 1-10.' },
@@ -489,6 +493,8 @@ export const TOOLS = [
         weight:        { type: 'number',  description: 'Load.' },
         reps:          { type: 'integer', description: 'Reps. Omit for a timed set.' },
         duration_sec:  { type: 'integer', description: 'Seconds held, for a timed exercise (plank, wall sit, dead hang). Send instead of reps.' },
+        duration_l_sec: { type: 'integer', description: 'Seconds held on the left side, for a hold timed per side (side plank). Send with duration_r_sec instead of duration_sec.' },
+        duration_r_sec: { type: 'integer', description: 'Seconds held on the right side, with duration_l_sec.' },
         distance_m:    { type: 'number',  description: 'Distance in meters, for a distance exercise (rower, SkiErg, sled, carry, run). Send instead of reps.' },
         calories:      { type: 'integer', description: 'Calories the machine showed, for a calorie exercise (air bike). Send instead of reps.' },
         rpe:           { type: 'number',  description: 'Optional RPE 1-10.' },
@@ -1335,6 +1341,7 @@ async function _logWorkout({ date, name, duration_min, exercises }) {
       weight: Number(s.weight) || 0,
       reps:   Number(s.reps)   || 0,
       ...(Number(s.duration_sec) > 0 ? { duration_sec: Math.round(Number(s.duration_sec)) } : {}),
+      ..._sidesOf(s),
       ...(Number(s.distance_m) > 0 ? { distance_m: Math.round(Number(s.distance_m) * 1000) / 1000 } : {}),
       ...(Number(s.calories) > 0 ? { calories: Math.round(Number(s.calories)) } : {}),
       completed: s.completed !== false,
@@ -1369,11 +1376,20 @@ async function _logWorkout({ date, name, duration_min, exercises }) {
   };
 }
 
+/** Both sides of a hold timed per side sent by the model (issue #143), with
+ *  duration_sec the shorter one, or nothing. */
+function _sidesOf(s) {
+  const l = Math.round(Number(s?.duration_l_sec));
+  const r = Math.round(Number(s?.duration_r_sec));
+  if (!(l > 0) || !(r > 0)) return {};
+  return { duration_l_sec: l, duration_r_sec: r, duration_sec: sideHoldSec(l, r) };
+}
+
 /** The kind a list of sets sent by the model is, by the first amount it
  *  carries: 'time', 'distance', 'calories', or null for reps. */
 function _amountKind(sets) {
   for (const s of sets || []) {
-    if (Number(s?.duration_sec) > 0) return 'time';
+    if (Number(s?.duration_sec) > 0 || Number(s?.duration_l_sec) > 0 || Number(s?.duration_r_sec) > 0) return 'time';
     if (Number(s?.distance_m) > 0) return 'distance';
     if (Number(s?.calories) > 0) return 'calories';
   }
@@ -1408,7 +1424,7 @@ async function _addExerciseToDiary({ exercise_name, date }) {
   };
 }
 
-async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, duration_sec, distance_m, calories, rpe, warmup, completed }) {
+async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, duration_sec, duration_l_sec, duration_r_sec, distance_m, calories, rpe, warmup, completed }) {
   if (workout_id == null) throw new Error('workout_id is required');
   // Find the workout by scanning recent rows, a longer list when it's older.
   const { rows } = await _recentWorkouts({ id: workout_id });
@@ -1424,14 +1440,17 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
     if (idx < 0) idx = null;
   }
   if (idx == null) throw new Error('exercise_id (position) or exercise_name is required and must match a slot in the workout');
-  const kind = _amountKind([{ duration_sec, distance_m, calories }]);
+  const sides = _sidesOf({ duration_l_sec, duration_r_sec });
+  const kind = _amountKind([{ duration_sec: sides.duration_sec ?? duration_sec, distance_m, calories }]);
   const field = kind ? SET_TYPE_FIELD[kind] : null;
   const amount = kind === 'distance' ? Math.round(Number(distance_m) * 1000) / 1000
+    : kind === 'time' && sides.duration_sec ? sides.duration_sec
     : kind ? Math.round(Number(kind === 'time' ? duration_sec : calories)) : null;
   const newSet = {
     weight: Number(weight) || 0,
     reps:   kind ? 0 : (Number(reps) || 0),
     ...(kind ? { [field]: amount } : {}),
+    ...(kind === 'time' ? sides : {}),
     completed: completed !== false,
     ...(warmup ? { warmup: true } : {}),
     ...(rpe != null ? { rpe: Number(rpe) } : {}),
@@ -1454,6 +1473,8 @@ async function _logSet({ workout_id, exercise_id, exercise_name, weight, reps, d
         weight: given(weight) ? newSet.weight : undefined,
         reps: !kind && given(reps) ? newSet.reps : undefined,
         duration_sec: kind === 'time' ? newSet.duration_sec : undefined,
+        duration_l_sec: newSet.duration_l_sec,
+        duration_r_sec: newSet.duration_r_sec,
         distance_m: kind === 'distance' ? newSet.distance_m : undefined,
         calories: kind === 'calories' ? newSet.calories : undefined,
         rpe: given(rpe) ? newSet.rpe : undefined,

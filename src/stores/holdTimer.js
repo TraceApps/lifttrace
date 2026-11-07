@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { playTimerCue, stopRest } from './restTimer.js';
+import { LEAD_IN_MS, holdPhase, newHold, skipCountdown, switchSide, stopResult } from '../lib/holdPhase.js';
 
 /**
  * Hold timer for timed sets (issue #89): tap start, drop into the plank,
@@ -17,6 +18,10 @@ import { playTimerCue, stopRest } from './restTimer.js';
  *
  * Only one hold runs at a time, since nobody holds two planks at once.
  *
+ * An Alternating exercise is timed per side (issue #143): lead-in, left,
+ * a switch countdown as long as the lead-in with the same cue, right. The
+ * phases are pure functions in lib/holdPhase.js.
+ *
  * Writing the result is a handoff rather than a direct save: stopping
  * publishes `holdResult`, and the exercise card that owns that set applies
  * it through its normal update path. That keeps rest-timer start, PR
@@ -25,7 +30,7 @@ import { playTimerCue, stopRest } from './restTimer.js';
  */
 
 const LS_KEY = 'lt:hold-timer';
-export const LEAD_IN_MS = 3000;
+export { LEAD_IN_MS };
 // A timer left running for hours is a forgotten one, not a hold.
 const STALE_MS = 3 * 60 * 60 * 1000;
 
@@ -33,7 +38,7 @@ const STALE_MS = 3 * 60 * 60 * 1000;
 export const holdTimer = writable(null);
 /** Whole seconds held so far (0 during the lead-in). */
 export const holdElapsed = writable(0);
-/** 3, 2 or 1 during the lead-in, 0 once the hold is running. */
+/** 3, 2 or 1 during the lead-in (or the switch between sides), 0 once the hold is running. */
 export const holdLeadIn = writable(0);
 /** Result waiting for its exercise card to apply it, or null. */
 export const holdResult = writable(null);
@@ -57,10 +62,9 @@ function _clearTimers() {
 function _update() {
   const state = get(holdTimer);
   if (!state) return;
-  const now = Date.now();
-  const lead = state.goAt - now;
-  holdLeadIn.set(lead > 0 ? Math.ceil(lead / 1000) : 0);
-  holdElapsed.set(lead > 0 ? 0 : Math.floor((now - state.goAt) / 1000));
+  const p = holdPhase(state, Date.now());
+  holdLeadIn.set(p.leadIn);
+  holdElapsed.set(p.elapsed);
 }
 
 function _schedule(state) {
@@ -72,7 +76,9 @@ function _schedule(state) {
   at(state.goAt - 1000, () => playTimerCue('count', 1));
   at(state.goAt, () => playTimerCue('go'));
   // Reaching the target gets the same cue, but the clock keeps running:
-  // going past a prescribed time is how a hold PR happens.
+  // going past a prescribed time is how a hold PR happens. For a hold per
+  // side the target is the side's own, and the switch counts down from
+  // goAt like the lead-in, so it gets the same 3, 2, 1, go.
   if (state.targetSec > 0) at(state.goAt + state.targetSec * 1000, () => playTimerCue('go'));
   _tick = setInterval(_update, 200);
   _update();
@@ -88,10 +94,12 @@ function _schedule(state) {
  * @param {string|null} ctx.setUuid
  * @param {string} ctx.exerciseName
  * @param {number} ctx.targetSec     prescribed or last-session time, 0 for none
+ * @param {boolean} [ctx.sides]      time each side in turn (an Alternating exercise)
+ * @param {number} [ctx.targetL]     the left side's target, for a hold per side
+ * @param {number} [ctx.targetR]     the right side's
  */
 export function startHold(ctx) {
-  const now = Date.now();
-  const state = { ...ctx, targetSec: Number(ctx.targetSec) || 0, startedAt: now, goAt: now + LEAD_IN_MS };
+  const state = newHold(ctx, Date.now());
   // You are working now, so a running rest countdown no longer applies.
   stopRest(false);
   holdResult.set(null);
@@ -100,31 +108,39 @@ export function startHold(ctx) {
   _schedule(state);
 }
 
-/** Start counting immediately instead of waiting out the lead-in. */
-export function skipLeadIn() {
-  const state = get(holdTimer);
-  if (!state || state.goAt <= Date.now()) return;
-  const next = { ...state, goAt: Date.now() };
+function _replace(next) {
+  if (!next) return;
   holdTimer.set(next);
   _persist(next);
   _schedule(next);
 }
 
+/** Start counting immediately instead of waiting out the lead-in or the switch. */
+export function skipLeadIn() {
+  _replace(skipCountdown(get(holdTimer), Date.now()));
+}
+
+/** A hold per side: the left side is done, count the switch to the right. */
+export function switchHoldSide() {
+  _replace(switchSide(get(holdTimer), Date.now()));
+}
+
 /**
  * Stop and publish the result for the owning exercise card. Stopping during
- * the lead-in records nothing, since nothing was held.
+ * the lead-in records nothing, since nothing was held. A hold per side
+ * stopped before the right side was held writes the left side alone and
+ * leaves the set unticked (lib/holdPhase.js stopResult).
  */
 export function stopHold() {
   const state = get(holdTimer);
   if (!state) return null;
-  const elapsedSec = Math.max(0, Math.floor((Date.now() - state.goAt) / 1000));
+  const result = stopResult(state, Date.now());
   _clearTimers();
   holdTimer.set(null);
   holdElapsed.set(0);
   holdLeadIn.set(0);
   _persist(null);
-  const result = { ...state, elapsedSec };
-  if (elapsedSec > 0) holdResult.set(result);
+  if (result.held) holdResult.set(result);
   return result;
 }
 

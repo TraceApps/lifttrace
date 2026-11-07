@@ -48,7 +48,11 @@ test('the Diary\'s small controls carry it', () => {
   for (const c of ['load-chip', 'btn-icon', 'add-set-btn', 'add-warmup-btn']) has('src/components/diary/ExerciseCard.svelte', `class="${c} tap"`);
   has('src/components/diary/SupersetCard.svelte', 'class="ss-remove-btn tap"');
   has('src/components/diary/SetRow.svelte', 'class="step-btn tap"', 2);
-  for (const c of ['set-num set-num-btn tap', 'check-btn tap', 'remove-btn tap', 'rpe-chip tap', 'split-btn hold-btn tap', 'split-btn tap active']) has('src/components/diary/SetRow.svelte', `class="${c}"`);
+  for (const c of ['set-num set-num-btn tap', 'check-btn tap', 'remove-btn tap', 'rpe-chip tap']) has('src/components/diary/SetRow.svelte', `class="${c}"`);
+  // The timer and the L/R button sit in a single time and in a hold timed
+  // per side (issue #143) as well as in split reps.
+  has('src/components/diary/SetRow.svelte', 'class="split-btn hold-btn tap"', 2);
+  has('src/components/diary/SetRow.svelte', 'class="split-btn tap active"', 2);
   has('src/components/diary/RestTimer.svelte', 'class="rest-btn( icon)? tap"', 3);
 });
 

@@ -77,6 +77,35 @@ export function isRepSet(exercise, set) {
 }
 
 /**
+ * An Alternating hold timed per side (issue #143): `duration_l_sec` and
+ * `duration_r_sec`, with `duration_sec` holding the shorter side, so every
+ * reader that knows only `duration_sec` (records, charts, an older app, the
+ * watch, an older server) reads the weaker side's hold. Mirrored in
+ * server/lib/volume.js and src/lib/workout.js, run through the same cases by
+ * scripts/hold-sides.test.js.
+ *
+ * sideHoldSec: the `duration_sec` two sides give, the shorter one held (a
+ * side left at 0 is not timed yet, so it does not count), 0 for none.
+ */
+export function sideHoldSec(l, r) {
+  const held = [l, r].map(v => Math.round(Number(v))).filter(n => Number.isFinite(n) && n > 0);
+  return held.length ? Math.min(...held) : 0;
+}
+
+/**
+ * The sides of a hold timed per side, { l, r } in seconds, or null for a
+ * single hold. A set whose `duration_sec` is no longer what its sides give
+ * was changed by an app, watch or server that knows only `duration_sec`:
+ * that newer single time is the one shown, and the sides it did not know
+ * about stay on the set untouched.
+ */
+export function holdSides(set) {
+  if (!set || (set.duration_l_sec == null && set.duration_r_sec == null)) return null;
+  if ((Math.round(Number(set.duration_sec)) || 0) !== sideHoldSec(set.duration_l_sec, set.duration_r_sec)) return null;
+  return { l: Math.round(Number(set.duration_l_sec)) || 0, r: Math.round(Number(set.duration_r_sec)) || 0 };
+}
+
+/**
  * Fold one set into a per-exercise record, the single definition of "a
  * record" used by GET /api/stats/records, get_records over MCP, the REST
  * /api/v1/records route, and the pr.set webhook.

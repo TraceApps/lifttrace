@@ -15,7 +15,7 @@
  *
  * Pure, so it is tested on its own (scripts/rest-shade.test.js).
  */
-import { isTimedSet, setKind, fmtWeight, fmtSetDuration, fmtDistance, fmtCalories, defaultDistanceUnit, DISTANCE_UNITS, lastCompletedSession } from './workout.js';
+import { isTimedSet, setKind, holdSides, fmtWeight, fmtSetDuration, fmtDistance, fmtCalories, defaultDistanceUnit, DISTANCE_UNITS, lastCompletedSession } from './workout.js';
 
 const inSuperset = (ex) => ex?.superset_id != null && Number(ex?.superset_size) > 1;
 
@@ -48,6 +48,8 @@ function describe(ex, set, extra) {
     repsL: set.reps_l != null ? Number(set.reps_l) || 0 : null,
     repsR: set.reps_r != null ? Number(set.reps_r) || 0 : null,
     durationSec: Number(set.duration_sec) || 0,
+    // A hold timed per side (issue #143), as split reps are shown.
+    ...(holdSides(set) ? { durationL: holdSides(set).l, durationR: holdSides(set).r } : {}),
     timed: isTimedSet(ex, set),
     // Distance and calorie sets (issue #119).
     kind: setKind(ex, set),
@@ -120,7 +122,7 @@ export function nextUp(exercises, idx) {
 
 /**
  * One set as words: "150 lbs × 8", "8 reps", "1:00", "20 lbs × 1:00",
- * "8 / 8". `unit` is left out for "Last time 145 × 8". `t` translates.
+ * "8 / 8", a hold per side "0:30 / 0:25". `unit` is left out for "Last time 145 × 8". `t` translates.
  */
 export function setWords(s, { unit = '', timed = false, kind = null, distanceUnit = null, t = defaultT } = {}) {
   if (!s) return '';
@@ -133,7 +135,9 @@ export function setWords(s, { unit = '', timed = false, kind = null, distanceUni
   const k = kind || s.kind;
   const meters = Number(s.distanceM ?? s.distance_m) || 0;
   const cal = Number(s.calories) || 0;
-  if (timed && dur > 0) work = fmtSetDuration(dur);
+  const sides = s.durationL != null ? { l: Number(s.durationL) || 0, r: Number(s.durationR) || 0 } : holdSides(s);
+  if (timed && sides && (sides.l > 0 || sides.r > 0)) work = `${fmtSetDuration(sides.l) || '0:00'} / ${fmtSetDuration(sides.r) || '0:00'}`;
+  else if (timed && dur > 0) work = fmtSetDuration(dur);
   else if (k === 'distance' && meters > 0) work = fmtDistance(meters, distanceUnit || s.distanceUnit || defaultDistanceUnit(s.name, unit === 'lbs'));
   else if (k === 'calories' && cal > 0) work = fmtCalories(cal);
   else if (l != null && r != null && (Number(l) > 0 || Number(r) > 0)) work = `${Number(l) || 0} / ${Number(r) || 0}`;

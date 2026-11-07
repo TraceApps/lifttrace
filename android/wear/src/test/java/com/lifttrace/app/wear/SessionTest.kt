@@ -243,6 +243,41 @@ class SessionTest {
         assertTrue(set.getBoolean("completed"))
     }
 
+    private val sidePlank = """
+        {"workout":{"id":4,"date":"2026-11-07","name":"Core","exercises":[
+          {"uuid":"e4","exercise_id":8,"exercise_name":"Side Plank","set_type":"time","load_type":"unilateral","sets":[
+            {"uuid":"q1","duration_sec":40,"duration_l_sec":45,"duration_r_sec":40,"completed":false},
+            {"uuid":"q2","duration_sec":40,"completed":false}
+          ]}
+        ]}}
+    """.trimIndent()
+
+    @Test
+    fun `a hold timed per side on the phone keeps its sides when the watch logs it`() {
+        // Issue #143: the watch times one hold, the shorter side, and writes
+        // duration_sec; the sides it does not write ride along untouched.
+        val w = Session.parse(sidePlank)!!
+        val ex = w.exercises[0]
+        assertTrue(ex.sets[0].holdSides)
+        assertFalse(ex.sets[1].holdSides)
+        assertEquals("0:45 / 0:40", Session.setLine(ex, ex.sets[0], "kg"))
+        val draft = Session.suggest(ex, 0)
+        assertEquals(40, draft.durationSec)
+        val ticked = Session.upsert(w.raw, draft.copy(completed = true))
+        val set = ticked.getJSONArray("exercises").getJSONObject(0).getJSONArray("sets").getJSONObject(0)
+        assertEquals(listOf(40, 45, 40), listOf(set.getInt("duration_sec"), set.getInt("duration_l_sec"), set.getInt("duration_r_sec")))
+        assertTrue(set.getBoolean("completed"))
+        val shown = Session.applyChange(w, draft.copy(completed = true)).exercises[0].sets[0]
+        assertTrue(shown.holdSides)
+        // A new time from the watch is the one shown; the sides stay on the set.
+        val changed = Session.upsert(w.raw, draft.copy(durationSec = 50, completed = true))
+        val c = changed.getJSONArray("exercises").getJSONObject(0).getJSONArray("sets").getJSONObject(0)
+        assertEquals(listOf(50, 45, 40), listOf(c.getInt("duration_sec"), c.getInt("duration_l_sec"), c.getInt("duration_r_sec")))
+        val after = Session.applyChange(w, draft.copy(durationSec = 50, completed = true)).exercises[0]
+        assertFalse(after.sets[0].holdSides)
+        assertEquals("0:50", Session.setLine(after, after.sets[0], "kg"))
+    }
+
     private val superset = """
         {"workout":{"id":5,"date":"2026-09-21","name":"Arms","exercises":[
           {"uuid":"a1","exercise_id":31,"exercise_name":"Curl","superset_id":"g1","superset_size":2,"rest_sec":120,"sets":[

@@ -88,6 +88,35 @@ export function isRepSet(exercise, set) {
   return setKind(exercise, set) === 'reps';
 }
 
+/**
+ * An Alternating hold timed per side (issue #143): `duration_l_sec` and
+ * `duration_r_sec`, with `duration_sec` holding the shorter side, so every
+ * reader that knows only `duration_sec` (records, charts, an older app, the
+ * watch, an older server) reads the weaker side's hold. Mirrored in
+ * server/lib/volume.js and src/lib/workout.js, run through the same cases by
+ * scripts/hold-sides.test.js.
+ *
+ * sideHoldSec: the `duration_sec` two sides give, the shorter one held (a
+ * side left at 0 is not timed yet, so it does not count), 0 for none.
+ */
+export function sideHoldSec(l, r) {
+  const held = [l, r].map(v => Math.round(Number(v))).filter(n => Number.isFinite(n) && n > 0);
+  return held.length ? Math.min(...held) : 0;
+}
+
+/**
+ * The sides of a hold timed per side, { l, r } in seconds, or null for a
+ * single hold. A set whose `duration_sec` is no longer what its sides give
+ * was changed by an app, watch or server that knows only `duration_sec`:
+ * that newer single time is the one shown, and the sides it did not know
+ * about stay on the set untouched.
+ */
+export function holdSides(set) {
+  if (!set || (set.duration_l_sec == null && set.duration_r_sec == null)) return null;
+  if ((Math.round(Number(set.duration_sec)) || 0) !== sideHoldSec(set.duration_l_sec, set.duration_r_sec)) return null;
+  return { l: Math.round(Number(set.duration_l_sec)) || 0, r: Math.round(Number(set.duration_r_sec)) || 0 };
+}
+
 /** The amount a non-rep set records (seconds, meters or calories), 0 for a
  *  rep set or an empty one. */
 export function setAmount(exercise, set) {
@@ -222,11 +251,15 @@ export function fmtDistance(meters, unit = 'm') {
  * evenly (a time, a distance, calories, or an alternating exercise's reps),
  * and on a phone `hold` and `uni` give the second column the larger share,
  * since a hold's field also holds the timer button and an L/R split two
- * numbers and a button.
+ * numbers and a button; `sides` (an Alternating hold, two times and a
+ * button) the largest.
  */
 export function rowShape(setType, loadType) {
   const uni = setType === 'reps' && loadType === 'unilateral';
-  return { wide: setType !== 'reps' || uni, hold: setType === 'time', uni };
+  // An Alternating hold is timed per side (issue #143): its field can hold
+  // two times and a button, so on a phone it takes a larger share still.
+  const sides = setType === 'time' && loadType === 'unilateral';
+  return { wide: setType !== 'reps' || uni, hold: setType === 'time', uni, sides };
 }
 
 /** "20 cal", "" for none. */
@@ -278,7 +311,10 @@ export function fmtSetLabel(exercise, set, distanceUnit = null) {
   if (!set) return '';
   const kind = setKind(exercise, set);
   if (kind !== 'reps') {
-    const t = fmtSetAmount(kind, set, distanceUnit || distanceUnitOf(exercise));
+    // A hold timed per side (issue #143) reads as both sides, "0:45/0:40".
+    const sides = kind === 'time' ? holdSides(set) : null;
+    const t = sides ? `${fmtSetDuration(sides.l) || '0:00'}/${fmtSetDuration(sides.r) || '0:00'}`
+      : fmtSetAmount(kind, set, distanceUnit || distanceUnitOf(exercise));
     return set.weight ? `${set.weight}×${t}` : t;
   }
   return `${set.weight || 0}×${set.reps || 0}`;

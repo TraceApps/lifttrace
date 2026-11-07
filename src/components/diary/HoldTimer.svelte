@@ -10,6 +10,11 @@
    *
    * The screen is kept awake for the length of the hold, and released after,
    * unless the user already keeps it awake from Settings.
+   *
+   * An Alternating exercise is timed per side (issue #143): the label says
+   * which side is up, Switch Sides ends the left side and counts the switch
+   * down (tap it to start the right side at once), and the right side's
+   * clock shows what the left side held.
    */
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { fly } from 'svelte/transition';
@@ -18,7 +23,7 @@
   import { _ } from 'svelte-i18n';
   import {
     holdTimer, holdElapsed, holdLeadIn, holdResult,
-    stopHold, cancelHold, skipLeadIn, consumeHoldResult, resumeHoldTimer,
+    stopHold, cancelHold, skipLeadIn, switchHoldSide, consumeHoldResult, resumeHoldTimer,
   } from '../../stores/holdTimer.js';
   import { wantScreenOn, enableWakeLock, disableWakeLock } from '../../stores/wakeLock.js';
   import { currentDate } from '../../stores/workout.js';
@@ -41,6 +46,15 @@
   $: progress = target > 0 ? Math.min(1, elapsed / target) : 0;
   $: pastTarget = target > 0 && elapsed >= target;
   $: otherDate = active && state.date !== $currentDate;
+  // A hold per side: which side is up, and the switch between them.
+  $: side = active && state.sides ? (state.side === 'R' ? 'R' : 'L') : null;
+  $: switching = side === 'R' && leadIn > 0;
+  // Under the clock: the target, and on the right side what the left held.
+  $: sub = [
+    side === 'R' ? $_('hold_timer.left_held', { values: { time: clock(state.leftSec || 0) } }) : '',
+    target > 0 ? (pastTarget ? $_('hold_timer.target_reached', { values: { time: clock(target) } }) : $_('hold_timer.target', { values: { time: clock(target) } })) : '',
+  ].filter(Boolean).join(' · ');
+  $: label = side === 'L' ? $_('hold_timer.side_left') : side === 'R' ? $_('hold_timer.side_right') : $_('hold_timer.label');
 
   function clock(sec) { return fmtSetDuration(sec) || '0:00'; }
 
@@ -63,15 +77,19 @@
   // it belongs to another session), still tell the user what they held so
   // it is not lost; they can type it in.
   let unclaimedTimer = null;
+  function heldText(r) {
+    if (!r.sideSec) return clock(r.elapsedSec);
+    return $_('hold_timer.sides_held', { values: { left: clock(r.sideSec.l || 0), right: clock(r.sideSec.r || 0) } });
+  }
   function stop() {
     const r = stopHold();
-    if (!r || r.elapsedSec <= 0) return;
+    if (!r || !r.held) return;
     clearTimeout(unclaimedTimer);
     unclaimedTimer = setTimeout(() => {
       const pending = get(holdResult);
       if (pending && pending.startedAt === r.startedAt) {
         consumeHoldResult();
-        showError($_('hold_timer.set_not_found', { values: { time: clock(r.elapsedSec) } }));
+        showError($_('hold_timer.set_not_found', { values: { time: heldText(r) } }));
       }
     }, 400);
   }
@@ -87,20 +105,18 @@
     {/if}
     <div class="hold-content">
       <div class="hold-head">
-        <span class="hold-label">{$_('hold_timer.label')}</span>
+        <span class="hold-label">{label}</span>
         <span class="hold-exercise">{state.exerciseName}</span>
       </div>
 
       {#if leadIn > 0}
         <button type="button" class="hold-clock lead" on:click={skipLeadIn}
-          aria-label={$_('hold_timer.skip_lead_in')}>{leadIn}</button>
-        <span class="hold-sub">{$_('hold_timer.get_ready')}</span>
+          aria-label={$_(switching ? 'hold_timer.skip_switch' : 'hold_timer.skip_lead_in')}>{leadIn}</button>
+        <span class="hold-sub">{switching ? $_('hold_timer.switch_ready', { values: { time: clock(state.leftSec || 0) } }) : $_('hold_timer.get_ready')}</span>
       {:else}
         <span class="hold-clock">{clock(elapsed)}</span>
-        {#if target > 0}
-          <span class="hold-sub">
-            {pastTarget ? $_('hold_timer.target_reached', { values: { time: clock(target) } }) : $_('hold_timer.target', { values: { time: clock(target) } })}
-          </span>
+        {#if target > 0 || side === 'R'}
+          <span class="hold-sub">{sub}</span>
         {/if}
       {/if}
 
@@ -111,9 +127,16 @@
       {:else}
         <div class="hold-actions">
           <button type="button" class="hold-btn" on:click={cancelHold}>{$_('hold_timer.cancel')}</button>
-          <button type="button" class="hold-btn primary" on:click={stop}>
-            <span class="material-symbols-rounded">stop_circle</span>{$_('hold_timer.stop')}
-          </button>
+          {#if side === 'L' && leadIn === 0}
+            <!-- The left side is done: on to the right, after a countdown. -->
+            <button type="button" class="hold-btn primary" on:click={switchHoldSide}>
+              <span class="material-symbols-rounded">swap_horiz</span>{$_('hold_timer.switch_sides')}
+            </button>
+          {:else}
+            <button type="button" class="hold-btn primary" on:click={stop}>
+              <span class="material-symbols-rounded">stop_circle</span>{$_('hold_timer.stop')}
+            </button>
+          {/if}
         </div>
       {/if}
     </div>

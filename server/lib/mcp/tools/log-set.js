@@ -25,6 +25,7 @@ import { mutateWorkoutDay } from '../_workout-write.js';
 import { recordsBeforeSave, sendNewRecords } from '../../log-webhooks.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 import { logIntoSets } from '../../planned-workout.js';
+import { sideHoldSec } from '../../volume.js';
 import { toId } from '../../program-access.js';
 
 /**
@@ -77,7 +78,7 @@ const AMOUNTS = [
 ];
 const sentValue = (v) => v != null && v !== '';
 
-export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, duration_sec, distance_m, calories, rpe, warmup, completed, date, workout_id } = {}) {
+export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, duration_sec, duration_l_sec, duration_r_sec, distance_m, calories, rpe, warmup, completed, date, workout_id } = {}) {
   // A number however it was sent: a Home Assistant template sends "12", and
   // a string id never matched the day's entry for that exercise.
   const exercise_id = toId(exerciseIdSent) ?? exerciseIdSent;
@@ -97,6 +98,23 @@ export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, 
   // distance sets (issue #119) meters, calorie sets calories. Validated
   // here rather than only in the MCP schema because the REST route hands
   // its body straight to this core.
+  // A hold timed per side (issue #143) sends both sides; duration_sec is
+  // the shorter one, worked out here when not sent, so records and every
+  // reader that knows only duration_sec see the weaker side.
+  let sides = null;
+  if (sentValue(duration_l_sec) || sentValue(duration_r_sec)) {
+    const l = Math.round(Number(duration_l_sec));
+    const r = Math.round(Number(duration_r_sec));
+    if (![l, r].every(v => Number.isFinite(v) && v > 0 && v <= 86400)) {
+      throw new Error('duration_l_sec and duration_r_sec must both be whole numbers of seconds between 1 and 86400.');
+    }
+    const shorter = sideHoldSec(l, r);
+    if (sentValue(duration_sec) && Math.round(Number(duration_sec)) !== shorter) {
+      throw new Error(`duration_sec is the shorter side of a hold timed per side (${shorter}); send that or leave it out.`);
+    }
+    duration_sec = shorter;
+    sides = { duration_l_sec: l, duration_r_sec: r };
+  }
   const values = { duration_sec, distance_m, calories };
   const amounts = AMOUNTS.filter(a => sentValue(values[a.field]));
   if (amounts.length > 1) {
@@ -120,6 +138,7 @@ export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, 
         reps: 0,
         weight: weight ?? 0,
         [amount.field]: value,
+        ...(sides || {}),
         completed: completed ?? true,
         warmup: warmup ?? false,
         rpe: rpe ?? null,
@@ -147,6 +166,8 @@ export function logSetCore(userId, { exercise_id: exerciseIdSent, reps, weight, 
     weight: weight ?? undefined,
     reps: amount ? undefined : reps,
     duration_sec: kind === 'time' ? value : undefined,
+    duration_l_sec: sides ? sides.duration_l_sec : undefined,
+    duration_r_sec: sides ? sides.duration_r_sec : undefined,
     distance_m: kind === 'distance' ? value : undefined,
     calories: kind === 'calories' ? value : undefined,
     rpe: rpe ?? undefined,
@@ -227,7 +248,9 @@ export function registerLogSet(server, { userId }) {
         "set planned, else the day's unfinished program workout, else the " +
         "day's first. Date defaults to today in the server's timezone. For a " +
         'timed exercise (plank, wall sit, dead hang) send duration_sec ' +
-        'instead of reps; for a distance exercise (rower, SkiErg, sled, ' +
+        'instead of reps (an Alternating hold timed per side, such as a ' +
+        'side plank, sends duration_l_sec and duration_r_sec, and ' +
+        'duration_sec is then the shorter side); for a distance exercise (rower, SkiErg, sled, ' +
         'carry, run) send distance_m in meters; for a calorie exercise (air ' +
         'bike) send calories. Weight is optional with any of them and means ' +
         'the load (a weighted hold, a loaded sled). search_exercises reports set_type.',
@@ -236,6 +259,8 @@ export function registerLogSet(server, { userId }) {
         reps: z.number().int().min(0).max(1000).optional(),
         weight: z.number().min(0).max(10000).optional(),
         duration_sec: z.number().int().min(1).max(86400).optional(),
+        duration_l_sec: z.number().int().min(1).max(86400).optional(),
+        duration_r_sec: z.number().int().min(1).max(86400).optional(),
         distance_m: z.number().positive().max(1000000).optional(),
         calories: z.number().int().min(1).max(100000).optional(),
         rpe: z.number().min(1).max(10).optional(),
@@ -245,9 +270,9 @@ export function registerLogSet(server, { userId }) {
         workout_id: z.number().int().positive().optional(),
       },
     },
-    async ({ exercise_id, reps, weight, duration_sec, distance_m, calories, rpe, warmup, completed, date, workout_id }) => {
+    async ({ exercise_id, reps, weight, duration_sec, duration_l_sec, duration_r_sec, distance_m, calories, rpe, warmup, completed, date, workout_id }) => {
       try {
-        return toolResult(logSetCore(userId, { exercise_id, reps, weight, duration_sec, distance_m, calories, rpe, warmup, completed, date, workout_id }));
+        return toolResult(logSetCore(userId, { exercise_id, reps, weight, duration_sec, duration_l_sec, duration_r_sec, distance_m, calories, rpe, warmup, completed, date, workout_id }));
       } catch (e) {
         return toolError(e.message);
       }

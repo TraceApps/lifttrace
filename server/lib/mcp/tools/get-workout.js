@@ -13,6 +13,12 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
+import { holdSides } from '../../volume.js';
+
+const sidesOf = (s) => {
+  const sides = holdSides(s);
+  return sides ? { duration_l_sec: sides.l, duration_r_sec: sides.r } : {};
+};
 
 /**
  * Core lookup, shared by the MCP tool below and the public REST API
@@ -58,6 +64,8 @@ export function formatWorkoutRow(row) {
         warmup: !!s.warmup,
         rpe: s.rpe ?? null,
         duration_sec: s.duration_sec ?? null,
+        // A hold timed per side (issue #143); duration_sec is the shorter side.
+        ...sidesOf(s),
         distance_m: s.distance_m ?? null,
         calories: s.calories ?? null,
       })),
@@ -72,7 +80,7 @@ export function registerGetWorkout(server, { userId }) {
       title: 'Get Workout',
       description:
         "Read a day's workout — every exercise and its sets (reps, weight, " +
-        "completed, warmup, RPE, duration_sec for timed sets like planks, distance_m in meters for distance sets like rows and sled pushes, calories for calorie sets like air bikes). Date defaults to today in the server's " +
+        "completed, warmup, RPE, duration_sec for timed sets like planks (with duration_l_sec and duration_r_sec for a hold timed per side, duration_sec then the shorter side), distance_m in meters for distance sets like rows and sled pushes, calories for calorie sets like air bikes). Date defaults to today in the server's " +
         'timezone; pass an explicit YYYY-MM-DD for calendar accuracy from a ' +
         'different TZ.',
       inputSchema: {

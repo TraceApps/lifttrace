@@ -47,9 +47,25 @@ object Session {
         val number: Int?,
         val distanceM: Double = 0.0,
         val calories: Int = 0,
+        /**
+         * A hold the phone timed per side (issue #143). durationSec is the
+         * shorter side, which is what the watch times and writes; the sides
+         * ride along untouched in the set the server keeps.
+         */
+        val durationLeft: Int? = null,
+        val durationRight: Int? = null,
     ) {
         /** A set the phone is recording per side, as it does for alternating work. */
         val split: Boolean get() = repsLeft != null || repsRight != null
+
+        /**
+         * Timed per side, and still what the sides say: a hold changed to one
+         * time since (here, or by an older phone) reads as that time, as the
+         * phone reads it (holdSides in workout.js).
+         */
+        val holdSides: Boolean
+            get() = (durationLeft != null || durationRight != null) &&
+                durationSec == (listOfNotNull(durationLeft, durationRight).filter { it > 0 }.minOrNull() ?: 0)
 
         /** Has anything been put on this set, by you or by the plan? */
         val hasNumbers: Boolean
@@ -199,6 +215,8 @@ object Session {
         number = if (s.isNull("number")) null else s.optInt("number").takeIf { it > 0 },
         distanceM = s.optDouble("distance_m", 0.0).let { if (it.isNaN() || it < 0) 0.0 else it },
         calories = s.optInt("calories", 0).coerceAtLeast(0),
+        durationLeft = if (s.isNull("duration_l_sec")) null else s.optInt("duration_l_sec", 0),
+        durationRight = if (s.isNull("duration_r_sec")) null else s.optInt("duration_r_sec", 0),
     )
 
     /**
@@ -436,6 +454,9 @@ object Session {
                 number = existing?.number,
                 distanceM = change.distanceM,
                 calories = change.calories,
+                // The watch never writes the sides; the server keeps them.
+                durationLeft = existing?.durationLeft,
+                durationRight = existing?.durationRight,
             )
             val sets = if (e.sets.any { it.uuid == change.setUuid }) {
                 e.sets.map { if (it.uuid == change.setUuid) updated else it }
@@ -751,6 +772,7 @@ object Session {
     fun setLine(exercise: Exercise, set: Set, unit: String): String {
         val load = if (set.weight > 0) weightText(set.weight, unit) else ""
         val work = when {
+            exercise.timed && set.holdSides -> "${clock(set.durationLeft ?: 0)} / ${clock(set.durationRight ?: 0)}"
             exercise.timed && set.durationSec > 0 -> clock(set.durationSec)
             exercise.byDistance && set.distanceM > 0 -> distanceText(set.distanceM, distanceUnit(exercise, unit))
             exercise.byCalories && set.calories > 0 -> "${set.calories} cal"

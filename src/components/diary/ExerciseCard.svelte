@@ -5,9 +5,10 @@
   import { LtApi } from '../../lib/api.js';
   import { onSyncChanges, newestRead } from '../../lib/sync-refresh.js';
   import { getCollapseState, setCollapsed } from '../../lib/cardCollapse.js';
-  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, setKind, fmtSetLabel, rowShape, distanceUnitOf, fmtSetDuration, parseDuration, lastCompletedSession } from '../../lib/workout.js';
+  import { generateWarmupSets, volumeDelta, resolveLoadType, resolveSetType, setKind, fmtSetLabel, rowShape, distanceUnitOf, fmtSetDuration, holdSides, parseDuration, lastCompletedSession } from '../../lib/workout.js';
   import { exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits, trackRpe } from '../../stores/settings.js';
   import { holdTimer, holdResult, startHold, stopHold, consumeHoldResult, holdMatches } from '../../stores/holdTimer.js';
+  import { applyHold } from '../../lib/holdPhase.js';
   import LoadTypeMenu from '../ui/LoadTypeMenu.svelte';
 
   export let exercise;
@@ -349,6 +350,10 @@
   function startHoldFor(setIdx) {
     const set = sets[setIdx];
     if (!set) return;
+    // An Alternating exercise is timed per side (issue #143), each side
+    // aiming at its own time when the set already has them.
+    const perSide = loadType === 'unilateral';
+    const split = perSide ? holdSides(set) : null;
     startHold({
       date,
       exIdx: idx,
@@ -360,6 +365,11 @@
       // The duration already on the set (prescribed, or carried from last
       // session) is the target the timer cues at.
       targetSec: Number(set.duration_sec) || 0,
+      ...(perSide ? {
+        sides: true,
+        targetL: split ? split.l : (Number(set.duration_sec) || 0),
+        targetR: split ? split.r : (Number(set.duration_sec) || 0),
+      } : {}),
     });
   }
 
@@ -373,7 +383,7 @@
     if (target < 0 && sets[r.setIdx]) target = r.setIdx;
     if (target >= 0) {
       consumeHoldResult();
-      updateSet(target, { ...sets[target], duration_sec: r.elapsedSec, completed: true });
+      updateSet(target, applyHold(sets[target], r));
     }
   }
 
@@ -469,7 +479,7 @@
       </div>
     {/if}
     <div class="sets-wrap" bind:this={setsWrapEl}>
-      <div class="sets-header" class:rpe={$trackRpe} class:wide={shape.wide} class:hold={shape.hold} class:uni={shape.uni}>
+      <div class="sets-header" class:rpe={$trackRpe} class:wide={shape.wide} class:hold={shape.hold} class:uni={shape.uni} class:sides={shape.sides}>
         <span class="sh-set">Set</span>
         <span class="sh-weight"><span class="sh-weight-label" class:compact={weightCompact}>{$_('exercise_card.weight')}</span></span>
         <!-- The distance unit sits in each row's field, as "kg" does in the
@@ -684,11 +694,13 @@
   @container sets (max-width: 340px) {
     .sets-header { --c-num: 24px; --c-check: 30px; --c-rpe: 34px; --c-rm: 26px; --row-gap: 4px; }
     .sets-header.hold, .sets-header.uni { --c-w: 0.8fr; --c-s: 1.2fr; }
+    .sets-header.sides { --c-w: 0.65fr; --c-s: 1.35fr; }
     .sets-header .sh-reps { padding-left: 4px; }
   }
   @container sets (max-width: 280px) {
     .sets-header { --c-check: 28px; --c-rpe: 30px; --c-rm: 24px; --row-gap: 3px; }
     .sets-header.hold { --c-w: 0.9fr; --c-s: 1.1fr; }
+    .sets-header.sides { --c-w: 0.65fr; --c-s: 1.35fr; }
   }
   .sets-header span { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; }
   .sh-set { text-align: center; }

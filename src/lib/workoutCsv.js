@@ -20,12 +20,15 @@
  * (issue #119) follow it for the same reason, filled only on distance and
  * calorie sets.
  *
+ * A hold timed per side (issue #143) is two rows, L and R, each with its
+ * side's duration_sec, as split reps are.
+ *
  * `weight_unit` reflects the user's active unit preference at export
  * time (the underlying value is stored in that unit; we don't reconvert).
  */
 
 import { isNative } from './platform.js';
-import { setKind } from './workout.js';
+import { setKind, holdSides } from './workout.js';
 
 function _escape(v) {
   if (v == null) return '';
@@ -104,9 +107,17 @@ export function workoutToCsv(workout, weightUnit = 'lbs', libraryLoadTypes) {
         kind === 'calories' ? (Number(set.calories) || '') : '',
       ];
 
-      // A timed, distance or calorie set is one row: reps is left empty so
-      // its seconds, meters or calories can never be summed as reps, and it
-      // is never split by side.
+      // A hold timed per side: a row for each side, as split reps.
+      const sides = kind === 'time' ? holdSides(set) : null;
+      if (sides) {
+        const side = (sec, s) => withSide(tailCols, s).map((v, i) => (i === tailCols.length - 3 ? (sec || '') : v));
+        lines.push(_row([...baseCols, '', set.weight ?? '', ...side(sides.l, 'L')]));
+        lines.push(_row([...baseCols, '', set.weight ?? '', ...side(sides.r, 'R')]));
+        return;
+      }
+      // A timed, distance or calorie set is otherwise one row: reps is left
+      // empty so its seconds, meters or calories can never be summed as
+      // reps.
       if (timed) {
         lines.push(_row([...baseCols, '', set.weight ?? '', ...tailCols]));
         return;

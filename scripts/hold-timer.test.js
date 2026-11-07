@@ -56,19 +56,24 @@ test('asking without a set index matches the exercise as a whole', () => {
 // ── Wiring ───────────────────────────────────────────────────────────────
 
 const store = read('../src/stores/holdTimer.js');
+const phases = read('../src/lib/holdPhase.js');
 const card = read('../src/components/diary/ExerciseCard.svelte');
 const row = read('../src/components/diary/SetRow.svelte');
 const overlay = read('../src/components/diary/HoldTimer.svelte');
 
 test('elapsed time comes from timestamps, so a locked phone still reads true', () => {
-  assert.match(store, /Math\.floor\(\(Date\.now\(\) - state\.goAt\) \/ 1000\)/);
+  // The phases are pure functions of the saved state and the time now
+  // (lib/holdPhase.js, run for real in scripts/hold-sides.test.js).
+  assert.match(phases, /Math\.floor\(\(now - state\.goAt\) \/ 1000\)/);
+  assert.match(store, /holdPhase\(state, Date\.now\(\)\)/);
+  assert.match(store, /stopResult\(state, Date\.now\(\)\)/);
   assert.match(store, /localStorage\.setItem\(LS_KEY/, 'a reload mid-hold must not lose it');
 });
 
 test('there is a lead-in, it can be skipped, and stopping inside it records nothing', () => {
-  assert.match(store, /LEAD_IN_MS = 3000/);
+  assert.match(phases, /LEAD_IN_MS = 3000/);
   assert.match(store, /export function skipLeadIn/);
-  assert.match(store, /if \(elapsedSec > 0\) holdResult\.set\(result\)/);
+  assert.match(store, /if \(result\.held\) holdResult\.set\(result\)/);
 });
 
 test('starting a hold stops the rest countdown, and cues honour the rest alert settings', () => {
@@ -82,7 +87,8 @@ test('starting a hold stops the rest countdown, and cues honour the rest alert s
 test('the result is applied through the card\'s normal set update and completes the set', () => {
   // Same path as a tapped tick, so rest timer, PR detection and superset
   // rounds behave identically.
-  assert.match(card, /consumeHoldResult\(\);\s*\n\s*updateSet\(target, \{ \.\.\.sets\[target\], duration_sec: r\.elapsedSec, completed: true \}\)/);
+  assert.match(card, /consumeHoldResult\(\);\s*\n\s*updateSet\(target, applyHold\(sets\[target\], r\)\)/);
+  assert.match(phases, /if \(!r\.sideSec\) return \{ \.\.\.set, duration_sec: r\.elapsedSec, completed: true \};/);
 });
 
 test('the row button lives inside the time field and only on unfinished or running sets', () => {
