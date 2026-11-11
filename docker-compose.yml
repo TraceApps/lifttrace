@@ -21,8 +21,10 @@ services:
       # leave it off behind HTTPS (Caddy, nginx with Let's Encrypt, Cloudflare
       # Tunnel, Tailscale Serve). Set it in .env (see .env.example).
       - INSECURE_COOKIES=${INSECURE_COOKIES:-}
-      # Optional — at-rest encryption key for OIDC client secrets and wearable
-      # OAuth tokens. Defaults to a key derived from JWT_SECRET, which means
+      # Optional: at-rest encryption key for OIDC client secrets, webhook
+      # secrets and the tokens, keys and passwords saved in Settings (NutriTrace
+      # link, ntfy, Gotify, AI, ExerciseDB, music server). Defaults to a key
+      # derived from JWT_SECRET, which means
       # rotating JWT_SECRET also invalidates every encrypted secret. Set this
       # explicitly if you want to rotate session tokens independently.
       # - TOKEN_ENC_KEY=${TOKEN_ENC_KEY:-}

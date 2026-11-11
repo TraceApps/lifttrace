@@ -8,6 +8,7 @@ import { pushNotify } from '../lib/push-notify.js';
 import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+import { clientSetting, readSettingRaw, settingToStore } from '../lib/secret-settings.js';
 
 // Push services usually live on the home network, so that's allowed for
 // every account; the address is still checked, and a redirect only
@@ -38,7 +39,9 @@ router.get('/', wrap((req, res) => {
   const rows = db.prepare('SELECT key, value FROM user_settings WHERE user_id = ?').all(req.user.id);
   const out = {};
   for (const { key, value } of rows) {
-    try { out[key] = JSON.parse(value); } catch { out[key] = value; }
+    let v; try { v = JSON.parse(value); } catch { v = value; }
+    // A secret only the server uses is said to be set, never sent (TraceApps/cooktrace#92).
+    out[key] = clientSetting(key, v);
   }
   res.json(out);
 }));
@@ -54,13 +57,17 @@ router.put('/', wrap((req, res) => {
   // Reset (Clear All Settings) after this change was made: it stays reset,
   // and the device that sent it goes back to the default with its next pull.
   if (!existing && resetWins(req, req.user.id, key)) return res.json({ ok: true, value: null, reset: true });
+  // A secret is stored encrypted, and the placeholder sent back for one
+  // leaves it be (TraceApps/cooktrace#92).
+  const sent = value === undefined ? undefined : settingToStore(key, value, existing?.value ?? null);
+  if (value !== undefined && sent === undefined) return res.json({ ok: true, value: clientSetting(key, readSettingRaw(key, existing?.value ?? 'null')) });
   // Compared as stored (JSON text): an object sent is the same setting as
   // the same object kept.
-  const { keep, times } = decide(req, existing, { value: value === undefined ? undefined : JSON.stringify(value) }, { fields: ['value'] });
-  const stays = existing && keep.has('value') ? existing.value : JSON.stringify(value);
+  const { keep, times } = decide(req, existing, { value: sent }, { fields: ['value'] });
+  const stays = existing && keep.has('value') ? existing.value : sent;
   db.prepare('INSERT OR REPLACE INTO user_settings (user_id, key, value, field_times) VALUES (?, ?, ?, ?)')
     .run(req.user.id, key, stays, times);
-  res.json({ ok: true, value: JSON.parse(stays ?? 'null') });
+  res.json({ ok: true, value: clientSetting(key, readSettingRaw(key, stays ?? 'null')) });
 }));
 
 router.delete('/', wrap((req, res) => {
@@ -103,7 +110,7 @@ router.post('/push-test', wrap(async (req, res) => {
     if (!userId) return null;
     const row = db.prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ?').get(userId, key);
     if (!row) return null;
-    try { return JSON.parse(row.value); } catch { return row.value; }
+    return readSettingRaw(key, row.value);
   }
 
   const svc = service || getSetting('notifPushService') || 'none';

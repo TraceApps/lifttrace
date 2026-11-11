@@ -1,6 +1,7 @@
 import { DB } from './db.js';
 import { isNative, getServerUrl } from './platform.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { SECRET_SET } from './secret-set.js';
 
 // Verbose notification logs gated by dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -166,7 +167,8 @@ export function nativePushRequest(service, setting, title, body, priority = 5) {
   if (service === 'gotify') {
     const url = setting('gotifyUrl');
     const token = setting('gotifyToken');
-    if (!url || !token) return null;
+    // The server keeps the token and sent only its placeholder: it sends.
+    if (!url || !token || token === SECRET_SET) return null;
     return {
       url: `${_serviceBase(url)}/message?token=${encodeURIComponent(token)}`,
       headers: { 'Content-Type': 'application/json' },
@@ -177,7 +179,7 @@ export function nativePushRequest(service, setting, title, body, priority = 5) {
     const url = setting('ntfyUrl') || 'https://ntfy.sh';
     const topic = setting('ntfyTopic');
     const token = setting('ntfyToken');
-    if (!topic) return null;
+    if (!topic || token === SECRET_SET) return null;
     const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'Title': _asciiHeader(title), 'Priority': String(Math.min(5, priority)) };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return { url: `${_serviceBase(url)}/${encodeURIComponent(topic)}`, headers, data: body };

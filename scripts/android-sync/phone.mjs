@@ -2099,8 +2099,10 @@ const scenarios = {
     const settings = async (who) => web(who, 'GET', '/api/settings');
     await until(async () => (await settings('phone')).restPerExercise?.['101'] === 90, 'the athlete\'s settings to save');
     wk.todayLog.set({ name: 'Athlete Workout', exercises: [] });
-    // Changed just before the switch: still waiting to be sent.
-    st.gotifyToken.set('athlete-late');
+    // Changed just before the switch: still waiting to be sent. (A setting the
+    // server sends back: a token only the server uses comes back as dots,
+    // TraceApps/cooktrace#92.)
+    st.radioPassword.set('athlete-late');
     // The coach signs in on this phone.
     platform.setAuthToken(tokens.other);
     localStorage.setItem('wl:userId', String(coach.id));
@@ -2121,7 +2123,7 @@ const scenarios = {
     return {
       seen,
       coachServer: { gotify: coachServer.gotifyToken ?? null, radio: coachServer.radioPassword ?? null, favorites: coachServer.favoriteExercises ?? null, rest: coachServer.restPerExercise },
-      athleteServer: (await settings('phone')).gotifyToken,
+      athleteServer: (await settings('phone')).radioPassword,
       afterSignOut: get(st.ntfyToken),
     };
   },
@@ -2494,14 +2496,15 @@ const scenarios = {
     await la.prepareLocalAccount(athlete, { confirm: async () => true });
     await syncNow();
     localStorage.setItem(`wl_u${coach}_forceMobileLayout`, 'true');
-    st.ntfyToken.set('athlete-ntfy-late');
+    // A setting the server sends back (TraceApps/cooktrace#92).
+    st.radioPassword.set('athlete-radio-late');
     await auth.logout();
-    const afterSignOut = { token: platform.getAuthToken(), ntfy: get(st.ntfyToken) };
+    const afterSignOut = { token: platform.getAuthToken(), radio: get(st.radioPassword) };
     platform.setAuthToken(tokens.other);
     await auth.loadAuthState();
     return {
       afterSignOut,
-      athleteServer: (await web('phone', 'GET', '/api/settings')).ntfyToken ?? null,
+      athleteServer: (await web('phone', 'GET', '/api/settings')).radioPassword ?? null,
       coachLocal: get(st.forceMobileLayout),
     };
   },

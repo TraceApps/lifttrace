@@ -52,6 +52,7 @@ import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSq
 import { readablePairingIds, messageOut } from '../lib/coaching-messages.js';
 import { soloStart } from '../lib/solo-program.js';
 import { rememberZone } from '../lib/user-zone.js';
+import { clientSettingRaw, settingToStoreRaw } from '../lib/secret-settings.js';
 
 // ── Tombstone helpers for the sync push/pull loops (Option C) ─────────
 // Same shape as workout.js — duplicated here to keep both routes
@@ -319,6 +320,8 @@ router.get('/pull', wrap((req, res) => {
     ? db.prepare(
         `SELECT * FROM user_settings WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at`
       ).all(sinceSql, u).filter(s => !isServerOnlyKey(s.key))
+        // A secret only the server uses goes as its placeholder (TraceApps/cooktrace#92).
+        .map(s => ({ ...s, value: clientSettingRaw(s.key, s.value) }))
     : [];
 
   // ai_chat_history — append-only, sort by created_at since updates aren't
@@ -964,20 +967,24 @@ router.post('/push', wrap((req, res) => {
       const existing = u != null
         ? db.prepare('SELECT * FROM user_settings WHERE user_id = ? AND key = ?').get(u, s.key)
         : null;
+      // A secret is stored encrypted; the placeholder this phone was sent for
+      // one leaves it be (TraceApps/cooktrace#92).
+      const value = s.value == null ? null : settingToStoreRaw(s.key, s.value, existing?.value ?? null);
+      if (value === undefined) { result.user_settings.push({ key: s.key }); continue; }
       if (existing) {
         // The newer edit of a setting stays (PUT /api/settings).
-        const { keep, times } = decide(pushedEdit(s), existing, { value: s.value ?? null }, { fields: ['value'], times: pushTimes(existing) });
+        const { keep, times } = decide(pushedEdit(s), existing, { value }, { fields: ['value'], times: pushTimes(existing) });
         db.prepare(
           `UPDATE user_settings SET value=?, field_times=?, updated_at=datetime('now') WHERE user_id=? AND key=?`
-        ).run(keep.has('value') ? existing.value : (s.value ?? null), times, u, s.key);
+        ).run(keep.has('value') ? existing.value : value, times, u, s.key);
       } else if (u != null && resetWins(pushedEdit(s), u, s.key)) {
         // Reset (Clear All Settings) after it was made, or sent with no
         // readable time: it stays reset (PUT /api/settings does the same).
       } else if (u != null) {
-        const { times } = decide(pushedEdit(s), null, { value: s.value ?? null }, { fields: ['value'] });
+        const { times } = decide(pushedEdit(s), null, { value }, { fields: ['value'] });
         db.prepare(
           `INSERT INTO user_settings (user_id, key, value, field_times, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`
-        ).run(u, s.key, s.value ?? null, times);
+        ).run(u, s.key, value, times);
       }
       result.user_settings.push({ key: s.key });
     }

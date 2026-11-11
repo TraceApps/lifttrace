@@ -5,6 +5,7 @@ import { logger } from '../logger.js';
 import { frameAncestorsDirective } from '../lib/frame-ancestors.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
 import { musicApiPath as _apiPath, isMusicReply } from '../lib/music-paths.js';
+import { readSettingRaw, settingToStore } from '../lib/secret-settings.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -36,7 +37,7 @@ const _musicFetch = (url, init) => fetchChecked(url, init, { allowPrivate: true,
 function _getSetting(userId, key, def) {
   if (userId) {
     const row = db.prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ?').get(userId, key);
-    if (row) try { return JSON.parse(row.value); } catch { return row.value; }
+    if (row) return readSettingRaw(key, row.value);
   }
   // Fallback to app_config
   const row = db.prepare('SELECT value FROM app_config WHERE key = ?').get(key);
@@ -160,7 +161,8 @@ function _jfSaveToken(req, cfg, token) {
   const userId = uid(req);
   if (!userId) return;
   const put = db.prepare('INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)');
-  put.run(userId, 'radioToken', JSON.stringify(token || ''));
+  // Stored encrypted (TraceApps/cooktrace#92).
+  put.run(userId, 'radioToken', settingToStore('radioToken', token || ''));
   put.run(userId, 'radioTokenFor', JSON.stringify(token ? `${cfg.url}|${cfg.user}` : ''));
 }
 
@@ -259,7 +261,7 @@ router.all('/provider/emby/*splat', async (req, res) => {
         token = authData.AccessToken;
         const userId = uid(req);
         if (userId) {
-          db.prepare('INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)').run(userId, 'radioToken', JSON.stringify(token));
+          db.prepare('INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)').run(userId, 'radioToken', settingToStore('radioToken', token));
         }
       }
     } catch(e) {

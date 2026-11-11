@@ -9,6 +9,7 @@ import { isBackupDue } from './backup-schedule.js';
 import { trainedDateSet, cardioCounts } from './trained-days.js';
 import { getExcusedDay, listExcusedDays } from './excused-days.js';
 import { zoneFor } from './user-zone.js';
+import { readSettingRaw } from './secret-settings.js';
 
 /**
  * Server-side scheduler — runs every 15 minutes.
@@ -32,7 +33,7 @@ function _getUserSetting(userId, key, defaultVal) {
     ? db.prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ?').get(userId, key)
     : null;
   if (!row) return defaultVal;
-  try { return JSON.parse(row.value); } catch { return row.value; }
+  return readSettingRaw(key, row.value);
 }
 
 function _localHour(timezone) {

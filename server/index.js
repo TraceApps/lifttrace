@@ -65,6 +65,7 @@ import { adoptExistingPairings } from './lib/coaching.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
+import { sealStoredSecrets } from './lib/secret-settings.js';
 
 // Seed config from env vars
 seedSmtpFromEnv();
@@ -80,6 +81,12 @@ seedPrograms();
 
 // Auto-seed exercises from wger (non-blocking)
 autoSeed().catch(e => logger.warn('[seed] Auto-seed failed:', e.message));
+
+// Secrets people saved in their settings before TraceApps/cooktrace#92 are stored encrypted.
+try {
+  const n = sealStoredSecrets(db);
+  if (n) logger.info(`[secrets] encrypted ${n} saved secret(s) in user settings`);
+} catch (e) { logger.warn(`[secrets] not sealed: ${e.message}`); }
 
 // Start notification scheduler (15-min tick)
 startScheduler();

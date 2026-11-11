@@ -14,6 +14,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+import { readSettingRaw, SECRET_SET } from '../lib/secret-settings.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -25,7 +26,7 @@ function _getSetting(userId, key) {
     `SELECT value FROM user_settings WHERE ${userId == null ? 'user_id IS NULL' : 'user_id = ?'} AND key = ?`
   ).get(...(userId == null ? [key] : [userId, key]));
   if (!row?.value) return null;
-  try { return JSON.parse(row.value); } catch { return row.value; }
+  return readSettingRaw(key, row.value);
 }
 
 function _config(userId) {
@@ -90,10 +91,20 @@ async function _ntFetch(cfg, path, opts = {}) {
 router.post('/test', wrap(async (req, res) => {
   const u = uid(req);
   const raw = req.body?.url || _getSetting(u, 'ntInstanceUrl') || '';
-  const token = req.body?.token || _getSetting(u, 'ntInstanceToken');
-  if (!raw || !token) return res.status(400).json({ ok: false, error: 'URL and token required' });
+  // A token typed in is tested as typed. The saved one (the page sends back
+  // the placeholder it was shown) only goes to the address it was saved
+  // for, never to one the request names (TraceApps/cooktrace#92).
+  const typed = req.body?.token && req.body.token !== SECRET_SET ? req.body.token : null;
+  if (!raw) return res.status(400).json({ ok: false, error: 'URL and token required' });
   const url = serviceBase(raw);
   if (!url) return res.status(400).json({ ok: false, error: 'URL must start with http(s)://' });
+  const savedToken = _getSetting(u, 'ntInstanceToken');
+  const sameAddress = url === serviceBase(_getSetting(u, 'ntInstanceUrl') || '');
+  const token = typed || (sameAddress ? savedToken : null);
+  if (!token) {
+    const error = savedToken && !sameAddress ? 'Enter the access token again for this address' : 'URL and token required';
+    return res.status(400).json({ ok: false, error });
+  }
   try {
     const ntRes = await _ntFetch({ url, token }, '/api/v1/me');
     if (!ntRes.ok) {

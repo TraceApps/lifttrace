@@ -1,4 +1,5 @@
 <script>
+  import { selectSecret } from '../../lib/secret-set.js';
   /**
    * SettingsFederation.svelte — NutriTrace federation for LiftTrace.
    *
@@ -161,10 +162,10 @@
           <div class="key-row">
             {#if showToken}
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="text"
-                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
+                bind:value={tokenDraft} on:focus={selectSecret} placeholder="nt_pat_…" on:input={_invalidate} />
             {:else}
               <input class="form-input-sm" style="flex:1;min-width:0;font-family:monospace" type="password"
-                bind:value={tokenDraft} placeholder="nt_pat_…" on:input={_invalidate} />
+                bind:value={tokenDraft} on:focus={selectSecret} placeholder="nt_pat_…" on:input={_invalidate} />
             {/if}
             <button class="btn-icon-toggle" on:click={() => showToken = !showToken} title={showToken ? $_('settings_trace.labels.hide') : $_('settings_trace.labels.show')}>
               <span class="material-symbols-rounded">{showToken ? 'visibility_off' : 'visibility'}</span>

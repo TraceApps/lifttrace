@@ -125,7 +125,7 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `DB_PATH` | `./lifttrace.db` | SQLite database file path |
 | `UPLOADS_PATH` | `./uploads` | Uploaded exercise media directory |
 | `JWT_SECRET` | (required in prod) | JWT signing secret; server refuses to start in prod with the dev default |
-| `TOKEN_ENC_KEY` | derived from `JWT_SECRET` | At-rest encryption key for OIDC client secrets |
+| `TOKEN_ENC_KEY` | derived from `JWT_SECRET` | At-rest encryption key for OIDC client secrets, webhook secrets and the tokens, keys and passwords saved in Settings |
 | `PORT` | `3002` | Server port inside the container (3003 before 1.3.0) |
 | `LOG_LEVEL` | `info` | `error` \| `warn` \| `info` \| `debug` |
 | `EXERCISE_SOURCES` | `wger,free-db` | Sources to auto-seed on first boot (`wger`, `free-db`, `exercisedb`, `exercisedb-oss`) |

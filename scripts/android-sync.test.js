@@ -610,7 +610,7 @@ test('the next account never sees or saves what the app held for the last one', 
   const { out } = await scenario('storesReset');
   assert.deepEqual(out.seen, { gotify: '', radio: '', favorites: [], rest: {}, workout: null });
   assert.deepEqual(out.coachServer, { gotify: null, radio: null, favorites: null, rest: { 202: 60 } });
-  assert.equal(out.athleteServer, 'athlete-secret', 'the change still waiting at the switch went nowhere');
+  assert.equal(out.athleteServer, 'athlete-radio', 'the change still waiting at the switch went nowhere');
   assert.equal(out.afterSignOut, '', 'signing out clears them too');
 });
 
@@ -676,7 +676,7 @@ test('the same user id on a server that can\'t say which it is is asked about, a
 
 test('signing out sends a setting changed just before, ends the session, and the next account\'s own values show at once', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('signOutIn');
-  assert.deepEqual(out, { afterSignOut: { token: null, ntfy: '' }, athleteServer: 'athlete-ntfy-late', coachLocal: true });
+  assert.deepEqual(out, { afterSignOut: { token: null, radio: '' }, athleteServer: 'athlete-radio-late', coachLocal: true });
 });
 
 test('a program workout added while its phone-only program is on its way up is made once', { skip, timeout: SCENARIO_MS }, async () => {

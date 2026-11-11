@@ -1,4 +1,5 @@
 <script>
+  import { selectSecret } from '../../lib/secret-set.js';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
@@ -159,9 +160,9 @@
             <label class="form-label">{$_('settings_notifications.push.gotify_token')}</label>
             <div style="display:flex;gap:8px;align-items:center">
               {#if pushShowToken}
-                <input class="form-input" style="flex:1" type="text" bind:value={$gotifyToken} placeholder={$_('settings_notifications.push.gotify_token_ph')} />
+                <input class="form-input" style="flex:1" type="text" bind:value={$gotifyToken} on:focus={selectSecret} placeholder={$_('settings_notifications.push.gotify_token_ph')} />
               {:else}
-                <input class="form-input" style="flex:1" type="password" bind:value={$gotifyToken} placeholder={$_('settings_notifications.push.gotify_token_ph')} />
+                <input class="form-input" style="flex:1" type="password" bind:value={$gotifyToken} on:focus={selectSecret} placeholder={$_('settings_notifications.push.gotify_token_ph')} />
               {/if}
               <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? $_('settings_notifications.push.hide') : $_('settings_notifications.push.show')}>
                 <span class="material-symbols-rounded">{pushShowToken ? 'visibility_off' : 'visibility'}</span>
@@ -183,9 +184,9 @@
             <label class="form-label">{$_('settings_notifications.push.ntfy_token')}</label>
             <div style="display:flex;gap:8px;align-items:center">
               {#if pushShowToken}
-                <input class="form-input" style="flex:1" type="text" bind:value={$ntfyToken} placeholder={$_('settings_notifications.push.ntfy_token_ph')} />
+                <input class="form-input" style="flex:1" type="text" bind:value={$ntfyToken} on:focus={selectSecret} placeholder={$_('settings_notifications.push.ntfy_token_ph')} />
               {:else}
-                <input class="form-input" style="flex:1" type="password" bind:value={$ntfyToken} placeholder={$_('settings_notifications.push.ntfy_token_ph')} />
+                <input class="form-input" style="flex:1" type="password" bind:value={$ntfyToken} on:focus={selectSecret} placeholder={$_('settings_notifications.push.ntfy_token_ph')} />
               {/if}
               <button class="btn-icon-toggle" on:click={() => pushShowToken = !pushShowToken} title={pushShowToken ? $_('settings_notifications.push.hide') : $_('settings_notifications.push.show')}>
                 <span class="material-symbols-rounded">{pushShowToken ? 'visibility_off' : 'visibility'}</span>
