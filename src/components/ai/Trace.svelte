@@ -1,4 +1,5 @@
 <script>
+  import { pastedImage } from '../../lib/paste-image.js';
   import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -453,6 +454,14 @@
       const dataUrl = await fileToDataUrl(f);
       pendingImages = [...pendingImages, { dataUrl, mediaType: f.type }];
     }
+  }
+  // A pasted screenshot attaches like the image button (lib/paste-image.js).
+  function onPaste(e) {
+    if (sending) return;
+    const file = pastedImage(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    handleFiles([file]);
   }
   function fileToDataUrl(file) {
     return new Promise((res, rej) => {
@@ -958,6 +967,7 @@ Follow the PLAN line with a SHORT rationale (1-3 sentences) explaining the choic
             rows="1"
             bind:value={input}
             on:keydown={onKey}
+            on:paste={onPaste}
             placeholder={$_('trace.ask_placeholder')}
             disabled={sending}
           ></textarea>

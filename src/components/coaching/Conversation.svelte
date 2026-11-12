@@ -5,6 +5,7 @@
   // (its uuid). Checked for news when opened, when the app comes back to the
   // front, and every 10 seconds only while it is on screen. The notes on
   // workouts and exercises stay where they are, beside it.
+  import { pastedImage } from '../../lib/paste-image.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { timeFormat, dateFormat } from '../../stores/settings.js';
@@ -104,6 +105,15 @@
     if (typeof window !== 'undefined') window.removeEventListener('lt:coach-messages', onNews);
   });
 
+  // A pasted screenshot attaches like the photo button (lib/paste-image.js).
+  function onPaste(e) {
+    if (sending) return;
+    const file = pastedImage(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    onFiles({ detail: [file] });
+  }
+
   async function onFiles(e) {
     const file = e.detail?.[0];
     if (!file) return;
@@ -195,7 +205,7 @@
     {/if}
     <div class="composer">
       <AttachImageButton title={$_('coaching.chat.add_photo')} disabled={sending || !!photo} on:files={onFiles} />
-      <textarea class="input composer-input" rows="1" bind:value={text} on:keydown={onKey}
+      <textarea class="input composer-input" rows="1" bind:value={text} on:keydown={onKey} on:paste={onPaste}
         maxlength={MESSAGE_MAX} placeholder={$_('coaching.chat.placeholder', { values: { name: otherName } })}
         aria-label={$_('coaching.chat.placeholder', { values: { name: otherName } })}></textarea>
       <button class="btn btn-primary composer-send" disabled={sending || (!text.trim() && !photo)} on:click={send}
