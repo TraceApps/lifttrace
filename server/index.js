@@ -267,6 +267,9 @@ router.use('/api/coaching',     coachingRoutes);
 router.use('/api/prescriptions', prescriptionRoutes);
 router.use('/api/coach-feedback', coachFeedbackRoutes);
 router.use('/api/sync',          syncRoutes);
+// Any signed-in user's own tokens; /api/admin/api-tokens stays for older
+// Android builds.
+router.use('/api/tokens', apiTokensRoutes);
 router.use('/api/admin/api-tokens', apiTokensRoutes);
 router.use('/api/set-media', setMediaRoutes);
 router.use('/api/webhooks', webhooksRoutes);

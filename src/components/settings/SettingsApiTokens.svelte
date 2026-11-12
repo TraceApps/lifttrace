@@ -56,7 +56,7 @@
   async function load() {
     loading = true;
     try {
-      const r = await fetch(apiUrl('/api/admin/api-tokens'), {
+      const r = await fetch(apiUrl('/api/tokens'), {
         credentials: 'include', headers: { 'Content-Type': 'application/json' },
       });
       if (!r.ok) throw new Error($_('settings_api_tokens.toast.load_failed'));
@@ -92,7 +92,7 @@
   async function sendCreate({ password, code }) {
     creating = true;
     try {
-      const r = await fetch(apiUrl('/api/admin/api-tokens'), {
+      const r = await fetch(apiUrl('/api/tokens'), {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -128,7 +128,7 @@
       dangerous: true,
     })) return;
     try {
-      const r = await fetch(apiUrl(`/api/admin/api-tokens/${t.id}`), {
+      const r = await fetch(apiUrl(`/api/tokens/${t.id}`), {
         method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' },
       });
       if (!r.ok) {

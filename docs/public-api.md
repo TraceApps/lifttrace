@@ -18,7 +18,7 @@ PUBLIC_API_WRITE_ENABLED=1  # optional, turns on the write routes too
 ## Authentication
 
 Same personal access tokens as MCP: create one in Settings, API Tokens
-(admin, multi-user mode only, a token needs a real account to own it).
+(multi-user mode only, a token needs a real account to own it).
 Send it as a bearer token:
 
 ```

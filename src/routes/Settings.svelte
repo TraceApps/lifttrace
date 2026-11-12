@@ -1000,6 +1000,16 @@
     <span>{$_('settings.federation.section')}</span>
     <span class="material-symbols-rounded chevron">chevron_right</span>
   </button>
+  <!-- API Tokens (issue #78: MCP server): any signed-in user's own tokens
+       (from nutritrace#245). Needs real multi-user mode: a token needs a
+       real user_id to own it. See server/routes/api-tokens.js. -->
+  {#if !localOnly && $userMgmtActive}
+    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
+      <span class="material-symbols-rounded si">key</span>
+      <span>{$_('settings.api_tokens.section')}</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
+  {/if}
 
   <p class="settings-group-label">{$_('settings_main.group_app')}</p>
   {#if isNative}
@@ -1042,21 +1052,8 @@
       <span>{$_('settings.authentication.section')}</span>
       <span class="material-symbols-rounded chevron">chevron_right</span>
     </button>
-    <!-- API Tokens (issue #78: MCP server). Strictly gated on real
-         multi-user mode with a signed-in admin — NOT the broader
-         single-user-counts-as-admin pattern the rest of this group
-         uses, because a token needs a real user_id to own it and
-         single-user mode has zero rows in `users`. See
-         server/routes/api-tokens.js for the matching server-side
-         guard. -->
-    <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
-      <span class="material-symbols-rounded si">key</span>
-      <span>{$_('settings.api_tokens.section')}</span>
-      <span class="material-symbols-rounded chevron">chevron_right</span>
-    </button>
-    <!-- Webhooks (issue #79). Same real-multi-user-mode-plus-admin
-         posture as API Tokens just above: a webhook needs a real
-         user_id to own it. See server/routes/webhooks.js for the
+    <!-- Webhooks (issue #79). Real multi-user mode plus admin: a
+         webhook needs a real user_id to own it. See server/routes/webhooks.js for the
          matching server-side guard. -->
     <button class="section-toggle rail-btn" class:hidden={!sectionVisible(settingsQuery, 'webhooks')} class:active={currentSection === 'webhooks'} aria-current={currentSection === 'webhooks' ? 'page' : undefined} on:click={() => toggleSection('webhooks')}>
       <span class="material-symbols-rounded si">webhook</span>
@@ -1476,6 +1473,25 @@
       />
     {/if}
 
+    <!-- API Tokens (issue #78: MCP server): body-only component like
+         SettingsUpdates. Any signed-in user's own tokens (from
+         nutritrace#245); needs real multi-user mode, a token needs a
+         real user_id to own it. -->
+    {#if !localOnly && $userMgmtActive}
+      {#if sectionVisible(settingsQuery, 'apiTokens')}
+        <button class="section-toggle" on:click={() => toggleSection('apiTokens')}>
+          <span class="material-symbols-rounded si">key</span>
+          <span class="section-name">{$_('settings.api_tokens.section')}</span>
+          <span class="material-symbols-rounded chevron" class:rotated={openSections.apiTokens}>expand_more</span>
+        </button>
+        {#if expanded.apiTokens}
+          <div class="section-body" transition:slide={{ duration: 180 }}>
+            <SettingsApiTokens expanded={true} />
+          </div>
+        {/if}
+      {/if}
+    {/if}
+
     <!-- ═══ APP (server connection + notifications + data movement, app-level — visible to all) -->
     <p class="group-label">{$_('settings_main.group_app')}</p>
 
@@ -1669,27 +1685,9 @@
           onToggle={() => toggleSection('authentication')}
         />
 
-        <!-- API Tokens (issue #78: MCP server) — body-only component
-             like SettingsUpdates above, doesn't take the visible/
-             expanded/onToggle prop shape. Strictly gated on real
-             multi-user mode + admin, same as SettingsAuth just above:
-             a token needs a real user_id to own it. -->
-        {#if sectionVisible(settingsQuery, 'apiTokens')}
-          <button class="section-toggle" on:click={() => toggleSection('apiTokens')}>
-            <span class="material-symbols-rounded si">key</span>
-            <span class="section-name">{$_('settings.api_tokens.section')}</span>
-            <span class="material-symbols-rounded chevron" class:rotated={openSections.apiTokens}>expand_more</span>
-          </button>
-          {#if expanded.apiTokens}
-            <div class="section-body" transition:slide={{ duration: 180 }}>
-              <SettingsApiTokens expanded={true} />
-            </div>
-          {/if}
-        {/if}
 
-        <!-- Webhooks (issue #79), body-only component, same shape and
-             gating as API Tokens just above: a webhook needs a real
-             user_id to own it. -->
+        <!-- Webhooks (issue #79), body-only component. Real multi-user
+             mode plus admin: a webhook needs a real user_id to own it. -->
         {#if sectionVisible(settingsQuery, 'webhooks')}
           <button class="section-toggle" on:click={() => toggleSection('webhooks')}>
             <span class="material-symbols-rounded si">webhook</span>

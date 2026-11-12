@@ -1,34 +1,36 @@
 /**
- * /api/admin/api-tokens — CRUD for personal access tokens (issue #78).
+ * /api/tokens (alias /api/admin/api-tokens): CRUD for personal access tokens (issue #78).
  *
  * Mounted INSIDE the regular /api authentication (cookie/session auth),
  * not the bearer auth those tokens themselves unlock. This is for the
  * Settings UI to manage tokens, not for MCP clients to use them.
  *
- * Restricted to admins; non-admins get 403. Single-user mode counts as
- * admin (requireAdmin already treats it that way — see middleware/auth.js).
+ * Any signed-in user manages only their own tokens. Single-user mode has
+ * no account to own one, so the guard below refuses it.
  */
 import { Router } from 'express';
 import { wrap } from '../logger.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { freshCheck } from './two-step.js';
 import { createToken, listTokens, revokeToken, KNOWN_SCOPES, SCOPE_DESCRIPTIONS } from '../lib/api-tokens.js';
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+// Any signed-in user manages their own tokens (from nutritrace#245): every
+// query below is scoped to req.user.id, and what a token can reach is still
+// set by the server's MCP_* / PUBLIC_API_* switches.
+router.use(requireAuth);
 
 // A token needs a real owner (api_tokens.user_id is NOT NULL, referencing
-// a real users row). requireAuth/requireAdmin both pass single-user-mode
-// requests through unconditionally (mirroring every other admin-gated
-// route), but single-user mode has zero rows in `users` — there is no
+// a real users row). requireAuth passes single-user-mode requests
+// through unconditionally, but single-user mode has zero rows in `users` — there is no
 // id to own a token with. Refuse cleanly here rather than crashing on
 // req.user.id below. The Settings UI additionally never routes here
-// unless multi-user mode is genuinely active with a signed-in admin, so
+// unless multi-user mode is genuinely active with someone signed in, so
 // this only matters for someone calling the endpoint directly.
 router.use((req, res, next) => {
   if (!req.user) {
     return res.status(400).json({
-      error: 'API tokens require a signed-in account. Enable user management and sign in as an admin first.',
+      error: 'API tokens require a signed-in account. Enable user management and sign in first.',
     });
   }
   next();
