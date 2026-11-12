@@ -8,7 +8,7 @@
   import { _ } from 'svelte-i18n';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { currentDate, todayLog, loadWorkout, loadWorkoutSessions, saveWorkout, saveMadeTheFinish, completedSetsToday, activeProgram, loadActiveProgram, todayPrescription, todaySessions, currentSessionId, switchSession, startNewSession, deleteSession } from '../stores/workout.js';
-  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, bodyStatsVisible, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
+  import { weightUnit, screenKeepAwake, pageBanners, bannerStyle, restTimerEnabled, restAutoStart, restDuration, autoFillLastWeights, showCompletionSummary, autoFinishWorkout, exerciseReorderMethod, autoCollapseCompleted, autoNameWorkouts, bodyStatsVisible, confirmExerciseRemoval, autoGenerateWarmups, exerciseLoadTypes, exerciseSetTypes, exerciseDistanceUnits, caloriesBurnedEnabled, currentWeightKg, heightCm, ntFederationEnabled, cardioEnabled } from '../stores/settings.js';
   import { screenOn, enableWakeLock, disableWakeLock, toggleWakeLock } from '../stores/wakeLock.js';
   import { timerState, timerMs, pauseTimer, resetTimer, formatTimerMs } from '../stores/workoutTimer.js';
   import WorkoutSummary from '../components/diary/WorkoutSummary.svelte';
@@ -1793,8 +1793,9 @@
     if (prCheck) await prCheck();
     await saving;
 
-    // Workout completion check — skip when planning ahead
-    if (setJustCompleted && !isFuture) {
+    // Workout completion check — skip when planning ahead, or when the user
+    // ends workouts themselves (Settings > Workout > Finish Workout Automatically)
+    if (setJustCompleted && !isFuture && $autoFinishWorkout) {
       const allDone = updated.every(e =>
         (e.sets || []).length > 0 && (e.sets || []).every(s => s.completed)
       );
