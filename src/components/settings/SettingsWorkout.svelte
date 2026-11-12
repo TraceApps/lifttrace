@@ -4,7 +4,7 @@
   import Toggle from './Toggle.svelte';
   import {
     weeklyWorkoutGoal, cardioEnabled, weeklyCardioMinutesGoal, screenKeepAwake, autoFillLastWeights,
-    showCompletionSummary, autoCollapseCompleted, autoNameWorkouts,
+    showCompletionSummary, autoFinishWorkout, autoCollapseCompleted, autoNameWorkouts,
     exerciseReorderMethod, confirmExerciseRemoval, restTimerEnabled,
     restDuration, restAutoStart, restAlert, restAlertVibrate, restAlertTone,
     bodyStatsVisible, autoGenerateWarmups, trackRpe, restAlertToneId,
@@ -148,6 +148,13 @@
             <span class="setting-hint">{$_('settings_workout.logging.autofill_desc')}</span>
           </div>
           <Toggle bind:checked={$autoFillLastWeights} />
+        </div>
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <span class="setting-label">{$_('settings_workout.logging.auto_finish')}</span>
+            <span class="setting-hint">{$_('settings_workout.logging.auto_finish_desc')}</span>
+          </div>
+          <Toggle bind:checked={$autoFinishWorkout} />
         </div>
         <div class="setting-row">
           <div class="setting-label-group">

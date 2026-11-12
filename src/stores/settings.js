@@ -26,7 +26,7 @@ const SERVER_SETTINGS = new Set([
   'pageBanners', 'bannerStyle', 'bannerAnimation',
   // NutriTrace federation — workout calorie sync (Phase 2)
   'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified',
-  'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises', 'customEquipment',
+  'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'autoFinishWorkout', 'favoriteExercises', 'customEquipment',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
   'autoGenerateWarmups', 'trackRpe',
   'radioStations',
@@ -255,6 +255,10 @@ export const biometricLoginEnabled = createSettingStore('biometricLoginEnabled',
 export const goalCelebrations = createSettingStore('goalCelebrations', true);
 export const autoFillLastWeights = createSettingStore('autoFillLastWeights', true);
 export const showCompletionSummary = createSettingStore('showCompletionSummary', true);
+// Ticking the last set finishes the workout. Off for someone who adds
+// exercises as they go, where "every set so far is done" isn't the end:
+// the workout then only ends on Finish Workout.
+export const autoFinishWorkout = createSettingStore('autoFinishWorkout', true);
 export const favoriteExercises = createSettingStore('favoriteExercises', []);
 // User-defined equipment names (Slackboard, Sandbag, etc.) that show up
 // alongside the six normalized buckets in the Exercises filter row and

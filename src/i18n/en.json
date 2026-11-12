@@ -2348,6 +2348,8 @@
     "logging": {
       "autofill":              "Auto-Fill Last Weights",
       "autofill_desc":         "Pre-fill weight and reps from your last session",
+      "auto_finish":           "Finish Workout Automatically",
+      "auto_finish_desc":      "End the workout when the last set is ticked. Turn off to end it yourself with Finish Workout",
       "summary":               "Completion Summary",
       "summary_desc":          "Show stats recap when all sets are done",
       "auto_collapse":         "Auto-Collapse Completed Exercises",
