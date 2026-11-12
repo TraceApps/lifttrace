@@ -80,7 +80,7 @@
   let exercises = [];
   // Filter state persists in sessionStorage so re-opening the picker
   // mid-workout doesn't lose the user's "Chest · Barbell" choices. Cleared
-  // when the browser session ends.
+  // when the picker closes after an add (below), or the browser session ends.
   const FS_KEY = 'lt:picker-filters';
   const _initial = (() => {
     try { return JSON.parse(sessionStorage.getItem(FS_KEY) || '{}'); }
@@ -114,6 +114,15 @@
       search, category: selectedCategory, equipment: selectedEquipment,
     }));
   } catch {}
+
+  // Closing the picker after adding something ends that search: the next
+  // open is for a different exercise, so it starts with an empty search and
+  // no filters. Closing without adding keeps them, as the user is still
+  // looking for the same thing.
+  onDestroy(() => {
+    if (addedThisSessionIds.size === 0) return;
+    try { sessionStorage.removeItem(FS_KEY); } catch {}
+  });
 
   // Equipment consolidation shared with the Exercises page.
 
