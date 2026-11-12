@@ -6,6 +6,10 @@
 //
 // Pulls the current accent color from the CSS custom property so the card
 // matches the user's theme.
+//
+// With { transparent: true } the card has no background, to paste over a
+// photo: lighter greys, see-through tiles and a soft shadow keep it readable
+// on whatever ends up behind it.
 
 // workout.js is pure (no stores), so importing it keeps this renderer self-contained.
 import { isRepSet, setKind, setAmount, fmtSetLabel, distanceUnitOf, setReps } from './workout.js';
@@ -76,9 +80,10 @@ function _computeStats(workout) {
 /**
  * @param {object} workout  { name, date, duration_min, exercises: [...] }
  * @param {string} unit     weight unit label ('lbs' or 'kg')
+ * @param {{ transparent?: boolean }} [opts]
  * @returns {Promise<Blob>} PNG blob
  */
-export async function renderWorkoutCard(workout, unit = 'lbs') {
+export async function renderWorkoutCard(workout, unit = 'lbs', { transparent = false } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -88,21 +93,27 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
   const accent = _cssVar('--accent', '#FF7433');
   const accent2 = _cssVar('--accent-2', accent);
   const bg = '#0A0B0F';
-  const surface = '#16181E';
+  const surface = transparent ? 'rgba(0, 0, 0, 0.38)' : '#16181E';
   const text1 = '#F5F6F8';
-  const text2 = '#A8AFBD';
-  const text3 = '#6B7280';
+  const text2 = transparent ? 'rgba(255, 255, 255, 0.88)' : '#A8AFBD';
+  const text3 = transparent ? 'rgba(255, 255, 255, 0.72)' : '#6B7280';
+  const line  = transparent ? 'rgba(255, 255, 255, 0.28)' : '#23262E';
 
-  // ── Background ───────────────────────────────────────────────────────
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
+  if (transparent) {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur = 10;
+  } else {
+    // ── Background ─────────────────────────────────────────────────────
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
 
-  // Soft accent glow in the top-right corner
-  const grad = ctx.createRadialGradient(W - 100, -100, 50, W - 100, -100, 700);
-  grad.addColorStop(0, accent + '55');  // add ~33% alpha
-  grad.addColorStop(1, accent + '00');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
+    // Soft accent glow in the top-right corner
+    const grad = ctx.createRadialGradient(W - 100, -100, 50, W - 100, -100, 700);
+    grad.addColorStop(0, accent + '55');  // add ~33% alpha
+    grad.addColorStop(1, accent + '00');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
 
   // ── Header: LIFTTRACE wordmark ──────────────────────────────────────
   ctx.font = '700 32px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -248,7 +259,7 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
       ctx.fillStyle = accent;
       ctx.fillRect(64, blockTop, 4, blockBottom - blockTop);
       // Bottom thin divider for the block.
-      ctx.strokeStyle = '#23262E';
+      ctx.strokeStyle = line;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(64, y - rowGap + 22);
@@ -259,7 +270,7 @@ export async function renderWorkoutCard(workout, unit = 'lbs') {
       const yBefore = y;
       y = _renderRow(g.exercise, y, 0);
       rendered++;
-      ctx.strokeStyle = '#23262E';
+      ctx.strokeStyle = line;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(64, yBefore + 18);
@@ -298,9 +309,10 @@ function _roundRect(ctx, x, y, w, h, r) {
 /**
  * Share a workout card using Web Share API if available (with file),
  * otherwise trigger a download. Returns true if shared/downloaded.
+ * Pass the blob already rendered for a preview to share that exact image.
  */
-export async function shareWorkoutCard(workout, unit = 'lbs') {
-  const blob = await renderWorkoutCard(workout, unit);
+export async function shareWorkoutCard(workout, unit = 'lbs', rendered = null) {
+  const blob = rendered || await renderWorkoutCard(workout, unit);
   if (!blob) return false;
 
   const filename = `lifttrace-${(workout.name || 'workout').replace(/\s+/g, '-').toLowerCase()}-${workout.date || 'today'}.png`;
@@ -329,4 +341,14 @@ export async function shareWorkoutCard(workout, unit = 'lbs') {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return true;
+}
+
+/** Whether this browser can put an image on the clipboard (needs HTTPS or localhost). */
+export function canCopyImage() {
+  return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+}
+
+/** Put a rendered card on the clipboard, to paste into a story or a chat. */
+export async function copyWorkoutCard(blob) {
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
 }

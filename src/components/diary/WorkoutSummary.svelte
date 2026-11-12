@@ -5,10 +5,10 @@
   import { weightUnit, caloriesBurnedEnabled, heightCm, currentWeightKg } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
   import { DB } from '../../lib/db.js';
-  import { shareWorkoutCard } from '../../lib/workoutCard.js';
+  import { renderWorkoutCard, shareWorkoutCard, canCopyImage, copyWorkoutCard } from '../../lib/workoutCard.js';
   import { exportWorkoutCsv } from '../../lib/workoutCsv.js';
   import { LtApi } from '../../lib/api.js';
-  import { showError } from '../../stores/toast.js';
+  import { showError, showSuccess } from '../../stores/toast.js';
   import { estimateWorkoutCalories, toKg, ageFromDob, exerciseVolume, fmtSetLabel, distanceUnitOf } from '../../lib/workout.js';
   import { timerState, timerMs } from '../../stores/workoutTimer.js';
 
@@ -60,14 +60,49 @@
     );
   })();
 
+  // Share shows the image first and sends it only on a second tap; the blob
+  // shown is the one shared or copied. The background can be dropped, to
+  // paste the card over a photo.
   let sharing = false;
-  async function handleShare() {
+  let previewBlob = null;
+  let cardUrl = '';
+  let previewTransparent = false;
+  const canCopy = canCopyImage();
+  async function renderPreview(transparent) {
     if (!workout || sharing) return;
     sharing = true;
-    try { await shareWorkoutCard({ ...workout, duration_min: effectiveDurationMin }, $weightUnit); }
+    try {
+      const blob = await renderWorkoutCard({ ...workout, duration_min: effectiveDurationMin }, $weightUnit, { transparent });
+      if (cardUrl) URL.revokeObjectURL(cardUrl);
+      previewBlob = blob;
+      cardUrl = blob ? URL.createObjectURL(blob) : '';
+      previewTransparent = transparent;
+    }
     catch (e) { showError(e.message || 'Share failed'); }
     sharing = false;
   }
+  function handleShare() { return renderPreview(false); }
+  function closePreview() {
+    if (cardUrl) URL.revokeObjectURL(cardUrl);
+    cardUrl = '';
+    previewBlob = null;
+  }
+  async function copyPreview() {
+    if (!previewBlob || sharing) return;
+    try { await copyWorkoutCard(previewBlob); showSuccess($_('workout_summary.image_copied')); }
+    catch (e) { showError(e.message || 'Copy failed'); }
+  }
+  async function confirmShare() {
+    if (!previewBlob || sharing) return;
+    sharing = true;
+    try {
+      // false = the share sheet was dismissed: stay on the preview.
+      if (await shareWorkoutCard({ ...workout, duration_min: effectiveDurationMin }, $weightUnit, previewBlob)) closePreview();
+    }
+    catch (e) { showError(e.message || 'Share failed'); }
+    sharing = false;
+  }
+  $: if (!open) closePreview();
 
   let exportingCsv = false;
   async function handleExportCsv() {
@@ -175,6 +210,31 @@
         <span class="material-symbols-rounded">close</span>
       </button>
 
+      {#if cardUrl}
+      <div class="ws-preview">
+        <h3 class="ws-title">{$_('workout_summary.share_title')}</h3>
+        <div class="ws-bg-row" role="group" aria-label={$_('workout_summary.share_background')}>
+          <button class="btn btn-secondary ws-bg-btn" class:active={!previewTransparent} aria-pressed={!previewTransparent}
+                  on:click={() => renderPreview(false)} disabled={sharing}>{$_('workout_summary.share_bg_solid')}</button>
+          <button class="btn btn-secondary ws-bg-btn" class:active={previewTransparent} aria-pressed={previewTransparent}
+                  on:click={() => renderPreview(true)} disabled={sharing}>{$_('workout_summary.share_bg_transparent')}</button>
+        </div>
+        <img class="ws-preview-img" class:transparent={previewTransparent} src={cardUrl} alt={$_('workout_summary.share_preview_alt')} />
+      </div>
+      <div class="ws-footer">
+        <button class="btn btn-secondary" on:click={closePreview} disabled={sharing}>{$_('common.cancel')}</button>
+        {#if canCopy}
+          <button class="btn btn-secondary ws-share-btn" on:click={copyPreview} disabled={sharing}>
+            <span class="material-symbols-rounded" style="font-size:18px">content_copy</span>
+            {$_('workout_summary.copy')}
+          </button>
+        {/if}
+        <button class="btn btn-primary ws-done-btn ws-share-btn" on:click={confirmShare} disabled={sharing}>
+          <span class="material-symbols-rounded" style="font-size:18px">share</span>
+          {$_('workout_summary.share')}
+        </button>
+      </div>
+      {:else}
       <div class="ws-hero">
         <!-- CSS confetti — 14 absolutely positioned dots that drop + drift
              on open. Pure CSS, no library. Hidden when reduced-motion. -->
@@ -302,6 +362,7 @@
         </button>
         <button class="btn btn-primary ws-done-btn" on:click={() => open = false}>{$_('workout_summary.done')}</button>
       </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -546,4 +607,22 @@
   }
   .ws-icon-btn .material-symbols-rounded { font-size: 20px; }
   .ws-done-btn { flex: 1; }
+
+  /* Share preview: the image at its own 4:5, as tall as the sheet allows. */
+  .ws-preview { padding: 20px 20px 4px; text-align: center; }
+  .ws-bg-row { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+  .ws-bg-btn { height: 34px; padding: 0 14px; font-size: 13px; }
+  .ws-bg-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .ws-preview-img {
+    display: block; margin: 12px auto 0;
+    aspect-ratio: 4 / 5;
+    height: min(48dvh, 450px); width: auto; max-width: 100%;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+  }
+  /* No background: a checkerboard behind the image says so. */
+  .ws-preview-img.transparent {
+    background: repeating-conic-gradient(#8a8f9a 0% 25%, #5d626d 0% 50%) 50% / 24px 24px;
+  }
+  .ws-preview + .ws-footer .ws-share-btn { justify-content: center; }
 </style>
