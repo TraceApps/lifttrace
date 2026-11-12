@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Create and change programs through MCP** ([#154](https://github.com/TraceApps/lifttrace/issues/154)). `get_program` reads one program with its workout days and each exercise's sets, reps, weight and rest. With `mcp:write`, `create_program`, `update_program`, `create_template` and `update_template` build a program and change its days: an exercise sent back with its `uuid` is changed in place, one without is added, one left out is removed. With `mcp:destroy`, `delete_program` and `delete_template` remove them after `confirm: true`. Only programs you made can be changed, not a coach's or a starter program, and they sync to your devices like an edit made in the app. [MCP](https://traceapps.github.io/docs/lifttrace/mcp/)
+
 ### Security
 
 - **Tokens, keys and passwords saved in Settings are stored encrypted, and the ones only the server uses never reach the app** (from [cooktrace#92](https://github.com/TraceApps/cooktrace/issues/92), thanks @stupleb). The NutriTrace link token, the ntfy and Gotify tokens and the music server's sign-in stay on the server: Settings shows a saved one as dots, saving the dots keeps it, and typing a new one replaces it. The AI key, ExerciseDB key and music server password still go to your own signed-in app, which uses them itself. All of them are stored encrypted with `TOKEN_ENC_KEY`, so the database, a backup or an export never holds them in plain text; ones saved before are encrypted when the server starts. Changing `TOKEN_ENC_KEY`, or `JWT_SECRET` when it isn't set, means entering them again.

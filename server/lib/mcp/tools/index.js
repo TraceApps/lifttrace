@@ -20,6 +20,7 @@ import { registerGetExerciseProgress } from './get-exercise-progress.js';
 import { registerSearchExercises } from './search-exercises.js';
 import { registerListPrograms } from './list-programs.js';
 import { registerGetActiveProgram } from './get-active-program.js';
+import { registerGetProgram } from './get-program.js';
 import { registerGetBodyStat } from './get-body-stat.js';
 import { registerGetBodyStats } from './get-body-stats.js';
 import { registerListProgressPhotos } from './list-progress-photos.js';
@@ -30,7 +31,12 @@ import { registerStartProgramWorkout } from './start-program-workout.js';
 import { registerLogBodyStat } from './log-body-stat.js';
 import { registerAddProgressPhoto } from './add-progress-photo.js';
 import { registerLogCardio } from './log-cardio.js';
+import { registerCreateProgram } from './create-program.js';
+import { registerUpdateProgram } from './update-program.js';
+import { registerCreateTemplate } from './create-template.js';
+import { registerUpdateTemplate } from './update-template.js';
 import { registerDeleteWorkout } from './delete-workout.js';
+import { registerDeleteProgram, registerDeleteTemplate } from './delete-program.js';
 
 export function registerReadTools(server, ctx) {
   registerGetWorkout(server, ctx);
@@ -41,6 +47,7 @@ export function registerReadTools(server, ctx) {
   registerSearchExercises(server, ctx);
   registerListPrograms(server, ctx);
   registerGetActiveProgram(server, ctx);
+  registerGetProgram(server, ctx);
   registerGetBodyStat(server, ctx);
   registerGetBodyStats(server, ctx);
   registerListProgressPhotos(server, ctx);
@@ -54,8 +61,14 @@ export function registerWriteTools(server, ctx) {
   registerLogBodyStat(server, ctx);
   registerAddProgressPhoto(server, ctx);
   registerLogCardio(server, ctx);
+  registerCreateProgram(server, ctx);
+  registerUpdateProgram(server, ctx);
+  registerCreateTemplate(server, ctx);
+  registerUpdateTemplate(server, ctx);
 }
 
 export function registerDestroyTools(server, ctx) {
   registerDeleteWorkout(server, ctx);
+  registerDeleteProgram(server, ctx);
+  registerDeleteTemplate(server, ctx);
 }
