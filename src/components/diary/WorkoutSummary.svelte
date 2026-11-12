@@ -65,7 +65,7 @@
   // paste the card over a photo.
   let sharing = false;
   let previewBlob = null;
-  let previewUrl = '';
+  let cardUrl = '';
   let previewTransparent = false;
   const canCopy = canCopyImage();
   async function renderPreview(transparent) {
@@ -73,9 +73,9 @@
     sharing = true;
     try {
       const blob = await renderWorkoutCard({ ...workout, duration_min: effectiveDurationMin }, $weightUnit, { transparent });
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (cardUrl) URL.revokeObjectURL(cardUrl);
       previewBlob = blob;
-      previewUrl = blob ? URL.createObjectURL(blob) : '';
+      cardUrl = blob ? URL.createObjectURL(blob) : '';
       previewTransparent = transparent;
     }
     catch (e) { showError(e.message || 'Share failed'); }
@@ -83,8 +83,8 @@
   }
   function handleShare() { return renderPreview(false); }
   function closePreview() {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = '';
+    if (cardUrl) URL.revokeObjectURL(cardUrl);
+    cardUrl = '';
     previewBlob = null;
   }
   async function copyPreview() {
@@ -210,7 +210,7 @@
         <span class="material-symbols-rounded">close</span>
       </button>
 
-      {#if previewUrl}
+      {#if cardUrl}
       <div class="ws-preview">
         <h3 class="ws-title">{$_('workout_summary.share_title')}</h3>
         <div class="ws-bg-row" role="group" aria-label={$_('workout_summary.share_background')}>
@@ -219,7 +219,7 @@
           <button class="btn btn-secondary ws-bg-btn" class:active={previewTransparent} aria-pressed={previewTransparent}
                   on:click={() => renderPreview(true)} disabled={sharing}>{$_('workout_summary.share_bg_transparent')}</button>
         </div>
-        <img class="ws-preview-img" class:transparent={previewTransparent} src={previewUrl} alt={$_('workout_summary.share_preview_alt')} />
+        <img class="ws-preview-img" class:transparent={previewTransparent} src={cardUrl} alt={$_('workout_summary.share_preview_alt')} />
       </div>
       <div class="ws-footer">
         <button class="btn btn-secondary" on:click={closePreview} disabled={sharing}>{$_('common.cancel')}</button>
