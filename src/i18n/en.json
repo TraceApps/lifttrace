@@ -851,7 +851,15 @@
     "exercises":             "Exercises",
     "duration":              "Duration",
     "custom":                "Custom",
-    "done":                  "Done"
+    "done":                  "Done",
+    "share":                 "Share",
+    "share_title":           "Share Workout",
+    "share_preview_alt":     "Preview of the image to share",
+    "share_background":      "Background",
+    "share_bg_solid":        "Solid",
+    "share_bg_transparent":  "Transparent",
+    "copy":                  "Copy",
+    "image_copied":          "Image copied"
   },
   "exercise_detail": {
     "deleted":               "Exercise deleted",
