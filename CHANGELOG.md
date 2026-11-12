@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Add Exercise opens clean after you've added something.** The search and the muscle and equipment filters stayed from the exercise before, so adding the next one started with clearing them. They're now cleared when you close Add Exercise after adding an exercise. Closing it without adding keeps them, and it still stays open with its filters while you add several in a row.
+
 ### Security
 
 - **Tokens, keys and passwords saved in Settings are stored encrypted, and the ones only the server uses never reach the app** (from [cooktrace#92](https://github.com/TraceApps/cooktrace/issues/92), thanks @stupleb). The NutriTrace link token, the ntfy and Gotify tokens and the music server's sign-in stay on the server: Settings shows a saved one as dots, saving the dots keeps it, and typing a new one replaces it. The AI key, ExerciseDB key and music server password still go to your own signed-in app, which uses them itself. All of them are stored encrypted with `TOKEN_ENC_KEY`, so the database, a backup or an export never holds them in plain text; ones saved before are encrypted when the server starts. Changing `TOKEN_ENC_KEY`, or `JWT_SECRET` when it isn't set, means entering them again.
