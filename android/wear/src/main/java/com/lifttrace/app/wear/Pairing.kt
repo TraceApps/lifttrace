@@ -39,6 +39,9 @@ object Pairing {
     /** The address a phone in Local mode gives instead of a server's (watch-relay.js). */
     const val PHONE = "phone:"
 
+    /** Set by a watch that knows Local mode when it saves the phone's address. */
+    private const val KEY_VIA_PHONE = "via_phone"
+
     private const val TAG = "LiftTraceWear"
     private const val PREFS = "lifttrace.wear"
     const val KEY_URL = "server_url"
@@ -157,13 +160,18 @@ object Pairing {
         // A phone switched between a server and Local mode (#156): what was
         // kept and logged here belongs to the other one.
         val wasUrl = p.getString(KEY_URL, null)?.takeIf { it.isNotBlank() }
-        val switched = wasUrl != null && (wasUrl == PHONE) != (serverUrl.trim() == PHONE)
+        val viaPhone = serverUrl.trim() == PHONE
+        // A watch on an older release took the phone's address without
+        // clearing (it didn't know it): what it kept is cleared once, here.
+        val unmarked = viaPhone && wasUrl == PHONE && !p.getBoolean(KEY_VIA_PHONE, false)
+        val switched = wasUrl != null && ((wasUrl == PHONE) != viaPhone || unmarked)
         if (switched || (before != null && now != null && before != now)) {
             Log.i(TAG, "paired with another account or mode: what the previous one left here is cleared")
             clear(ctx)
         }
         val edit = prefs(ctx).edit()
             .putString(KEY_URL, serverUrl.trim().trimEnd('/'))
+            .putBoolean(KEY_VIA_PHONE, viaPhone)
             .putString(KEY_TOKEN, token.trim())
             // Only what the phone said with this address: an older phone app says nothing.
             .putString(KEY_HTTP_OK, httpOk)

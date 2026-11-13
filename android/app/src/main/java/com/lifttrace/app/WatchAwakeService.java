@@ -36,6 +36,10 @@ public class WatchAwakeService extends Service {
 
     /** When the watch last asked this phone something (WearPairingPlugin). */
     static volatile long lastWatchRequestAt = 0L;
+    private static final String ACTION_STOP = "stop";
+    /** Started and not yet ended: only then is there anything to stop. */
+    private static volatile boolean active = false;
+
     /** When the app last left the screen with this running. */
     private volatile long startedAt = 0L;
 
@@ -59,9 +63,11 @@ public class WatchAwakeService extends Service {
     static void start(Context ctx, String title, String text) {
         Intent i = new Intent(ctx, WatchAwakeService.class).putExtra("title", title).putExtra("text", text);
         try {
+            active = true;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i);
             else ctx.startService(i);
         } catch (Exception e) {
+            active = false;
             // Android refuses a start from the background: the watch then
             // works while the app hasn't been frozen, as it would without this.
             Log.w(TAG, "couldn't keep the app awake: " + e.getMessage());
@@ -69,11 +75,23 @@ public class WatchAwakeService extends Service {
     }
 
     static void stop(Context ctx) {
-        ctx.stopService(new Intent(ctx, WatchAwakeService.class));
+        if (!active) return;
+        // Through the service rather than stopService: a start still on its
+        // way reaches startForeground first, as Android requires of it, and
+        // this stops it after. Called with the app back on screen.
+        try {
+            ctx.startService(new Intent(ctx, WatchAwakeService.class).setAction(ACTION_STOP));
+        } catch (Exception e) {
+            ctx.stopService(new Intent(ctx, WatchAwakeService.class));
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         String title = intent == null ? null : intent.getStringExtra("title");
         String text = intent == null ? null : intent.getStringExtra("text");
         Notification n = notification(title == null ? "LiftTrace" : title, text == null ? "" : text);
@@ -97,6 +115,7 @@ public class WatchAwakeService extends Service {
 
     @Override
     public void onDestroy() {
+        active = false;
         handler.removeCallbacks(check);
         super.onDestroy();
     }
