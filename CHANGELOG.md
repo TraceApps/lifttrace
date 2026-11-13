@@ -23,6 +23,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **API tokens for every user** (from [nutritrace#245](https://github.com/TraceApps/nutritrace/pull/245)). Anyone signed in can create and revoke their own API tokens in Settings > API Tokens, now under Integrations, so connecting your own MCP client no longer needs an admin account. Webhooks stay admin-only.
 
+### Fixed
+
+- **A site that closes the connection early no longer restarts the server** (from [cooktrace#96](https://github.com/TraceApps/cooktrace/issues/96), thanks @devoid1). When a site closed the connection before LiftTrace had read the whole reply (a picture, a radio or music server, NutriTrace, a notification service, an AI provider), the web library behind it (undici, also the one built into Node) crashed the server. The server now fetches everything with undici 8.12.4, which has the fix.
+
 ---
 
 ## [1.5.0-dev01] - 2026-11-07 (pre-release)
