@@ -31,7 +31,13 @@ object Pairing {
      * TraceApps/nutritrace#194); empty otherwise. LiftApi sends over plain
      * HTTP only when it matches (LocalAddress.workerBase).
      */
-    data class Config(val serverUrl: String, val token: String, val httpOk: String = "")
+    data class Config(val serverUrl: String, val token: String, val httpOk: String = "") {
+        /** The phone is in Local mode: ask it, not a server (#156). */
+        val viaPhone: Boolean get() = serverUrl == PHONE
+    }
+
+    /** The address a phone in Local mode gives instead of a server's (watch-relay.js). */
+    const val PHONE = "phone:"
 
     private const val TAG = "LiftTraceWear"
     private const val PREFS = "lifttrace.wear"
@@ -148,8 +154,12 @@ object Pairing {
         val p = prefs(ctx)
         val before = accountOf(p.getString(KEY_TOKEN, null) ?: p.getString(KEY_REFUSED, null))
         val now = accountOf(token)
-        if (before != null && now != null && before != now) {
-            Log.i(TAG, "paired with another account: what the previous one left here is cleared")
+        // A phone switched between a server and Local mode (#156): what was
+        // kept and logged here belongs to the other one.
+        val wasUrl = p.getString(KEY_URL, null)?.takeIf { it.isNotBlank() }
+        val switched = wasUrl != null && (wasUrl == PHONE) != (serverUrl.trim() == PHONE)
+        if (switched || (before != null && now != null && before != now)) {
+            Log.i(TAG, "paired with another account or mode: what the previous one left here is cleared")
             clear(ctx)
         }
         val edit = prefs(ctx).edit()

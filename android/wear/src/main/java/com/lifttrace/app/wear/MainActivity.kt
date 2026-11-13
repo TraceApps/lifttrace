@@ -559,7 +559,7 @@ private fun SessionScreen(store: WearStore, nav: NavHostController, clock: Count
             ) {
                 Message(
                     title = "Pair from your phone",
-                    body = "Open LiftTrace on your phone and sign in. The watch pairs itself.",
+                    body = "Open LiftTrace on your phone. The watch pairs itself.",
                 )
             }
         } else CrownColumn(listState, padding) {
@@ -1457,8 +1457,8 @@ private fun FinishedScreen(day: Session.Workout, unit: String, onDone: () -> Uni
 private fun StatusLine(state: WearStore.State) {
     val text = when {
         state.error != null -> state.error
-        state.offline && state.pending > 0 -> "Offline, ${state.pending} waiting"
-        state.offline -> "Offline"
+        state.offline && state.pending > 0 -> "${state.offlineWhy ?: "Offline"}, ${state.pending} waiting"
+        state.offline -> state.offlineWhy ?: "Offline"
         state.pending > 0 -> "${state.pending} waiting"
         else -> ""
     }

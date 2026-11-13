@@ -34,6 +34,8 @@ class WearStore(private val ctx: Context) {
         val paired: Boolean = false,
         val loading: Boolean = false,
         val offline: Boolean = false,
+        /** Local mode: why the phone couldn't answer (#156), said instead of "Offline". */
+        val offlineWhy: String? = null,
         val error: String? = null,
         val pending: Int = 0,
         /** A word about what just happened, shown for a moment. */
@@ -153,7 +155,7 @@ class WearStore(private val ctx: Context) {
         try {
             readSettings(cfg)
             readLastTimes(cfg)
-            val body = LiftApi.workout(cfg, today, sessionId())
+            val body = LiftApi.workout(ctx, cfg, today, sessionId())
             val workout = Session.parse(body)
             // Anything still waiting is the watch's own, and it is newer than
             // what came back: keep it on screen rather than letting the
@@ -167,7 +169,7 @@ class WearStore(private val ctx: Context) {
             else Pairing.putCache(ctx, body)
             redrawSurfaces()
             _state.update { it.copy(
-                loading = false, offline = false, error = null,
+                loading = false, offline = false, offlineWhy = null, error = null,
                 workout = shown,
                 pending = waiting.size,
                 session = sessionTimer(),
@@ -185,14 +187,14 @@ class WearStore(private val ctx: Context) {
     private suspend fun readLastTimes(cfg: Pairing.Config) {
         if (Pairing.lastTimesDay(ctx) == today) return
         runCatching {
-            val lines = Session.lastTimes(LiftApi.recent(cfg), today, _state.value.unit)
+            val lines = Session.lastTimes(LiftApi.recent(ctx, cfg), today, _state.value.unit)
             Pairing.putLastTimes(ctx, today, lines)
             _state.update { it.copy(lastTimes = lines) }
         }
     }
 
     private suspend fun readSettings(cfg: Pairing.Config) {
-        val settings = LiftApi.settings(cfg)
+        val settings = LiftApi.settings(ctx, cfg)
         if (settings.length() == 0) return
         Pairing.putSettings(ctx, settings)
         _state.update { it.copy(
@@ -390,7 +392,7 @@ class WearStore(private val ctx: Context) {
         val id = waiting.first().workoutId
         val batch = waiting.filter { it.date == date }
         return try {
-            val server = Session.parse(LiftApi.workout(cfg, date, id))
+            val server = Session.parse(LiftApi.workout(ctx, cfg, date, id))
             if (server == null) {
                 // The session was deleted on the phone while the watch held
                 // changes for it. Recreating it behind the wearer's back would
@@ -416,7 +418,7 @@ class WearStore(private val ctx: Context) {
             // calories the phone would have (server/lib/watch-finish.js),
             // once, when this is what marks the workout done.
             if (batch.any { it.finished }) body.put("finished_on", "watch")
-            val saved = LiftApi.saveWorkout(cfg, date, body, Pairing.changedFields(batch))
+            val saved = LiftApi.saveWorkout(ctx, cfg, date, body, Pairing.changedFields(batch))
             // Only what actually went up comes off the queue. Anything logged
             // while this was in the air is a later entry and stays.
             forget(batch)
@@ -429,6 +431,7 @@ class WearStore(private val ctx: Context) {
             _state.update { it.copy(
                 pending = Pairing.outbox(ctx).size,
                 offline = false,
+                offlineWhy = null,
                 error = null,
                 workout = workout ?: it.workout,
             ) }
@@ -478,6 +481,7 @@ class WearStore(private val ctx: Context) {
         _state.update { it.copy(
             loading = false,
             offline = isOffline(e),
+            offlineWhy = (e as? LiftApi.PhoneUnavailable)?.message,
             error = if (isOffline(e) || quiet) null else (e.message ?: "Couldn't reach LiftTrace"),
         ) }
     }

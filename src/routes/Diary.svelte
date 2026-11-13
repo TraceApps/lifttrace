@@ -962,7 +962,18 @@
       window.addEventListener('lt:sync-complete', _onSyncComplete);
     }
     window.addEventListener('lt:workout-opened', _onWorkoutOpened);
+    window.addEventListener('lt:watch-saved', _onWatchSaved);
   });
+
+  // Local mode: the watch saved a day through this phone (#156), so the day
+  // on screen is read again, as a sync does when there is a server.
+  function _onWatchSaved(e) {
+    const date = e?.detail?.date;
+    if (!date || date !== $currentDate) return;
+    loadWorkout(date, { preferFresher: true });
+    loadWorkoutDates();
+    loadPrevBests();
+  }
 
   // Another workout opened from outside the Diary (Trace starting one from a
   // template): the notes box shows its notes, not the last one's, which a
@@ -1099,6 +1110,7 @@
     document.removeEventListener('visibilitychange', handleVisibility);
     window.removeEventListener('lt:sync-complete', _onSyncComplete);
     window.removeEventListener('lt:workout-opened', _onWorkoutOpened);
+    window.removeEventListener('lt:watch-saved', _onWatchSaved);
     window.removeEventListener('lt:diary-open-date', _onOpenDate);
     window.removeEventListener('resize', _clampAddFab);
     _stopDayTick();

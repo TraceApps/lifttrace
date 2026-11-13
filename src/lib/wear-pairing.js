@@ -10,7 +10,10 @@
  * Android only, and only when a watch is actually paired with this phone.
  */
 import { registerPlugin } from '@capacitor/core';
-import { isNative, getServerUrl, getAuthToken } from './platform.js';
+import { isNative, getServerUrl, getAuthToken, getNativeMode } from './platform.js';
+import { PHONE_ADDRESS, answerWatchRequest } from './watch-relay.js';
+import { get } from 'svelte/store';
+import { _ } from 'svelte-i18n';
 import { APP_VERSION } from './version.js';
 import { mirroredConfirmation } from './plain-http.js';
 import { restToWire } from './rest-state.js';
@@ -38,16 +41,18 @@ export async function pairWatch() {
   if (!isNative) return false;
   const serverUrl = getServerUrl();
   const token = getAuthToken();
-  // Standalone mode keeps everything on the phone, so there is no address for
-  // the watch to call and nothing to pair.
-  if (!serverUrl || !token) return false;
+  const local = isLocalMode();
+  // Signed out of a server: nothing to hand over.
+  if (!local && (!serverUrl || !token)) return false;
   if (!(await hasWatch())) return false;
   try {
     // With this phone's release: a watch on an older one catches up to it.
     // httpOk: the server again when it is plain http:// on your own network
     // and you said Connect Anyway to it; the watch uses plain HTTP only then
-    // (LocalAddress.kt, from TraceApps/nutritrace#194).
-    await WearPairing.pair({ serverUrl, token, appVersion: APP_VERSION, httpOk: mirroredConfirmation(serverUrl) });
+    // (LocalAddress.kt, from TraceApps/nutritrace#194). In Local mode the
+    // watch is told to ask this phone instead (watch-relay.js, #156).
+    if (local) await WearPairing.pair({ serverUrl: PHONE_ADDRESS, token: 'local', appVersion: APP_VERSION, httpOk: '' });
+    else await WearPairing.pair({ serverUrl, token, appVersion: APP_VERSION, httpOk: mirroredConfirmation(serverUrl) });
     // A watch paired part way through a session should still show its
     // length, and one that started the timer itself should have that
     // honoured here rather than overwritten.
@@ -196,6 +201,57 @@ export async function syncWorkoutTimer() {
 export function onWatchSaved(fn) {
   if (!isNative) return;
   try { WearPairing.addListener('dayChanged', (e) => fn(String(e?.date || ''))); } catch { /* no watch here */ }
+}
+
+/** Local mode: everything on this phone, no server for the watch to call. */
+export function isLocalMode() {
+  return isNative && getNativeMode() === 'local' && !getServerUrl();
+}
+
+/**
+ * Local mode: keep the app awake while it's off screen and the watch has
+ * been used lately (WatchAwakeService, #156); Android would otherwise freeze
+ * it once a few other apps were opened, and the watch couldn't reach it.
+ */
+export async function keepAwakeForWatch(on) {
+  if (!isNative) return;
+  try {
+    if (on && isLocalMode()) await WearPairing.keepAwake({ on: true, title: 'LiftTrace', text: get(_)('watch.keep_awake_text') });
+    else await WearPairing.keepAwake({ on: false });
+  } catch { /* no watch here */ }
+}
+
+let _serving = false;
+/**
+ * Answer the watch's requests in Local mode (#156). A day it saves is read
+ * again by the screens showing it (lt:watch-saved), as a sync does with a
+ * server.
+ */
+export function serveWatch() {
+  if (!isNative || _serving) return;
+  _serving = true;
+  try {
+    WearPairing.addListener('watchRequest', async (req) => {
+      let out;
+      try {
+        const { LtApiNative } = await import('./api-native.js');
+        out = await answerWatchRequest(req, {
+          localMode: isLocalMode(),
+          handle: LtApiNative.handle,
+          isUnsupported: (e) => e instanceof LtApiNative._Unsupported,
+        });
+      } catch (e) {
+        out = { status: 500, body: JSON.stringify({ error: e?.message || 'The phone could not answer' }) };
+      }
+      try { await WearPairing.answer({ id: String(req?.id || ''), status: out.status, body: out.body }); } catch { /* the watch gave up */ }
+      if (out.savedDate) {
+        try { window.dispatchEvent(new CustomEvent('lt:watch-saved', { detail: { date: out.savedDate } })); } catch { /* no window */ }
+      }
+      if (out.finished) {
+        try { (await import('./notifications.js')).celebrateWorkoutComplete(out.finished.name); } catch { /* no notifications */ }
+      }
+    });
+  } catch { /* no watch here */ }
 }
 
 /** This phone saved the day: the watch, while it's in use, reads it again. */

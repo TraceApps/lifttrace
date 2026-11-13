@@ -764,6 +764,9 @@
     "split_sides":    "Split L/R Times",
     "merge_sides":    "Merge L/R Times"
   },
+  "watch": {
+    "keep_awake_text": "Your watch is logging through this phone"
+  },
   "rest_bar": {
     "label":          "REST",
     "paused_label":   "PAUSED",

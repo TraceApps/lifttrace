@@ -921,6 +921,29 @@ const Workout = {
     // single-row behavior exactly.
     const existing = body.new_session ? null : await Workout._resolve(date, body.id ?? null);
 
+    // A save that says what it changed (the Diary's, stores/workout.js)
+    // merges set by set with what is stored, as the server does, so a set
+    // the watch saved through this phone a moment ago (#156) isn't put back
+    // by a Diary showing an older copy. One that doesn't say replaces, as before.
+    let exercisesToStore = exercises;
+    if (existing && body.changed_uuids && Array.isArray(body.exercises)) {
+      const { mergeExercises, ensureExerciseUuids, changedUuidsOf } = await import('./workout-merge.js');
+      const dr = body.deleted_uuids || {};
+      const delEx = Array.isArray(dr) ? dr : (dr.exercises || []);
+      const delSets = (dr.sets && typeof dr.sets === 'object' && !Array.isArray(dr.sets)) ? dr.sets : {};
+      const tombs = await dbQuery(
+        `SELECT kind, ex_uuid, uuid FROM workout_tombstones WHERE user_id = ? AND date = ? AND workout_id = ?`,
+        [ME, date, existing.id]
+      );
+      const priorEx = tombs.filter(t => t.kind === 'exercise').map(t => t.uuid);
+      const priorSets = {};
+      for (const t of tombs) if (t.kind === 'set') (priorSets[t.ex_uuid] = priorSets[t.ex_uuid] || []).push(t.uuid);
+      exercisesToStore = mergeExercises(
+        _parseJson(existing.exercises, []), ensureExerciseUuids(exercises),
+        delEx, priorEx, delSets, priorSets, changedUuidsOf(body.changed_uuids)
+      ).merged;
+    }
+
     let targetId;
     if (existing) {
       targetId = existing.id;
@@ -933,7 +956,7 @@ const Workout = {
           body.template_id ?? existing.template_id ?? null,
           body.program_id  ?? existing.program_id  ?? null,
           body.name ?? existing.name ?? null,
-          _stringify(exercises),
+          _stringify(exercisesToStore),
           body.notes ?? existing.notes ?? null,
           body.duration_min ?? existing.duration_min ?? null,
           body.completed ? 1 : 0,

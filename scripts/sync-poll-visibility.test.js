@@ -25,9 +25,10 @@ test('it stops when the page is hidden and starts when it is shown', () => {
 });
 
 test('it stops when the app is paused and starts again on resume', () => {
-  const resume = source.slice(source.indexOf("addListener('resume'"), source.indexOf("addListener('pause'"));
+  // Server mode's listeners: the last ones (Local mode's, for the watch, come first).
+  const resume = source.slice(source.lastIndexOf("addListener('resume'"), source.lastIndexOf("addListener('pause'"));
   assert.match(resume, /startPolling\(\)/);
-  const pause = source.slice(source.indexOf("addListener('pause'"));
+  const pause = source.slice(source.lastIndexOf("addListener('pause'"));
   assert.match(pause.slice(0, 400), /stopPolling\(\)/);
 });
 

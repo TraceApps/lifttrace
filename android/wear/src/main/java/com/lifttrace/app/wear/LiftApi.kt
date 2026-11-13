@@ -1,6 +1,12 @@
 package com.lifttrace.app.wear
 
+import android.content.Context
+import com.google.android.gms.wearable.Wearable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionSpec
 import okhttp3.MediaType.Companion.toMediaType
@@ -22,6 +28,12 @@ import java.util.concurrent.TimeUnit
 object LiftApi {
 
     class ApiError(message: String, val code: Int) : Exception(message)
+
+    /** Local mode: the phone couldn't answer (out of reach, or its app closed). The outbox keeps the set. */
+    class PhoneUnavailable(message: String) : IOException(message)
+
+    /** Where Local mode asks the phone (WearPairingPlugin.API_PATH). */
+    private const val PHONE_API = "/lifttrace/api"
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
@@ -48,38 +60,39 @@ object LiftApi {
      * the watch knows it, so a date holding more than one session keeps
      * answering with the one the watch is actually in.
      */
-    suspend fun workout(cfg: Pairing.Config, date: String, id: Long = 0L): String =
-        get(cfg, "/api/workout/$date" + if (id > 0) "?id=$id" else "")
+    suspend fun workout(ctx: Context, cfg: Pairing.Config, date: String, id: Long = 0L): String =
+        get(ctx, cfg, "/api/workout/$date" + if (id > 0) "?id=$id" else "")
 
     /**
      * The last few sessions, for what you did of each exercise last time. One
      * request covers every exercise in today's session.
      */
-    suspend fun recent(cfg: Pairing.Config, limit: Int = 20): String =
-        get(cfg, "/api/workout/recent?limit=$limit")
+    suspend fun recent(ctx: Context, cfg: Pairing.Config, limit: Int = 20): String =
+        get(ctx, cfg, "/api/workout/recent?limit=$limit")
 
     /** Rest length, whether it starts by itself, and the weight unit. */
-    suspend fun settings(cfg: Pairing.Config): JSONObject =
-        runCatching { JSONObject(get(cfg, "/api/settings")) }.getOrDefault(JSONObject())
+    suspend fun settings(ctx: Context, cfg: Pairing.Config): JSONObject =
+        runCatching { JSONObject(get(ctx, cfg, "/api/settings")) }.getOrDefault(JSONObject())
 
     /**
      * The whole day back, with the set just logged marked done. `changed`
      * names the session's own fields the watch changed (X-Changed-Fields):
      * the server keeps its copy of the others.
      */
-    suspend fun saveWorkout(cfg: Pairing.Config, date: String, body: JSONObject, changed: List<String>): String =
-        send(cfg, "PUT", "/api/workout/$date", body, mapOf("X-Changed-Fields" to changed.joinToString(",")))
+    suspend fun saveWorkout(ctx: Context, cfg: Pairing.Config, date: String, body: JSONObject, changed: List<String>): String =
+        send(ctx, cfg, "PUT", "/api/workout/$date", body, mapOf("X-Changed-Fields" to changed.joinToString(",")))
 
-    private suspend fun get(cfg: Pairing.Config, path: String): String = send(cfg, "GET", path, null)
+    private suspend fun get(ctx: Context, cfg: Pairing.Config, path: String): String = send(ctx, cfg, "GET", path, null)
 
     private suspend fun send(
+        ctx: Context,
         cfg: Pairing.Config,
         method: String,
         path: String,
         body: JSONObject?,
         headers: Map<String, String> = emptyMap(),
     ): String =
-        withContext(Dispatchers.IO) {
+        if (cfg.viaPhone) askPhone(ctx, method, path, body) else withContext(Dispatchers.IO) {
             // https:// as saved; plain http:// only to a server on your own
             // network that the phone confirmed (LocalAddress.workerBase).
             // Refused, it fails like no connection: the outbox keeps the set.
@@ -106,4 +119,50 @@ object LiftApi {
                 text
             }
         }
+
+    /**
+     * Local mode (#156): the same request, answered by the phone's app over
+     * the Wear connection instead of by a server. A failure here is like no
+     * connection: the outbox keeps the set and says why.
+     */
+    private suspend fun askPhone(ctx: Context, method: String, path: String, body: JSONObject?): String {
+        val nodes = try {
+            Wearable.getNodeClient(ctx).connectedNodes.await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw PhoneUnavailable("Phone not nearby")
+        }
+        val phone = nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull() ?: throw PhoneUnavailable("Phone not nearby")
+        val request = JSONObject().put("method", method).put("path", path).put("body", body?.toString() ?: JSONObject.NULL)
+        val answer = try {
+            withTimeout(25_000) {
+                Wearable.getMessageClient(ctx).sendRequest(phone.id, PHONE_API, request.toString().toByteArray(Charsets.UTF_8)).await()
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw PhoneUnavailable("Open LiftTrace on your phone")
+        } catch (e: CancellationException) {
+            // The screen closed: nothing to say.
+            throw e
+        } catch (e: Exception) {
+            // No one listening on the phone: its app isn't running.
+            throw PhoneUnavailable("Open LiftTrace on your phone")
+        }
+        return readPhoneAnswer(answer)
+    }
+
+    /** The phone's reply ({status, body}, WearPairingPlugin.reply): the body, or why not. */
+    fun readPhoneAnswer(answer: ByteArray): String {
+        val reply = runCatching { JSONObject(String(answer, Charsets.UTF_8)) }.getOrNull()
+            ?: throw PhoneUnavailable("Open LiftTrace on your phone")
+        val status = reply.optInt("status", 500)
+        val text = reply.optString("body", "")
+        // The app not ready yet, or too slow: it keeps the set, as offline.
+        if (status == 503 || status == 504) throw PhoneUnavailable("Open LiftTrace on your phone")
+        if (status !in 200..299) {
+            val message = runCatching { JSONObject(text).optString("error") }.getOrNull()
+            throw ApiError(message?.ifBlank { "Phone error $status" } ?: "Phone error $status", status)
+        }
+        return text
+    }
 }

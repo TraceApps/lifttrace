@@ -46,7 +46,7 @@ class SessionTileService : TileService() {
         when {
             !paired -> {
                 headline = "Pair from your phone"
-                detail = "Sign in on the phone app"
+                detail = "Open LiftTrace on the phone"
             }
             workout == null -> {
                 headline = "Nothing planned"

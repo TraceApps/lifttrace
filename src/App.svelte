@@ -379,6 +379,22 @@
       }).catch(e => console.warn('[local-backup] scheduler start failed:', e?.message));
     }
 
+    // The watch asks this phone instead of a server in Local mode (#156): it
+    // is answered here, and told so on launch and whenever the app comes back.
+    if (isNative) import('./lib/wear-pairing.js').then(({ serveWatch }) => serveWatch()).catch(() => {});
+    if (isNative && getNativeMode() === 'local') {
+      setTimeout(() => import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {}), 2500);
+      import('@capacitor/app').then(({ App: CapApp }) => {
+        CapApp.addListener('resume', () => {
+          import('./lib/wear-pairing.js').then(({ pairWatch, keepAwakeForWatch }) => { pairWatch(); keepAwakeForWatch(false); }).catch(() => {});
+        });
+        // Off screen with the watch in use: stay awake for it.
+        CapApp.addListener('pause', () => {
+          import('./lib/wear-pairing.js').then(({ keepAwakeForWatch }) => keepAwakeForWatch(true)).catch(() => {});
+        });
+      }).catch(() => {});
+    }
+
     // Migrate assistant name: legacy 'LiftBot' default → 'Trace'.
     // Users who set their own custom name keep it.
     {

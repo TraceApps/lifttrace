@@ -1,0 +1,333 @@
+// Shared by the server and the Android app's Local mode (api-native.js, #156):
+// Node and the WebView both have crypto.randomUUID.
+// An old WebView without it gets a random v4-shaped id, as workout-uuid.js does.
+const randomUUID = () => globalThis.crypto?.randomUUID?.()
+  ?? 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : ((r & 0x3) | 0x8)).toString(16);
+  });
+
+// Per-entry merge for workout exercises + sets, program templates, and
+// body-stat keys. Mirrors NutriTrace's server/lib/diary-merge.js
+// (landed 2026-08-11 as commit 33dd812 on nutritrace dev) — same class
+// of bug, same fix: prior implementation of PUT /api/workout/:date and
+// POST /api/sync/push blob-replaced the exercises array wholesale, so
+// any stale client push could silently wipe a full workout session.
+// Worse in LT than NT: an empty exercises array on the workout PUT
+// used to DELETE the row outright. New behavior preserves everything
+// the client didn't address explicitly.
+//
+// See project_traceapps_diary_merge_port memory + project_nutritrace_
+// diary_persist_gap for the incident history that motivated this.
+
+function _tsOf(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  return String(entry.updatedAt || entry.updated_at || entry.completedAt || entry.addedAt || '');
+}
+
+function _dedupe(entries, tombstoneSet) {
+  const byUuid = new Map();
+  for (let entry of entries) {
+    if (!entry || typeof entry !== 'object') continue;
+    let uuid = entry.uuid;
+    if (!uuid || typeof uuid !== 'string') {
+      uuid = randomUUID();
+      entry = { ...entry, uuid };
+    }
+    if (tombstoneSet.has(uuid)) continue;
+    const existing = byUuid.get(uuid);
+    if (!existing || _tsOf(entry) >= _tsOf(existing)) {
+      byUuid.set(uuid, entry);
+    }
+  }
+  return Array.from(byUuid.values());
+}
+
+/**
+ * Core merge routine. Given a server-side entry list and a client-side
+ * entry list plus explicit deletions and prior tombstones, produce a
+ * merged output that never accidentally loses server-side entries the
+ * client didn't address.
+ *
+ *   - Anything in tombstoneSet (prior tombstones + this-write's
+ *     deleted_uuids) is dropped.
+ *   - Server entries survive by default; only leave via a tombstone.
+ *   - Client entries: new uuid → add; existing uuid → later-timestamp
+ *     wins; tombstoned uuid → dropped (do not resurrect).
+ *
+ * @returns {{merged: Array, newTombstoneUuids: string[]}}
+ */
+export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombstoneUuids, changedUuids = null) {
+  const server = Array.isArray(serverEntries) ? serverEntries : [];
+  const client = Array.isArray(clientEntries) ? clientEntries : [];
+  const deleted = Array.isArray(deletedUuids) ? deletedUuids.filter(x => typeof x === 'string' && x) : [];
+  const priorTombstones = Array.isArray(tombstoneUuids) ? tombstoneUuids : [];
+
+  const tombstoneSet = new Set([...priorTombstones, ...deleted]);
+
+  // Legacy bootstrap (issue #85): a server-side list that predates uuid
+  // tagging entirely has no stable identity to merge against -- _dedupe
+  // below mints every uuid-less entry a FRESH random uuid on every call,
+  // so a server list with no identity can never be recognized as "the
+  // same" exercises the client is resending, no matter how many times
+  // either side is uuid-stamped independently. The result used to be
+  // every client entry treated as new AND every server entry kept as
+  // "server-only", i.e. the whole list duplicated, and a client-side
+  // delete could never match an identity either so it silently
+  // resurrected. The client always resends its complete list on every
+  // save (see saveWorkout in stores/workout.js and WorkoutEditor's
+  // save flow), so when the server side has no identity to protect,
+  // trust the client's list outright instead of unioning it with
+  // entries that can never be recognized as duplicates of it. Entries
+  // the client already tagged (e.g. this same edit adding something
+  // new) keep their own uuid; only untagged ones get a fresh one here.
+  if (server.length > 0 && server.every(e => !e || typeof e !== 'object' || !e.uuid)) {
+    const seen = new Set();
+    const bootstrapped = [];
+    for (let entry of client) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (!entry.uuid || typeof entry.uuid !== 'string') entry = { ...entry, uuid: randomUUID() };
+      if (tombstoneSet.has(entry.uuid)) continue;
+      const priorIdx = seen.has(entry.uuid) ? bootstrapped.findIndex(e => e.uuid === entry.uuid) : -1;
+      if (priorIdx >= 0) {
+        if (_tsOf(entry) >= _tsOf(bootstrapped[priorIdx])) bootstrapped[priorIdx] = entry;
+        continue;
+      }
+      seen.add(entry.uuid);
+      bootstrapped.push(entry);
+    }
+    return { merged: bootstrapped, newTombstoneUuids: deleted.filter(u => !priorTombstones.includes(u)) };
+  }
+
+  const serverDeduped = _dedupe(server, tombstoneSet);
+  const serverByUuid = new Map(serverDeduped.map(e => [e.uuid, e]));
+
+  // Order follows the CLIENT's array, not the server's. The client
+  // always resends its complete list on every save (see saveWorkout in
+  // stores/workout.js), so it's the authoritative ordering for
+  // whatever the user is actively arranging this session — reordering
+  // within a superset, moving an exercise into/out of one, or the
+  // plain ↑/↓ reorder buttons. A JS Map does NOT move an existing key
+  // when .set() is called again on it, so building the merged array
+  // from server-insertion order and only overwriting values (the old
+  // approach) silently discarded every client-side reorder: the value
+  // updated but the position snapped back to wherever the server had
+  // it. Symptom in the app: a reorder visibly applies for a moment,
+  // then reverts once the debounced save round-trips.
+  // posByUuid tracks each uuid's slot in `ordered` so a duplicate uuid
+  // within the client's own array (legacy client bug, or a race that
+  // sent the same entry twice) collapses to one slot at its FIRST
+  // occurrence, with later duplicates only allowed to overwrite the
+  // value there if they win on timestamp — matching what the old
+  // Map-based version did for client-side duplicates (a second
+  // `.set()` on the same key updates the value without moving it).
+  const posByUuid = new Map();
+  const ordered = [];
+  for (let entry of client) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (!entry.uuid || typeof entry.uuid !== 'string') {
+      entry = { ...entry, uuid: randomUUID() };
+    }
+    if (tombstoneSet.has(entry.uuid)) continue;
+    const priorIdx = posByUuid.get(entry.uuid);
+    if (priorIdx !== undefined) {
+      if (_tsOf(entry) >= _tsOf(ordered[priorIdx])) ordered[priorIdx] = entry;
+      continue;
+    }
+    const existing = serverByUuid.get(entry.uuid);
+    // A client that says what it changed (`changedUuids`) only overrides
+    // those: the rest of what it sends is the copy it loaded, carried along,
+    // and may be older than the server's. A phone still showing a set as not
+    // done, saving something else, put it back over the watch's "done".
+    const theirs = changedUuids ? changedUuids.has(entry.uuid) : _tsOf(entry) >= _tsOf(existing);
+    const winner = (!existing || theirs) ? entry : existing;
+    posByUuid.set(entry.uuid, ordered.length);
+    ordered.push(winner);
+  }
+  // Server-only entries — concurrent additions from another device that
+  // this client's payload never included (the actual reason Option C
+  // merges instead of blob-replacing). Appended after the client's own
+  // ordering, in their original server-relative order.
+  for (const [uuid, entry] of serverByUuid) {
+    if (!posByUuid.has(uuid)) ordered.push(entry);
+  }
+
+  return {
+    merged: ordered,
+    newTombstoneUuids: deleted.filter(u => !priorTombstones.includes(u)),
+  };
+}
+
+/**
+ * What a save says it changed: `{ exercises: [uuid], sets: { exerciseUuid:
+ * [uuid] } }`, or null when it doesn't say (an older app, the watch, Trace),
+ * which keeps the merge as it always was.
+ */
+export function changedUuidsOf(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string' && x) : null);
+  const exercises = ids(raw.exercises);
+  if (!exercises || !raw.sets || typeof raw.sets !== 'object' || Array.isArray(raw.sets)) return null;
+  const sets = {};
+  for (const [ex, list] of Object.entries(raw.sets)) {
+    const l = ids(list);
+    if (l) sets[ex] = l;
+  }
+  return { exercises, sets };
+}
+
+/**
+ * Two-level merge for the exercises→sets shape specific to LT. Applies
+ * mergeEntries at the exercise layer, then for each surviving exercise
+ * that also appears on the client side, applies mergeEntries to its
+ * sets[] using the exercise-level tombstones for that exercise.
+ *
+ * @param {Array} serverExercises
+ * @param {Array} clientExercises
+ * @param {string[]} deletedExerciseUuids
+ * @param {string[]} tombstonedExerciseUuids
+ * @param {Object.<string, string[]>} deletedSetUuidsByExercise - keyed by exercise uuid
+ * @param {Object.<string, string[]>} tombstonedSetUuidsByExercise
+ */
+export function mergeExercises(
+  serverExercises, clientExercises,
+  deletedExerciseUuids, tombstonedExerciseUuids,
+  deletedSetUuidsByExercise = {}, tombstonedSetUuidsByExercise = {},
+  changed = null
+) {
+  // Exercise-level merge first — decides who's in the workout.
+  const exResult = mergeEntries(
+    serverExercises, clientExercises,
+    deletedExerciseUuids, tombstonedExerciseUuids,
+    changed ? new Set(changed.exercises) : null
+  );
+
+  // For each surviving exercise: if the client also had this exercise,
+  // merge its sets. Otherwise it's server-only or client-only and its
+  // sets pass through unchanged.
+  const clientByUuid = new Map();
+  for (const ex of (clientExercises || [])) {
+    if (ex?.uuid) clientByUuid.set(ex.uuid, ex);
+  }
+  const serverByUuid = new Map();
+  for (const ex of (serverExercises || [])) {
+    if (ex?.uuid) serverByUuid.set(ex.uuid, ex);
+  }
+
+  const newSetTombstonesByExercise = {};
+  const mergedExercises = exResult.merged.map(ex => {
+    const clientEx = clientByUuid.get(ex.uuid);
+    const serverEx = serverByUuid.get(ex.uuid);
+    if (!clientEx || !serverEx) {
+      // Server-only or client-only: keep the sets as-is; ensure uuids.
+      const sets = Array.isArray(ex.sets) ? ex.sets.map(s =>
+        (s && typeof s === 'object' && !s.uuid) ? { ...s, uuid: randomUUID() } : s
+      ) : [];
+      return { ...ex, sets };
+    }
+    // Both sides have this exercise: merge its sets.
+    const deletedSetUuids = deletedSetUuidsByExercise[ex.uuid] || [];
+    const priorSetTombstones = tombstonedSetUuidsByExercise[ex.uuid] || [];
+    const setResult = mergeEntries(
+      serverEx.sets || [], clientEx.sets || [],
+      deletedSetUuids, priorSetTombstones,
+      changed ? new Set(changed.sets[ex.uuid] || []) : null
+    );
+    if (setResult.newTombstoneUuids.length) {
+      newSetTombstonesByExercise[ex.uuid] = setResult.newTombstoneUuids;
+    }
+    return { ...ex, sets: setResult.merged };
+  });
+
+  return {
+    merged: mergedExercises,
+    newTombstoneExerciseUuids: exResult.newTombstoneUuids,
+    newTombstoneSetUuidsByExercise: newSetTombstonesByExercise,
+  };
+}
+
+// The only fields that ever belong inside body_stats_log.stats. Mirrors
+// BodyStatsWidget.svelte's ROWS + Statistics.svelte's OVERLAY_METRICS —
+// same list, same maintenance burden as those two.
+//
+// Guards against a specific corruption shape (issue #80): the GET
+// /api/body-stats/:date response wraps the row one level deeper than
+// the client read (data.stats.stats holds the measurements, not
+// data.stats), and before that read bug was fixed, a client that had
+// hit it would spread the whole row — including id / user_id / date
+// and a nested stats object — into what it PUT back. mergeStatsObject
+// used to copy every key it was handed, so that malformed shape would
+// have landed inside the stored JSON blob verbatim. The read fix
+// removes the way this gets constructed client-side; this allowlist
+// means it can't land in the stored data even if a similar bug shows
+// up in some future client entry point.
+export const BODY_STAT_KEYS = new Set([
+  'weight', 'bodyFat', 'neck', 'chest', 'waist', 'hips', 'biceps', 'thighs', 'calves',
+]);
+
+/**
+ * Per-key merge for a flat object (used for body_stats_log.stats).
+ * Empty incoming object preserves everything; incoming keys with
+ * defined values overwrite; incoming keys explicitly set to null are
+ * treated as deletions (user cleared that stat). Client keys outside
+ * BODY_STAT_KEYS are ignored rather than merged — see the comment above.
+ *
+ * Simpler than the array merge because keys ARE the identity — no
+ * uuids needed.
+ */
+export function mergeStatsObject(serverStats, clientStats) {
+  const server = (serverStats && typeof serverStats === 'object') ? serverStats : {};
+  const client = (clientStats && typeof clientStats === 'object') ? clientStats : {};
+  const out = { ...server };
+  for (const [k, v] of Object.entries(client)) {
+    if (!BODY_STAT_KEYS.has(k)) continue;
+    if (v === null) delete out[k];   // explicit clear
+    else if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Ensure every entry in `list` has a uuid, mutating a copy (not the
+ * caller's array). Idempotent. Recursive for exercises (also stamps
+ * uuid on each set).
+ */
+export function ensureExerciseUuids(list) {
+  if (!Array.isArray(list)) return [];
+  let changed = false;
+  const out = list.map(ex => {
+    if (!ex || typeof ex !== 'object') return ex;
+    let next = ex;
+    if (!ex.uuid || typeof ex.uuid !== 'string') {
+      next = { ...ex, uuid: randomUUID() };
+      changed = true;
+    }
+    if (Array.isArray(ex.sets)) {
+      let setsChanged = false;
+      const sets = ex.sets.map(s => {
+        if (!s || typeof s !== 'object') return s;
+        if (s.uuid && typeof s.uuid === 'string') return s;
+        setsChanged = true;
+        return { ...s, uuid: randomUUID() };
+      });
+      if (setsChanged) {
+        next = { ...next, sets };
+        changed = true;
+      }
+    }
+    return next;
+  });
+  return changed ? out : list;
+}
+
+export function ensureUuids(list) {
+  if (!Array.isArray(list)) return [];
+  let changed = false;
+  const out = list.map(entry => {
+    if (!entry || typeof entry !== 'object') return entry;
+    if (entry.uuid && typeof entry.uuid === 'string') return entry;
+    changed = true;
+    return { ...entry, uuid: randomUUID() };
+  });
+  return changed ? out : list;
+}

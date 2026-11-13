@@ -9,6 +9,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **The watch works with the phone in Local mode** ([#156](https://github.com/TraceApps/lifttrace/issues/156), reported by @wretchedxx). With no server, the watch now reads your session from the phone and saves each set there, the phone's Diary shows it at once, and finishing on the watch gives the Workout Complete notification. LiftTrace has to be running on the phone: when you leave the app with your watch connected, a quiet notification keeps Android from freezing it, until 30 minutes pass with nothing from the watch. If the app was closed or the phone is out of reach, the watch keeps your sets, says so, and sends them once it can. A Local mode save on the phone now also merges set by set with what's stored, as a server does, so it can't put back a set the watch just changed. Both the phone and the watch need this release. [Local mode](https://traceapps.github.io/docs/lifttrace/wear/#local-mode)
+
 - **Paste a picture into Trace and your coach chat** (from [nutritrace#304](https://github.com/TraceApps/nutritrace/pull/304), thanks @librarian). Paste a screenshot or a copied image into Trace's message box or a chat with your coach to attach it, like the image button. Copied text that comes with a picture of itself, such as cells from a spreadsheet or a passage from Word, still pastes as text.
 
 ### Fixed

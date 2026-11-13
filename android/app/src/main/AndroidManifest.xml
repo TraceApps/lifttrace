@@ -97,6 +97,13 @@
              alarms and notification follow. Exported because Google Play
              services delivers it, and the base class turns away any
              other caller ("Caller is not GooglePlayServices"). -->
+        <!-- Keeps the app awake while the watch works through this phone in
+             Local mode (#156). -->
+        <service
+            android:name=".WatchAwakeService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
         <service
             android:name=".RestWearListener"
             android:exported="true">
@@ -143,4 +150,10 @@
          Android 14+ requires both the generic FGS and the per-type permission. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Local mode (#156): the app stays awake while the watch works through it
+         (WatchAwakeService). A connected-device service needs one of a few
+         permissions on Android 14+; changing network state is the one granted
+         at install. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 </manifest>

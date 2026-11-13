@@ -95,7 +95,9 @@ test('a paired watch follows the phone: the new token goes to it, and a refused 
   // A pairing for another account (another user id in its token) clears what
   // the previous one left, so it never goes up under the new account.
   const save = pairing.slice(pairing.indexOf('fun save(ctx: Context'), pairing.indexOf('fun phoneRelease'));
-  assert.match(save, /val before = accountOf\(p\.getString\(KEY_TOKEN, null\) \?: p\.getString\(KEY_REFUSED, null\)\)\s*val now = accountOf\(token\)\s*if \(before != null && now != null && before != now\) \{[\s\S]*?clear\(ctx\)/);
+  assert.match(save, /val before = accountOf\(p\.getString\(KEY_TOKEN, null\) \?: p\.getString\(KEY_REFUSED, null\)\)\s*val now = accountOf\(token\)[\s\S]*?if \(switched \|\| \(before != null && now != null && before != now\)\) \{[\s\S]*?clear\(ctx\)/);
+  // So does a phone switched between a server and Local mode (#156).
+  assert.match(save, /val switched = wasUrl != null && \(wasUrl == PHONE\) != \(serverUrl\.trim\(\) == PHONE\)/);
 });
 
 test('the Android app links a provider in the phone\'s browser and comes back through its own link', () => {
