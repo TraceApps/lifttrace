@@ -8,6 +8,8 @@
  * Endpoints (all require LiftTrace auth):
  *   POST /test          verify URL + token via NT /api/v1/me
  *   POST /log-workout   forward a completed workout to NT /api/v1/workouts
+ *   GET  /body-composition  read persisted NT body-composition observations
+ *   POST /body-provenance   fix which connection+source own imported body data
  */
 import { Router } from 'express';
 import db from '../db.js';
@@ -15,6 +17,8 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
 import { readSettingRaw, SECRET_SET } from '../lib/secret-settings.js';
+import { claimProvenance, stableProvenance, stableIdentity, readMatchesClaim } from '../lib/nt-body-provenance.js';
+import { issueReadReceipt, takeReadReceipt } from '../lib/nt-read-receipts.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -111,18 +115,95 @@ router.post('/test', wrap(async (req, res) => {
       return res.json({ ok: false, error: `NutriTrace returned ${ntRes.status}${await _ntErrorMessage(ntRes)}` });
     }
     const body = await ntRes.json().catch(() => ({}));
-    // Surface the token's scopes so the UI can warn if write:workouts is missing.
     const scopes = Array.isArray(body?.scopes) ? body.scopes : [];
-    if (!scopes.includes('write:workouts')) {
+    const capabilities = {
+      workoutWrite: scopes.includes('write:workouts'),
+      bodyCompositionRead: scopes.includes('mcp:read'),
+    };
+    // Use the identity returned by NutriTrace, not user-entered URL text.
+    // Token rotation for the same instance/user must not change provenance.
+    const instanceUrl = typeof body?.instance?.url === 'string'
+      ? body.instance.url.replace(/\/+$/, '')
+      : '';
+    const userId = body?.user?.id;
+    if (!instanceUrl || userId == null || String(userId).length === 0) {
+      return res.json({
+        ok: false,
+        error: 'NutriTrace response did not include a stable connection identity.',
+        user: _who(body),
+        scopes,
+        capabilities,
+      });
+    }
+    const connectionIdentity = { instanceUrl, userId: String(userId) };
+    if (!capabilities.workoutWrite) {
       return res.json({
         ok: false,
         error: 'Token is missing the write:workouts scope. Edit the token in NutriTrace and re-check the box.',
         user: _who(body),
+        scopes,
+        capabilities,
+        connectionIdentity,
       });
     }
-    return res.json({ ok: true, user: _who(body) });
+    return res.json({ ok: true, user: _who(body), scopes, capabilities, connectionIdentity });
   } catch (e) {
     return res.json({ ok: false, error: _linkError(e) });
+  }
+}));
+
+// GET /body-composition — narrow proxy to NutriTrace's native read API.
+// Only documented query parameters are forwarded; the bearer token remains
+// server-side. NutriTrace requires mcp:read and PUBLIC_API_ENABLED=1.
+//
+// Every successful read carries a receipt (X-LT-Nt-Read-Id) bound to the
+// verified connection the read was answered with. The import claim must present
+// it, so measurements read through one connection can never be attributed to
+// another that was restored before the claim (see lib/nt-read-receipts.js).
+router.get('/body-composition', wrap(async (req, res) => {
+  const u = uid(req);
+  const cfg = _config(u);
+  if (!cfg || !cfg.enabled) return res.status(503).json({ error: 'Federation not enabled' });
+
+  // Snapshot before the await: this is the connection the proxy is about to
+  // read with, and the receipt has to name it, not whatever is saved when the
+  // other server answers.
+  const readIdentity = stableIdentity(_getSetting(u, 'ntConnectionIdentity'));
+  if (!readIdentity) {
+    return res.status(503).json({ error: 'NutriTrace connection is not verified', code: 'connection-unverified' });
+  }
+
+  const { start, end, source } = req.query || {};
+  for (const [name, value] of [['start', start], ['end', end]]) {
+    if (value != null && (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))) {
+      return res.status(400).json({ error: `${name} must be YYYY-MM-DD` });
+    }
+  }
+  if (source != null && typeof source !== 'string') {
+    return res.status(400).json({ error: 'source must be a string' });
+  }
+
+  const query = new URLSearchParams();
+  if (start) query.set('start', start);
+  if (end) query.set('end', end);
+  if (source) query.set('source', source);
+  const path = `/api/v1/body-composition${query.toString() ? `?${query}` : ''}`;
+
+  try {
+    const ntRes = await _ntFetch(cfg, path);
+    const body = await ntRes.json().catch(() => ({}));
+    if (!ntRes.ok) {
+      return res.status(502).json({
+        error: body?.error || `NutriTrace returned ${ntRes.status}`,
+        code: body?.code,
+      });
+    }
+    const readId = issueReadReceipt(u, readIdentity);
+    // Header only: the answered body keeps NutriTrace's own shape.
+    if (readId) res.set('X-LT-Nt-Read-Id', readId);
+    res.json(body);
+  } catch (e) {
+    res.status(502).json({ error: _linkError(e) });
   }
 }));
 
@@ -178,6 +259,67 @@ export async function logWorkoutToNt(userId, { date, name, duration_min, calorie
 router.post('/log-workout', wrap(async (req, res) => {
   const { status, body } = await logWorkoutToNt(uid(req), req.body || {});
   res.status(status).json(body);
+}));
+
+// POST /body-provenance — fix, once per account, which NutriTrace connection
+// and source own the body measurements imported here.
+//
+// The client cannot decide this by itself: two tabs (or two devices) opened
+// before the first import both see an empty local marker and both would pass
+// a local check, mixing one account's history between sources. The claim is a
+// compare-and-set in lib/nt-body-provenance.js, so exactly one pair is fixed
+// and every later different claim is refused with the pair that won.
+//
+// The claim must also name the connection this server verified and will proxy
+// with. In the window where the app already shows a new connection but the
+// server still holds the old one, an import would otherwise be attributed to
+// the wrong NutriTrace account.
+router.post('/body-provenance', wrap((req, res) => {
+  const u = uid(req);
+  if (u == null) return res.status(400).json({ error: 'Account required', code: 'no-account' });
+  const candidate = stableProvenance({
+    connectionIdentity: req.body?.connectionIdentity,
+    source: req.body?.source,
+  });
+  if (!candidate) {
+    return res.status(400).json({ error: 'A connection identity and source are required', code: 'invalid-claim' });
+  }
+  const verified = stableIdentity(_getSetting(u, 'ntConnectionIdentity'));
+  if (!verified || verified.instanceUrl !== candidate.instanceUrl || verified.userId !== candidate.userId) {
+    return res.status(409).json({
+      error: 'The saved connection does not match this import',
+      code: 'connection-mismatch',
+      provenance: verified ? { ...verified, source: candidate.source } : null,
+    });
+  }
+  // The claim must present the receipt of the read its measurements came from.
+  // The saved connection can be switched away and back between that read and
+  // this call, so "matches what is saved now" alone cannot tell whose data it
+  // is; the receipt names the connection the read was actually answered with.
+  const readId = typeof req.body?.readId === 'string' ? req.body.readId : '';
+  if (!readId) {
+    return res.status(409).json({ error: 'The read this import came from is unknown', code: 'read-receipt-missing' });
+  }
+  const receipt = takeReadReceipt(readId, u);
+  if (!receipt) {
+    return res.status(409).json({ error: 'The read this import came from is unknown or expired', code: 'read-receipt-missing' });
+  }
+  if (!readMatchesClaim(receipt, candidate)) {
+    return res.status(409).json({
+      error: 'The measurements were read through another connection',
+      code: 'read-identity-mismatch',
+      provenance: { ...receipt, source: candidate.source },
+    });
+  }
+  const result = claimProvenance(db, u, candidate);
+  if (!result.ok) {
+    return res.status(409).json({
+      error: 'Body measurements are already attributed to another source',
+      code: result.code,
+      provenance: result.provenance || null,
+    });
+  }
+  res.json({ ok: true, first: result.first, provenance: result.provenance });
 }));
 
 export default router;

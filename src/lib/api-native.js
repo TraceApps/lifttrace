@@ -290,6 +290,10 @@ const Settings = {
     await dbRun(`DELETE FROM body_stats_log WHERE user_id = ?`, [ME]);
     await dbRun(`DELETE FROM excused_days`, []);
     await dbRun(`DELETE FROM ai_chat_history WHERE user_id = ?`, [ME]);
+    // The imported history and its claim are gone; the device's provenance
+    // cache and throttle must not outlive them.
+    const { resetNtBodyProvenanceCache } = await import('../stores/settings.js');
+    resetNtBodyProvenanceCache();
     return { ok: true };
   },
 };

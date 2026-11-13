@@ -1,6 +1,7 @@
 import { writable, get, derived } from 'svelte/store';
 import { DB } from '../lib/db.js';
 import { pickInitialLocale } from '../i18n/index.js';
+import { ntProvenanceCache } from '../lib/nt-provenance-cache.js';
 
 // Server-driven env-lock state. Populated from /api/app-config/env-locks
 // on app startup. Drives both the "Configured via environment variables"
@@ -25,7 +26,13 @@ const SERVER_SETTINGS = new Set([
   'navStyle', 'sidebarPersistent', 'startPage', 'disableAnimations',
   'pageBanners', 'bannerStyle', 'bannerAnimation',
   // NutriTrace federation — workout calorie sync (Phase 2)
-  'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified',
+  'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified', 'ntConnectionIdentity',
+  'ntBodySyncEnabled', 'ntBodySource', 'ntBodyLastSyncAt',
+  // ntBodySyncedSource / ntBodySyncedConnectionIdentity are deliberately NOT
+  // here: the server owns the import provenance now (the claim row and the
+  // legacy marker it adopts), so a settings PUT for them is refused. The two
+  // stores still exist as a read-only per-account cache of what the server
+  // reports.
   'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises', 'customEquipment',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
   'autoGenerateWarmups', 'trackRpe',
@@ -125,7 +132,13 @@ export async function loadServerSettings() {
       const { isNative } = await import('../lib/platform.js');
       if (isNative) queued = await (await import('../lib/sync.js')).queuedSettingKeys();
     } catch { /* web build */ }
+    // The provenance is one server record, not two settings the device may
+    // compare itself: the pair below is rebuilt from it (or cleared when the
+    // server has none), so a deleted claim can never leave a client marker
+    // blocking the next import.
+    const provenance = serverSettings.ntBodyProvenance;
     for (const [key, value] of Object.entries(serverSettings)) {
+      if (key === 'ntBodyProvenance') continue;
       if (queued.has(key) || isRecentlyChanged(key)) continue;
       DB.setSetting(key, value);
       // Dispatch with the BARE key — the createSettingStore listener
@@ -134,6 +147,9 @@ export async function loadServerSettings() {
       // loaded from the server only took effect after a full app reload
       // (when stores re-read from localStorage on init).
       window.dispatchEvent(new CustomEvent('wl:setting', { detail: { key } }));
+    }
+    for (const [key, value] of Object.entries(ntProvenanceCache(provenance))) {
+      DB.setSetting(key, value);
     }
     // cardioEnabled used to be stored only on the device. Someone who turned
     // cardio on before it synced has it on locally and absent on the server,
@@ -447,6 +463,36 @@ export const ntFederationEnabled = createSettingStore('ntFederationEnabled', fal
 // Mirrors SettingsTrace's aiKeyVerified pattern. Cleared by any field edit
 // in SettingsFederation; set true by a successful /api/nt/test response.
 export const ntConnectionVerified = createSettingStore('ntConnectionVerified', false);
+// Stable identity of the currently verified NutriTrace connection. This is
+// deliberately limited to the canonical instance URL and NT user id; the
+// bearer token is a credential, not an identity, so token rotation remains
+// valid for the same instance/user.
+export const ntConnectionIdentity = createSettingStore('ntConnectionIdentity', null);
+// Optional NutriTrace body-measurement import. The source is an exact NT
+// source name; an empty value means the sync must resolve a single source.
+export const ntBodySyncEnabled = createSettingStore('ntBodySyncEnabled', false);
+export const ntBodySource = createSettingStore('ntBodySource', '');
+// Safety marker for the NutriTrace source that already owns federation-imported
+// mapped fields. Kept separate from ntBodySource so automatic source resolution
+// never becomes a silent user preference.
+export const ntBodySyncedSource = createSettingStore('ntBodySyncedSource', '');
+// Stable connection identity that already owns imported body fields. Kept
+// separate from the current verified identity and source preference so a
+// connection/user change cannot mix body history.
+export const ntBodySyncedConnectionIdentity = createSettingStore('ntBodySyncedConnectionIdentity', null);
+export const ntBodyLastSyncAt = createSettingStore('ntBodyLastSyncAt', null);
+
+/**
+ * Clear the device's copy of the import provenance. Clear Data deletes the
+ * imported history and the server's claim with it; keeping these markers
+ * would leave this device refusing every later source while the server would
+ * happily accept one. The throttle goes too, so the next import is not
+ * silently skipped because the previous one "just ran".
+ */
+export function resetNtBodyProvenanceCache() {
+  for (const [key, value] of Object.entries(ntProvenanceCache(null))) DB.setSetting(key, value);
+  DB.setSetting('ntBodyLastSyncAt', null);
+}
 
 // In-app update check cadence. Hours between GitHub-tag + PWA-SW checks
 // when the app is open. 0 = manual only (turns off every auto-check —

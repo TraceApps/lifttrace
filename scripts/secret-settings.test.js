@@ -65,7 +65,17 @@ function services() {
       if (req.url === '/api/v1/me') {
         const ok = req.headers.authorization === 'Bearer nt-token-123';
         r.writeHead(ok ? 200 : 401, { 'Content-Type': 'application/json' });
-        r.end(JSON.stringify(ok ? { user: { username: 'pat' }, scopes: ['write:workouts'] } : { error: 'no' }));
+        // NutriTrace's /api/v1/me names its own instance URL and the token
+        // owner's id; the federation check stores that pair as the connection
+        // identity the body-composition import is bound to. A stub missing
+        // them is not the real /api/v1/me contract.
+        r.end(JSON.stringify(ok
+          ? {
+            user: { id: 1, username: 'pat' },
+            instance: { url: `http://${req.headers.host}` },
+            scopes: ['write:workouts'],
+          }
+          : { error: 'no' }));
         return;
       }
       r.writeHead(200, { 'Content-Type': 'application/json' }); r.end('{}');

@@ -156,6 +156,27 @@ test('mergeStatsObject preserves keys not mentioned by client', () => {
   assert.deepEqual(merged, { weight: 92.0, bodyFat: 15.0, waist: 88 });
 });
 
+test('mergeStatsObject normalizes legacy body_fat when canonical bodyFat arrives', () => {
+  const server = { weight: 73.1, body_fat: 17.2, waist: 88 };
+  const client = { bodyFat: 17.2 };
+  const merged = mergeStatsObject(server, client);
+  assert.deepEqual(merged, { weight: 73.1, bodyFat: 17.2, waist: 88 });
+});
+
+test('mergeStatsObject preserves legacy body_fat when bodyFat is absent', () => {
+  const server = { weight: 73.1, body_fat: 17.2, waist: 88 };
+  const client = { weight: 73.2 };
+  const merged = mergeStatsObject(server, client);
+  assert.deepEqual(merged, { weight: 73.2, body_fat: 17.2, waist: 88 });
+});
+
+test('mergeStatsObject clears both body-fat spellings on an explicit canonical clear', () => {
+  const server = { weight: 73.1, body_fat: 17.2, bodyFat: 17.2 };
+  const client = { bodyFat: null };
+  const merged = mergeStatsObject(server, client);
+  assert.deepEqual(merged, { weight: 73.1 });
+});
+
 test('mergeStatsObject treats explicit null as clear', () => {
   const server = { weight: 92, bodyFat: 15, waist: 88 };
   const client = { bodyFat: null }; // user cleared body fat

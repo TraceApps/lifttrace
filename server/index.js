@@ -157,8 +157,10 @@ router.use((req, res, next) => {
       // workout saves send X-Changed-Fields from the WebView, and without it
       // here the preflight failed, so each save waited in the queue instead.
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Changed-Fields, X-Edited-At, X-Field-Edits');
-      // The Android app reads this from an answer (another origin).
-      res.setHeader('Access-Control-Expose-Headers', 'X-LT-Coaching');
+      // The Android app reads these from an answer (another origin): the
+      // coaching signature, and the receipt of a NutriTrace body read that its
+      // import claim must present (routes/nt-federation.js).
+      res.setHeader('Access-Control-Expose-Headers', 'X-LT-Coaching, X-LT-Nt-Read-Id');
     }
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
