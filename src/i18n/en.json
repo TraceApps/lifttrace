@@ -1158,6 +1158,7 @@
     "toast": {
       "requires_key": "{name} requires an API key",
       "source_imported": "{name}: imported {count}",
+      "import_still_running": "{name}: your server is still importing. Check here again in a few minutes.",
       "media_cached": "{count, plural, one {Cached # exercise media file for offline use} other {Cached # exercise media files for offline use}}",
       "source_cleared": "{count, plural, one {{name}: cleared # exercise} other {{name}: cleared # exercises}}",
       "catalog_imported": "{count, plural, one {Imported # exercise to \"{name}\"} other {Imported # exercises to \"{name}\"}}",

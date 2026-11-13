@@ -1,5 +1,6 @@
 <script>
   import { resolveAssetUrl } from '../lib/platform.js';
+  import { failedMedia, mediaFailed, workingMedia } from '../lib/media-fallback.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -261,8 +262,8 @@
           <div class="similar-grid">
             {#each similar as s (s.id)}
               <button class="similar-card" on:click={() => push(`/exercise/${s.id}`)}>
-                {#if s.gif_url || s.img_url}
-                  <img class="similar-img" src={resolveAssetUrl(s.gif_url || s.img_url)} alt="" loading="lazy" />
+                {#if workingMedia($failedMedia, s.gif_url, s.img_url)}
+                  <img class="similar-img" src={resolveAssetUrl(workingMedia($failedMedia, s.gif_url, s.img_url))} alt="" loading="lazy" data-media={workingMedia($failedMedia, s.gif_url, s.img_url)} on:error={(e) => mediaFailed(e.currentTarget.dataset.media)} />
                 {:else}
                   <span class="similar-img-fallback material-symbols-rounded">fitness_center</span>
                 {/if}

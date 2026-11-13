@@ -225,6 +225,8 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     // Trace's server took longer than a reply should: said as that, not as
     // offline (the code is said in the app's language, aiChat.js).
     if (netErr?.name === 'TimeoutError' && _isTraceChat(_stripBase(url))) return _jsonResponse(504, { error: "Trace didn't get an answer in time. Try again, or ask for less at once.", code: 'trace_timed_out' });
+    // The import goes on at the server after the app stops waiting (#155).
+    if (netErr?.name === 'TimeoutError' && _isCatalogImport(_stripBase(url))) return _jsonResponse(504, { error: 'Your server is still importing. Check Settings > Catalog again in a few minutes.', code: 'import_timed_out' });
     if (isWrite && needsServerNow(_stripBase(url), method)) return _jsonResponse(503, { error: 'This needs a connection.', offline: true });
     if (isWrite) return _queueWrite(url, init, method, gen);
     // Who is signed in is the server's to say: offline, this device's
@@ -238,6 +240,10 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
 
 // Asking Trace through the server (Trace set by environment variables).
 const _isTraceChat = (fullPath) => /^\/api\/ai\/chat$/.test(String(fullPath).split('?')[0]);
+// Importing an exercise catalog: the server reads the whole catalog and
+// checks its GIFs, a few minutes (#155). Run later from the queue, or on this
+// phone's copy, it would import twice into ids the server doesn't know.
+const _isCatalogImport = (fullPath) => /^\/api\/exercises\/sources\/import$/.test(String(fullPath).split('?')[0]);
 
 /**
  * How long a request may take before it counts as unanswered. Asking Trace
@@ -245,7 +251,7 @@ const _isTraceChat = (fullPath) => /^\/api\/ai\/chat$/.test(String(fullPath).spl
  * minutes (TraceApps/notetrace#23); everything else answers in seconds.
  */
 export function requestDeadlineMs(fullPath, isWrite) {
-  if (_isTraceChat(fullPath)) return 300000;
+  if (_isTraceChat(fullPath) || _isCatalogImport(fullPath)) return 300000;
   return isWrite ? 30000 : 20000;
 }
 
@@ -260,6 +266,7 @@ export function needsServerNow(fullPath, method) {
   const path = String(fullPath).split('?')[0];
   if (/^\/api\/coaching\//.test(path)) return true;
   if (_isTraceChat(path)) return true;
+  if (method === 'POST' && _isCatalogImport(path)) return true;
   if (method === 'POST' && path === '/api/notify') return true;
   return (method === 'POST' || method === 'DELETE') && /^\/api\/trainer\/members\/\d+$/.test(path);
 }

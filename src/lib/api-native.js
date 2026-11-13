@@ -436,7 +436,7 @@ const Exercises = {
     );
     const existingIds = new Set(existing.map(r => String(r.external_id)));
 
-    let rows;
+    let rows, brokenIds;
     if (sourceId === 'wger') {
       const { fetchWgerRows } = await import('./exercise-sources/wger.js');
       rows = await fetchWgerRows({ fetchFn: nativeFetch });
@@ -445,7 +445,7 @@ const Exercises = {
       rows = await fetchFreeDbRows({ fetchFn: nativeFetch });
     } else if (sourceId === 'exercisedb-oss') {
       const { fetchExerciseDbOssRows } = await import('./exercise-sources/exercisedb-oss.js');
-      rows = await fetchExerciseDbOssRows({ fetchFn: nativeFetch, existingIds });
+      ({ rows, brokenIds } = await fetchExerciseDbOssRows({ fetchFn: nativeFetch, existingIds }));
     } else {
       throw new _Unsupported(`${meta.name} imports aren't available offline yet.`);
     }
@@ -491,6 +491,7 @@ const Exercises = {
       count++;
     }
     count += resurrected;
+    if (brokenIds?.size) await _clearBrokenCopies(sourceId, brokenIds);
     return { ok: true, count };
   },
   async sourcesToggle(sourceId, enabled) {
@@ -548,7 +549,7 @@ const SOURCES_META = [
   {
     id: 'exercisedb-oss',
     name: 'ExerciseDB (open-source)',
-    description: '~1,500 exercises with animated GIFs. AGPL-3.0. Free, no key — uses oss.exercisedb.dev (community-hosted, no SLA).',
+    description: '~1,300 exercises with animated GIFs. AGPL-3.0. Free, no key; uses oss.exercisedb.dev (community-hosted, no SLA).',
     requiresKey: false,
   },
 ];
@@ -558,18 +559,56 @@ const SOURCES_META = [
 // native we route via CapacitorHttp which bypasses CORS entirely. Response
 // is normalised to look like a Fetch Response so the shared modules see
 // the same shape as node.
+// Copies an earlier import added whose GIF is gone while another copy of the
+// name remains (#155): cleared unless in use or edited, as the server does
+// (server/exercise-sources/exercisedb-oss.js clearBrokenCopies).
+async function _clearBrokenCopies(sourceId, brokenIds) {
+  const { referencedExerciseIds } = await import('./exercise-sources/exercisedb-oss.js');
+  const blobs = [];
+  for (const t of ['workout_log', 'workout_templates', 'coach_prescriptions']) {
+    for (const r of await dbQuery(`SELECT exercises FROM ${t}`)) blobs.push(r.exercises);
+  }
+  const used = referencedExerciseIds({
+    exerciseBlobs: blobs,
+    settingValues: (await dbQuery('SELECT value FROM user_settings')).map(r => r.value),
+  });
+  for (const ext of brokenIds) {
+    const found = await dbQuery(
+      `SELECT id, deleted_at, tips, video_url, load_type, img_url FROM exercises
+        WHERE source = ? AND is_global = 1 AND external_id = ?`,
+      [sourceId, String(ext)]
+    );
+    for (const row of found) {
+      const keep = used.has(row.id) || row.tips || row.video_url || row.load_type || row.img_url;
+      if (keep && row.deleted_at) {
+        await dbRun(`UPDATE exercises SET deleted_at = NULL, updated_at = ? WHERE id = ?`, [_now(), row.id]);
+      } else if (!keep && !row.deleted_at) {
+        await dbRun(`UPDATE exercises SET deleted_at = ?, updated_at = ? WHERE id = ?`, [_now(), _now(), row.id]);
+      }
+    }
+  }
+}
+
 async function nativeFetch(url, init = {}) {
   // Through lib/native-http.js: plain http:// only to a confirmed local server.
   const { NativeHttp } = await import('./native-http.js');
   const method = (init.method || 'GET').toUpperCase();
-  const opts = { url, headers: init.headers || {} };
+  const opts = { url, method, headers: init.headers || {} };
   if (init.body != null) opts.data = init.body;
   const fn = method === 'GET' ? NativeHttp.get
           : method === 'POST' ? NativeHttp.post
           : method === 'PUT' ? NativeHttp.put
           : method === 'DELETE' ? NativeHttp.delete
           : NativeHttp.request;
-  const res = await fn.call(NativeHttp, opts);
+  let res;
+  try {
+    res = await fn.call(NativeHttp, opts);
+  } catch (e) {
+    // Android's HTTP stack fails a 404 or 410 with FileNotFoundException
+    // instead of answering it; a GIF check needs to know it's gone (#155).
+    if (method === 'HEAD' && /FileNotFoundException/.test(`${e?.code} ${e?.message}`)) res = { status: 404, headers: {}, data: '' };
+    else throw e;
+  }
   return {
     ok: res.status >= 200 && res.status < 300,
     status: res.status,

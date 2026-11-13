@@ -6,6 +6,7 @@
   import { LtApi } from '../lib/api.js';
   import { syncTouched } from '../lib/sync-refresh.js';
   import { isNative, getServerUrl, resolveAssetUrl } from '../lib/platform.js';
+  import { failedMedia, mediaFailed, workingMedia } from '../lib/media-fallback.js';
   import { CATEGORIES } from '../lib/workout.js';
   import { normalizeEquipment, sortByBucket } from '../lib/equipment.js';
   import { showSuccess, showError } from '../stores/toast.js';
@@ -570,8 +571,8 @@
                        to img, then to a fitness_center icon. lazy-loaded so a
                        1500-exercise library doesn't pre-fetch every demo. -->
                   <div class="ex-thumb">
-                    {#if ex.gif_url || ex.img_url}
-                      <img src={resolveAssetUrl(ex.gif_url || ex.img_url)} alt="" loading="lazy" />
+                    {#if workingMedia($failedMedia, ex.gif_url, ex.img_url)}
+                      <img src={resolveAssetUrl(workingMedia($failedMedia, ex.gif_url, ex.img_url))} alt="" loading="lazy" data-media={workingMedia($failedMedia, ex.gif_url, ex.img_url)} on:error={(e) => mediaFailed(e.currentTarget.dataset.media)} />
                     {:else}
                       <span class="material-symbols-rounded">fitness_center</span>
                     {/if}

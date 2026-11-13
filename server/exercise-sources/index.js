@@ -35,7 +35,7 @@ export const SOURCES = [
   {
     id: 'exercisedb-oss',
     name: 'ExerciseDB (open-source)',
-    description: '~1,500 exercises with animated GIFs. AGPL-3.0. Free, no key \u2014 uses oss.exercisedb.dev (community-hosted, no SLA).',
+    description: '~1,300 exercises with animated GIFs. AGPL-3.0. Free, no key; uses oss.exercisedb.dev (community-hosted, no SLA).',
     requiresKey: false,
     seed: seedFromExerciseDbOss,
   },

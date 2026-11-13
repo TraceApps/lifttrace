@@ -1,5 +1,6 @@
 <script>
   import { resolveAssetUrl } from '../../lib/platform.js';
+  import { failedMedia, mediaFailed } from '../../lib/media-fallback.js';
   import { _ } from 'svelte-i18n';
   import { setKind, fmtSetLabel, distanceUnitOf } from '../../lib/workout.js';
   import { weightUnit, exerciseDistanceUnits } from '../../stores/settings.js';
@@ -47,20 +48,20 @@
       {/if}
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
-  {:else if exercise.gif_url && exercise.img_url && exercise.gif_url !== exercise.img_url && /\.(jpg|jpeg|png|webp)$/i.test(exercise.gif_url)}
+  {:else if exercise.gif_url && exercise.img_url && exercise.gif_url !== exercise.img_url && /\.(jpg|jpeg|png|webp)$/i.test(exercise.gif_url) && !$failedMedia.has(exercise.gif_url) && !$failedMedia.has(exercise.img_url)}
     <div class="media-card swap">
-      <img class="swap-img frame-a" src={resolveAssetUrl(exercise.img_url)} alt="Start position" />
-      <img class="swap-img frame-b" src={resolveAssetUrl(exercise.gif_url)} alt="End position" />
+      <img class="swap-img frame-a" src={resolveAssetUrl(exercise.img_url)} alt="Start position" on:error={() => mediaFailed(exercise.img_url)} />
+      <img class="swap-img frame-b" src={resolveAssetUrl(exercise.gif_url)} alt="End position" on:error={() => mediaFailed(exercise.gif_url)} />
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
-  {:else if exercise.gif_url}
+  {:else if exercise.gif_url && !$failedMedia.has(exercise.gif_url)}
     <div class="media-card">
-      <img class="media-img" src={resolveAssetUrl(exercise.gif_url)} alt={exercise.name} />
+      <img class="media-img" src={resolveAssetUrl(exercise.gif_url)} alt={exercise.name} on:error={() => mediaFailed(exercise.gif_url)} />
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
-  {:else if exercise.img_url}
+  {:else if exercise.img_url && !$failedMedia.has(exercise.img_url)}
     <div class="media-card">
-      <img class="media-img" src={resolveAssetUrl(exercise.img_url)} alt={exercise.name} />
+      <img class="media-img" src={resolveAssetUrl(exercise.img_url)} alt={exercise.name} on:error={() => mediaFailed(exercise.img_url)} />
       {#if exercise.source}<span class="media-source">via {exercise.source}</span>{/if}
     </div>
   {/if}

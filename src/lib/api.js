@@ -10,6 +10,7 @@ async function _json(res) {
     // What the offline layer says went wrong, for the screen to say it.
     if (data.storage) err.storage = true;
     if (data.offline) err.offline = true;
+    if (data.code) err.code = data.code;
     throw err;
   }
   return data;

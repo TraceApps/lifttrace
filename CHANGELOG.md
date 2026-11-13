@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Paste a picture into Trace and your coach chat** (from [nutritrace#304](https://github.com/TraceApps/nutritrace/pull/304), thanks @librarian). Paste a screenshot or a copied image into Trace's message box or a chat with your coach to attach it, like the image button. Copied text that comes with a picture of itself, such as cells from a spreadsheet or a passage from Word, still pastes as text.
 
+### Fixed
+
+- **ExerciseDB (open-source) no longer adds an exercise several times with broken images** ([#155](https://github.com/TraceApps/lifttrace/issues/155), reported by @wretchedxx). The catalog lists some exercises two to four times, and the GIF of many of those copies is gone, so the library showed them as broken images. An import now leaves out a repeated copy whose GIF is missing, and importing it again clears the ones an earlier import added, unless a workout, template or favorite uses one. An exercise image that can't load shows its other image or the plain exercise icon. Importing a catalog from the Android app now waits for your server, instead of being queued after 30 seconds and run again on the phone.
+
 ### Security
 
 - **Tokens, keys and passwords saved in Settings are stored encrypted, and the ones only the server uses never reach the app** (from [cooktrace#92](https://github.com/TraceApps/cooktrace/issues/92), thanks @stupleb). The NutriTrace link token, the ntfy and Gotify tokens and the music server's sign-in stay on the server: Settings shows a saved one as dots, saving the dots keeps it, and typing a new one replaces it. The AI key, ExerciseDB key and music server password still go to your own signed-in app, which uses them itself. All of them are stored encrypted with `TOKEN_ENC_KEY`, so the database, a backup or an export never holds them in plain text; ones saved before are encrypted when the server starts. Changing `TOKEN_ENC_KEY`, or `JWT_SECRET` when it isn't set, means entering them again.

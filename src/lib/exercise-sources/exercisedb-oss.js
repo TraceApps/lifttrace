@@ -1,5 +1,5 @@
 // Shared fetcher + row builder for ExerciseDB (open-source variant hosted
-// at oss.exercisedb.dev). ~1,500 exercises with animated GIFs, AGPL-3.0,
+// at oss.exercisedb.dev). ~1,300 exercises with animated GIFs, AGPL-3.0,
 // no API key required.
 //
 // Isomorphic — see wger.js for the fetchFn convention. The wrapper still
@@ -68,6 +68,85 @@ async function fetchPage(cursor, base, fetchFn, log) {
   }
 }
 
+// ExerciseDB lists 195 names two to four times, and the GIF of 176 of those
+// copies is gone from its CDN, so they showed as broken images (#155).
+// The GIF host answers about one at a time (5 a second), so more at once
+// buys nothing: about 400 checks add 80 to 110 seconds to an import.
+const GIF_CHECKS_AT_ONCE = 4;
+
+async function gifIsGone(url, fetchFn) {
+  try {
+    const res = await fetchFn(url, { method: 'HEAD' });
+    return res.status === 404 || res.status === 410;
+  } catch {
+    return false; // can't tell: keep it
+  }
+}
+
+/**
+ * The external ids of copies to leave out: a repeated name whose GIF is gone,
+ * while another copy of that name remains. Only repeated names are checked.
+ *
+ * @param {Array} rows normalized rows (name, gif_url, external_id)
+ * @param {(url: string) => Promise<boolean>} isGone
+ * @returns {Promise<Set<string>>}
+ */
+export async function brokenDuplicateIds(rows, isGone) {
+  const byName = new Map();
+  for (const r of rows) {
+    const k = String(r.name || '').toLowerCase();
+    if (!byName.has(k)) byName.set(k, []);
+    byName.get(k).push(r);
+  }
+  const groups = [...byName.values()].filter(g => g.length > 1);
+  const toCheck = groups.flat().filter(r => r.gif_url && r.external_id != null);
+  const gone = new Set();
+  let next = 0;
+  const worker = async () => {
+    while (next < toCheck.length) {
+      const r = toCheck[next++];
+      if (await isGone(r.gif_url)) gone.add(String(r.external_id));
+    }
+  };
+  await Promise.all(Array.from({ length: GIF_CHECKS_AT_ONCE }, worker));
+  const broken = new Set();
+  for (const g of groups) {
+    const dead = g.filter(r => r.external_id != null && gone.has(String(r.external_id)));
+    if (dead.length < g.length) for (const r of dead) broken.add(String(r.external_id));
+  }
+  return broken;
+}
+
+/**
+ * Library ids still in use, so a broken copy is kept rather than cleared:
+ * every exercise_id in workouts, templates and prescriptions, and every
+ * number in a setting (favorites, per-exercise rest and load types).
+ * Counting too many only keeps a copy.
+ *
+ * @param {{ exerciseBlobs?: string[], settingValues?: string[] }} sources
+ * @returns {Set<number>}
+ */
+export function referencedExerciseIds({ exerciseBlobs = [], settingValues = [] } = {}) {
+  const ids = new Set();
+  const num = (v) => {
+    const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : NaN);
+    if (Number.isInteger(n)) ids.add(n);
+  };
+  const parse = (b) => { try { return JSON.parse(b); } catch { return b; } };
+  for (const b of exerciseBlobs) {
+    const list = b == null ? null : parse(b);
+    if (!Array.isArray(list)) continue;
+    for (const ex of list) if (ex && typeof ex === 'object') num(ex.exercise_id);
+  }
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { num(k); walk(x); }
+    else num(v);
+  };
+  for (const b of settingValues) if (b != null) walk(parse(b));
+  return ids;
+}
+
 /**
  * Fetch every exercise from oss.exercisedb.dev (with pagination + backoff)
  * and reduce each to the canonical LT row shape.
@@ -75,11 +154,12 @@ async function fetchPage(cursor, base, fetchFn, log) {
  * @param {object} [opts]
  * @param {(url: string, init?: object) => Promise<any>} [opts.fetchFn]
  * @param {string} [opts.base] Override base URL (default oss.exercisedb.dev)
- * @param {Set<string>} [opts.existingIds] External IDs already in the DB;
- *   used to break the API's cursor-loop cleanly (the public host lies
- *   about hasNextPage past ~1500 rows).
+ * @param {Set<string>} [opts.existingIds] External IDs already in the DB,
+ *   left out of `rows`. The whole catalog is still read, so a repeated name
+ *   is judged against every copy.
  * @param {(msg: string) => void} [opts.log] Optional progress log.
- * @returns {Promise<Array>} normalized rows ready for INSERT.
+ * @returns {Promise<{rows: Array, brokenIds: Set<string>}>} new rows ready
+ *   for INSERT, and the copies to leave out (and clear where unused).
  */
 export async function fetchExerciseDbOssRows({
   fetchFn = fetch,
@@ -87,8 +167,10 @@ export async function fetchExerciseDbOssRows({
   existingIds = new Set(),
   log,
 } = {}) {
-  const seen = new Set(existingIds);
-  const rows = [];
+  // This run's ids only: the public API's meta.hasNextPage can loop after
+  // ~1500 items, and a page with nothing new means it has.
+  const seen = new Set();
+  const all = [];
   let cursor = null;
 
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -97,11 +179,9 @@ export async function fetchExerciseDbOssRows({
     let newOnThisPage = 0;
     for (const ex of data) {
       if (!ex?.name) continue;
-      // Dedup by API's exerciseId — the public API's meta.hasNextPage
-      // can loop after ~1500 items, so we detect it here.
       if (ex.exerciseId && seen.has(ex.exerciseId)) continue;
       if (ex.exerciseId) seen.add(ex.exerciseId);
-      rows.push({
+      all.push({
         name: titleCase(ex.name),
         category: mapCategory((ex.bodyParts || [])[0]),
         primary_muscles: (ex.targetMuscles || []).map(titleCase),
@@ -115,14 +195,19 @@ export async function fetchExerciseDbOssRows({
       });
       newOnThisPage++;
     }
-    if (page % 10 === 0) log?.(`page ${page + 1}, collected ${rows.length}`);
+    if (page % 10 === 0) log?.(`page ${page + 1}, collected ${all.length}`);
     if (data.length > 0 && newOnThisPage === 0) {
-      log?.(`cursor loop detected at page ${page + 1} — stopping`);
+      log?.(`cursor loop detected at page ${page + 1}, stopping`);
       break;
     }
     if (!body.meta?.hasNextPage || !body.meta?.nextCursor) break;
     cursor = body.meta.nextCursor;
     await sleep(PAGE_DELAY_MS);
   }
-  return rows;
+  const brokenIds = await brokenDuplicateIds(all, (url) => gifIsGone(url, fetchFn));
+  if (brokenIds.size) log?.(`${brokenIds.size} repeated exercises with a missing GIF left out`);
+  const known = new Set([...existingIds].map(String));
+  const rows = all.filter(r => r.external_id == null
+    || (!known.has(String(r.external_id)) && !brokenIds.has(String(r.external_id))));
+  return { rows, brokenIds };
 }

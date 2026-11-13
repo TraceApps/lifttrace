@@ -1,5 +1,6 @@
 <script>
   import { resolveAssetUrl } from '../../lib/platform.js';
+  import { failedMedia, mediaFailed, workingMedia } from '../../lib/media-fallback.js';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { wideContent } from '../../lib/wide.js';
   import { LtApi } from '../../lib/api.js';
@@ -254,8 +255,8 @@
                    fitness_center icon. Lazy-loaded so a big library
                    doesn't prefetch every demo. -->
               <div class="picker-thumb">
-                {#if ex.gif_url || ex.img_url}
-                  <img src={resolveAssetUrl(ex.gif_url || ex.img_url)} alt="" loading="lazy" />
+                {#if workingMedia($failedMedia, ex.gif_url, ex.img_url)}
+                  <img src={resolveAssetUrl(workingMedia($failedMedia, ex.gif_url, ex.img_url))} alt="" loading="lazy" data-media={workingMedia($failedMedia, ex.gif_url, ex.img_url)} on:error={(e) => mediaFailed(e.currentTarget.dataset.media)} />
                 {:else}
                   <span class="material-symbols-rounded">fitness_center</span>
                 {/if}

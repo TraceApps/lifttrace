@@ -93,7 +93,7 @@
           done++;
         } catch(e) {
           failed++;
-          showError(`${id}: ${e.message}`);
+          showError(e.code === 'import_timed_out' ? $_('settings_catalog.toast.import_still_running', { values: { name: id } }) : `${id}: ${e.message}`);
         }
       }
     }

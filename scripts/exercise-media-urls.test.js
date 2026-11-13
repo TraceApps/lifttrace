@@ -39,8 +39,9 @@ test('every src and poster that shows exercise media goes through resolveAssetUr
 
 test('the places reported in #141 are covered', () => {
   const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
-  assert.match(read('routes/Exercises.svelte'), /src=\{resolveAssetUrl\(ex\.gif_url \|\| ex\.img_url\)\}/);
-  assert.match(read('routes/ExerciseDetail.svelte'), /src=\{resolveAssetUrl\(s\.gif_url \|\| s\.img_url\)\}/);
+  // The GIF, or its image when the GIF can't load (#155), both through resolveAssetUrl.
+  assert.match(read('routes/Exercises.svelte'), /src=\{resolveAssetUrl\(workingMedia\(\$failedMedia, ex\.gif_url, ex\.img_url\)\)\}/);
+  assert.match(read('routes/ExerciseDetail.svelte'), /src=\{resolveAssetUrl\(workingMedia\(\$failedMedia, s\.gif_url, s\.img_url\)\)\}/);
   const info = read('components/exercises/ExerciseInfo.svelte');
   assert.match(info, /src=\{resolveAssetUrl\(exercise\.gif_url\)\}/);
   assert.match(info, /src=\{resolveAssetUrl\(exercise\.img_url\)\}/);

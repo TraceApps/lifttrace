@@ -6,6 +6,7 @@
   import Toggle from './Toggle.svelte';
   import { LtApi } from '../../lib/api.js';
   import { resolveAssetUrl, isNative } from '../../lib/platform.js';
+  import { failedMedia, mediaFailed, workingMedia } from '../../lib/media-fallback.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import ExerciseEditor from '../exercises/ExerciseEditor.svelte';
@@ -68,7 +69,9 @@
       const r = await LtApi.importExerciseSource(src.id, sourceKeys[src.id]);
       showSuccess($_('settings_catalog.toast.source_imported', { values: { name: src.name, count: r.count } }));
       await loadExerciseSources();
-    } catch(e) { showError(e.message); }
+    } catch(e) {
+      showError(e.code === 'import_timed_out' ? $_('settings_catalog.toast.import_still_running', { values: { name: src.name } }) : e.message);
+    }
     sourceBusy = { ...sourceBusy, [src.id]: null };
   }
 
@@ -375,8 +378,8 @@
           <div class="setting-divider"></div>
           {#each customExercises as ex (ex.id)}
             <div class="my-ex-row">
-              {#if ex.img_url || ex.gif_url}
-                <img class="my-ex-thumb" src={resolveAssetUrl(ex.gif_url || ex.img_url)} alt="" />
+              {#if workingMedia($failedMedia, ex.gif_url, ex.img_url)}
+                <img class="my-ex-thumb" src={resolveAssetUrl(workingMedia($failedMedia, ex.gif_url, ex.img_url))} alt="" data-media={workingMedia($failedMedia, ex.gif_url, ex.img_url)} on:error={(e) => mediaFailed(e.currentTarget.dataset.media)} />
               {:else if ex.video_url}
                 <span class="my-ex-thumb-fallback material-symbols-rounded">play_circle</span>
               {:else}
