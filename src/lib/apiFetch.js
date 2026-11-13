@@ -16,7 +16,7 @@
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
 import { LtApiNative } from './api-native.js';
 import { installOffline, offlineFetch } from './offline-api.js';
-import { newClientKey } from './offline-edits.js';
+import { newClientKey, NT_CONNECTION_SETTING_KEYS } from './offline-edits.js';
 import { isInterceptable, ownOrigins } from './api-route.js';
 import { accountGen, copyMoving } from './account-gen.js';
 
@@ -227,7 +227,7 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     if (netErr?.name === 'TimeoutError' && _isTraceChat(_stripBase(url))) return _jsonResponse(504, { error: "Trace didn't get an answer in time. Try again, or ask for less at once.", code: 'trace_timed_out' });
     // The import goes on at the server after the app stops waiting (#155).
     if (netErr?.name === 'TimeoutError' && _isCatalogImport(_stripBase(url))) return _jsonResponse(504, { error: 'Your server is still importing. Check Settings > Catalog again in a few minutes.', code: 'import_timed_out' });
-    if (isWrite && needsServerNow(_stripBase(url), method)) return _jsonResponse(503, { error: 'This needs a connection.', offline: true });
+    if (isWrite && needsServerNow(_stripBase(url), method, init.body)) return _jsonResponse(503, { error: 'This needs a connection.', offline: true });
     if (isWrite) return _queueWrite(url, init, method, gen);
     // Who is signed in is the server's to say: offline, this device's
     // standalone answer (its local user) would stand in for the account.
@@ -262,8 +262,20 @@ export function requestDeadlineMs(fullPath, isWrite) {
  * for a connection like any other change. A push notification too: one that
  * can't go now is sent by the phone itself (notifications.js), not later.
  */
-export function needsServerNow(fullPath, method) {
+export function needsServerNow(fullPath, method, body) {
   const path = String(fullPath).split('?')[0];
+  // A NutriTrace connection is verified and saved by one server request:
+  // queued, it would connect nothing and the app would still show it saved.
+  if (method === 'PUT' && path === '/api/nt/federation-connection') return true;
+  // A device from before the single transition saves the parts of the
+  // connection as ordinary settings; those are a sequence, not something to
+  // replay later, and must not be queued as if they had reached the server.
+  if (method === 'PUT' && path === '/api/settings') {
+    try {
+      const parsed = typeof body === 'string' ? JSON.parse(body) : body;
+      if (parsed && NT_CONNECTION_SETTING_KEYS.has(parsed.key)) return true;
+    } catch { /* not JSON: the settings route will answer for it */ }
+  }
   if (/^\/api\/coaching\//.test(path)) return true;
   if (_isTraceChat(path)) return true;
   if (method === 'POST' && _isCatalogImport(path)) return true;

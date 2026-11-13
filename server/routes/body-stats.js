@@ -10,6 +10,7 @@ import { addProgressPhotoCore } from '../lib/mcp/tools/add-progress-photo.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import { applyToBody, editBringsBack, stampMerged } from '../lib/newer-wins.js';
 import { revivedDay, isStatsObject, onlyMeasurements } from '../lib/body-stats-day.js';
+import { verifyProvenance } from '../lib/nt-body-provenance.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -128,7 +129,23 @@ router.get('/:date', wrap((req, res) => {
 router.put('/:date', wrap((req, res) => {
   const { date } = req.params;
   const userId = uid(req);
-  const { stats } = req.body;
+  const { stats, provenance } = req.body;
+
+  // An imported NutriTrace measurement carries the provenance its import
+  // claimed. It is written only while that claim still names the same source
+  // and connection, so a client that lost the provenance race (or a stale one
+  // that never claimed) cannot move history into a different source. Manual
+  // edits carry no provenance and are unaffected.
+  if (provenance != null) {
+    const verdict = verifyProvenance(db, userId, provenance);
+    if (!verdict.ok) {
+      return res.status(409).json({
+        error: 'Body stat provenance does not match the fixed import source',
+        code: verdict.code,
+        provenance: verdict.provenance || null,
+      });
+    }
+  }
 
   const existing = userId != null
     ? db.prepare('SELECT * FROM body_stats_log WHERE date = ? AND user_id = ?').get(date, userId)

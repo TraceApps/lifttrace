@@ -81,6 +81,13 @@ test('Statistics shows a failure as an error, keeps what did load, and reports i
   assert.ok(en.statistics.load_failed_detail && en.statistics.retry);
 });
 
+test('Statistics refreshes through the existing body-stats-saved event', () => {
+  const page = read('../src/routes/Statistics.svelte');
+  assert.match(page, /_onBodyStatsSaved = \(\) => \{ loadData\(\); \};/);
+  assert.match(page, /addEventListener\('lt:body-stats-saved', _onBodyStatsSaved\)/);
+  assert.match(page, /removeEventListener\('lt:body-stats-saved', _onBodyStatsSaved\)/);
+});
+
 test('a workout day is any day with a ticked set, warm-ups included, on both sides', () => {
   assert.match(stats, /_hasCompletedSet\(w\) \{\s*\n\s*return \(w\.exercises \|\| \[\]\)\.some\(ex => \(ex\.sets \|\| \[\]\)\.some\(s => s\?\.completed\)\);/);
   assert.match(read('../server/routes/stats.js'), /function hasCompletedSet\(exercises\) \{\s*\n\s*return exercises\.some\(ex => \(ex\.sets \|\| \[\]\)\.some\(s => s\.completed\)\);/);

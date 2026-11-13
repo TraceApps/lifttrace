@@ -587,6 +587,24 @@ const scenarios = {
     const queued = (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n;
     return { before, whileQueued, after: get(st.restDuration), server: server.restDuration ?? null, queued };
   },
+  // A connection or body-sync switch queued by a client from before those
+  // settings became network-only. The update must drop it, not apply a
+  // decision the user was told failed: the server keeps both off.
+  async ntNetworkOnlyReplay() {
+    me();
+    const { enqueueWrite } = await import('../../src/lib/sync.js');
+    await web('phone', 'PUT', '/api/settings', { key: 'ntFederationEnabled', value: false });
+    await web('phone', 'PUT', '/api/settings', { key: 'ntBodySyncEnabled', value: false });
+    await enqueueWrite('PUT', '/api/settings', { key: 'ntFederationEnabled', value: true });
+    await enqueueWrite('PUT', '/api/settings', { key: 'ntBodySyncEnabled', value: true });
+    await syncNow();
+    const server = await web('phone', 'GET', '/api/settings');
+    return {
+      federation: server.ntFederationEnabled ?? null,
+      bodySync: server.ntBodySyncEnabled ?? null,
+      queued: (await q(`SELECT COUNT(*) AS n FROM sync_queue`))[0].n,
+    };
+  },
   // settingsResetWhileQueued, with the phone back more than an hour after
   // the reset: the floor it keeps for the skipped reset is over an hour old
   // (moved back here, as the clocks can't be), so it's let go for a full

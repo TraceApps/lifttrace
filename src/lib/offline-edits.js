@@ -88,6 +88,18 @@ export const isMirroredGet = (url) => MIRRORED_GETS.some(re => re.test(pathOf(ur
  * it. Anything not named here needs the server: a photo upload, an import,
  * Trace, anything admin.
  */
+// Settings that make up one NutriTrace connection, and the body-sync state
+// that only means something with it. A device from before the single-request
+// transition saves the connection parts as separate writes, and turning the
+// connection off before changing it is meaningful; see the `setting` case.
+// All of them have to reach the server or fail: queued, the app would show a
+// connection or a switch that the server does not have.
+export const NT_CONNECTION_SETTING_KEYS = new Set([
+  'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled',
+  'ntConnectionVerified', 'ntConnectionIdentity',
+  'ntBodySyncEnabled', 'ntBodySource',
+]);
+
 export function writeOp(method, url, body) {
   const path = pathOf(url);
   const query = new URLSearchParams(String(url).split('?')[1] || '');
@@ -167,7 +179,14 @@ export function writeOp(method, url, body) {
   match = path.match(/^\/api\/body-stats\/photos\/(-?\d+)$/);
   if (match && m === 'DELETE') return { kind: 'photo-delete', key: `photo:${match[1]}`, id: Number(match[1]) };
 
-  if (path === '/api/settings' && m === 'PUT') return { kind: 'setting', key: `setting:${body?.key}` };
+  if (path === '/api/settings' && m === 'PUT') {
+    const key = body?.key;
+    // A connection or body-sync switch must reach the server or fail. Queued,
+    // it would be shown as a failure now and applied later anyway: an offline
+    // toggle would silently turn body sync on when the connection returns.
+    if (NT_CONNECTION_SETTING_KEYS.has(key)) return null;
+    return { kind: 'setting', key: `setting:${key}` };
+  }
   return null;
 }
 
@@ -296,6 +315,15 @@ const _tombs = (body) => {
  *
  * An exercise created and then deleted offline never goes up at all.
  */
+/**
+ * A setting an older client queued before it became server-now-only. It must
+ * not be replayed: the user was told it did not save, and applying it later
+ * could enable a connection or a body-sync switch behind their back.
+ */
+export function isNetworkOnlySettingOp(op) {
+  return op?.kind === 'setting' && NT_CONNECTION_SETTING_KEYS.has(op.body?.key);
+}
+
 export function collapseOps(ops) {
   const byKey = new Map();
   const tombs = new Map();
@@ -307,6 +335,10 @@ export function collapseOps(ops) {
 
   for (let op of ops || []) {
     if (!op) continue;
+    // Queued by an older client: dropped from the replay, and seen as
+    // accounted for by sentSeqs(), so it leaves the outbox instead of being
+    // applied later.
+    if (isNetworkOnlySettingOp(op)) continue;
     // A create is keyed by the temporary id it was given when it was queued,
     // which is what a later edit or removal of that row carries too.
     if (!op.key) { out.push(op); continue; }

@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Weight and body fat from NutriTrace in your body stats** ([#123](https://github.com/TraceApps/lifttrace/pull/123), thanks @kgenerozov). Import from NutriTrace in Settings > NutriTrace copies weight and body fat from one NutriTrace source into LiftTrace, so a measurement your scale or Health Connect already sent is not typed twice. It is off by default and only those two values are written: your manual measurements and every other field stay as they are, and once a source has been imported it cannot be switched, so two providers never mix in one history.
 - **Paste a picture into Trace and your coach chat** (from [nutritrace#304](https://github.com/TraceApps/nutritrace/pull/304), thanks @librarian). Paste a screenshot or a copied image into Trace's message box or a chat with your coach to attach it, like the image button. Copied text that comes with a picture of itself, such as cells from a spreadsheet or a passage from Word, still pastes as text.
 
 ### Fixed

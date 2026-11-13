@@ -387,6 +387,13 @@ test('settings deleted on the server (DELETE /api/settings) reach the phone; a c
   assert.deepEqual(out.after, { restDuration: 90, restAutoStart: false, weightUnit: 'lbs' }, 'the phone shows the same: defaults, and the change made after the reset');
 });
 
+test('a network-only setting queued by an older client is dropped, not replayed, after the update', { skip, timeout: SCENARIO_MS }, async () => {
+  const { out } = await scenario('ntNetworkOnlyReplay');
+  assert.equal(out.federation, false, 'the old queued ON did not re-enable federation');
+  assert.equal(out.bodySync, false, 'nor did it turn body sync on');
+  assert.equal(out.queued, 0, 'both old writes left the queue');
+});
+
 test('a setting deleted on the server reaches the phone even when it pulled while its own change of it waited', { skip, timeout: SCENARIO_MS }, async () => {
   const { out } = await scenario('settingsResetWhileQueued');
   assert.equal(out.before, 120);
