@@ -9,6 +9,11 @@ import { deleteMediaForUser } from '../lib/body-stat-media.js';
 import { deleteMediaForUser as deleteSetMediaForUser } from '../lib/set-media.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
 import { clientSetting, readSettingRaw, settingToStore } from '../lib/secret-settings.js';
+import {
+  isReservedProvenanceKey,
+  deleteUserSettingsKeepingProvenance,
+  clearProvenance,
+} from '../lib/nt-body-provenance.js';
 
 // Push services usually live on the home network, so that's allowed for
 // every account; the address is still checked, and a redirect only
@@ -50,6 +55,16 @@ router.put('/', wrap((req, res) => {
   if (!userMgmtActive() || !req.user) return res.json({ ok: true });
   const { key, value } = req.body;
   if (!key) return res.status(400).json({ error: 'key required' });
+  // The body-import provenance is owned by the server (lib/nt-body-provenance.js).
+  // Accepting it here would let a settings write replace a fixed claim, or forge
+  // the legacy pair that seeds the first one, and then imported measurements
+  // from another source would pass verifyProvenance() over the first history.
+  if (isReservedProvenanceKey(key)) {
+    return res.status(403).json({
+      error: 'This setting is owned by the server',
+      code: 'reserved-setting',
+    });
+  }
   // The newer edit of a setting stays (lib/newer-wins.js). Losing, the row
   // is still written (as it is), so its change time moves and the device
   // gets the value that stays with its next pull.
@@ -72,7 +87,10 @@ router.put('/', wrap((req, res) => {
 
 router.delete('/', wrap((req, res) => {
   if (userMgmtActive() && req.user) {
-    db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(req.user.id);
+    // Ordinary settings only: deleting the provenance would release a source
+    // that still owns the imported body history, letting the next import mix
+    // another source over it. It is released with the history (clear-data).
+    deleteUserSettingsKeepingProvenance(db, req.user.id);
   }
   res.json({ ok: true });
 }));
@@ -85,6 +103,9 @@ router.delete('/clear-data', wrap((req, res) => {
   // Excused days are the diary's too (issue #121). Without accounts they're
   // the NULL owner's, which `= ?` never matches.
   db.prepare('DELETE FROM excused_days WHERE user_id IS ?').run(userId);
+  // The imported body history is gone with it, so its provenance claim is
+  // released too; keeping it would refuse every later source forever.
+  if (userId != null) clearProvenance(db, userId);
   // Progress photos own files on disk, so they need the file-aware
   // helper rather than a plain row delete, or the images are orphaned.
   deleteMediaForUser(userId);
