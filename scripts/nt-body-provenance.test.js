@@ -237,7 +237,10 @@ test('a read receipt is single-use, per account, and expires', async () => {
     '../server/lib/nt-read-receipts.js'
   );
   resetReadReceipts();
-  const identityA = { instanceUrl: 'https://a.example.test', userId: '1', revision: 'rev-a' };
+  const identityA = {
+    instanceUrl: 'https://a.example.test', userId: '1',
+    fingerprint: 'fp-a', version: 4,
+  };
   const now = 1_000_000;
 
   const readId = issueReadReceipt(11, identityA, now);

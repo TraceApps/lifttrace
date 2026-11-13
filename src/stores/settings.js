@@ -28,10 +28,11 @@ const SERVER_SETTINGS = new Set([
   // NutriTrace federation — workout calorie sync (Phase 2)
   'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified', 'ntConnectionIdentity',
   'ntBodySyncEnabled', 'ntBodySource', 'ntBodyLastSyncAt',
-  // ntBodySyncedSource / ntBodySyncedConnectionIdentity are deliberately NOT
-  // here: the server owns the import provenance now (the claim row and the
-  // legacy marker it adopts), so a settings PUT for them is refused. The two
-  // stores still exist as a read-only per-account cache of what the server
+  // ntBodySyncedSource / ntBodySyncedConnectionIdentity / ntConnectionVersion
+  // are deliberately NOT here: the server owns the import provenance and the
+  // connection's compare-and-set counter, so a settings PUT for them is
+  // refused. Their stores still exist as a read-only per-account cache of what
+  // the server
   // reports.
   'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises', 'customEquipment',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
@@ -102,6 +103,14 @@ export function scheduleSave(key, value) {
   }, 600);
 }
 
+// Critical federation transitions use a direct, awaited PUT. Cancel the
+// matching generic debounce so it cannot race that explicit write. Ordinary
+// settings continue to use scheduleSave() unchanged.
+export function cancelScheduledSave(key) {
+  clearTimeout(_saveQueue[key]);
+  delete _saveQueue[key];
+}
+
 /**
  * Write multiple settings at once. Each value is persisted to localStorage
  * (which fires wl:setting events so all subscribed Svelte stores update),
@@ -150,6 +159,13 @@ export async function loadServerSettings() {
     }
     for (const [key, value] of Object.entries(ntProvenanceCache(provenance))) {
       DB.setSetting(key, value);
+    }
+    // Clear Data deletes the throttle on the server. A device that reloads
+    // after it must not keep its old timestamp and skip the next auto-import;
+    // a change still queued or just made here is newer than this pull.
+    if (!Object.prototype.hasOwnProperty.call(serverSettings, 'ntBodyLastSyncAt')
+        && !queued.has('ntBodyLastSyncAt') && !isRecentlyChanged('ntBodyLastSyncAt')) {
+      DB.setSetting('ntBodyLastSyncAt', null);
     }
     // cardioEnabled used to be stored only on the device. Someone who turned
     // cardio on before it synced has it on locally and absent on the server,
@@ -468,6 +484,11 @@ export const ntConnectionVerified = createSettingStore('ntConnectionVerified', f
 // bearer token is a credential, not an identity, so token rotation remains
 // valid for the same instance/user.
 export const ntConnectionIdentity = createSettingStore('ntConnectionIdentity', null);
+// Monotonic version of the saved connection. A Save names the version it was
+// based on, so a tab that still shows an older connection is refused instead
+// of turning federation back on or replacing a newer Save. Server-owned
+// (server/lib/nt-connection.js); this is only the app's cache of it.
+export const ntConnectionVersion = createSettingStore('ntConnectionVersion', 0);
 // Optional NutriTrace body-measurement import. The source is an exact NT
 // source name; an empty value means the sync must resolve a single source.
 export const ntBodySyncEnabled = createSettingStore('ntBodySyncEnabled', false);

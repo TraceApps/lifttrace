@@ -47,7 +47,8 @@ import { dayEditMeets, bringProgramBack, touchDeleted, countedTimes, timesAtDele
 import { readTimes } from '../lib/field-sync.js';
 import { SYNC_FIELDS, syncOf } from '../lib/sync-fields.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
-import { isReservedProvenanceKey } from '../lib/nt-body-provenance.js';
+import { isReservedProvenanceKey, readProvenance } from '../lib/nt-body-provenance.js';
+import { isServerOwnedNtKey } from '../lib/nt-connection.js';
 import { localizeDataUrl } from '../lib/image-localizer.js';
 import { canChangeProgram, cleanWorkoutRefs, programFor, toId, visibleProgramsSql, visibleTemplatesSql } from '../lib/program-access.js';
 import { readablePairingIds, messageOut } from '../lib/coaching-messages.js';
@@ -198,7 +199,7 @@ function instantMs(ts) {
 // lib/nt-body-provenance.js): the claim row and the legacy pair that seeds the
 // first claim. A device's copy is a stale snapshot, so a settings push must not
 // write them (it could unfix or forge the claim) and a pull never needs them.
-function isServerOnlyKey(key) { return isReservedProvenanceKey(key); }
+function isServerOnlyKey(key) { return isReservedProvenanceKey(key) || isServerOwnedNtKey(key); }
 
 function parseRow(row) {
   if (!row) return null;
@@ -433,6 +434,11 @@ router.get('/pull', wrap((req, res) => {
     ai_chat_history,
     keep,
     ...(u == null ? { solo_active } : {}),
+    // Which NutriTrace connection and source own the imported body history.
+    // It is not an ordinary setting (the server is the authority), so it
+    // travels as its own field on every pull, null included: a device must
+    // clear its cache when the claim was released by Clear Data elsewhere.
+    ...(u != null ? { nt_body_provenance: readProvenance(db, u) } : {}),
     ...coachingOut,
     server_time: serverTime,
   });

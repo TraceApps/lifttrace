@@ -149,11 +149,9 @@ function stableConnectionIdentity(value) {
   const instanceUrl = typeof value.instanceUrl === 'string' ? value.instanceUrl.replace(/\/+$/, '') : '';
   const userId = value.userId == null ? '' : String(value.userId);
   if (!instanceUrl || !userId) return null;
-  // The revision ties the identity to the saved credentials. It stays in the
-  // cache so a later connection transition can name the connection it was
-  // based on (the server refuses to overwrite a newer one).
-  const revision = typeof value.revision === 'string' && value.revision ? value.revision : null;
-  return revision ? { instanceUrl, userId, revision } : { instanceUrl, userId };
+  // The cache only needs who the connection is. Its fingerprint and version
+  // belong to the connection settings, not to the import provenance.
+  return { instanceUrl, userId };
 }
 
 function sameConnectionIdentity(left, right) {

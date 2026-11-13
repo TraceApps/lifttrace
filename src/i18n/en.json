@@ -869,6 +869,12 @@
   },
   "settings_federation": {
     "url_token_required":    "Enter a URL and access token first",
+    "persist_failed":        "NutriTrace settings could not be saved. Please try again before closing this page.",
+    "connection_changed":    "The NutriTrace connection was changed in another tab or on another device. Reopen Settings to see it, then save again.",
+    "connection_needs_verification": "This NutriTrace connection was saved before verification was added. Workout sync keeps working; verify it again to enable body measurements.",
+    "offline_unconfirmed":   "The connection change did not reach the server. Check your connection and save again.",
+    "access_token_required_for_address": "Enter the access token again for this address.",
+    "write_scope_missing":   "That token cannot write workouts. Create or edit the token in NutriTrace with the write:workouts scope.",
     "enable_federation":     "Enable Federation",
     "enable_federation_hint": "Auto-log each completed workout's estimated calories burned to your NutriTrace diary. Workouts appear in NutriTrace under Settings → Wellness → Workout History.",
     "instance_url":          "Instance URL",

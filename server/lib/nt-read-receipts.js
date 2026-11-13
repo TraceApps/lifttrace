@@ -26,7 +26,9 @@
  */
 import { randomUUID } from 'node:crypto';
 
-export const BODY_READ_TTL_MS = 10 * 60 * 1000;
+export const BODY_READ_TTL_MS = Number(process.env.NT_READ_TTL_MS) > 0
+  ? Number(process.env.NT_READ_TTL_MS)
+  : 10 * 60 * 1000;
 const MAX_RECEIPTS = 500;
 
 /** readId -> { userId, instanceUrl, ntUserId, expiresAt } */
@@ -46,10 +48,11 @@ function sweep(now) {
 
 /**
  * Record the connection a body-composition read was performed with.
- * `identity` is the verified NutriTrace identity ({ instanceUrl, userId,
- * revision }). The revision is part of the receipt because it also ties the
- * identity to the exact saved credential: a token rotation or another tab's
- * Save between the read and the claim invalidates it.
+ * `identity` is the verified NutriTrace identity ({ instanceUrl, userId })
+ * plus the saved `fingerprint` and `version`. Both travel with the receipt
+ * because they say more than the address: the fingerprint ties the identity
+ * to the exact saved credential, and the version makes even an OFF/ON or
+ * A -> B -> A transition between the read and the claim invalidate it.
  */
 export function issueReadReceipt(userId, identity, now = Date.now()) {
   if (userId == null) return null;
@@ -60,7 +63,8 @@ export function issueReadReceipt(userId, identity, now = Date.now()) {
     userId: String(userId),
     instanceUrl: identity.instanceUrl,
     ntUserId: String(identity.userId),
-    revision: typeof identity.revision === 'string' ? identity.revision : null,
+    fingerprint: typeof identity.fingerprint === 'string' ? identity.fingerprint : null,
+    version: Number.isSafeInteger(identity.version) ? identity.version : 0,
     expiresAt: now + BODY_READ_TTL_MS,
   });
   return readId;
@@ -77,7 +81,12 @@ export function takeReadReceipt(readId, userId, now = Date.now()) {
   if (!receipt) return null;
   receipts.delete(readId);
   if (receipt.userId !== String(userId) || receipt.expiresAt <= now) return null;
-  return { instanceUrl: receipt.instanceUrl, userId: receipt.ntUserId, revision: receipt.revision };
+  return {
+    instanceUrl: receipt.instanceUrl,
+    userId: receipt.ntUserId,
+    fingerprint: receipt.fingerprint,
+    version: receipt.version,
+  };
 }
 
 /** Test and diagnostics only: how many receipts this process holds. */

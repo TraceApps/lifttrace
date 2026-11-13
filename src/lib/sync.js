@@ -23,7 +23,9 @@ import { writable } from 'svelte/store';
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
 import { dbQuery, dbRun, dbExec, getSyncMeta, setSyncMeta } from './db-native.js';
 import { LtApiNative } from './api-native.js';
-import { isTempId, createdId, describeOp, writeOp, newTempId } from './offline-edits.js';
+import {
+  isTempId, createdId, describeOp, writeOp, newTempId, NT_CONNECTION_SETTING_KEYS,
+} from './offline-edits.js';
 import { localDataIsThisAccount } from './local-account.js';
 import { accountGen, nextAccountGen, copyMoving } from './account-gen.js';
 import { pullKinds } from './sync-refresh.js';
@@ -575,6 +577,7 @@ async function _applyPull(pull, result, guard) {
   await _applyBodyStats(pull.body_stats_log, result, guard);
   await _applyExcused(pull.excused_days, result, guard);
   await _applySettings(pull.user_settings, result, guard);
+  await _applyNtBodyProvenance(pull);
   await _applyChat(pull.ai_chat_history, result);
   // Rows the server deleted outright come in each table's list as
   // { id, deleted_at } (server db.js sync_deletions), applied above. Then
@@ -1710,6 +1713,23 @@ async function _applySettings(rows, result, guard = _NO_GUARD) {
   result.tables.settings = rows.length;
 }
 
+/**
+ * The NutriTrace body-import provenance is the server's, so it does not travel
+ * in user_settings: it comes as its own field on every pull. Rebuild the
+ * device's read-only cache from it, and when the claim is gone (Clear Data on
+ * another device) clear the cache and the six-hour throttle with it. Older
+ * servers send no field at all: then nothing is touched.
+ */
+async function _applyNtBodyProvenance(pull) {
+  if (!pull || pull.nt_body_provenance === undefined) return;
+  _assertAlive();
+  const { DB } = await import('./db.js');
+  const { applyPulledNtProvenance } = await import('./nt-provenance-pull.js');
+  try {
+    applyPulledNtProvenance(pull, { setSetting: (key, value) => DB.setSetting(key, value) });
+  } catch { /* DOM unavailable (non-browser test) — fine */ }
+}
+
 async function _applyChat(rows, result) {
   if (!rows?.length) { result.tables.chat = 0; return; }
   for (const c of rows) {
@@ -2149,6 +2169,14 @@ export async function namesUnsyncedRow(path, body) {
 // Where a queued write names a row: path segments (/api/programs/-5/...),
 // a workout's ?id= or body id; and fields pointing at other rows.
 const _isWorkoutWrite = (payload) => !!workoutDateOf(payload?.path);
+
+// A connection or body-sync setting queued by an older client. It must not be
+// replayed: the user was told it did not save, and applying it now could turn
+// federation or body sync back on after a later change.
+const _isNetworkOnlySetting = (payload) => payload?.method === 'PUT'
+  && String(payload?.path || '').split('?')[0] === '/api/settings'
+  && !!payload?.body && typeof payload.body === 'object'
+  && NT_CONNECTION_SETTING_KEYS.has(payload.body.key);
 
 function _pathIds(path) {
   const [base] = String(path || '').split('?');
@@ -2594,6 +2622,13 @@ async function _flushQueue(token = getAuthToken(), gen = accountGen()) {
       let payload;
       try { payload = JSON.parse(row.payload); } catch { payload = null; }
       if (!payload?.method || !payload?.path) {
+        await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
+        result.dropped++;
+        continue;
+      }
+      // Queued by a client from before these settings became network-only:
+      // drop it instead of applying a decision the user was told failed.
+      if (_isNetworkOnlySetting(payload)) {
         await dbRun(`DELETE FROM sync_queue WHERE id = ?`, [row.id]);
         result.dropped++;
         continue;
