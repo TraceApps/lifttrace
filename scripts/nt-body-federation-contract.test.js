@@ -1,15 +1,32 @@
+/**
+ * The shape of NutriTrace body federation that the wire behaviour depends on.
+ *
+ * The behaviour itself (one account cannot read another's, two interleaved
+ * Saves never mix address and identity, a read receipt fails across a
+ * restart, Clear Data releases the claim) is in nt-federation-routes.test.js,
+ * against the real server. What is left here are the invariants that are
+ * cheapest to guard in the source: the proxy is narrow, the token never
+ * travels back, the connection is written by one server transaction, and the
+ * provenance keys are not ordinary settings.
+ */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const route = read('../server/routes/nt-federation.js');
+const connectionLib = read('../server/lib/nt-connection.js');
 const api = read('../src/lib/api.js');
 const settings = read('../src/stores/settings.js');
 const federation = read('../src/components/settings/SettingsFederation.svelte');
 const app = read('../src/App.svelte');
+const settingsRoute = read('../server/routes/settings.js');
+const syncRoute = read('../server/routes/sync.js');
+const bodyStats = read('../server/routes/body-stats.js');
+const provenanceLib = read('../server/lib/nt-body-provenance.js');
+const bodySync = read('../src/lib/nt-body-sync.js');
 
-test('body proxy is narrow, server-side authenticated, and query allowlisted', () => {
+test('the body proxy is narrow, authenticated, and never returns the token', () => {
   const start = route.indexOf("router.get('/body-composition'");
   const end = route.indexOf("// POST /log-workout", start);
   assert.ok(start >= 0 && end > start);
@@ -20,7 +37,6 @@ test('body proxy is narrow, server-side authenticated, and query allowlisted', (
   assert.match(bodyProxy, /query\.set\('start', start\)/);
   assert.match(bodyProxy, /query\.set\('end', end\)/);
   assert.match(bodyProxy, /query\.set\('source', source\)/);
-  assert.match(bodyProxy, /_ntFetch\(cfg, path\)/);
   assert.doesNotMatch(bodyProxy, /req\.query\.[A-Za-z_$][\w$]+/);
   assert.doesNotMatch(bodyProxy, /res\.json\(\{[^}]*token/);
 
@@ -29,27 +45,19 @@ test('body proxy is narrow, server-side authenticated, and query allowlisted', (
   assert.match(api, /fetch\(`\/api\/nt\/body-composition\$\{suffix\}`/);
 });
 
-test('workout-only federation tokens remain valid while body read is optional', () => {
-  const start = route.indexOf("router.post('/test'");
-  const end = route.indexOf("// GET /body-composition", start);
-  const connectionTest = route.slice(start, end);
-
-  assert.match(connectionTest, /workoutWrite: scopes\.includes\('write:workouts'\)/);
-  assert.match(connectionTest, /bodyCompositionRead: scopes\.includes\('mcp:read'\)/);
-  assert.match(connectionTest, /body\?\.instance\?\.url/);
-  assert.match(connectionTest, /body\?\.user\?\.id/);
-  assert.match(connectionTest, /connectionIdentity = \{ instanceUrl, userId: String\(userId\) \}/);
-  assert.doesNotMatch(connectionTest, /connectionIdentity\s*=\s*\{[^}]*token/i);
-  assert.match(connectionTest, /if \(!capabilities\.workoutWrite\)/);
-  assert.doesNotMatch(connectionTest, /if \(!scopes\.includes\('mcp:read'\)\)/);
+test('a workout-only token still connects, while body read stays optional', () => {
+  assert.match(route, /workoutWrite: scopes\.includes\('write:workouts'\)/);
+  assert.match(route, /bodyCompositionRead: scopes\.includes\('mcp:read'\)/);
+  assert.match(route, /body\?\.instance\?\.url/);
+  assert.match(route, /body\?\.user\?\.id/);
+  assert.doesNotMatch(route, /connectionIdentity\s*=\s*\{[^}]*\btoken\s*:/i);
+  assert.match(route, /if \(!scopes\.includes\('write:workouts'\)\)/);
   assert.match(federation, /body_sync_scope_missing/);
-  assert.match(federation, /if \(!bodyRead\) ntBodySyncEnabled\.set\(false\)/);
 });
 
-test('body sync settings and lifecycle are opt-in and foreground-triggered', () => {
-  // Regression guard: persisted body-sync settings must be registered in the
-  // SERVER_SETTINGS set so scheduleSave()/the store setter actually PUT them to
-  // the server. Missing membership silently drops persistence.
+test('body sync is opt-in and runs from the existing app lifecycle', () => {
+  // Persisted body-sync settings must be registered in SERVER_SETTINGS so the
+  // store setter actually PUTs them to the server.
   const ssStart = settings.indexOf('const SERVER_SETTINGS');
   const ssEnd = settings.indexOf(']);', ssStart);
   assert.ok(ssStart >= 0 && ssEnd > ssStart, 'SERVER_SETTINGS literal not found');
@@ -58,29 +66,22 @@ test('body sync settings and lifecycle are opt-in and foreground-triggered', () 
     assert.match(settings, new RegExp(`createSettingStore\\('${key}'`));
     assert.match(serverSettings, new RegExp(`'${key}'`));
   }
-  // The provenance marker is server-owned: its stores still exist (a read-only
-  // per-account cache), but the generic debounce must never PUT them.
-  for (const key of ['ntBodySyncedSource', 'ntBodySyncedConnectionIdentity']) {
+  // The provenance marker is server-owned: its stores are a per-account cache
+  // and the generic debounce must never PUT them.
+  for (const key of ['ntBodySyncedSource', 'ntBodySyncedConnectionIdentity', 'ntConnectionVersion']) {
     assert.match(settings, new RegExp(`createSettingStore\\('${key}'`));
-    assert.doesNotMatch(serverSettings, new RegExp(`'${key}'`));
+    assert.doesNotMatch(serverSettings, new RegExp(`'${key}'`), `${key} is server-owned, never a device PUT`);
   }
-  assert.match(federation, /disabled=\{!bodyReadAvailable \|\| !\$ntFederationEnabled\}/);
+  assert.match(federation, /disabled=\{!bodyReadAvailable \|\| !\$ntFederationEnabled \|\| testing \|\| bodyStateSaving\}/);
   assert.match(federation, /syncNtBodyMeasurements\(\{ manual: true \}\)/);
   assert.match(federation, /on:change=\{onBodySyncToggle\}/);
-  assert.match(federation, /if \(event\.detail\) syncBodyNow\(\);/);
-  assert.match(federation, /preserveExistingOnFail = false/);
-  assert.match(federation, /if \(!preserveExistingOnFail\) \{[\s\S]*?ntFederationEnabled\.set\(false\);[\s\S]*?ntConnectionVerified\.set\(false\);[\s\S]*?\}/);
-  assert.match(federation, /test\(\{ silentOk: true, silentFail: true, preserveExistingOnFail: true \}\)/);
+  assert.match(federation, /if \(!ntAccountChanged\(account\) && next\) syncBodyNow\(\);/);
   assert.match(federation, /body_sync_source_change_blocked/);
-  assert.match(federation, /ntConnectionIdentity\.set\(body\.connectionIdentity\)/);
-  assert.match(federation, /if \(\$ntConnectionIdentity\) ntConnectionIdentity\.set\(null\)/);
   assert.match(federation, /connection-verification-required/);
   assert.match(federation, /connection-change-blocked/);
-  const bodySync = read('../src/lib/nt-body-sync.js');
   assert.match(bodySync, /ntBodySyncedConnectionIdentity/);
-  // The marker is fixed by one server-side compare-and-set, and every
-  // imported write carries it; two separate settings PUTs are exactly the
-  // race the review found.
+  // Provenance is fixed by one server compare-and-set and every imported
+  // write carries it.
   assert.match(bodySync, /api\.claimNtBodyProvenance\(\{ connectionIdentity, source, readId \}\)/);
   assert.match(bodySync, /api\.saveBodyStats\(measurement\.date, \{ stats: changed, provenance \}\)/);
   assert.doesNotMatch(bodySync, /saveSetting\('ntBodySyncedSource'/);
@@ -91,9 +92,30 @@ test('body sync settings and lifecycle are opt-in and foreground-triggered', () 
   assert.doesNotMatch(bodySync, /setInterval|setTimeout/);
 });
 
+test('one connection transition is verified and saved by one server transaction', () => {
+  assert.match(route, /router\.put\('\/federation-connection'/);
+  assert.match(route, /saveConnectionTransition\(db, u, \{/);
+  assert.match(connectionLib, /database\.exec\('BEGIN IMMEDIATE'\)/);
+  assert.match(connectionLib, /isStale\(currentVersion, expectedVersion\)/);
+  assert.match(connectionLib, /connectionFingerprint\(url, token, identity\)/);
+  // URL, token, identity, scopes and enabled are inside that transaction.
+  const saveStart = connectionLib.indexOf('export function saveConnectionTransition');
+  const saveBody = connectionLib.slice(saveStart);
+  for (const key of ['ntInstanceUrl', 'ntInstanceToken', 'ntConnectionIdentity', 'ntFederationEnabled', 'ntConnectionScopes']) {
+    assert.match(saveBody, new RegExp(`'${key}'`), `${key} is part of the atomic transition`);
+  }
+
+  // The UI saves through that endpoint and publishes only the confirmed
+  // values; it never writes the enabled flag as a separate setting.
+  assert.match(federation, /saveConnection: LtApi\.saveNtFederationConnection/);
+  assert.match(federation, /persistFederationConnectionTransition\(\{/);
+  assert.match(federation, /publish\(result\.values\)/);
+  assert.doesNotMatch(federation, /saveSettingNow\('ntFederationEnabled'/);
+  assert.match(api, /saveNtFederationConnection: \(connection\)/);
+  assert.match(api, /_jsonConfirmed/);
+});
+
 test('existing workout proxy remains a separate POST contract', () => {
-  // Upstream moved the outbound call into logWorkoutToNt() (the watch's own
-  // finish path uses it too); the route still delegates to it. Cover both.
   const start = route.indexOf('export async function logWorkoutToNt(');
   const workout = route.slice(start);
   assert.ok(start >= 0, 'logWorkoutToNt helper not found');
@@ -106,52 +128,37 @@ test('existing workout proxy remains a separate POST contract', () => {
   assert.match(route.slice(restStart), /logWorkoutToNt\(uid\(req\), req\.body \|\| \{\}\)/);
 });
 
-
-test('passive capability refresh preserves an established workout federation on transport failure', () => {
-  assert.match(federation, /async function test\(\{ silentOk = false, silentFail = false, preserveExistingOnFail = false \} = \{\}\)/);
-  const failGuards = federation.match(/if \(!preserveExistingOnFail\) \{\s*ntFederationEnabled\.set\(false\);\s*ntConnectionVerified\.set\(false\);\s*\}/g) || [];
-  assert.equal(failGuards.length, 2, 'both non-ok and catch paths must preserve existing federation during passive probes');
-  assert.match(federation, /test\(\{ silentOk: true, silentFail: true, preserveExistingOnFail: true \}\)/);
-  assert.match(federation, /if \(!bodyRead\) ntBodySyncEnabled\.set\(false\)/, 'a successful capability result may still disable body sync when its optional scope is missing');
-});
-
 test('provenance is fixed by a server compare-and-set and checked on every imported write', () => {
-  // The claim endpoint refuses a different fixed source and requires the
-  // connection the server actually verified.
   assert.match(route, /claimProvenance\(db, u, candidate\)/);
   assert.match(route, /code: 'connection-mismatch'/);
   assert.doesNotMatch(route, /ntBodyProvenance[\s\S]{0,200}req\.query/);
 
-  const bodyStats = read('../server/routes/body-stats.js');
   const verifyAt = bodyStats.indexOf('verifyProvenance(db, userId, provenance)');
   assert.ok(verifyAt >= 0, 'a body-stat write must verify its provenance');
   assert.ok(verifyAt < bodyStats.indexOf('INSERT INTO body_stats_log'), 'the check runs before any write');
   assert.ok(verifyAt < bodyStats.indexOf('UPDATE body_stats_log'), 'the check runs before any update');
 
-  // The claim itself is one IMMEDIATE transaction (compare-and-set), not a
-  // read followed by a separate write.
-  const provenanceLib = read('../server/lib/nt-body-provenance.js');
   assert.match(provenanceLib, /database\.exec\('BEGIN IMMEDIATE'\)/);
   assert.match(provenanceLib, /source-provenance-conflict/);
   assert.match(provenanceLib, /connection-provenance-conflict/);
 
-  // The marker is server-owned and never travels through device settings sync.
-  assert.match(read('../server/routes/sync.js'), /isReservedProvenanceKey\(key\)/);
+  assert.match(syncRoute, /isReservedProvenanceKey\(key\)/);
   assert.match(api, /claimNtBodyProvenance/);
   assert.match(api, /\/api\/nt\/body-provenance/);
 });
 
-test('a claim is bound to the read that produced its measurements', () => {
+test('a claim is bound to the read and to the exact saved configuration', () => {
   const start = route.indexOf("router.get('/body-composition'");
   const end = route.indexOf('// POST /log-workout', start);
   const bodyProxy = route.slice(start, end);
 
-  // The read snapshot is taken before the await, and every successful answer
-  // carries a receipt in a header (NutriTrace's body shape is unchanged).
-  assert.match(bodyProxy, /const readIdentity = stableIdentity\(_getSetting\(u, 'ntConnectionIdentity'\)\);/);
-  assert.ok(bodyProxy.indexOf("stableIdentity(_getSetting(u, 'ntConnectionIdentity'))") < bodyProxy.indexOf('await _ntFetch(cfg, path)'),
+  // The read snapshot is taken before the await; the identity only counts
+  // while its fingerprint matches the saved address and token.
+  assert.match(bodyProxy, /const readIdentity = cfg\.identity;/);
+  assert.match(bodyProxy, /!readIdentity \|\| !cfg\.fingerprint/);
+  assert.ok(bodyProxy.indexOf('const readIdentity = cfg.identity;') < bodyProxy.indexOf('await _ntFetch(cfg, path)'),
     'the connection is snapshotted before the other server answers');
-  assert.match(bodyProxy, /issueReadReceipt\(u, readIdentity\)/);
+  assert.match(bodyProxy, /issueReadReceipt\(u, \{\s*\n\s*\.\.\.readIdentity,\s*\n\s*fingerprint: cfg\.fingerprint,\s*\n\s*version: cfg\.version,/);
   assert.match(bodyProxy, /res\.set\('X-LT-Nt-Read-Id', readId\)/);
   assert.match(bodyProxy, /res\.json\(body\)/);
 
@@ -159,23 +166,21 @@ test('a claim is bound to the read that produced its measurements', () => {
   const claim = route.slice(claimStart);
   const takeAt = claim.indexOf('takeReadReceipt(readId, u)');
   const matchAt = claim.indexOf('readMatchesClaim(receipt, candidate)');
+  const versionAt = claim.indexOf('receipt.version !== saved.version');
   const casAt = claim.indexOf('claimProvenance(db, u, candidate)');
-  assert.ok(takeAt > 0 && matchAt > takeAt && casAt > matchAt,
-    'the receipt is taken and matched before anything is fixed');
+  assert.ok(takeAt > 0 && matchAt > takeAt && versionAt > matchAt && casAt > versionAt,
+    'the receipt, its fingerprint and its version are matched before anything is fixed');
   assert.match(claim, /code: 'read-receipt-missing'/);
   assert.match(claim, /code: 'read-identity-mismatch'/);
   assert.match(claim, /code: 'connection-mismatch'/);
 
-  // The client asks for and forwards the receipt. The header is exposed to
-  // the Android WebView's origin, or a native build could never present it.
   assert.match(api, /res\.headers\.get\('X-LT-Nt-Read-Id'\)/);
-  assert.match(read('../src/lib/nt-body-sync.js'), /status: 'read-receipt-required'/);
+  assert.match(bodySync, /status: 'read-receipt-required'/);
   const index = read('../server/index.js');
   assert.match(index, /Access-Control-Expose-Headers', 'X-LT-Coaching, X-LT-Nt-Read-Id'/);
 });
 
 test('the provenance keys are reserved against the generic settings API and device sync', () => {
-  const settingsRoute = read('../server/routes/settings.js');
   const putStart = settingsRoute.indexOf("router.put('/'");
   const putEnd = settingsRoute.indexOf("router.delete('/'", putStart);
   const put = settingsRoute.slice(putStart, putEnd);
@@ -185,12 +190,17 @@ test('the provenance keys are reserved against the generic settings API and devi
     'and refuse it before it can replace the claim row');
   assert.match(put, /code: 'reserved-setting'/);
 
-  // Deleting settings keeps the claim; deleting the imported history releases
-  // it, so a source can be chosen again after a full wipe.
-  assert.match(settingsRoute, /deleteUserSettingsKeepingProvenance\(db, req\.user\.id\)/);
+  assert.match(settingsRoute, /deleteUserSettingsKeepingProvenance\(db, req\.user\.id, \[NT_CONNECTION_VERSION_KEY\]\)/);
   assert.match(settingsRoute, /clearProvenance\(db, userId\)/);
+  assert.match(syncRoute, /function isServerOnlyKey\(key\) \{ return isReservedProvenanceKey\(key\) \|\| isServerOwnedNtKey\(key\); \}/);
+});
 
-  const syncRoute = read('../server/routes/sync.js');
-  assert.match(syncRoute, /function isServerOnlyKey\(key\) \{ return isReservedProvenanceKey\(key\); \}/);
-  assert.match(syncRoute, /import \{ isReservedProvenanceKey \} from '..\/lib\/nt-body-provenance.js';/);
+test('the client provenance cache follows the server record, including its absence', () => {
+  const cache = read('../src/lib/nt-provenance-cache.js');
+  assert.match(cache, /ntBodySyncedSource/);
+  assert.match(cache, /ntBodySyncedConnectionIdentity/);
+  assert.match(settings, /ntProvenanceCache\(provenance\)/);
+  assert.match(settings, /export function resetNtBodyProvenanceCache/);
+  assert.match(settings, /DB\.setSetting\('ntBodyLastSyncAt', null\)/);
+  assert.match(read('../src/components/settings/SettingsBackup.svelte'), /resetNtBodyProvenanceCache\(\)/);
 });

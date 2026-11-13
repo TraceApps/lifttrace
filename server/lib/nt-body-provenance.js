@@ -15,9 +15,10 @@
  *   - a measurement written through the import path carries the provenance it
  *     was mapped under, and is refused unless it matches the fixed claim.
  *
- * A source marker written by the earlier build (ntBodySyncedSource +
- * ntBodySyncedConnectionIdentity) is adopted as the first claim when it is
- * consistent, so upgrading an account cannot silently re-open the choice.
+ * A source marker an earlier revision of this feature saved as two ordinary
+ * settings (ntBodySyncedSource and ntBodySyncedConnectionIdentity) is adopted
+ * as the first claim when it is consistent, so an account that already
+ * imported cannot silently re-open the choice.
  *
  * Nothing here talks to NutriTrace or to HTTP; routes own that.
  */
@@ -118,7 +119,7 @@ export function readProvenance(database, userId) {
 }
 
 /**
- * The marker the previous build persisted as two ordinary settings. Returns:
+ * The marker an earlier revision saved as two ordinary settings. Returns:
  *   null                       nothing usable (no source marker)
  *   { ambiguous: true }        a source without the connection it came from
  *   { instanceUrl, userId, source }  a provenance that can be adopted
@@ -215,12 +216,13 @@ export function verifyProvenance(database, userId, payload) {
  * is still there: the next import could then choose another source and mix the
  * two.
  */
-export function deleteUserSettingsKeepingProvenance(database, userId) {
+export function deleteUserSettingsKeepingProvenance(database, userId, extraKeys = []) {
   if (userId == null) return 0;
-  const placeholders = RESERVED_PROVENANCE_KEYS.map(() => '?').join(', ');
+  const keys = [...RESERVED_PROVENANCE_KEYS, ...extraKeys];
+  const placeholders = keys.map(() => '?').join(', ');
   return database.prepare(
     `DELETE FROM user_settings WHERE user_id = ? AND key NOT IN (${placeholders})`
-  ).run(userId, ...RESERVED_PROVENANCE_KEYS).changes;
+  ).run(userId, ...keys).changes;
 }
 
 /**

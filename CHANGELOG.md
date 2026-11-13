@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Weight and body fat from NutriTrace in your body stats** ([#123](https://github.com/TraceApps/lifttrace/pull/123), thanks @kgenerozov). Import from NutriTrace in Settings > NutriTrace copies weight and body fat from one NutriTrace source into LiftTrace, so a measurement your scale or Health Connect already sent is not typed twice. It is off by default and only those two values are written: your manual measurements and every other field stay as they are, and once a source has been imported it cannot be switched, so two providers never mix in one history.
+
 ### Fixed
 
 - **Back leaves the Android app instead of walking through every tab** (from [cooktrace#99](https://github.com/TraceApps/cooktrace/issues/99), thanks @sreich). Each tab you opened was added to the back history, so back went through all of them, and then did nothing. Now back goes one step inside a tab, from any other tab to the Diary, and from the Diary the app goes to the background, as other Android apps do; a workout in progress is kept. Pages left open in a tab you switched away from no longer come back. The installed web app works the same way; a browser tab keeps the browser's usual history.
