@@ -7,27 +7,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.5.0-dev02] - 2026-11-14 (pre-release)
+
+Second dev pre-release of the 1.5.0 minor. A watch that works with the phone in Local mode, pasting pictures into Trace and the coach chat, API tokens for every user, encrypted secrets in Settings, and a server that no longer crashes when a site closes the connection early.
+
 ### Added
 
-- **The watch works with the phone in Local mode** ([#156](https://github.com/TraceApps/lifttrace/issues/156), reported by @wretchedxx). With no server, the watch now reads your session from the phone and saves each set there, the phone's Diary shows it at once, and finishing on the watch gives the Workout Complete notification. LiftTrace has to be running on the phone: when you leave the app with your watch connected, a quiet notification keeps Android from freezing it, until 30 minutes pass with nothing from the watch. If the app was closed or the phone is out of reach, the watch keeps your sets, says so, and sends them once it can. A Local mode save on the phone now also merges set by set with what's stored, as a server does, so it can't put back a set the watch just changed. Both the phone and the watch need this release. [Local mode](https://traceapps.github.io/docs/lifttrace/wear/#local-mode)
-
-- **Paste a picture into Trace and your coach chat** (from [nutritrace#304](https://github.com/TraceApps/nutritrace/pull/304), thanks @librarian). Paste a screenshot or a copied image into Trace's message box or a chat with your coach to attach it, like the image button. Copied text that comes with a picture of itself, such as cells from a spreadsheet or a passage from Word, still pastes as text.
-
-### Fixed
-
-- **ExerciseDB (open-source) no longer adds an exercise several times with broken images** ([#155](https://github.com/TraceApps/lifttrace/issues/155), reported by @wretchedxx). The catalog lists some exercises two to four times, and the GIF of many of those copies is gone, so the library showed them as broken images. An import now leaves out a repeated copy whose GIF is missing, and importing it again clears the ones an earlier import added, unless a workout, template or favorite uses one. An exercise image that can't load shows its other image or the plain exercise icon. Importing a catalog from the Android app now waits for your server, instead of being queued after 30 seconds and run again on the phone.
-
-### Security
-
-- **Tokens, keys and passwords saved in Settings are stored encrypted, and the ones only the server uses never reach the app** (from [cooktrace#92](https://github.com/TraceApps/cooktrace/issues/92), thanks @stupleb). The NutriTrace link token, the ntfy and Gotify tokens and the music server's sign-in stay on the server: Settings shows a saved one as dots, saving the dots keeps it, and typing a new one replaces it. The AI key, ExerciseDB key and music server password still go to your own signed-in app, which uses them itself. All of them are stored encrypted with `TOKEN_ENC_KEY`, so the database, a backup or an export never holds them in plain text; ones saved before are encrypted when the server starts. Changing `TOKEN_ENC_KEY`, or `JWT_SECRET` when it isn't set, means entering them again.
+- **The watch works with the phone in Local mode** ([#156](https://github.com/TraceApps/lifttrace/issues/156), reported by @wretchedxx). With no server, the watch reads your session from the phone and saves each set there, the phone's Diary shows it at once, and finishing on the watch gives the Workout Complete notification. LiftTrace has to be running on the phone: when you leave the app with your watch connected, a quiet notification keeps Android from freezing it, until 30 minutes pass with nothing from the watch. If the app was closed or the phone is out of reach, the watch keeps your sets, says so, and sends them once it can. Both the phone and the watch need this release. [Local mode](https://traceapps.github.io/docs/lifttrace/wear/#local-mode)
+- **Paste a picture into Trace and your coach chat** (from [nutritrace#304](https://github.com/TraceApps/nutritrace/pull/304), thanks @librarian), like the image button. Copied text that comes with a picture of itself, such as cells from a spreadsheet, still pastes as text.
 
 ### Changed
 
-- **API tokens for every user** (from [nutritrace#245](https://github.com/TraceApps/nutritrace/pull/245)). Anyone signed in can create and revoke their own API tokens in Settings > API Tokens, now under Integrations, so connecting your own MCP client no longer needs an admin account. Webhooks stay admin-only.
+- **API tokens for every user** (from [nutritrace#245](https://github.com/TraceApps/nutritrace/pull/245)). Anyone signed in manages their own in Settings > API Tokens, now under Integrations, so connecting your own MCP client no longer needs an admin account. Webhooks stay admin-only.
 
 ### Fixed
 
-- **A site that closes the connection early no longer restarts the server** (from [cooktrace#96](https://github.com/TraceApps/cooktrace/issues/96), thanks @devoid1). When a site closed the connection before LiftTrace had read the whole reply (a picture, a radio or music server, NutriTrace, a notification service, an AI provider), the web library behind it (undici, also the one built into Node) crashed the server. The server now fetches everything with undici 8.12.4, which has the fix.
+- **ExerciseDB (open-source) no longer adds an exercise several times with broken images** ([#155](https://github.com/TraceApps/lifttrace/issues/155), reported by @wretchedxx). An import leaves out a repeated copy whose GIF is gone, and importing again clears the ones an earlier import added, unless a workout, template or favorite uses one. An image that can't load shows the other image or the plain exercise icon.
+- **A site that closes the connection early no longer restarts the server** (from [cooktrace#96](https://github.com/TraceApps/cooktrace/issues/96), thanks @devoid1). The server now fetches everything with undici 8.12.4, which has the fix.
+- **A Local mode save on the phone merges set by set** with what's stored, as a server does, so it can't put back a set the watch just changed.
+
+### Security
+
+- **Tokens, keys and passwords saved in Settings are stored encrypted** (from [cooktrace#92](https://github.com/TraceApps/cooktrace/issues/92), thanks @stupleb), and the NutriTrace link, ntfy and Gotify tokens and the music server's sign-in never reach the app. Settings shows a saved one as dots. Changing `TOKEN_ENC_KEY` (or `JWT_SECRET` when it isn't set) means entering them again.
+- **hono** 4.13.18, used only by the MCP server, closes [GHSA-4m76-xfj5-7975](https://github.com/advisories/GHSA-4m76-xfj5-7975), [GHSA-h7mg-cq63-vhpq](https://github.com/advisories/GHSA-h7mg-cq63-vhpq), [GHSA-3gg2-335m-rxc6](https://github.com/advisories/GHSA-3gg2-335m-rxc6), [GHSA-46wx-v44x-9hh2](https://github.com/advisories/GHSA-46wx-v44x-9hh2) and [GHSA-4h7h-rv7c-7m2v](https://github.com/advisories/GHSA-4h7h-rv7c-7m2v).
 
 ---
 
