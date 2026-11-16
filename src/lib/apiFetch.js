@@ -38,6 +38,11 @@ export function installApiFetch() {
   // (lib/fresh-session.js). Whatever asked still gets its answer.
   window.fetch = async function fetchNoticingSignOut(input, init = {}) {
     const res = await patchedFetch(input, init);
+    // Training changed on this phone: its reminders follow it
+    // (notifications.js), once the device's copy has it (_localWrites).
+    if (isNative && res?.ok && _changesTraining(typeof input === 'string' ? input : input?.url || '', init)) {
+      _localWrites.then(() => window.dispatchEvent(new CustomEvent('lt:training-changed'))).catch(() => {});
+    }
     if (res?.status === 401 && typeof res.clone === 'function') {
       res.clone().json().then((d) => {
         if (d?.session_ended) import('./fresh-session.js').then((m) => m.endSessionHere()).catch(() => {});
@@ -236,6 +241,12 @@ async function _dispatchServerWithFallback(url, init, serverUrl, origFetch) {
     await _localWrites;
     return _dispatchLocal(url, init);
   }
+}
+
+// A write that can change which days were trained or excused.
+function _changesTraining(url, init) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes((init?.method || 'GET').toUpperCase())) return false;
+  return /^\/api\/(workout|workout-import|cardio|excused-days)(\/|\?|$)/.test(_stripBase(url));
 }
 
 // Asking Trace through the server (Trace set by environment variables).

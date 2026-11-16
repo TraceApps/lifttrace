@@ -1,4 +1,6 @@
-import { DB } from './db.js';
+import { DB, localDateStr } from './db.js';
+import { shiftDate } from './trained-day.js';
+import { planReminders, fireTime, WORKOUT_DAYS } from './reminder-plan.js';
 import { isNative, getServerUrl } from './platform.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { SECRET_SET } from './secret-set.js';
@@ -276,55 +278,123 @@ export function celebrateAmountPR(exerciseName, kind, amount, label, weight, uni
   notify(kind === 'distance' ? '🏆 New Distance PR!' : '🏆 New Calorie PR!', body, 5);
 }
 
-// ── Daily reminder scheduling (Capacitor LocalNotifications) ─────────────
+// ── Reminder scheduling (Capacitor LocalNotifications) ──────────────────
 //
-// On native, schedule daily-repeating reminders directly via the OS so they
-// fire even when the app is closed. The `_USE_NATIVE_WORKER` kill switch in
-// Phase 10 takes over from here once the WorkManager Java bridge is wired
-// — until then this is the sole local-reminder source on the device.
+// On native, reminders are set with the OS so they fire even when the app is
+// closed. The app can't check anything when one goes off, so the Workout,
+// Streak at Risk and Rest Day reminders are set as one-offs on the days they
+// apply to (reminder-plan.js) and set again whenever that may change. The
+// `_USE_NATIVE_WORKER` switch hands them to the WorkManager worker instead
+// (nothing turns it on).
 
+// 1001 to 1003 were daily repeating Workout, Streak and Rest reminders that
+// fired every day whatever you had done: still cancelled, for phones that
+// have them from an older version.
 const REMINDER_IDS = {
   workout:       1001,
   streakAtRisk:  1002,
   restDay:       1003,
   weeklySummary: 1004,
 };
+// One-off reminders, one id per day ahead (reminder-plan.js).
+const DAY_IDS = { workout: 1100, streak: 1200, rest: 1300 };
+const DAY_TEXT = {
+  workout: ['🏋️ Time to Train', 'Open LiftTrace and crush today\'s workout.'],
+  streak:  ['🔥 Streak at Risk', 'Don\'t break your streak. Log a quick session today.'],
+  rest:    ['🧘 Rest Day', 'Stretch, hydrate, and recover well today.'],
+};
+
+let _scheduling = Promise.resolve();
 
 /**
- * Re-schedule all enabled daily reminders. Idempotent — call on app open
- * and after any setting change. Cancels any existing notifications first
- * so toggle-off works correctly.
+ * Set every reminder that's on again: on app open and after a setting
+ * change. Runs one at a time, so an older run can't put back what a newer
+ * one dropped. `weekly: false` leaves the Weekly Summary as it is
+ * (rescheduleRemindersSoon): cancelling it would also clear one already in
+ * the notification shade.
  */
-export async function scheduleNativeReminders() {
+export function scheduleNativeReminders({ weekly = true } = {}) {
+  const run = () => _scheduleNativeReminders(weekly);
+  _scheduling = _scheduling.then(run, run);
+  return _scheduling;
+}
+
+let _soon = null;
+/** The training-day reminders set again a moment from now, once for a burst of changes (a set saved, a sync, the app coming back). */
+export function rescheduleRemindersSoon() {
+  if (!isNative) return;
+  clearTimeout(_soon);
+  _soon = setTimeout(() => { scheduleNativeReminders({ weekly: false }); }, 2000);
+}
+
+/**
+ * Trained and excused days around today, asked the way the Statistics screen
+ * asks: the server when connected (so training on the web or the watch
+ * counts, cardio too), this phone's copy offline or in Local mode.
+ */
+async function _trainingDays(today) {
+  const { LtApi } = await import('./api.js');
+  const cardio = DB.getSetting('cardioEnabled', false) === true;
+  const yesterday = shiftDate(today, -1);
+  const trainedOn = async (day) => (await LtApi.getFrequency(day, day, cardio)).some(w => w.count > 0);
+  const [y, t, excusedRows] = await Promise.all([trainedOn(yesterday), trainedOn(today), LtApi.listExcusedDays()]);
+  const trained = new Set();
+  if (y) trained.add(yesterday);
+  if (t) trained.add(today);
+  return { trained, excused: new Set((excusedRows || []).map(e => e.date)) };
+}
+
+async function _scheduleNativeReminders(weekly) {
   if (!isNative) return;
   // Native WorkManager (Phase 10) is the canonical source when the flag is on.
   const useNative = DB.getSetting('_USE_NATIVE_WORKER', false);
   if (useNative) return;
 
   try {
-    // Drop any previously scheduled instances.
-    const ids = Object.values(REMINDER_IDS).map(id => ({ id }));
-    try { await LocalNotifications.cancel({ notifications: ids }); } catch {}
+    // Drop what is set and hasn't fired yet. Only pending ones: cancelling an
+    // id also clears its notification from the shade.
+    const mine = new Set([REMINDER_IDS.workout, REMINDER_IDS.streakAtRisk, REMINDER_IDS.restDay]);
+    for (const base of Object.values(DAY_IDS)) for (let i = 0; i < WORKOUT_DAYS; i++) mine.add(base + i);
+    const pending = ((await LocalNotifications.getPending())?.notifications || []).map(n => Number(n.id)).filter(id => mine.has(id));
+    if (weekly) pending.push(REMINDER_IDS.weeklySummary);
+    if (pending.length) await LocalNotifications.cancel({ notifications: pending.map(id => ({ id })) });
 
     // Setting names and defaults have to match the ones the settings layer
     // actually stores (src/stores/settings.js, and the same keys the server
     // scheduler reads), or every reminder here silently falls back to its
     // default and the times chosen in Settings, Notifications never apply.
+    const on = {
+      workout: !!DB.getSetting('notifWorkoutReminder', false),
+      streak:  !!DB.getSetting('notifStreakAlert', false),
+      rest:    !!DB.getSetting('notifRestDay', false),
+    };
+    // No rest-day time in Settings: the server fires this one at a fixed
+    // hour too, so the device keeps its own fixed hour.
+    const times = {
+      workout: DB.getSetting('notifWorkoutTime', '07:00'),
+      streak:  DB.getSetting('notifStreakTime', '20:00'),
+      rest:    '09:00',
+    };
     const out = [];
-    if (DB.getSetting('notifWorkoutReminder', false)) {
-      const time = DB.getSetting('notifWorkoutTime', '07:00');
-      out.push(_dailyAt(REMINDER_IDS.workout, '🏋️ Time to Train', 'Open LiftTrace and crush today\'s workout.', time));
+    if (on.workout || on.streak || on.rest) {
+      const today = localDateStr();
+      let days = { trained: new Set(), excused: new Set() };
+      try {
+        days = await _trainingDays(today);
+      } catch (e) {
+        // Unread, nothing counts as trained: the Workout Reminder stays on
+        // every day, and nothing says a streak is at risk.
+        _dlog('[notifications] training days unread:', e?.message || e);
+      }
+      const now = Date.now();
+      for (const r of planReminders({ today, ...days, ...on })) {
+        const at = fireTime(r.day, times[r.kind], r.kind === 'workout' ? 7 : 20);
+        if (at.getTime() <= now) continue;
+        const [title, body] = DAY_TEXT[r.kind];
+        out.push({ id: DAY_IDS[r.kind] + r.offset, title, body, smallIcon: 'ic_stat_icon_config_sample', schedule: { at, allowWhileIdle: true } });
+      }
     }
-    if (DB.getSetting('notifStreakAlert', false)) {
-      const time = DB.getSetting('notifStreakTime', '20:00');
-      out.push(_dailyAt(REMINDER_IDS.streakAtRisk, '🔥 Streak at Risk', 'Don\'t break your streak — log a quick session.', time));
-    }
-    if (DB.getSetting('notifRestDay', false)) {
-      // No rest-day time in Settings: the server fires this one at a fixed
-      // hour too, so the device keeps its own fixed hour.
-      out.push(_dailyAt(REMINDER_IDS.restDay, '🧘 Rest Day', 'Stretch, hydrate, and recover well today.', '09:00'));
-    }
-    if (DB.getSetting('notifWeeklySummary', false)) {
+    if (weekly && DB.getSetting('notifWeeklySummary', false)) {
       const time = DB.getSetting('weeklySummaryTime', '09:00');
       const day  = DB.getSetting('weeklySummaryDay', 0);
       out.push(_weeklyOn(REMINDER_IDS.weeklySummary, '📊 Weekly Summary', 'Check this week\'s training volume + PRs.', time, day));
@@ -340,24 +410,6 @@ export async function scheduleNativeReminders() {
 function _hhmm(hhmm, fallbackHour) {
   const [h, m] = (hhmm || '').split(':').map(Number);
   return { hour: isNaN(h) ? fallbackHour : h, minute: isNaN(m) ? 0 : m };
-}
-
-// A schedule carrying `every` never reads `on`: the Android plugin repeats from
-// the moment it was scheduled and returns, so the chosen time of day is lost and
-// every app start pushes the alarm another interval out. With `on` alone the
-// plugin takes its cron path, which re-arms itself at the same clock time after
-// each fire.
-function _dailyAt(id, title, body, hhmm) {
-  return {
-    id,
-    title,
-    body,
-    smallIcon: 'ic_stat_icon_config_sample',
-    schedule: {
-      on: _hhmm(hhmm, 17),
-      allowWhileIdle: true,
-    },
-  };
 }
 
 // Weekly summary fires once a week, on the day chosen in Settings. Capacitor

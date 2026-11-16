@@ -18,13 +18,7 @@ const fn = (name) => {
   for (; i < src.length; i++) { if (src[i] === '{') depth++; else if (src[i] === '}' && --depth === 0) break; }
   return src.slice(start, i + 1);
 };
-const { _dailyAt, _weeklyOn } = new Function(`${fn('_hhmm')}\n${fn('_dailyAt')}\n${fn('_weeklyOn')}\nreturn { _dailyAt, _weeklyOn };`)();
-
-test('daily reminders fire at the chosen time of day, with no interval to override it', () => {
-  const n = _dailyAt(1, 't', 'b', '06:45');
-  assert.deepEqual(n.schedule.on, { hour: 6, minute: 45 });
-  assert.equal(n.schedule.every, undefined);
-});
+const { _weeklyOn } = new Function(`${fn('_hhmm')}\n${fn('_weeklyOn')}\nreturn { _weeklyOn };`)();
 
 test('the weekly summary fires once a week on the chosen day (Sunday = 1 for the plugin)', () => {
   assert.deepEqual(_weeklyOn(4, 't', 'b', '09:30', 0).schedule.on, { weekday: 1, hour: 9, minute: 30 });

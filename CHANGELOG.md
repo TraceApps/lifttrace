@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Android app's reminders follow your training.** Streak at Risk came every evening even after a missed day had ended the streak, the Workout Reminder came on days already trained, and Rest Day every morning. The phone now sets each one only on the days it applies to, as your server does: Streak at Risk when yesterday was trained and today isn't yet (and isn't excused), the Workout Reminder on days not trained or excused, and Rest Day the day after a training day. Connected to a server, it asks the server, so training on the web or the watch counts. A reminder already in the notification shade stays there when the app reschedules. Open the app at least once every 60 days to keep the Workout Reminder coming.
+
 ---
 
 ## [1.5.0-dev02] - 2026-11-14 (pre-release)

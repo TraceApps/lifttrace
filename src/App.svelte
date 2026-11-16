@@ -387,6 +387,7 @@
       import('@capacitor/app').then(({ App: CapApp }) => {
         CapApp.addListener('resume', () => {
           import('./lib/wear-pairing.js').then(({ pairWatch, keepAwakeForWatch }) => { pairWatch(); keepAwakeForWatch(false); }).catch(() => {});
+          import('./lib/notifications.js').then(({ rescheduleRemindersSoon }) => rescheduleRemindersSoon()).catch(() => {});
         });
         // Off screen with the watch in use: stay awake for it.
         CapApp.addListener('pause', () => {
@@ -459,6 +460,8 @@
             // Coming back is a good moment to top up the watch's token, and it
             // catches a watch paired after this app was last opened.
             import('./lib/wear-pairing.js').then(({ pairWatch }) => pairWatch()).catch(() => {});
+            // A new day may have started: the reminders follow it.
+            import('./lib/notifications.js').then(({ rescheduleRemindersSoon }) => rescheduleRemindersSoon()).catch(() => {});
           });
           // Pause (app backgrounded) → flush any pending debounced workout
           // save so Android can't kill the process with unsynced work in
@@ -526,13 +529,19 @@
     // WorkManager bridge in Phase 10 takes over). Also re-runs on settings
     // change so toggling reminders off cancels them immediately.
     try {
-      const { scheduleNativeReminders } = await import('./lib/notifications.js');
+      const { scheduleNativeReminders, rescheduleRemindersSoon } = await import('./lib/notifications.js');
       await scheduleNativeReminders();
+      // Which days they fire on follows your training (reminder-plan.js):
+      // set again when it changes here, by a sync, from the watch, and each
+      // time the app comes back (a new day: the resume listeners above).
+      for (const ev of ['lt:training-changed', 'lt:sync-complete', 'lt:watch-saved']) window.addEventListener(ev, rescheduleRemindersSoon);
       window.addEventListener('wl:setting', e => {
         const k = e.detail?.key || '';
         // The weekly summary reminder is scheduled from weeklySummaryDay and
         // weeklySummaryTime, which do not carry the notif prefix.
         if (k.startsWith('notif') || k === 'weeklySummaryDay' || k === 'weeklySummaryTime') scheduleNativeReminders();
+        // Track Cardio decides whether a cardio day counts as trained.
+        else if (k === 'cardioEnabled') rescheduleRemindersSoon();
       });
     } catch {}
 
