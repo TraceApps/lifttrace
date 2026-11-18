@@ -1,5 +1,6 @@
 <script>
-  import { location, push } from 'svelte-spa-router';
+  import { location } from 'svelte-spa-router';
+  import { goTab } from '../../lib/tab-nav.js';
   import { _ } from 'svelte-i18n';
   import { radioEnabled, radioUrl, radioStationsEnabled } from '../../stores/settings.js';
   import { updateAvailable } from '../../lib/updates.js';
@@ -39,7 +40,7 @@
     return 0;
   })();
 
-  function go(path) { push(path); }
+  function go(path) { goTab(path); }
 </script>
 
 <nav class="bottom-nav" role="navigation" aria-label="Main navigation">

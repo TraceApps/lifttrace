@@ -65,15 +65,17 @@ test('a handler that throws still counts as handled', () => {
   assert.equal(backStackDepth(), 0);
 });
 
-test('the Android back button checks the stack, then the sidebar, then goes back a page', () => {
-  // LiftTrace had no back listener before; at the first page back still does nothing.
+test('the Android back button checks the stack, then the sidebar, then goes back a page, then to the Diary, then leaves', () => {
+  // On the Diary with nothing behind it, back sends the app to the background (from cooktrace#99).
   const app = read('../src/App.svelte');
   const h = app.slice(app.indexOf("App.addListener('backButton'"), app.indexOf("App.addListener('appUrlOpen'"));
   const stackAt = h.indexOf('if (handleBack()) return;');
   const sideAt = h.indexOf('if (sidebarOpen && !sidebarPinned)');
-  const pageAt = h.indexOf('if (canGoBack) window.history.back();');
-  assert.ok(stackAt > 0 && sideAt > stackAt && pageAt > sideAt);
-  assert.doesNotMatch(h, /exitApp/, 'no exit: exitApp drops the pause listener that saves a workout');
+  const pageAt = h.indexOf('if (canGoBack) {\n            window.history.back();');
+  const homeAt = h.indexOf('replace(HOME_TAB);');
+  const leaveAt = h.indexOf('App.minimizeApp');
+  assert.ok(stackAt > 0 && sideAt > stackAt && pageAt > sideAt && homeAt > pageAt && leaveAt > homeAt);
+  assert.doesNotMatch(h, /exitApp\(/, 'no exit: exitApp drops the pause listener that saves a workout');
 });
 
 function walk(dir) {

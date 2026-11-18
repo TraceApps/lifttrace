@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
-  import Router, { location } from 'svelte-spa-router';
+  import Router, { location, replace } from 'svelte-spa-router';
+  import { HOME_TAB, isHomeTab, trackTabDepth } from './lib/tab-nav.js';
 
   import BottomNav from './components/layout/BottomNav.svelte';
   import UpdateBanner from './components/UpdateBanner.svelte';
@@ -366,6 +367,7 @@
   }
 
   onMount(async () => {
+    trackTabDepth();
     initFold();
     // Update checks: a device that was already using the app keeps checking,
     // a fresh one stays quiet until setup asks. Runs first so nothing above
@@ -560,7 +562,18 @@
         App.addListener('backButton', ({ canGoBack }) => {
           if (handleBack()) return;
           if (sidebarOpen && !sidebarPinned) { sidebarOpen = false; return; }
-          if (canGoBack) window.history.back();
+          if (canGoBack) {
+            window.history.back();
+          } else if (!isHomeTab(getStore(location))) {
+            // Tabs don't add to the history (lib/tab-nav.js): from another
+            // tab, back goes to the Diary (from cooktrace#99).
+            replace(HOME_TAB);
+          } else {
+            // On the Diary, back leaves the way Android 12+ does: the app goes
+            // to the background. Never exitApp: it drops the pause listener
+            // that saves a workout.
+            App.minimizeApp?.().catch(() => {});
+          }
         });
         // The app icon's shortcuts (from TraceApps/nutritrace#278): one that
         // starts the app arrives as the launch URL, and appUrlOpen below fires
