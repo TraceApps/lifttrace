@@ -71,7 +71,7 @@ The English source text may also change occasionally without renaming the key. T
 - **Weight units stay numeric.** Users pick lb or kg in Settings; don't bake the unit into translated strings.
 - **Match the tone.** LiftTrace's English copy is informal and direct ("Tap to start a set"). Try to keep that register rather than translating to a more formal style.
 - **Length awareness.** Some buttons are tight on small screens. If your translation is significantly longer than the English, test on a phone-sized viewport.
-- **Do not translate proper nouns or product names.** `LiftTrace`, `Trace` (the AI assistant), `wger`, `Strong`, `Hevy`, `FitNotes`, `Jefit`, `Subsonic`, `Jellyfin`, `Plex`, `Emby` stay as-is.
+- **Do not translate proper nouns or product names.** `LiftTrace`, `Trace` (the AI assistant), `wger`, `Strong`, `Hevy`, `FitNotes`, `Jefit`, `Subsonic`, `Jellyfin`, `Plex`, `Emby` stay as-is. The one exception: when Android or the service itself shows its name translated in your language, use that name, so it matches what people see on their phone (Android shows Health Connect as "Santé Connect" in French).
 
 ### For code contributors: instrumenting new strings
 
