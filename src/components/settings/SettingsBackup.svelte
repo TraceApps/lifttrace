@@ -7,6 +7,7 @@
     weightUnit, dateFormat, timeFormat, weeklyWorkoutGoal,
     navStyle, sidebarPersistent, disableAnimations, bannerStyle,
     startPage, screenKeepAwake, goalCelebrations,
+    resetNtBodyProvenanceCache,
   } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import Dialog from '../ui/Dialog.svelte';
@@ -303,6 +304,9 @@
     try {
       const res = await fetch('/api/settings/clear-data', { method: 'DELETE', credentials: 'include' });
       if (!res.ok) throw new Error((await res.json()).error || $_('common.errors.failed'));
+      // The server released the import claim with the history; this device's
+      // copy of it (and its six-hour throttle) must go at the same time.
+      resetNtBodyProvenanceCache();
       showSuccess($_('settings_backup.toast.data_cleared'));
       setTimeout(() => location.reload(), 1000);
     } catch(e) { showError(e.message); }

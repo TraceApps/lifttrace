@@ -10,7 +10,29 @@ async function _json(res) {
     // What the offline layer says went wrong, for the screen to say it.
     if (data.storage) err.storage = true;
     if (data.offline) err.offline = true;
-    if (data.code) err.code = data.code;
+    // A refusal with a machine-readable reason (the NutriTrace body
+    // provenance claim): the caller maps the codes to its own status, and the
+    // provenance that is actually fixed travels with it.
+    if (typeof data.code === 'string') err.code = data.code;
+    if (data.provenance !== undefined) err.provenance = data.provenance;
+    // A refused connection Save answers with what the server holds now, so
+    // the page can reconcile instead of guessing or replaying its snapshot.
+    if (data.connection !== undefined) err.connection = data.connection;
+    throw err;
+  }
+  return data;
+}
+
+// A write that only counts when the server itself applied it. The offline
+// layers answer 200 with { queued: true, offline: true } for a change they
+// kept for later; treating that as saved is how a connection could be shown
+// as Connected before anything reached the server.
+async function _jsonConfirmed(res) {
+  const data = await _json(res);
+  if (data?.offline || data?.queued) {
+    const err = new Error(data.error || 'The server did not confirm the change.');
+    err.code = 'unconfirmed';
+    if (data.offline) err.offline = true;
     throw err;
   }
   return data;
@@ -98,6 +120,33 @@ export const LtApi = {
   getBodyStats: (date) => fetch(`/api/body-stats/${date}`, opts).then(_json),
   getBodyStatsRange: (start, end) => fetch(`/api/body-stats/range?start=${start}&end=${end}`, opts).then(_json),
   saveBodyStats: (date, data) => fetch(`/api/body-stats/${date}`, { ...jsonOpts, method: 'PUT', body: JSON.stringify(data) }).then(_json),
+  getNtBodyComposition: (start, end, source) => {
+    const query = new URLSearchParams();
+    if (start) query.set('start', start);
+    if (end) query.set('end', end);
+    if (source) query.set('source', source);
+    const suffix = query.toString() ? `?${query}` : '';
+    // The proxy answers with a receipt for that exact read (header, body
+    // untouched). The claim must present it, so a connection switched away and
+    // back cannot mislabel the measurements.
+    return fetch(`/api/nt/body-composition${suffix}`, opts).then(async (res) => {
+      const data = await _json(res);
+      const readId = res.headers.get('X-LT-Nt-Read-Id') || '';
+      return readId ? { ...data, readId } : data;
+    });
+  },
+  // Fix (or read back, as a refusal) which NutriTrace connection and source
+  // own the body measurements imported into this account. Server-side
+  // compare-and-set: the first claim wins, a different one is refused.
+  claimNtBodyProvenance: (claim) =>
+    fetch('/api/nt/body-provenance', { ...jsonOpts, method: 'POST', body: JSON.stringify(claim) }).then(_json),
+  // The saved connection and its provenance, without the token.
+  getNtFederationConnection: () => fetch('/api/nt/federation-connection', opts).then(_json),
+  // Save URL, token, identity, enabled and body-sync opt-in in one server
+  // transition. Only a confirmed answer counts: an offline layer that queued
+  // it did not connect anything.
+  saveNtFederationConnection: (connection) =>
+    fetch('/api/nt/federation-connection', { ...jsonOpts, method: 'PUT', body: JSON.stringify(connection) }).then(_jsonConfirmed),
 
   // ── Progress photos ────────────────────────────────────────────────────
   // Two-step by design: upload the file, then attach the URL it returns.
