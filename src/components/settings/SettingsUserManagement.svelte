@@ -10,6 +10,7 @@
   import { validatePassword } from '../../lib/validation.js';
   import { DB } from '../../lib/db.js';
   import { envLocks } from '../../stores/settings.js';
+  import SettingsRegionalDefaults from './SettingsRegionalDefaults.svelte';
   import { coachingFetch, refreshCoaching } from '../../stores/coaching.js';
   import { coachingErrorText } from '../../lib/coaching-view.js';
   import Toggle from './Toggle.svelte';
@@ -669,6 +670,7 @@
             </div>
           </div>
 
+          <SettingsRegionalDefaults />
 
           <div class="setting-divider"></div>
           <button class="row-btn danger-row" on:click={disableUserMgmt}>

@@ -369,6 +369,9 @@
   onMount(async () => {
     trackTabDepth();
     initFold();
+    // Everyone's defaults (language, date and time) from the server, signed
+    // in or not: a setting nobody chose follows them (from nutritrace#326).
+    import('./stores/settings.js').then(({ loadInstanceDefaults }) => loadInstanceDefaults()).catch(() => {});
     // Update checks: a device that was already using the app keeps checking,
     // a fresh one stays quiet until setup asks. Runs first so nothing above
     // can skip it (see lib/updates.js).

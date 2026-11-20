@@ -100,5 +100,5 @@ test('the language picker defaults to the language the app actually picked', () 
   // app above a picker that said English.
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
   assert.match(read('../src/i18n/index.js'), /export function pickInitialLocale/);
-  assert.match(read('../src/stores/settings.js'), /createSettingStore\('language',\s+pickInitialLocale\(\)\)/);
+  assert.match(read('../src/stores/settings.js'), /regionalStore\('language',\s+pickInitialLocale\)/);
 });

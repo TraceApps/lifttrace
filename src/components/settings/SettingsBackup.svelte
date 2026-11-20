@@ -6,7 +6,7 @@
     appearance, applyAppearance, accentColor, applyAccentColor,
     weightUnit, dateFormat, timeFormat, weeklyWorkoutGoal,
     navStyle, sidebarPersistent, disableAnimations, bannerStyle,
-    startPage, screenKeepAwake, goalCelebrations,
+    startPage, screenKeepAwake, goalCelebrations, regionalFallback,
   } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import Dialog from '../ui/Dialog.svelte';
@@ -285,8 +285,9 @@
     appearance.set('system');     applyAppearance('system');
     accentColor.set('orange');    applyAccentColor('orange');
     weightUnit.set('lbs');
-    dateFormat.set('US');
-    timeFormat.set('12h');
+    // Today's defaults (the server's, else this device's region), not US.
+    dateFormat.set(regionalFallback('dateFormat', 'US'));
+    timeFormat.set(regionalFallback('timeFormat', '12h'));
     weeklyWorkoutGoal.set(3);
     navStyle.set('bottom');
     sidebarPersistent.set(false);

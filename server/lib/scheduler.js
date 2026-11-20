@@ -1,5 +1,6 @@
 import db from '../db.js';
 import { linkBase } from './public-url.js';
+import { defaultFor } from './instance-defaults.js';
 import { logger } from '../logger.js';
 import { pushNotify } from './push-notify.js';
 import { sendWeeklySummary, isEmailConfigured } from '../email.js';
@@ -254,7 +255,7 @@ async function _processUser(userId) {
         excused: listExcusedDays(userId),
       });
       const unit = _getUserSetting(userId, 'weightUnit', 'lbs') === 'kg' ? 'kg' : 'lbs';
-      const locale = String(_getUserSetting(userId, 'language', 'en') || 'en');
+      const locale = String(_getUserSetting(userId, 'language', defaultFor('language', 'en')) || 'en');
 
       await pushNotify(userId, '📊 Weekly Summary', summaryLine(summary, { unit, locale }), 4);
 

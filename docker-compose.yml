@@ -34,6 +34,11 @@ services:
       # - BASE_URL=/lifttrace
       # Optional — log level: error | warn | info (default) | debug
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Optional: defaults for everyone who hasn't chosen their own (each
+      # one set here is locked in Settings > Users > Defaults for Everyone)
+      # - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-}       # en | es | it | ru | zh-Hans
+      # - DEFAULT_DATE_FORMAT=${DEFAULT_DATE_FORMAT:-} # US | EU | ISO
+      # - DEFAULT_TIME_FORMAT=${DEFAULT_TIME_FORMAT:-} # 12h | 24h
       # Optional — SMTP email (for password reset & invites). Can also be set in Settings UI.
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}

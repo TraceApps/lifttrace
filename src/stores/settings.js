@@ -1,6 +1,8 @@
 import { writable, get, derived } from 'svelte/store';
 import { DB } from '../lib/db.js';
 import { pickInitialLocale } from '../i18n/index.js';
+import { regionalDefault, rememberInstanceDefaults } from '../lib/regional-defaults.js';
+import { REGIONAL_OPTIONS } from '../../server/lib/regional-options.js';
 
 // Server-driven env-lock state. Populated from /api/app-config/env-locks
 // on app startup. Drives both the "Configured via environment variables"
@@ -113,6 +115,8 @@ export function bulkSet(settingsObj) {
 }
 
 export async function loadServerSettings() {
+  // Everyone's defaults too (from nutritrace#326): not awaited, nothing waits on them.
+  loadInstanceDefaults();
   if (!_isLoggedIn()) return;
   try {
     const res = await fetch('/api/settings', { credentials: 'include' });
@@ -164,17 +168,22 @@ export function reloadSettingStores({ force = false } = {}) {
   _storesUser = now;
   for (const k of Object.keys(_saveQueue)) { clearTimeout(_saveQueue[k]); delete _saveQueue[k]; }
   _recentlyChanged.clear();
-  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, defaultValue));
+  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, _resolve(defaultValue)));
   return true;
 }
 
+// A store's default may be a function, worked out each time it's needed:
+// the regional ones follow the server's defaults and this device's locale
+// (regionalStore, below).
+const _resolve = d => (typeof d === 'function' ? d() : d);
+
 function createSettingStore(key, defaultValue) {
-  const store = writable(DB.getSetting(key, defaultValue));
+  const store = writable(DB.getSetting(key, _resolve(defaultValue)));
   _settingStores.push({ key, defaultValue, store });
 
   window.addEventListener('wl:setting', (e) => {
     if (e.detail && e.detail.key === key) {
-      const next = DB.getSetting(key, defaultValue);
+      const next = DB.getSetting(key, _resolve(defaultValue));
       const prev = get(store);
       if (JSON.stringify(prev) !== JSON.stringify(next)) {
         store.set(next);
@@ -190,7 +199,7 @@ function createSettingStore(key, defaultValue) {
       scheduleSave(key, value);
     },
     update(fn) {
-      const current = DB.getSetting(key, defaultValue);
+      const current = DB.getSetting(key, _resolve(defaultValue));
       this.set(fn(current));
     },
     get() {
@@ -199,12 +208,63 @@ function createSettingStore(key, defaultValue) {
   };
 }
 
+// ── Regional defaults (from nutritrace#326) ──────────────────────────────
+// Language, date and time start, for someone who never chose, from the
+// server's defaults (Settings > Users), else this device's locale, else
+// `fallback`. Their own choice always wins, and the default is never saved
+// as theirs. (The weight unit isn't one: see server/lib/regional-options.js.)
+
+/** Whose defaults: the server's (the Android app can switch servers).
+ *  Read from storage, as lib/platform.js is loaded only when needed here. */
+export function instanceDefaultsScope() {
+  try {
+    const srv = String(localStorage.getItem('lt:serverUrl') || '').trim().replace(/\/+$/, '').toLowerCase();
+    return srv ? '@' + srv.replace(/^https?:\/\//, '') : '';
+  } catch { return ''; }
+}
+
+/** What a regional setting nobody chose shows. */
+export function regionalFallback(key, fallback) {
+  return regionalDefault(key, fallback, { scope: instanceDefaultsScope(), allowed: REGIONAL_OPTIONS[key]?.values || null });
+}
+
+function regionalStore(key, fallback) {
+  return createSettingStore(key, () => regionalFallback(key, fallback));
+}
+
+/**
+ * The server's defaults, kept for offline, and every store showing a
+ * default (nobody chose) moved to them at once. Nothing is written into
+ * the account or sent.
+ */
+export function applyInstanceDefaults(values) {
+  if (!rememberInstanceDefaults(values, instanceDefaultsScope())) return false;
+  for (const { key, defaultValue, store } of _settingStores) {
+    if (typeof defaultValue === 'function') store.set(DB.getSetting(key, defaultValue()));
+  }
+  return true;
+}
+
+/** Ask the server for its defaults (signed in or not). Offline, the last
+ *  ones stay. In the Android app's Local mode there's no server: the
+ *  phone's locale alone. */
+export async function loadInstanceDefaults() {
+  try {
+    const { isNative, getServerUrl, apiUrl } = await import('../lib/platform.js');
+    if (isNative && !getServerUrl()) return;
+    const res = await fetch(apiUrl('/api/app-config/defaults'), { credentials: 'include', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return;
+    const body = await res.json();
+    applyInstanceDefaults(body?.values || {});
+  } catch { /* offline: the last ones stay */ }
+}
+
 // Appearance
 export const appearance       = createSettingStore('appearance',       'system');
 // Defaults to the phone or browser's own language rather than English, so
 // the picker shows the language the app is actually running in. See
 // pickInitialLocale().
-export const language         = createSettingStore('language',          pickInitialLocale());
+export const language         = regionalStore('language',          pickInitialLocale);
 export const accentColor      = createSettingStore('accentColor',      'orange');
 export const navStyle         = createSettingStore('navStyle',         'both');
 export const sidebarPersistent = createSettingStore('sidebarPersistent', false);
@@ -364,8 +424,8 @@ export const radioOriginalFormat = createSettingStore('radioOriginalFormat', fal
 // Units
 export const weightUnit  = createSettingStore('weightUnit',  'lbs');
 export const heightUnit  = createSettingStore('heightUnit',  'ft');
-export const dateFormat  = createSettingStore('dateFormat',  'US');
-export const timeFormat  = createSettingStore('timeFormat',  '12h');
+export const dateFormat  = regionalStore('dateFormat',  'US');
+export const timeFormat  = regionalStore('timeFormat',  '12h');
 
 // Goals
 export const weeklyWorkoutGoal = createSettingStore('weeklyWorkoutGoal', 4);

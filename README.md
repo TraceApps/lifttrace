@@ -139,6 +139,7 @@ The essentials. Full reference in [DEPLOY.md](DEPLOY.md), [.env.example](.env.ex
 | `RECOVERY_TOKEN` | (none) | Passphrase for Locked Out? on the login page: reset two-step sign-in for one account (16 characters or more), or disable user management (lockout recovery). |
 | `TWO_STEP_KEY` | a generated `two-step.key` next to the database | Key that locks two-step sign-in secrets. Leave it unset unless you keep secrets outside the data folder. See [DEPLOY.md](DEPLOY.md#two-step-sign-in). |
 | `OIDC_APP_LINK_TOKEN` | on | `off` refuses single sign-on from older Android builds that take their sign-in in the deep link. On by default. See [DEPLOY.md](DEPLOY.md#sessions). |
+| `DEFAULT_LANGUAGE` / `DEFAULT_DATE_FORMAT` / `DEFAULT_TIME_FORMAT` | each device's language and region | What everyone who hasn't chosen their own starts with. Each one set locks it in Settings > Users > Defaults for Everyone. Values as `.env.example` lists them. |
 | `SMTP_*` | (none) | SMTP for password reset emails and user invites |
 | `AI_*` | (none) | Server-side AI proxy; `AI_PROVIDER` accepts `claude` \| `openai` \| `gemini` \| `oai-compat` |
 | `OIDC_*` / `OIDC_PROVIDER_N_*` | (none) | OIDC SSO declared in env instead of the UI |
