@@ -233,7 +233,7 @@
           {/if}
         </div>
       {:else}
-        {#if search.trim() && !filtered.some(ex => ex.name.toLowerCase() === search.trim().toLowerCase())}
+        {#if search.trim() && !filtered.some(ex => foldText(ex.name) === foldText(search).trim())}
           <button class="create-from-search" on:click={() => { creatorPrefill = search.trim(); creatorOpen = true; }}>
             <span class="material-symbols-rounded">add_circle</span>
             <div class="cfs-info">

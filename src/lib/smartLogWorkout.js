@@ -13,6 +13,7 @@ import { callAI, callAIProxy } from './aiChat.js';
 import { aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl } from '../stores/settings.js';
 import { AI_DEFAULT_MODELS } from './aiChat.js';
 import { get } from 'svelte/store';
+import { foldText } from './search-text.js';
 
 const PARSE_SYSTEM_PROMPT = `You parse weightlifting session descriptions into structured JSON.
 
@@ -97,8 +98,9 @@ async function _getLibrary() {
 // Simple fuzzy score: higher = better. Exact match wins; substring match beats
 // token-overlap. Capped so perfect-match ≈ 100.
 function _scoreMatch(query, libName) {
-  const q = query.toLowerCase().trim();
-  const n = libName.toLowerCase().trim();
+  // Accents folded too, so "press frances" finds "Press Francés".
+  const q = foldText(query).trim();
+  const n = foldText(libName).trim();
   if (!q || !n) return 0;
   if (q === n) return 100;
   if (n.startsWith(q)) return 85;

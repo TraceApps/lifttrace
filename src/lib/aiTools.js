@@ -1558,7 +1558,7 @@ async function _startWorkoutFromTemplate({ template_id, template_name, date }) {
     outer: for (const p of programs) {
       const full = await _get(`/api/programs/${p.id}`);
       for (const t of (full.templates || [])) {
-        if ((t.name || '').toLowerCase() === lower) { tpl = t; break outer; }
+        if (foldText(t.name) === lower) { tpl = t; break outer; }
       }
       for (const t of (full.templates || [])) {
         if (foldText(t.name).includes(lower)) { tpl = t; break outer; }
@@ -1615,7 +1615,7 @@ async function _setActiveProgram({ program_id, program_name }) {
     target = programs.find(p => p.id === Number(program_id)) || null;
   } else {
     const lower = foldText(program_name);
-    target = programs.find(p => (p.name || '').toLowerCase() === lower)
+    target = programs.find(p => foldText(p.name) === lower)
           || programs.find(p => foldText(p.name).includes(lower))
           || null;
   }

@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { LtApi } from '../../lib/api.js';
+  import { foldText } from '../../lib/search-text.js';
   import { weightUnit } from '../../stores/settings.js';
   import { isRepSet } from '../../lib/workout.js';
   import Sheet from '../ui/Sheet.svelte';
@@ -46,8 +47,8 @@
       loading = true;
       try {
         const results = await LtApi.getExercises({ search: exerciseName, limit: 20 });
-        const lc = exerciseName.toLowerCase().trim();
-        const exact = results.find(r => r.name?.toLowerCase().trim() === lc);
+        const lc = foldText(exerciseName).trim();
+        const exact = results.find(r => foldText(r.name).trim() === lc);
         loaded = exact || results[0] || null;
         if (loaded) {
           try { history = await LtApi.getWorkoutHistory(loaded.id); } catch { history = []; }
