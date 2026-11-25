@@ -1,1 +1,134 @@
-{}
+{
+  "trace_reply": {
+    "stopped_length": "Het antwoord is gestopt voordat deze compleet was, en is daarom niet gebruikt. Probeer het opnieuw, of vraag minder in een keer.",
+    "stopped_thinking": "Het model heeft een beredenering gegeven, maar geen antwoord. Probeer het opnieuw, of zet het beredeneren lager.",
+    "stopped_empty": "Het model heeft een leeg antwoord gegeven. Alles dat Trace al heeft gedaan deze ronde is behouden, dus controleer voordat je het opnieuw vraagt.",
+    "timed_out": "Trace heeft geen tijdig antwoord ontvangen. Probeer het opnieuw, of vraag minder tegelijkertijd.",
+    "out_of_rounds": "Dat nam meer stappen dan dat een antwoord toestaat, en er kwam niks terug. Vraag om minder tegelijkertijd, zoals een kortere periode of een specifieke oefening.",
+    "stuck_on_tool": "Trace bleef vragen om de zelfde informatie, en kreeg geen antwoord waardoor deze is gestopt. Probeer het op een andere manier te vragen."
+  },
+  "nav": {
+    "diary": "Agenda",
+    "exercises": "Oefeningen",
+    "programs": "Programma",
+    "statistics": "Statistieken",
+    "radio": "Radio",
+    "settings": "Instellingen"
+  },
+  "sync": {
+    "synced": "Gesynchroniseerd",
+    "syncing": "Synchroniseren…",
+    "refused": "Jouw server wilt {what} niet accepteren met als reden {reason}",
+    "sign_out_waiting_title": "Wijzigingen zijn nog aan het wachten",
+    "sign_out_anyway": "Toch afmelden",
+    "waiting_title": "Wijzigingen zijn nog niet toegezonden",
+    "disconnect_anyway": "Verbinding toch verbreken",
+    "download_anyway": "Toch downloaden",
+    "switch_account_waiting_title": "Wijzigingen van een ander account zijn aan het wachten",
+    "switch_account_anyway": "Toch aanmelden",
+    "account_check_failed": "Dit apparaat kon niet controleren van wie deze gegevens heeft staan, en heeft daarom nog niks laten zien. Probeer het opnieuw, of meld je af.",
+    "same_server_title": "Zelfde server als de vorige keer?",
+    "same_server": "Deze telefoon heeft gegevens van {before}, onder het zelfde account nummer als deze aanmelding. is {now} de zelfde server? Als dat zo is, blijven de gegevens, en synchroniseert deze met de server. Als dit niet zo is zullen de gegevens worden behandeld als die van een ander account: de gegevens van de telefoon worden eerst verwijderd, en je wordt daar voor gevraagd of alles wat je nog niet hebt verzonden wordt weggegooid.",
+    "same_server_yes": "Dezelfde server",
+    "same_server_no": "Andere server",
+    "disconnecting": "Verbinding verbreken…",
+    "count_cardio": "{count, plural, one {# cardio sessie} other {# cardio sessies}}",
+    "sync_offline": "Offline",
+    "sync_failing": "Kan geen verbinding maken met de server",
+    "not_synced": "Nog niet gesynchroniseerd",
+    "retry": "Opnieuw proberen",
+    "retrying": "Opnieuw proberen…",
+    "dismiss_message": "Sluit synchroniseer bericht",
+    "error_title": "Synchronisatie mislukt",
+    "connection": {
+      "server_fallback": "server",
+      "no_network_title": "Geen netwerk verbinding",
+      "cant_reach_title": "Kan {host} niet bereiken",
+      "reconnect": "Opnieuw verbinding maken met het internet.",
+      "server_error": "De server geeft de HTTP status : {status}. Probeer het zometeen opnieuw.",
+      "mobile_data": "Je bent verbonden via mobiele data. Deze server kan een verbinding met jouw thuis WiFi of VPN vereisen.",
+      "check_connection": "Controleer jouw WiFi, VPN of server.",
+      "saved_locally": "Jouw wijzigingen zijn lokaal opgeslagen en worden automatisch gesynchroniseerd."
+    }
+  },
+  "routes": {
+    "diary": {
+      "title": "Agenda"
+    },
+    "exercises": {
+      "title": "Oefeningen"
+    },
+    "exercise_detail": {
+      "title": "Oefening"
+    },
+    "programs": {
+      "title": "Programmas"
+    },
+    "program_detail": {
+      "title": "Programma"
+    },
+    "workout_editor": {
+      "title": "Trainingseditor"
+    },
+    "statistics": {
+      "title": "Statistieken"
+    },
+    "progress": {
+      "title": "Voortgang"
+    },
+    "radio": {
+      "title": "Radio"
+    },
+    "coaching": {
+      "title": "Begeleiding"
+    },
+    "settings": {
+      "title": "Instellingen"
+    },
+    "profile": {
+      "title": "Profiel"
+    }
+  },
+  "common": {
+    "save": "Opslaan",
+    "saving": "Opslaan…",
+    "cancel": "Annuleren",
+    "delete": "Verwijderen",
+    "back": "Terug",
+    "edit": "Aanpassen",
+    "done": "Klaar",
+    "close": "Sluiten",
+    "loading": "Laden…",
+    "sign_out": "Afmelden",
+    "log_out": "Afmelden",
+    "signing_out": "Afmelden…",
+    "admin": "admin",
+    "hide": "Verbergen",
+    "errors": {
+      "cant_reach_server": "Kan de server niet bereiken",
+      "failed": "Mislukt",
+      "save_failed": "Opslaan mislukt",
+      "delete_failed": "Verwijderen mislukt",
+      "name_required": "Naam is verplicht",
+      "network_error_upload": "Netwerk fout tijdens het uploaden",
+      "voice_unsupported": "Steminvoer wordt niet ondersteund in deze browser",
+      "cant_start_mic": "Kon de microfoon niet openen"
+    }
+  },
+  "attach_image": {
+    "button": "Foto toevoegen",
+    "camera": "Camera",
+    "gallery": "Gallerij"
+  },
+  "login": {
+    "subtitle": "Meld je aan bij jouw account",
+    "username": "Gebruikersnaam",
+    "username_placeholder": "Vul je gebruikersnaam in",
+    "password": "Wachtwoord",
+    "password_placeholder": "Vul je wachtwoord in",
+    "sign_in": "Aanmelden",
+    "signing_in": "Aanmelden…",
+    "forgot_password": "Wachtwoord vergeten?",
+    "locked_out": "Kan je niet meer aanmelden?"
+  }
+}
