@@ -17,6 +17,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Back leaves the Android app instead of walking through every tab** (from [cooktrace#99](https://github.com/TraceApps/cooktrace/issues/99), thanks @sreich). Each tab you opened was added to the back history, so back went through all of them, and then did nothing. Now back goes one step inside a tab, from any other tab to the Diary, and from the Diary the app goes to the background, as other Android apps do; a workout in progress is kept. Pages left open in a tab you switched away from no longer come back. The installed web app works the same way; a browser tab keeps the browser's usual history.
 - **The Android app's reminders follow your training.** Streak at Risk came every evening even after a missed day had ended the streak, the Workout Reminder came on days already trained, and Rest Day every morning. The phone now sets each one only on the days it applies to, as your server does: Streak at Risk when yesterday was trained and today isn't yet (and isn't excused), the Workout Reminder on days not trained or excused, and Rest Day the day after a training day. Connected to a server, it asks the server, so training on the web or the watch counts. A reminder already in the notification shade stays there when the app reschedules. Open the app at least once every 60 days to keep the Workout Reminder coming.
 
+### Security
+
+- **Another member's private exercise can't be opened by its number** (an access audit after [cooktrace#110](https://github.com/TraceApps/cooktrace/issues/110)). It now follows the same rule as logging a set: the library, your own, one from your coach or your own history, and, for a coach, ones their clients made or logged. The list of pictures and videos kept for offline use leaves other members' exercises out too.
+
 ---
 
 ## [1.5.0-dev02] - 2026-11-14 (pre-release)

@@ -160,7 +160,7 @@ export function workoutProgramVisible(userId, programId, templateId) {
  * reference (history keeps its id); a number the server never handed out
  * is not.
  */
-function exerciseUsable(id, userId) {
+export function exerciseUsable(id, userId) {
   const row = db.prepare('SELECT is_global, created_by FROM exercises WHERE id = ?').get(id);
   if (!row) {
     const seq = db.prepare(`SELECT seq FROM sqlite_sequence WHERE name = 'exercises'`).get()?.seq ?? 0;

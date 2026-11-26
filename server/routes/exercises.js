@@ -5,6 +5,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, uid, userMgmtActive } from '../middleware/auth.js';
 import { SOURCES } from '../exercise-sources/index.js';
 import { canChangeExercise } from '../lib/exercise-owner.js';
+import { exerciseUsable } from '../lib/program-access.js';
 import { foldText } from '../lib/search-text.js';
 import { answerGone, createdBefore, rememberCreated, rowForKey } from '../lib/create-keys.js';
 import { applyToBody, deleteLoses, refuseDelete, createdTimes } from '../lib/newer-wins.js';
@@ -117,13 +118,20 @@ router.get('/usage', wrap((req, res) => {
 // /:id: Express matches in registration order, so from below it this path is
 // read as an exercise id and answered with a 404.
 router.get('/media-urls', wrap((req, res) => {
+  // The library and your own, as the exercise list: another member's
+  // private exercises aren't yours to see (an access audit, after
+  // cooktrace#110).
+  const u = userMgmtActive() ? uid(req) : null;
+  const mine = u == null ? '' : 'AND (is_global = 1 OR created_by = ?)';
+  const mineArgs = u == null ? [] : [u];
   const rows = db.prepare(
     // Live rows only — no point pre-caching media for exercises the user
     // has cleared from their library (#49).
     `SELECT gif_url, img_url, video_url FROM exercises
      WHERE deleted_at IS NULL
-       AND (gif_url IS NOT NULL OR img_url IS NOT NULL OR video_url IS NOT NULL)`
-  ).all();
+       AND (gif_url IS NOT NULL OR img_url IS NOT NULL OR video_url IS NOT NULL)
+       ${mine}`
+  ).all(...mineArgs);
   const set = new Set();
   for (const r of rows) {
     if (r.gif_url)   set.add(r.gif_url);
@@ -138,9 +146,33 @@ router.get('/media-urls', wrap((req, res) => {
 // exercise the user has cleared from their library should still resolve to
 // that exercise's detail page rather than a bare 404 (#49). Callers that
 // want to hide soft-deleted rows filter at their own layer.
+//
+// Only one this account may see: the shared library, its own, one that
+// reached it through a coach or its own history (exerciseUsable, the rule
+// logging a set uses), or, for a coach, one an active client made or
+// logged. Another member's private exercise answers 404, as if it didn't
+// exist (an access audit, after cooktrace#110).
+function _clientsExercise(id, coachId) {
+  return !!db.prepare(
+    `SELECT 1 FROM coach_clients cc
+       JOIN users c ON c.id = cc.coach_id AND c.role IN ('trainer', 'admin')
+       JOIN users k ON k.id = cc.client_id AND k.role = 'member'
+      WHERE cc.coach_id = ? AND cc.status = 'active'
+        AND (EXISTS (SELECT 1 FROM exercises e WHERE e.id = ? AND e.created_by = cc.client_id)
+             OR EXISTS (SELECT 1 FROM workout_log w, json_each(CASE WHEN json_valid(w.exercises) AND json_type(w.exercises) = 'array' THEN w.exercises ELSE '[]' END) je
+                         WHERE w.user_id = cc.client_id AND CAST(json_extract(je.value, '$.exercise_id') AS INTEGER) = ?))
+      LIMIT 1`
+  ).get(coachId, id, id);
+}
+
 router.get('/:id', wrap((req, res) => {
-  const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(parseInt(req.params.id));
+  const id = parseInt(req.params.id);
+  const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
   if (!row) return res.status(404).json({ error: 'Exercise not found' });
+  const u = userMgmtActive() ? uid(req) : null;
+  if (u != null && !exerciseUsable(id, u) && !_clientsExercise(id, u)) {
+    return res.status(404).json({ error: 'Exercise not found' });
+  }
   row.primary_muscles   = JSON.parse(row.primary_muscles || '[]');
   row.secondary_muscles = JSON.parse(row.secondary_muscles || '[]');
   row.equipment         = JSON.parse(row.equipment || '[]');
