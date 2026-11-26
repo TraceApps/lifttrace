@@ -210,3 +210,8 @@ test('the records tool warns that a ranged best is not an all-time PR', () => {
   const description = server.tools.get('get_records').definition.description;
   assert.match(description, /not the user's all-time personal records/i);
 });
+
+test('get_records finds an exercise by name, accents and case aside (from cooktrace#109)', async () => {
+  const records = json(await server.call('get_records', { exercise_name: 'RÁNGE préss', start: '2020-01-01', end: '2020-01-31' }));
+  assert.deepEqual(records.records.map(r => r.name), ['Range Press']);
+});

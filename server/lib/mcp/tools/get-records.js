@@ -11,6 +11,7 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, toolError, toolResult, validateDateRange } from '../_util.js';
 import { isRepSet, setKind, newRecord, accumulateRecord } from '../../volume.js';
+import { includesFolded } from '../../search-text.js';
 
 const AMOUNT_FIELD = { time: 'duration_sec', distance: 'distance_m', calories: 'calories' };
 
@@ -73,8 +74,8 @@ export function getRecordsCore(userId, { exercise_name, start, end } = {}) {
 
   let list = Object.entries(records).map(([id, r]) => ({ exercise_id: id, ...r }));
   if (exercise_name) {
-    const needle = exercise_name.toLowerCase();
-    list = list.filter(r => (r.name || '').toLowerCase().includes(needle));
+    // Accents and case ignored, as every other search (from cooktrace#109).
+    list = list.filter(r => includesFolded(r.name || '', exercise_name));
   }
   return { records: list, count: list.length };
 }
